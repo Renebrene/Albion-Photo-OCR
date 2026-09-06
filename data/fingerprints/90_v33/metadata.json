@@ -1,0 +1,43 @@
+{
+  "id": "90_v33",
+  "version": "3.3",
+  "model": "dinov2_vitb14",
+  "images": 19,
+  "dimension": 768,
+  "representatives": 16,
+  "patch_tokens": 0,
+  "patch_storage": false,
+  "environment_descriptor": "compact_v1",
+  "environment_dimension": 640,
+  "color_descriptor": "hsv_histogram_v1",
+  "color_dimension": 48,
+  "spatial_descriptor": "gray_grid_v1",
+  "spatial_dimension": 32,
+  "weights": {
+    "global": 0.7,
+    "environment": 0.2,
+    "color": 0.07,
+    "spatial": 0.03
+  },
+  "image_names": [
+    "90_001.jpg",
+    "90_002.jpg",
+    "90_003.jpg",
+    "90_004.JPG",
+    "90_005.JPG",
+    "90_006.JPG",
+    "90_007.JPG",
+    "90_008.JPG",
+    "90_009.JPG",
+    "90_010.JPG",
+    "90_011.JPG",
+    "90_012.JPG",
+    "90_013.JPG",
+    "90_014.JPG",
+    "90_015.JPG",
+    "90_016.JPG",
+    "90_017.JPG",
+    "90_018.JPG",
+    "90_019.JPG"
+  ]
+}

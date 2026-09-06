@@ -1,0 +1,303 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+
+
+class SceneRecognizer:
+
+    def __init__(self, settings, embedder, manager):
+        self.settings = settings
+        self.embedder = embedder
+        self.manager = manager
+
+    @staticmethod
+    def _normalize(v, axis=-1):
+        n = np.linalg.norm(v, axis=axis, keepdims=True)
+        return v / np.maximum(n, 1e-12)
+
+    def _global_score(self, query, reference):
+        query = self._normalize(
+            query.reshape(1, -1)
+        )[0]
+
+        reps = self._normalize(
+            reference["representatives"],
+            axis=1,
+        )
+
+        return float(
+            np.max(reps @ query)
+        )
+
+    def _patch_score(self, query_patches, reference):
+        q = self._normalize(
+            query_patches,
+            axis=1,
+        )
+
+        reps = self._normalize(
+            reference["patch_representatives"],
+            axis=2,
+        )
+
+        # reps:
+        # [R,256,768]
+        #
+        # q:
+        # [256,768]
+        #
+        # Compare each query patch with corresponding
+        # spatial patch positions in every representative.
+
+        scores = np.sum(
+            reps * q[None, :, :],
+            axis=2,
+        )
+
+        per_rep = scores.mean(axis=1)
+
+        return float(
+            np.max(per_rep)
+        )
+
+    def _environment_score(
+        self,
+        query_patches,
+        reference,
+    ):
+        q = self._normalize(
+            query_patches,
+            axis=1,
+        )
+
+        centroid = self._normalize(
+            reference["patch_centroid"],
+            axis=1,
+        )
+
+        score = np.mean(
+            np.sum(
+                q * centroid,
+                axis=1,
+            )
+        )
+
+        return float(
+            np.clip(
+                score,
+                -1.0,
+                1.0,
+            )
+        )
+
+    def _score(
+        self,
+        query_global,
+        query_patches,
+        reference,
+    ):
+        global_score = self._global_score(
+            query_global,
+            reference,
+        )
+
+        patch_score = self._patch_score(
+            query_patches,
+            reference,
+        )
+
+        environment_score = self._environment_score(
+            query_patches,
+            reference,
+        )
+
+        # v3.1:
+        #
+        # Global DINO similarity:
+        #     55%
+        #
+        # Local patch similarity:
+        #     30%
+        #
+        # Environment / scene consistency:
+        #     15%
+
+        final = (
+            0.55 * global_score
+            + 0.30 * patch_score
+            + 0.15 * environment_score
+        )
+
+        return {
+            "score": float(final),
+            "global": float(global_score),
+            "patch": float(patch_score),
+            "environment": float(environment_score),
+        }
+
+    def recognize_folder(
+        self,
+        folder,
+        top_k=5,
+        threshold=0.65,
+    ):
+        folder = Path(folder)
+
+        if not folder.exists():
+            raise FileNotFoundError(
+                f"Folder not found: {folder}"
+            )
+
+        paths = sorted([
+            p for p in folder.iterdir()
+            if p.is_file()
+            and p.suffix.lower() in {
+                ".jpg",
+                ".jpeg",
+                ".png",
+                ".webp",
+                ".bmp",
+            }
+        ])
+
+        if not paths:
+            return
+
+        query = self.embedder.embed_paths(
+            paths,
+            return_patches=True,
+        )
+
+        q_global = query["embeddings"]
+        q_patches = query["patches"]
+
+        fingerprints = self.manager.list_fingerprints()
+
+        references = []
+
+        for fp in fingerprints:
+            try:
+                references.append(
+                    self.manager.load(fp["id"])
+                )
+            except FileNotFoundError:
+                continue
+
+        for i, path in enumerate(paths):
+            candidates = []
+
+            for ref in references:
+                scores = self._score(
+                    q_global[i],
+                    q_patches[i],
+                    ref,
+                )
+
+                if scores["score"] >= threshold:
+                    candidates.append({
+                        "id": ref["id"],
+                        **scores,
+                    })
+
+            candidates.sort(
+                key=lambda x: x["score"],
+                reverse=True,
+            )
+
+            candidates = candidates[:top_k]
+
+            if candidates:
+                best = candidates[0]
+                best_id = best["id"]
+                best_score = best["score"]
+            else:
+                best_id = None
+                best_score = 0.0
+
+            yield {
+                "file": str(path),
+                "best_id": best_id,
+                "score": float(best_score),
+                "candidates": candidates,
+            }
+
+    def analyze(
+        self,
+        folder,
+        fingerprint_id,
+    ):
+        folder = Path(folder)
+
+        if not folder.exists():
+            raise FileNotFoundError(
+                f"Folder not found: {folder}"
+            )
+
+        reference = self.manager.load(
+            fingerprint_id
+        )
+
+        paths = sorted([
+            p for p in folder.iterdir()
+            if p.is_file()
+            and p.suffix.lower() in {
+                ".jpg",
+                ".jpeg",
+                ".png",
+                ".webp",
+                ".bmp",
+            }
+        ])
+
+        query = self.embedder.embed_paths(
+            paths,
+            return_patches=True,
+        )
+
+        for i, path in enumerate(paths):
+            scores = self._score(
+                query["embeddings"][i],
+                query["patches"][i],
+                reference,
+            )
+
+            # Find best reference image using global embeddings.
+            ref_embeddings = self._normalize(
+                reference["embeddings"],
+                axis=1,
+            )
+
+            q = self._normalize(
+                query["embeddings"][i].reshape(1, -1)
+            )[0]
+
+            image_scores = ref_embeddings @ q
+            best_idx = int(
+                np.argmax(image_scores)
+            )
+
+            image_names = reference[
+                "metadata"
+            ].get(
+                "image_names",
+                [],
+            )
+
+            if best_idx < len(image_names):
+                best_image = image_names[best_idx]
+            else:
+                best_image = str(best_idx)
+
+            yield {
+                "file": str(path),
+                "global_score": scores["global"],
+                "best_image_score": float(
+                    image_scores[best_idx]
+                ),
+                "patch_score": scores["patch"],
+                "environment_score": scores["environment"],
+                "final_score": scores["score"],
+                "best_match": best_image,
+            }

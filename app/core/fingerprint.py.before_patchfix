@@ -1,0 +1,328 @@
+from __future__ import annotations
+
+import json
+import shutil
+from pathlib import Path
+
+import faiss
+import numpy as np
+
+
+class FingerprintManager:
+
+    def __init__(self, settings, embedder):
+        self.settings = settings
+        self.embedder = embedder
+
+        self.root = Path(settings.fingerprints_dir)
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def _dir(self, fingerprint_id: str) -> Path:
+        return self.root / fingerprint_id
+
+    def list_fingerprints(self):
+        result = []
+
+        if not self.root.exists():
+            return result
+
+        for d in sorted(self.root.iterdir()):
+            if not d.is_dir():
+                continue
+
+            metadata = d / "metadata.json"
+
+            if not metadata.exists():
+                continue
+
+            try:
+                data = json.loads(
+                    metadata.read_text(encoding="utf-8")
+                )
+            except Exception:
+                continue
+
+            data.setdefault("id", d.name)
+            result.append(data)
+
+        return result
+
+    def create(self, fingerprint_id: str, folder: str | Path):
+        folder = Path(folder)
+
+        if not folder.exists():
+            raise FileNotFoundError(
+                f"Folder not found: {folder}"
+            )
+
+        paths = sorted([
+            p for p in folder.iterdir()
+            if p.is_file()
+            and p.suffix.lower() in {
+                ".jpg",
+                ".jpeg",
+                ".png",
+                ".webp",
+                ".bmp",
+            }
+        ])
+
+        if not paths:
+            raise ValueError(
+                f"No images found in {folder}"
+            )
+
+        print(
+            f"[Fingerprint] Creating '{fingerprint_id}' "
+            f"from {len(paths)} images"
+        )
+
+        result = self.embedder.embed_paths(
+            paths,
+            return_patches=True,
+        )
+
+        embeddings = np.asarray(
+            result["embeddings"],
+            dtype=np.float32,
+        )
+
+        patch_embeddings = np.asarray(
+            result["patches"],
+            dtype=np.float32,
+        )
+
+        if embeddings.ndim != 2:
+            raise ValueError(
+                f"Invalid global embeddings shape: "
+                f"{embeddings.shape}"
+            )
+
+        if embeddings.shape[1] != 768:
+            raise ValueError(
+                f"Expected global dimension 768, "
+                f"got {embeddings.shape}"
+            )
+
+        if patch_embeddings.ndim != 3:
+            raise ValueError(
+                f"Invalid patch embeddings shape: "
+                f"{patch_embeddings.shape}"
+            )
+
+        if patch_embeddings.shape[1:] != (256, 768):
+            raise ValueError(
+                f"Expected patches [N,256,768], "
+                f"got {patch_embeddings.shape}"
+            )
+
+        out = self._dir(fingerprint_id)
+
+        if out.exists():
+            raise FileExistsError(
+                f"Fingerprint already exists: {fingerprint_id}"
+            )
+
+        out.mkdir(parents=True)
+
+        # Normalize global embeddings.
+        embeddings = embeddings / np.maximum(
+            np.linalg.norm(
+                embeddings,
+                axis=1,
+                keepdims=True,
+            ),
+            1e-12,
+        )
+
+        centroid = embeddings.mean(axis=0, keepdims=True)
+
+        centroid = centroid / np.maximum(
+            np.linalg.norm(
+                centroid,
+                axis=1,
+                keepdims=True,
+            ),
+            1e-12,
+        )
+
+        # Select up to 16 representative global images.
+        count = min(16, len(embeddings))
+
+        if count == len(embeddings):
+            indices = np.arange(len(embeddings))
+        else:
+            scores = embeddings @ centroid[0]
+            indices = np.argsort(scores)[-count:]
+            indices = np.sort(indices)
+
+        representatives = embeddings[indices]
+
+        # Normalize patches individually.
+        patch_embeddings = patch_embeddings / np.maximum(
+            np.linalg.norm(
+                patch_embeddings,
+                axis=2,
+                keepdims=True,
+            ),
+            1e-12,
+        )
+
+        patch_centroid = patch_embeddings.mean(axis=0)
+
+        patch_centroid = patch_centroid / np.maximum(
+            np.linalg.norm(
+                patch_centroid,
+                axis=1,
+                keepdims=True,
+            ),
+            1e-12,
+        )
+
+        patch_representatives = patch_embeddings[indices]
+
+        # FAISS global index.
+        index = faiss.IndexFlatIP(768)
+        index.add(embeddings.astype(np.float32))
+
+        np.save(
+            out / "embeddings.npy",
+            embeddings,
+        )
+
+        np.save(
+            out / "centroid.npy",
+            centroid.astype(np.float32),
+        )
+
+        np.save(
+            out / "representatives.npy",
+            representatives.astype(np.float32),
+        )
+
+        np.save(
+            out / "patch_embeddings.npy",
+            patch_embeddings.astype(np.float32),
+        )
+
+        np.save(
+            out / "patch_centroid.npy",
+            patch_centroid.astype(np.float32),
+        )
+
+        np.save(
+            out / "patch_representatives.npy",
+            patch_representatives.astype(np.float32),
+        )
+
+        faiss.write_index(
+            index,
+            str(out / "faiss.index"),
+        )
+
+        metadata = {
+            "id": fingerprint_id,
+            "version": "3.1",
+            "model": "dinov2_vitb14",
+            "images": len(paths),
+            "dimension": 768,
+            "patch_grid": [16, 16],
+            "patch_tokens": 256,
+            "representatives": len(indices),
+            "image_names": [
+                p.name for p in paths
+            ],
+        }
+
+        (out / "metadata.json").write_text(
+            json.dumps(
+                metadata,
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        print(
+            f"[Fingerprint] Saved: {out}"
+        )
+
+        print(
+            f"[Fingerprint] global={embeddings.shape}"
+        )
+
+        print(
+            f"[Fingerprint] patches={patch_embeddings.shape}"
+        )
+
+        return metadata
+
+    def load(self, fingerprint_id: str):
+        out = self._dir(fingerprint_id)
+
+        if not out.exists():
+            raise FileNotFoundError(
+                f"Fingerprint '{fingerprint_id}' not found"
+            )
+
+        required = [
+            "embeddings.npy",
+            "centroid.npy",
+            "representatives.npy",
+            "patch_embeddings.npy",
+            "patch_centroid.npy",
+            "patch_representatives.npy",
+            "faiss.index",
+            "metadata.json",
+        ]
+
+        missing = [
+            name for name in required
+            if not (out / name).exists()
+        ]
+
+        if missing:
+            raise FileNotFoundError(
+                f"Fingerprint '{fingerprint_id}' is incomplete. "
+                f"Missing: {', '.join(missing)}"
+            )
+
+        metadata = json.loads(
+            (out / "metadata.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        return {
+            "id": fingerprint_id,
+            "embeddings": np.load(
+                out / "embeddings.npy"
+            ),
+            "centroid": np.load(
+                out / "centroid.npy"
+            ),
+            "representatives": np.load(
+                out / "representatives.npy"
+            ),
+            "patch_embeddings": np.load(
+                out / "patch_embeddings.npy"
+            ),
+            "patch_centroid": np.load(
+                out / "patch_centroid.npy"
+            ),
+            "patch_representatives": np.load(
+                out / "patch_representatives.npy"
+            ),
+            "index": faiss.read_index(
+                str(out / "faiss.index")
+            ),
+            "metadata": metadata,
+        }
+
+    def delete(self, fingerprint_id: str):
+        out = self._dir(fingerprint_id)
+
+        if out.exists():
+            shutil.rmtree(out)
+
+        return True

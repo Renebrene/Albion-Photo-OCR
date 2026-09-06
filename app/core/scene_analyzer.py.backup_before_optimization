@@ -1,0 +1,488 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+
+class CompactDescriptor:
+    """
+    Scene Fingerprint v3.3 compact descriptors.
+
+    No DINOv2 patch tokens.
+
+    environment:
+        8x8 grid x 10 values = 640 floats
+
+    color:
+        HSV histograms = 48 floats
+
+    spatial:
+        4x4 grid x 2 values = 32 floats
+    """
+
+    GRID = 8
+    IMAGE_SIZE = 128
+
+    @staticmethod
+    def _load(path: Path):
+        image = cv2.imread(
+            str(path),
+            cv2.IMREAD_COLOR,
+        )
+
+        if image is None:
+            raise ValueError(
+                f"Cannot read image: {path}"
+            )
+
+        return cv2.resize(
+            image,
+            (
+                CompactDescriptor.IMAGE_SIZE,
+                CompactDescriptor.IMAGE_SIZE,
+            ),
+            interpolation=cv2.INTER_AREA,
+        )
+
+    @staticmethod
+    def _normalize(vector):
+        vector = np.asarray(
+            vector,
+            dtype=np.float32,
+        )
+
+        norm = np.linalg.norm(vector)
+
+        if norm > 0.0:
+            vector = vector / norm
+
+        return vector.astype(np.float32)
+
+    @classmethod
+    def environment(cls, path: Path):
+        image = cls._load(path)
+
+        hsv = cv2.cvtColor(
+            image,
+            cv2.COLOR_BGR2HSV,
+        ).astype(np.float32)
+
+        gray = cv2.cvtColor(
+            image,
+            cv2.COLOR_BGR2GRAY,
+        ).astype(np.float32) / 255.0
+
+        gx = cv2.Sobel(
+            gray,
+            cv2.CV_32F,
+            1,
+            0,
+            ksize=3,
+        )
+
+        gy = cv2.Sobel(
+            gray,
+            cv2.CV_32F,
+            0,
+            1,
+            ksize=3,
+        )
+
+        edge = np.clip(
+            cv2.magnitude(gx, gy),
+            0.0,
+            1.0,
+        )
+
+        features = []
+        size = cls.IMAGE_SIZE
+
+        for gy_idx in range(cls.GRID):
+            for gx_idx in range(cls.GRID):
+
+                y1 = gy_idx * size // cls.GRID
+                y2 = (gy_idx + 1) * size // cls.GRID
+
+                x1 = gx_idx * size // cls.GRID
+                x2 = (gx_idx + 1) * size // cls.GRID
+
+                h = hsv[y1:y2, x1:x2]
+                g = gray[y1:y2, x1:x2]
+                e = edge[y1:y2, x1:x2]
+
+                features.extend(
+                    [
+                        float(h[:, :, 0].mean()) / 179.0,
+                        float(h[:, :, 1].mean()) / 255.0,
+                        float(h[:, :, 2].mean()) / 255.0,
+
+                        float(h[:, :, 0].std()) / 179.0,
+                        float(h[:, :, 1].std()) / 255.0,
+                        float(h[:, :, 2].std()) / 255.0,
+
+                        float(g.mean()),
+                        float(g.std()),
+
+                        float(e.mean()),
+                        float(e.std()),
+                    ]
+                )
+
+        return cls._normalize(
+            np.asarray(
+                features,
+                dtype=np.float32,
+            )
+        )
+
+    @classmethod
+    def color(cls, path: Path):
+        image = cls._load(path)
+
+        hsv = cv2.cvtColor(
+            image,
+            cv2.COLOR_BGR2HSV,
+        )
+
+        hist_h = cv2.calcHist(
+            [hsv],
+            [0],
+            None,
+            [16],
+            [0, 180],
+        )
+
+        hist_s = cv2.calcHist(
+            [hsv],
+            [1],
+            None,
+            [16],
+            [0, 256],
+        )
+
+        hist_v = cv2.calcHist(
+            [hsv],
+            [2],
+            None,
+            [16],
+            [0, 256],
+        )
+
+        descriptor = np.concatenate(
+            [
+                hist_h.flatten(),
+                hist_s.flatten(),
+                hist_v.flatten(),
+            ]
+        ).astype(np.float32)
+
+        return cls._normalize(descriptor)
+
+    @classmethod
+    def spatial(cls, path: Path):
+        image = cls._load(path)
+
+        gray = cv2.cvtColor(
+            image,
+            cv2.COLOR_BGR2GRAY,
+        ).astype(np.float32) / 255.0
+
+        descriptor = []
+
+        h, w = gray.shape
+
+        for gy_idx in range(4):
+            for gx_idx in range(4):
+
+                y1 = gy_idx * h // 4
+                y2 = (gy_idx + 1) * h // 4
+
+                x1 = gx_idx * w // 4
+                x2 = (gx_idx + 1) * w // 4
+
+                cell = gray[y1:y2, x1:x2]
+
+                descriptor.extend(
+                    [
+                        float(cell.mean()),
+                        float(cell.std()),
+                    ]
+                )
+
+        return cls._normalize(
+            np.asarray(
+                descriptor,
+                dtype=np.float32,
+            )
+        )
+
+
+class SceneAnalyzer:
+    """
+    v3.3 compact scene comparison.
+
+    Weights:
+        global       0.70
+        environment 0.20
+        color       0.07
+        spatial     0.03
+
+    Patch storage is disabled.
+    """
+
+    GLOBAL_WEIGHT = 0.70
+    ENVIRONMENT_WEIGHT = 0.20
+    COLOR_WEIGHT = 0.07
+    SPATIAL_WEIGHT = 0.03
+
+    def __init__(
+        self,
+        embedder,
+        manager,
+    ):
+        self.embedder = embedder
+        self.manager = manager
+
+    @staticmethod
+    def cosine(a, b):
+        a = np.asarray(
+            a,
+            dtype=np.float32,
+        ).reshape(-1)
+
+        b = np.asarray(
+            b,
+            dtype=np.float32,
+        ).reshape(-1)
+
+        na = np.linalg.norm(a)
+        nb = np.linalg.norm(b)
+
+        if na == 0.0 or nb == 0.0:
+            return 0.0
+
+        return float(
+            np.dot(a, b)
+            / (na * nb)
+        )
+
+    @staticmethod
+    def descriptor_similarity(
+        query,
+        references,
+    ):
+        q = np.asarray(
+            query,
+            dtype=np.float32,
+        ).reshape(-1)
+
+        refs = np.asarray(
+            references,
+            dtype=np.float32,
+        )
+
+        if refs.ndim == 1:
+            refs = refs.reshape(1, -1)
+
+        if len(refs) == 0:
+            return 0.0
+
+        q_norm = np.linalg.norm(q)
+
+        if q_norm == 0.0:
+            return 0.0
+
+        q = q / q_norm
+
+        ref_norms = np.linalg.norm(
+            refs,
+            axis=1,
+            keepdims=True,
+        )
+
+        ref_norms[
+            ref_norms == 0.0
+        ] = 1.0
+
+        refs = refs / ref_norms
+
+        scores = refs @ q
+
+        # Strongest 10%, but at least 3 images.
+        k = max(
+            3,
+            int(len(scores) * 0.10),
+        )
+
+        k = min(
+            k,
+            len(scores),
+        )
+
+        return float(
+            np.mean(
+                np.sort(scores)[-k:]
+            )
+        )
+
+    def compare(
+        self,
+        image_path: Path,
+        fingerprint_id: str,
+    ):
+        data = self.manager.load(
+            fingerprint_id
+        )
+
+        query_global = (
+            self.embedder.embed_paths(
+                [Path(image_path)]
+            )[0]
+        )
+
+        query_global = np.asarray(
+            query_global,
+            dtype=np.float32,
+        )
+
+        global_score = self.cosine(
+            query_global,
+            data["centroid"],
+        )
+
+        image_scores = (
+            data["embeddings"]
+            @ query_global
+        )
+
+        best_index = int(
+            np.argmax(image_scores)
+        )
+
+        best_image_score = float(
+            image_scores[best_index]
+        )
+
+        image_names = (
+            data["metadata"]
+            .get(
+                "image_names",
+                [],
+            )
+        )
+
+        if best_index < len(image_names):
+            best_image = image_names[
+                best_index
+            ]
+        else:
+            best_image = str(
+                best_index
+            )
+
+        query_environment = (
+            CompactDescriptor.environment(
+                Path(image_path)
+            )
+        )
+
+        environment_score = (
+            self.descriptor_similarity(
+                query_environment,
+                data[
+                    "environment_embeddings"
+                ],
+            )
+        )
+
+        query_color = (
+            CompactDescriptor.color(
+                Path(image_path)
+            )
+        )
+
+        color_score = (
+            self.descriptor_similarity(
+                query_color,
+                data[
+                    "color_embeddings"
+                ],
+            )
+        )
+
+        query_spatial = (
+            CompactDescriptor.spatial(
+                Path(image_path)
+            )
+        )
+
+        spatial_score = (
+            self.descriptor_similarity(
+                query_spatial,
+                data[
+                    "spatial_embeddings"
+                ],
+            )
+        )
+
+        final_score = (
+            self.GLOBAL_WEIGHT
+            * global_score
+            + self.ENVIRONMENT_WEIGHT
+            * environment_score
+            + self.COLOR_WEIGHT
+            * color_score
+            + self.SPATIAL_WEIGHT
+            * spatial_score
+        )
+
+        return {
+            "global_score": float(
+                global_score
+            ),
+            "best_image_score": float(
+                best_image_score
+            ),
+            "patch_score": 0.0,
+            "color_score": float(
+                color_score
+            ),
+            "spatial_score": float(
+                spatial_score
+            ),
+            "environment_score": float(
+                environment_score
+            ),
+            "final_score": float(
+                final_score
+            ),
+            "best_image": best_image,
+            "fingerprint_version": (
+                data["metadata"]
+                .get(
+                    "version",
+                    "3.3",
+                )
+            ),
+        }
+
+    def analyze(
+        self,
+        folder,
+        fingerprint_id,
+    ):
+        from .image import image_files
+
+        paths = image_files(folder)
+
+        for path in paths:
+            result = self.compare(
+                Path(path),
+                fingerprint_id,
+            )
+
+            result["file"] = str(path)
+
+            yield result

@@ -1,0 +1,37 @@
+[project]
+name = "scene-fingerprint"
+version = "0.2.0"
+description = "Scene-based visual fingerprinting and recognition MVP"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "nicegui>=2.24,<3",
+    "torch>=2.13,<2.14",
+    "torchvision>=0.28,<0.29",
+    "pillow>=12",
+    "numpy>=2.5,<3",
+    "faiss-cpu>=1.15,<2",
+    "opencv-python-headless>=5,<6",
+    "tqdm>=4.70,<5",
+    "transformers>=5.14,<6",
+    "paddleocr>=2.10.0",
+    "opencv-python>=5.0.0.93",
+    "paddlepaddle>=3.3.1",
+    "psutil>=7.2.2",
+    "scikit-learn>=1.9.0",
+    "imagehash>=4.3.2",
+    "psycopg[binary]>=3.3.5",
+]
+
+[tool.uv]
+package = true
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = [
+    "data*",
+    "app_backup*",
+    "backup_*",
+]
+
+[project.scripts]
+scene-fingerprint = "app.cli:main"
