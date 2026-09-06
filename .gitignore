@@ -40,3 +40,6 @@ data/input/
 Thumbs.db
 .vscode/
 .idea/
+
+# Runtime previews
+data/preview/

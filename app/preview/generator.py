@@ -1,0 +1,258 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from PIL import Image
+
+from app.ingest.register import PhotoRecord
+from app.preview.result import PreviewFileResult, PreviewResult
+from app.preview.validator import validate_preview
+
+
+@dataclass(frozen=True)
+class PreviewPaths:
+    """
+    Filesystem paths of previews belonging to one photo_id.
+    """
+
+    small: Path
+    middle: Path
+
+
+def build_preview_paths(
+    *,
+    preview_root: str | Path,
+    photo_id: str,
+) -> PreviewPaths:
+    """
+    Build deterministic filesystem paths for one photo_id.
+    """
+
+    if not photo_id:
+        raise ValueError("photo_id is required")
+
+    root = Path(preview_root)
+
+    return PreviewPaths(
+        small=root / "small" / f"{photo_id}.jpg",
+        middle=root / "middle" / f"{photo_id}.jpg",
+    )
+
+
+def _resize_preserving_aspect(
+    image: Image.Image,
+    *,
+    max_size: int,
+) -> Image.Image:
+    """
+    Resize an image so its longest side is max_size.
+
+    Images are never enlarged.
+    """
+
+    if max_size < 1:
+        raise ValueError("max_size must be >= 1")
+
+    width, height = image.size
+
+    if width < 1 or height < 1:
+        raise ValueError("Invalid source image dimensions")
+
+    longest_side = max(width, height)
+
+    if longest_side <= max_size:
+        return image.copy()
+
+    scale = max_size / longest_side
+
+    new_width = max(1, round(width * scale))
+    new_height = max(1, round(height * scale))
+
+    return image.resize(
+        (new_width, new_height),
+        Image.Resampling.LANCZOS,
+    )
+
+
+def _load_visual_source(record: PhotoRecord) -> Image.Image:
+    """
+    Load the visual source used for preview generation.
+
+    MPO -> frame 0
+    JPEG -> original image
+
+    The source file is opened read-only.
+    """
+
+    source_path = Path(record.source_path)
+
+    image = Image.open(source_path)
+
+    if record.container_format == "MPO":
+        image.seek(0)
+
+    image.load()
+
+    return image.convert("RGB")
+
+
+def _create_one(
+    *,
+    record: PhotoRecord,
+    output_path: Path,
+    kind: str,
+    max_size: int,
+    action: str,
+) -> PreviewFileResult:
+    """
+    Create one preview and validate it afterwards.
+    """
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    source = None
+    preview = None
+
+    try:
+        source = _load_visual_source(record)
+
+        preview = _resize_preserving_aspect(
+            source,
+            max_size=max_size,
+        )
+
+        preview.save(
+            output_path,
+            format="JPEG",
+            quality=90,
+            optimize=True,
+        )
+
+    except Exception as exc:
+        return PreviewFileResult(
+            kind=kind,
+            path=str(output_path),
+            action="ERROR",
+            valid=False,
+            width=None,
+            height=None,
+            error=str(exc),
+        )
+
+    finally:
+        if preview is not None:
+            preview.close()
+
+        if source is not None:
+            source.close()
+
+    validation = validate_preview(output_path)
+
+    if not validation.valid:
+        return PreviewFileResult(
+            kind=kind,
+            path=str(output_path),
+            action="ERROR",
+            valid=False,
+            width=validation.width,
+            height=validation.height,
+            error=validation.error,
+        )
+
+    return PreviewFileResult(
+        kind=kind,
+        path=str(output_path),
+        action=action,
+        valid=True,
+        width=validation.width,
+        height=validation.height,
+        error=None,
+    )
+
+
+def _process_one(
+    *,
+    record: PhotoRecord,
+    output_path: Path,
+    kind: str,
+    max_size: int,
+) -> PreviewFileResult:
+    """
+    Check an existing preview and create it only when necessary.
+
+    Existing valid file -> SKIP
+    Existing invalid file -> REGENERATE
+    Missing file -> CREATE
+    """
+
+    validation = validate_preview(output_path)
+
+    if validation.valid:
+        return PreviewFileResult(
+            kind=kind,
+            path=str(output_path),
+            action="SKIP",
+            valid=True,
+            width=validation.width,
+            height=validation.height,
+            error=None,
+        )
+
+    action = "REGENERATE" if validation.exists else "CREATE"
+
+    return _create_one(
+        record=record,
+        output_path=output_path,
+        kind=kind,
+        max_size=max_size,
+        action=action,
+    )
+
+
+def generate_previews(
+    *,
+    record: PhotoRecord,
+    preview_root: str | Path,
+    small_size: int,
+    middle_size: int,
+) -> PreviewResult:
+    """
+    Create or validate small and middle previews for one photo.
+
+    The operation is independent of DINO/HYBRID and does not
+    assign an address to the photo.
+
+    Existing valid previews are never overwritten.
+    """
+
+    if small_size < 1:
+        raise ValueError("small_size must be >= 1")
+
+    if middle_size < 1:
+        raise ValueError("middle_size must be >= 1")
+
+    paths = build_preview_paths(
+        preview_root=preview_root,
+        photo_id=record.photo_id,
+    )
+
+    small = _process_one(
+        record=record,
+        output_path=paths.small,
+        kind="SMALL",
+        max_size=small_size,
+    )
+
+    middle = _process_one(
+        record=record,
+        output_path=paths.middle,
+        kind="MIDDLE",
+        max_size=middle_size,
+    )
+
+    return PreviewResult(
+        photo_id=record.photo_id,
+        small=small,
+        middle=middle,
+    )
