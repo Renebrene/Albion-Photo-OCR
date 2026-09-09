@@ -1,0 +1,401 @@
+PREVIEW MAKER
+=============
+
+1. НАЗНАЧЕНИЕ
+
+PREVIEW Maker — отдельный слой pipeline, который после INGEST создаёт производные изображения для последующего отображения фотографий.
+
+PREVIEW Maker НЕ выполняет распознавание сцены, НЕ определяет адрес и НЕ принимает решений DINO/HYBRID.
+
+Архитектурная цепочка:
+
+ORIGINAL PHOTO
+      |
+    INGEST
+      |
+ PhotoRecord
+      |
+ PREVIEW MAKER
+   |       |
+ SMALL   MIDDLE
+      |
+ VALIDATION
+      |
+ PostgreSQL
+
+
+2. ВХОДНОЙ КОНТРАКТ
+
+PREVIEW Maker принимает только уже зарегистрированные объекты PhotoRecord, сформированные модулем INGEST.
+
+PhotoRecord содержит:
+
+- photo_id
+- source_path
+- filename
+- sha256
+- container_format
+- frame_count
+- width
+- height
+
+PREVIEW Maker НЕ выполняет самостоятельный поиск исходных файлов и НЕ создаёт photo_id.
+
+Создание PREVIEW без зарегистрированного photo_id не является допустимым штатным сценарием.
+
+Правильный поток:
+
+INGEST
+  |
+photo_id
+  |
+PREVIEW Maker
+
+НЕПРАВИЛЬНЫЙ поток:
+
+filesystem
+  |
+PREVIEW Maker
+  |
+photo_id
+
+
+3. РАБОТА С ИСХОДНЫМ ФАЙЛОМ
+
+Исходные фотографии являются READ-ONLY источником.
+
+PREVIEW Maker:
+
+- не изменяет оригинал;
+- не переименовывает оригинал;
+- не перемещает оригинал;
+- не создаёт производные файлы рядом с оригиналом.
+
+Правила визуального источника:
+
+MPO -> используется только frame 0.
+JPEG -> используется исходное изображение.
+
+Frame 0 используется только как визуальный источник для создания производных preview.
+
+
+4. PREVIEW-ФАЙЛЫ
+
+Для каждого photo_id создаются два preview:
+
+PREVIEW_ROOT/
+  small/
+    PH_xxx.jpg
+  middle/
+    PH_xxx.jpg
+
+Формат обоих preview:
+
+JPEG
+
+Имена файлов определяются исключительно photo_id.
+
+
+5. РАЗМЕРЫ
+
+Размеры preview не являются частью алгоритма распознавания и не должны быть захардкожены в коде.
+
+Настройки:
+
+SCENE_PREVIEW_ROOT
+SCENE_PREVIEW_SMALL_SIZE
+SCENE_PREVIEW_MIDDLE_SIZE
+SCENE_PREVIEW_WORKERS
+
+Текущие значения по умолчанию:
+
+PREVIEW_ROOT = data/preview
+SMALL = 320
+MIDDLE = 1280
+WORKERS = automatic
+
+Размер задаётся как максимальная длина большей стороны.
+
+Соотношение сторон исходного изображения сохраняется.
+
+Если исходное изображение меньше заданного максимального размера, оно не увеличивается.
+
+
+6. ПОЛИТИКА ОБРАБОТКИ
+
+Для каждого preview:
+
+preview существует?
+  |
+  +-- НЕТ ------> CREATE
+  |
+  +-- ДА
+       |
+       +-- VALID ------> SKIP
+       |
+       +-- INVALID ----> REGENERATE
+
+Возможные действия:
+
+CREATE
+SKIP
+REGENERATE
+ERROR
+
+CREATE:
+Файл отсутствует. Создаётся новый preview.
+
+SKIP:
+Preview существует и успешно проходит полную проверку. Файл не перезаписывается.
+
+REGENERATE:
+Preview существует, но не проходит проверку. Создаётся заново.
+
+ERROR:
+Preview не удалось создать или проверить.
+
+
+7. ВАЛИДАЦИЯ
+
+Preview считается валидным только после проверки.
+
+Проверяется:
+
+1. существование файла;
+2. что путь является обычным файлом;
+3. формат JPEG;
+4. Image.verify();
+5. повторное открытие файла;
+6. полный image.load().
+
+Валидатор также поддерживает проверку ожидаемых размеров.
+
+До успешной валидации preview не считается готовым.
+
+
+8. НЕЗАВИСИМОСТЬ SMALL И MIDDLE
+
+SMALL и MIDDLE обрабатываются независимо.
+
+Пример:
+
+SMALL  -> REGENERATE -> VALID
+MIDDLE -> SKIP       -> VALID
+
+В этом случае MIDDLE не пересоздаётся.
+
+Если:
+
+SMALL  -> VALID
+MIDDLE -> ERROR
+
+весь результат фотографии НЕ считается READY.
+
+
+9. POSTGRESQL
+
+Для preview используется отдельная таблица:
+
+photo_previews
+
+Preview-поля не добавляются непосредственно в таблицу photos.
+
+Структура:
+
+photo_previews
+  - photo_id
+  - small_path
+  - middle_path
+  - small_width
+  - small_height
+  - middle_width
+  - middle_height
+  - small_created_at
+  - middle_created_at
+
+photo_id является:
+
+- PRIMARY KEY;
+- FOREIGN KEY на photos(photo_id).
+
+Связь:
+
+photos
+  |
+  +-- photo_id
+          |
+          v
+    photo_previews
+
+Используется ON DELETE CASCADE.
+
+Поэтому запись preview не может существовать в PostgreSQL без соответствующей зарегистрированной фотографии.
+
+
+10. ИСТОЧНИК ИСТИНЫ
+
+PREVIEW Maker не использует наличие файла в PREVIEW_ROOT как источник регистрации фотографии.
+
+Принадлежность preview определяется через photo_id, полученный от INGEST.
+
+Нормальный поток:
+
+SOURCE FILE
+    |
+  INGEST
+    |
+PhotoRecord
+    |
+ photo_id
+    |
+PREVIEW Maker
+    |
+photo_previews
+
+Наличие preview-файла без соответствующей регистрации не является штатным входом PREVIEW Maker.
+
+Диагностика возможных orphan-файлов, если когда-либо понадобится, должна быть отдельной consistency/audit функцией и не должна смешиваться с генерацией preview.
+
+
+11. POSTGRESQL UPDATE
+
+PostgreSQL обновляется только после того, как оба preview успешно прошли валидацию.
+
+SMALL valid
+     +
+MIDDLE valid
+     |
+    READY
+     |
+PostgreSQL UPSERT
+
+Невалидный или отсутствующий preview не должен регистрироваться как готовый.
+
+
+12. ПАРАЛЛЕЛИЗМ
+
+PREVIEW Maker поддерживает параллельную обработку фотографий через ProcessPoolExecutor.
+
+По умолчанию используется проектная политика:
+
+workers = половина доступных logical CPU.
+
+Для текущего оборудования:
+
+logical CPU = 12
+workers = 6
+
+Явное значение SCENE_PREVIEW_WORKERS имеет приоритет.
+
+Значение 0 означает автоматический режим.
+
+
+13. ОТВЕТСТВЕННОСТЬ PREVIEW MAKER
+
+PREVIEW Maker отвечает только за:
+
+- получение уже зарегистрированного PhotoRecord;
+- чтение исходного изображения;
+- выбор визуального источника;
+- создание SMALL;
+- создание MIDDLE;
+- сохранение JPEG;
+- валидацию preview;
+- формирование результата;
+- регистрацию готовых preview в PostgreSQL.
+
+
+14. ЧТО PREVIEW MAKER НЕ ДЕЛАЕТ
+
+PREVIEW Maker НЕ:
+
+- создаёт photo_id;
+- регистрирует исходную фотографию;
+- изменяет оригинал;
+- перемещает оригинал;
+- определяет адрес;
+- определяет клиента;
+- выполняет DINO;
+- выполняет HYBRID;
+- принимает решение о соответствии фотографии адресу;
+- формирует результат распознавания.
+
+Эти функции относятся к другим слоям pipeline.
+
+
+15. СВЯЗЬ С DINO / HYBRID
+
+PREVIEW не зависит от результата распознавания.
+
+Общая архитектура:
+
+                         +--> PREVIEW
+                         |      |
+                         |   SMALL / MIDDLE
+                         |      |
+ORIGINAL -> INGEST ------+   PostgreSQL
+                         |
+                         +--> DINO -> HYBRID
+                                  |
+                               address
+                                  |
+                             GRID доступен
+
+PREVIEW создаётся независимо от назначения адреса.
+
+Наличие preview само по себе не означает, что фотография распознана.
+
+GRID использует preview только после того, как отдельный слой распознавания установит необходимые данные, включая адрес.
+
+
+16. ПРОВЕРЕННЫЙ РЕЗУЛЬТАТ
+
+PREVIEW pipeline проверен на полном тестовом наборе:
+
+INPUT RECORDS: 256
+TOTAL: 256
+READY: 256
+ERRORS: 0
+DATABASE UPDATED: 256
+
+Для 256 фотографий:
+
+SMALL:
+  CREATE: 255
+  SKIP: 1
+
+MIDDLE:
+  CREATE: 255
+  SKIP: 1
+
+Также отдельно проверены:
+
+- создание preview;
+- повторный запуск с SKIP;
+- повреждение preview с последующим REGENERATE;
+- MPO -> frame 0;
+- JPEG -> исходное изображение;
+- валидация JPEG;
+- PostgreSQL UPSERT / чтение;
+- автоматическое определение 6 workers;
+- полный запуск на 256 зарегистрированных фотографиях.
+
+Итог:
+
+INGEST -> photo_id -> PREVIEW -> validation -> PostgreSQL
+
+подтверждён на всём тестовом наборе.
+
+
+17. ТОЧКА ВОССТАНОВЛЕНИЯ
+
+PREVIEW pipeline зафиксирован отдельным Git-коммитом:
+
+b043a61
+Add PREVIEW pipeline with configurable previews
+
+Полный SHA:
+
+b043a616917db4622f275a9bd39cade1a9ee36c6
+
+Эта версия является стабильной точкой восстановления перед дальнейшей разработкой DINO/HYBRID.
