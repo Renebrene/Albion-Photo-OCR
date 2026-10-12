@@ -95,3 +95,36 @@ export function fetchJobs({ limit = 50, cursor = null } = {}) {
 export function enqueueQwen(photoIds = null) {
   return postJson(`${BASE}/v1/jobs/qwen`, { photo_ids: photoIds })
 }
+
+async function putJson(url, body) {
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  if (!response.ok) {
+    let detail = `API error ${response.status}`
+    try {
+      const payload = await response.json()
+      if (payload && payload.detail) detail = payload.detail
+    } catch {
+      // ignore
+    }
+    throw new Error(detail)
+  }
+
+  return response.json()
+}
+
+export function fetchQwenModels() {
+  return getJson(`${BASE}/v1/qwen/models`)
+}
+
+export function setQwenModel(model) {
+  return putJson(`${BASE}/v1/qwen/model`, { model })
+}
+
+export function unloadQwen() {
+  return postJson(`${BASE}/v1/qwen/unload`, {})
+}

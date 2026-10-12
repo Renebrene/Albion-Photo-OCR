@@ -166,6 +166,14 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - UI: в карточках GRID — адрес/клиент и описание; фильтры «Адрес (QWEN)»/«Клиент (QWEN)»; на экране «Обработка» — кнопка «Запустить QWEN».
 - Тесты: `tests/test_qwen.py` (парсинг — всегда; БД — с базой; живой прогон — `QWEN_LIVE_TEST=1`).
 
+### Срез 6 — выбор модели QWEN и авто-выгрузка
+
+- Модель выбирается в рантайме и хранится в `app_settings` (`schema/008_settings.sql`, ключ `qwen_model`); при отсутствии значения используется env `QWEN_MODEL`. `app/settings_store.py`.
+- `GET /api/v1/qwen/models` — список моделей Ollama + текущая; `PUT /api/v1/qwen/model` (scope `jobs:write`) — выбрать; `POST /api/v1/qwen/unload` (scope `jobs:write`) — выгрузить из памяти.
+- **Авто-выгрузка:** каждый запрос к Ollama идёт с `keep_alive: 0`, поэтому модель выгружается сразу после обработки фото (проверено: после прогона `ollama ps` пуст).
+- UI: экран «Настройки» — выбор модели из списка, кнопки «Сохранить»/«Выгрузить из памяти».
+- Рекомендация для 12 ГБ VRAM: `qwen3-vl:8b` (точность/размер); быстрее — `qwen3-vl:4b-instruct`.
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.

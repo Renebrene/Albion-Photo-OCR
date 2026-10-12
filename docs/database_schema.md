@@ -29,6 +29,7 @@ PostgreSQL — источник истины для переходов межд�
 005_hybrid.sql   → hybrid_runs, hybrid_results
 006_job_queue.sql → job_queue
 007_qwen.sql      → photo_qwen; ALTER job_queue ADD QWEN_PHOTO
+008_settings.sql  → app_settings
 ```
 
 **`004` теперь backfill-safe и идемпотентен (2026-10-12):** создаёт `dino_batches` при отсутствии, добавляет `dino_runs.batch_id` (nullable) при отсутствии, бэкфиллит существующие runs без batch (по одному legacy-batch на run, со статусом и счётчиками из run), затем ставит `NOT NULL` и создаёт индекс. Повторный прогон — no-op. Ранее файл делал `ADD COLUMN` и сразу `SET NOT NULL`, что падало на непустой `dino_runs`.
@@ -225,6 +226,18 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 | `created_at` / `finished_at` | TIMESTAMP | |
 
 Индексы по `status`, `address`, `client`. `007` также расширяет `job_queue.job_type` значением `QWEN_PHOTO`.
+
+### 4.10 `app_settings` — настройки приложения (KV)
+
+Создаёт `schema/008_settings.sql`; читает/пишет `app/settings_store.py`. Используется для выбора модели QWEN в рантайме (переопределяет env `QWEN_MODEL`).
+
+| Колонка | Тип | Ограничения |
+|---|---|---|
+| `key` | TEXT | PRIMARY KEY |
+| `value` | JSONB | NOT NULL |
+| `updated_at` | TIMESTAMP | NOT NULL DEFAULT CURRENT_TIMESTAMP |
+
+Ключ `qwen_model` хранит выбранную модель Ollama.
 
 ## 5. Локальная SQLite-очередь (не PostgreSQL)
 

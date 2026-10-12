@@ -101,6 +101,12 @@ class QwenJobRequest(BaseModel):
     photo_ids: list[str] | None = None
 
 
+class QwenModelRequest(BaseModel):
+    """Select the QWEN (Ollama) model used for metadata extraction."""
+
+    model: str = Field(min_length=1, max_length=128)
+
+
 class JobSummary(BaseModel):
     id: int
     job_type: str

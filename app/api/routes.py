@@ -13,10 +13,17 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
+from app import settings_store
 from app.api import repository
 from app.api.auth import require_scope
 from app.api.config import PREVIEW_ROOT
-from app.api.schemas import DinoBatchRequest, HybridRequest, QwenJobRequest
+from app.api.schemas import (
+    DinoBatchRequest,
+    HybridRequest,
+    QwenJobRequest,
+    QwenModelRequest,
+)
+from app.qwen import processor as qwen
 from app.dino import database as dino_db
 from app.hybrid import database as hybrid_db
 from app.jobs import database as jobs_db
@@ -303,3 +310,46 @@ def get_job(job_id: int):
         raise HTTPException(status_code=404, detail="job not found")
 
     return job
+
+
+# ---------------------------------------------------------------------------
+# QWEN model selection (runtime setting)
+# ---------------------------------------------------------------------------
+
+
+@read_router.get("/v1/qwen/models", response_model=None)
+def qwen_models():
+    try:
+        available = qwen.list_models()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"ollama unavailable: {exc}",
+        ) from exc
+
+    return {"current": qwen.resolve_model(), "available": available}
+
+
+@jobs_router.put(
+    "/v1/qwen/model",
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def set_qwen_model(request: QwenModelRequest):
+    settings_store.set_value(qwen.QWEN_MODEL_KEY, request.model)
+    return {"model": qwen.resolve_model()}
+
+
+@jobs_router.post(
+    "/v1/qwen/unload",
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def unload_qwen():
+    try:
+        qwen.unload_model()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"ollama unavailable: {exc}",
+        ) from exc
+
+    return {"status": "unloaded", "model": qwen.resolve_model()}
