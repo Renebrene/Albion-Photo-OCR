@@ -63,7 +63,7 @@ function viewerUrl() {
         dense
         outlined
         clearable
-        placeholder="Адрес (QWEN)"
+        placeholder="Адрес (DINO/HYBRID)"
         class="col-12 col-sm-3"
         @keyup.enter="applyFilters"
       />

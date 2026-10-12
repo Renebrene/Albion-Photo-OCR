@@ -162,7 +162,8 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - Модель — через локальный **Ollama**; имя конфигурируемо (`QWEN_MODEL`, по умолчанию `qwen3-vl:8b`), `OLLAMA_URL`. Изображение (MPO → frame 0) ужимается и отправляется в `/api/chat` с `format=json`, `think=false`.
 - Извлекаются поля: `description`, `address`, `client`, `brand`, `category`, `tags`.
 - `POST /api/v1/jobs/qwen` (scope `jobs:write`) — ставит задания на указанные `photo_ids` или на все фото; выполняет тот же `app.jobs.worker`.
-- `GET /api/v1/photos` расширен полями `address`/`client` (LEFT JOIN `photo_qwen`) и фильтрами `address`/`client`.
+- `GET /api/v1/photos` расширен полями `address`/`client` и фильтрами `address`/`client`.
+  **Источник адреса — распознавание** (последний `hybrid_results.hybrid_final_id`, fallback `dino_runs.dino_best_id`), **клиент — из QWEN** (`photo_qwen.client`).
 - UI: в карточках GRID — адрес/клиент и описание; фильтры «Адрес (QWEN)»/«Клиент (QWEN)»; на экране «Обработка» — кнопка «Запустить QWEN».
 - Тесты: `tests/test_qwen.py` (парсинг — всегда; БД — с базой; живой прогон — `QWEN_LIVE_TEST=1`).
 

@@ -122,3 +122,71 @@ def test_list_hybrid_runs():
     response = client.get("/api/v1/hybrid/runs?limit=5")
     assert response.status_code == 200
     assert "items" in response.json()
+
+
+@requires_db
+def test_address_comes_from_recognition():
+    """Photo address is the DINO/HYBRID result, not QWEN metadata."""
+
+    import datetime
+    import hashlib
+
+    from app.ingest.database import get_connection
+
+    photo_id = "PH_" + "7" * 24
+    filename = "TESTADDR_01.JPG"
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO public.photos (
+                    photo_id, source_path, filename, sha256,
+                    container_format, frame_count, width, height
+                )
+                VALUES (%s, %s, %s, %s, 'JPEG', 1, 10, 10)
+                """,
+                (
+                    photo_id,
+                    f"/tmp/{filename}",
+                    filename,
+                    hashlib.sha256(photo_id.encode()).hexdigest(),
+                ),
+            )
+            cur.execute(
+                """
+                INSERT INTO public.dino_batches (
+                    run_type, status, total_count, completed_count, failed_count
+                )
+                VALUES ('FORCE_RERUN', 'DONE', 1, 1, 0)
+                RETURNING batch_id
+                """
+            )
+            batch_id = cur.fetchone()[0]
+            cur.execute(
+                """
+                INSERT INTO public.dino_runs (
+                    batch_id, photo_id, run_type, status,
+                    dino_best_id, finished_at
+                )
+                VALUES (%s, %s, 'FORCE_RERUN', 'DONE', '78_v33', CURRENT_TIMESTAMP)
+                """,
+                (batch_id, photo_id),
+            )
+
+    try:
+        body = client.get(f"/api/v1/photos?q={filename}").json()
+        assert body["items"], "photo not returned"
+        assert body["items"][0]["address"] == "78_v33"
+        assert body["items"][0]["client"] is None
+    finally:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM public.dino_batches WHERE batch_id = %s",
+                    (batch_id,),
+                )
+                cur.execute(
+                    "DELETE FROM public.photos WHERE photo_id = %s",
+                    (photo_id,),
+                )

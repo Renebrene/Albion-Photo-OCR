@@ -15,14 +15,44 @@ from app.api.schemas import (
 )
 from app.ingest.database import get_connection
 
-_PHOTO_COLUMNS = (
-    "p.photo_id, p.filename, p.width, p.height, p.container_format, "
-    "q.address, q.client"
-)
+# Address comes from the recognition pipeline (HYBRID verdict, falling back to
+# the DINO best candidate); `client` comes from the parallel QWEN metadata.
+_PHOTO_DERIVED = """
+    SELECT
+        p.photo_id        AS photo_id,
+        p.filename        AS filename,
+        p.width           AS width,
+        p.height          AS height,
+        p.container_format AS container_format,
+        COALESCE(
+            (
+                SELECT h.hybrid_final_id
+                FROM public.hybrid_results AS h
+                WHERE h.photo_id = p.photo_id
+                  AND h.status = 'DONE'
+                ORDER BY h.finished_at DESC NULLS LAST,
+                         h.hybrid_run_id DESC
+                LIMIT 1
+            ),
+            (
+                SELECT r.dino_best_id
+                FROM public.dino_runs AS r
+                WHERE r.photo_id = p.photo_id
+                  AND r.status = 'DONE'
+                  AND r.dino_best_id IS NOT NULL
+                ORDER BY r.finished_at DESC NULLS LAST,
+                         r.run_id DESC
+                LIMIT 1
+            )
+        ) AS address,
+        q.client AS client
+    FROM public.photos AS p
+    LEFT JOIN public.photo_qwen AS q ON q.photo_id = p.photo_id
+"""
 
-_PHOTO_FROM = (
-    "FROM public.photos AS p "
-    "LEFT JOIN public.photo_qwen AS q ON q.photo_id = p.photo_id"
+_PHOTO_SELECT = (
+    "SELECT photo_id, filename, width, height, container_format, "
+    "address, client FROM (" + _PHOTO_DERIVED + ") AS t"
 )
 
 
@@ -47,36 +77,36 @@ def list_photos(
     client: str | None = None,
 ) -> tuple[list[PhotoSummary], str | None]:
     """
-    Return one page of registered photos ordered by photo_id,
-    joined with the optional QWEN metadata (address/client).
+    Return one page of registered photos ordered by photo_id.
 
-    Fetches limit + 1 rows to detect whether a further page exists.
+    `address` is the recognition result (HYBRID/DINO), `client` is the QWEN
+    metadata. Fetches limit + 1 rows to detect whether a further page exists.
     """
 
-    sql = f"SELECT {_PHOTO_COLUMNS} {_PHOTO_FROM}"  # noqa: S608 - fixed columns
+    sql = _PHOTO_SELECT
     clauses: list[str] = []
     params: list[object] = []
 
     if cursor:
-        clauses.append("p.photo_id > %s")
+        clauses.append("t.photo_id > %s")
         params.append(cursor)
 
     if query:
-        clauses.append("p.filename ILIKE %s")
+        clauses.append("t.filename ILIKE %s")
         params.append(f"%{query}%")
 
     if address:
-        clauses.append("q.address ILIKE %s")
+        clauses.append("t.address ILIKE %s")
         params.append(f"%{address}%")
 
     if client:
-        clauses.append("q.client ILIKE %s")
+        clauses.append("t.client ILIKE %s")
         params.append(f"%{client}%")
 
     if clauses:
         sql += " WHERE " + " AND ".join(clauses)
 
-    sql += " ORDER BY p.photo_id LIMIT %s"
+    sql += " ORDER BY t.photo_id LIMIT %s"
     params.append(limit + 1)
 
     with get_connection() as conn:
@@ -100,8 +130,7 @@ def get_photo(photo_id: str) -> PhotoSummary | None:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"SELECT {_PHOTO_COLUMNS} {_PHOTO_FROM} "  # noqa: S608
-                "WHERE p.photo_id = %s",
+                _PHOTO_SELECT + " WHERE t.photo_id = %s",
                 (photo_id,),
             )
             row = cur.fetchone()
