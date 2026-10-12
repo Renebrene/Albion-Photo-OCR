@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -183,16 +186,48 @@ class FingerprintManager:
                     f"{output}"
                 )
 
-        output.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
         embedder = (
             embedder
             or self.embedder
         )
 
+        parent = output.parent
+        parent.mkdir(parents=True, exist_ok=True)
+
+        staging = Path(
+            tempfile.mkdtemp(
+                prefix=f".{fingerprint_id}.tmp-",
+                dir=parent,
+            )
+        )
+
+        try:
+            metadata = self._build_into(
+                staging,
+                fingerprint_id,
+                paths,
+                embedder,
+            )
+
+            # output is either absent or an empty leftover directory.
+            if output.exists():
+                output.rmdir()
+
+            os.replace(staging, output)
+
+        except BaseException:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+
+        return metadata
+
+    def _build_into(
+        self,
+        output,
+        fingerprint_id,
+        paths,
+        embedder,
+    ):
         print(
             f"[Fingerprint v3.3] "
             f"Creating '{fingerprint_id}' "
@@ -421,7 +456,7 @@ class FingerprintManager:
 
         print(
             f"[Fingerprint v3.3] Saved: "
-            f"{output}"
+            f"{fingerprint_id}"
         )
 
         print(

@@ -35,3 +35,8 @@ exclude = [
 
 [project.scripts]
 scene-fingerprint = "app.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8,<9",
+]

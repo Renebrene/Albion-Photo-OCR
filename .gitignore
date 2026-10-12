@@ -43,3 +43,13 @@ Thumbs.db
 
 # Runtime previews
 data/preview/
+
+# Local test photo corpus — keep physically, do not commit
+test/
+
+# Agent tooling / worktrees
+.claude/
+
+# Local backup copies of edited files
+*.before_*
+*.bak

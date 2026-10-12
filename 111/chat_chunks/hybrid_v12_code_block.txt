@@ -1,0 +1,731 @@
+### 👤 **User** — 2026-08-16 22:12:22
+
+давай
+
+---
+
+### 🤖 **Assistant** — 2026-08-16 22:12:25
+
+Да. Делаем **production runner**, но контрольную логику Hybrid v12 не исправляем и не оптимизируем.
+
+Есть даже важный момент: в самом v12 сейчас `SUB_WEIGHT` и `NEIGHBOR_WEIGHT` объявлены, но фактически не используются, а для соседей используется `+3.0`. **Оставляем именно так**, потому что это контрольная версия.
+
+Создай новый файл:
+
+```bash
+cd ~/projects/scene_fingerprint_mvp_v02 && \
+cat > scripts/run_hybrid_v12.py <<'PY'
+#!/usr/bin/env python3
+
+import argparse
+import json
+import shutil
+import subprocess
+import time
+from collections import Counter, defaultdict
+from pathlib import Path
+
+import numpy as np
+
+from app.core.config import Settings
+from app.core.embedder import SceneEmbedder
+
+PROJECT = Path(__file__).resolve().parent.parent
+
+SUB_DIR = PROJECT / "data/fingerprints_sub_exp"
+
+# ============================================================
+# HYBRID V12 — FROZEN CONTROL LOGIC
+# ============================================================
+
+MARGIN_LIMIT = 0.02
+
+GLOBAL_WEIGHT = 10.0
+SUB_WEIGHT = 2.5
+NEIGHBOR_WEIGHT = 6.0
+
+def normalize(x):
+    x = np.asarray(x, dtype=np.float32)
+
+    n = np.linalg.norm(x)
+
+    if n > 0:
+        x = x / n
+
+    return x
+
+def load_subs():
+    result = {}
+
+    if not SUB_DIR.exists():
+        print(f"[Hybrid] WARNING: sub directory not found: {SUB_DIR}")
+        return result
+
+    for d in sorted(SUB_DIR.iterdir()):
+
+        if not d.is_dir():
+            continue
+
+        f = d / "embeddings.npy"
+
+        if not f.exists():
+            continue
+
+        emb = np.load(f)
+
+        emb = np.array(
+            [
+                normalize(x)
+                for x in emb
+            ],
+            dtype=np.float32,
+        )
+
+        result[d.name] = emb
+
+    return result
+
+def get_neighbor_votes(rows, index):
+    votes = Counter()
+
+    if index <= 0:
+        return votes
+
+    if index >= len(rows) - 1:
+        return votes
+
+    left = rows[index - 1]["top1"]
+    right = rows[index + 1]["top1"]
+
+    # FROZEN V12 RULE:
+    # only complete agreement
+    if left == right:
+        votes[left] = 1
+
+    return votes
+
+def run_recognition(input_dir, fingerprints):
+    """
+    Run the existing DINO v33 recognizer.
+
+    The recognizer itself is NOT modified.
+    """
+
+    fp_arg = ",".join(fingerprints)
+
+    cmd = [
+        "uv",
+        "run",
+        "scene-fingerprint",
+        "recognize",
+        str(input_dir),
+        "--top-k",
+        "5",
+        "--threshold",
+        "0.0",
+        "--fingerprints",
+        fp_arg,
+        "--json",
+    ]
+
+    print("=" * 80)
+    print("DINO v33 RECOGNITION")
+    print("=" * 80)
+    print("Input:", input_dir)
+    print("Fingerprints:", ", ".join(fingerprints))
+    print()
+
+    start = time.perf_counter()
+
+    process = subprocess.run(
+        cmd,
+        cwd=PROJECT,
+        capture_output=True,
+        text=True,
+    )
+
+    elapsed = time.perf_counter() - start
+
+    if process.returncode != 0:
+        print(process.stdout)
+        print(process.stderr)
+
+        raise RuntimeError(
+            f"recognize завершился с кодом {process.returncode}"
+        )
+
+    combined = process.stdout + "\n" + process.stderr
+
+    decoder = json.JSONDecoder()
+    data = None
+
+    for i, ch in enumerate(combined):
+
+        if ch != "[":
+            continue
+
+        try:
+            candidate, _ = decoder.raw_decode(
+                combined[i:]
+            )
+
+            if isinstance(candidate, list):
+                data = candidate
+                break
+
+        except json.JSONDecodeError:
+            pass
+
+    if data is None:
+        raise RuntimeError(
+            "Не удалось найти JSON-массив в выводе recognition"
+        )
+
+    print("Images:", len(data))
+    print(f"Recognition time: {elapsed:.2f} sec")
+
+    return data, elapsed
+
+def hybrid_v12(rows, embedder, subs):
+    """
+    Exact production adaptation of the frozen Hybrid v12 logic.
+
+    Input:
+        recognizer rows containing top1..top5.
+
+    Output:
+        rows with final best_id.
+    """
+
+    changed = []
+    results = []
+    sub_count = 0
+
+    for i, row in enumerate(rows):
+
+        old = row.get("top1")
+
+        scores = defaultdict(float)
+
+        # ====================================================
+        # GLOBAL TOP-5
+        # ====================================================
+
+        for k in range(1, 6):
+
+            fp = row.get(f"top{k}")
+            sc = row.get(f"top{k}_score")
+
+            if fp:
+                scores[fp] += (
+                    float(sc)
+                    * GLOBAL_WEIGHT
+                )
+
+        # ====================================================
+        # SUB ONLY BORDER CASES
+        # ====================================================
+
+        margin = row.get(
+            "margin",
+            1,
+        )
+
+        if margin < MARGIN_LIMIT:
+
+            sub_count += 1
+
+            image = Path(
+                row["file"]
+            )
+
+            query = embedder.embed_paths(
+                [image]
+            )[0]
+
+            query = normalize(query)
+
+            # FROZEN V12:
+            # only TOP1 and TOP2
+            candidates = [
+                row.get("top1"),
+                row.get("top2"),
+            ]
+
+            for parent in candidates:
+
+                if not parent:
+                    continue
+
+                for sub_id, sub_emb in subs.items():
+
+                    if not sub_id.startswith(parent):
+                        continue
+
+                    sim = max(
+                        sub_emb @ query
+                    )
+
+                    if sim > 0.88:
+
+                        if sim > 0.92:
+                            bonus = 2.5
+                        else:
+                            bonus = 1.0
+
+                        scores[parent] += (
+                            float(sim)
+                            * bonus
+                        )
+
+        # ====================================================
+        # SEQUENCE CONSENSUS
+        # ====================================================
+
+        neighbors = get_neighbor_votes(
+            rows,
+            i,
+        )
+
+        left_fp = None
+        right_fp = None
+
+        if i > 0:
+            left_fp = rows[i - 1].get("top1")
+
+        if i < len(rows) - 1:
+            right_fp = rows[i + 1].get("top1")
+
+        if (
+            left_fp
+            and right_fp
+            and left_fp == right_fp
+        ):
+            # FROZEN V12:
+            # actual implementation uses +3.0
+            scores[left_fp] += 3.0
+
+        # ====================================================
+        # FINAL DECISION V12
+        # ====================================================
+
+        best = old
+
+        ranked = sorted(
+            scores.items(),
+            key=lambda x: x[1],
+            reverse=True,
+        )
+
+        if ranked:
+
+            candidate = ranked[0][0]
+
+            gain = (
+                scores[candidate]
+                - scores.get(old, 0)
+            )
+
+            if (
+                candidate != old
+                and gain > 1.5
+            ):
+                best = candidate
+
+        old_score = scores.get(
+            old,
+            0,
+        )
+
+        new_score = scores.get(
+            best,
+            0,
+        )
+
+        hybrid_changed = best != old
+
+        result = dict(row)
+
+        result["original_best_id"] = old
+        result["best_id"] = best
+
+        result["hybrid_changed"] = hybrid_changed
+
+        result["hybrid_old_score"] = old_score
+        result["hybrid_score"] = new_score
+
+        result["hybrid_margin"] = margin
+        result["hybrid_neighbors"] = dict(neighbors)
+
+        results.append(result)
+
+        if (
+            best != old
+            and new_score > old_score
+        ):
+            changed.append(
+                {
+                    "file": Path(
+                        row["file"]
+                    ).name,
+                    "old": old,
+                    "new": best,
+                    "margin": margin,
+                    "neighbors": dict(neighbors),
+                    "old_score": scores[old],
+                    "new_score": scores[best],
+                }
+            )
+
+    return results, changed, sub_count
+
+def sort_results(rows, output_dir):
+    """
+    Copy photos according to FINAL Hybrid best_id.
+    """
+
+    print()
+    print("=" * 80)
+    print("SORTING")
+    print("=" * 80)
+
+    output_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    counters = Counter()
+    sorted_rows = []
+
+    for item in rows:
+
+        source = Path(
+            item["file"]
+        )
+
+        assigned_id = item.get(
+            "best_id"
+        )
+
+        if not assigned_id:
+            continue
+
+        destination_dir = (
+            output_dir / assigned_id
+        )
+
+        destination_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        destination = (
+            destination_dir / source.name
+        )
+
+        shutil.copy2(
+            source,
+            destination,
+        )
+
+        counters[assigned_id] += 1
+
+        sorted_rows.append(
+            {
+                "file": str(source),
+                "filename": source.name,
+                "assigned_id": assigned_id,
+                "original_best_id": item.get(
+                    "original_best_id"
+                ),
+                "hybrid_changed": item.get(
+                    "hybrid_changed"
+                ),
+                "score": item.get("score"),
+                "second_score": item.get(
+                    "second_score"
+                ),
+                "margin": item.get("margin"),
+                "confidence": item.get(
+                    "confidence"
+                ),
+                "status": item.get("status"),
+                "best_image": item.get(
+                    "best_image"
+                ),
+                "best_image_score": item.get(
+                    "best_image_score"
+                ),
+                "hybrid_old_score": item.get(
+                    "hybrid_old_score"
+                ),
+                "hybrid_score": item.get(
+                    "hybrid_score"
+                ),
+            }
+        )
+
+    for k in sorted(
+        counters,
+        key=lambda x: int(
+            x.split("_")[0]
+        ),
+    ):
+        print(
+            f"{k:10s} {counters[k]:4d}"
+        )
+
+    return sorted_rows, counters
+
+def main():
+
+    parser = argparse.ArgumentParser(
+        description="Production runner for frozen Hybrid v12"
+    )
+
+    parser.add_argument(
+        "--input",
+        required=True,
+        type=Path,
+    )
+
+    parser.add_argument(
+        "--output",
+        required=True,
+        type=Path,
+    )
+
+    parser.add_argument(
+        "--first-address",
+        type=int,
+        default=78,
+    )
+
+    parser.add_argument(
+        "--last-address",
+        type=int,
+        default=95,
+    )
+
+    args = parser.parse_args()
+
+    input_dir = args.input
+    output_dir = args.output
+
+    if not input_dir.exists():
+        raise RuntimeError(
+            f"Нет папки: {input_dir}"
+        )
+
+    fingerprints = [
+        f"{i}_v33"
+        for i in range(
+            args.first_address,
+            args.last_address + 1,
+        )
+    ]
+
+    print()
+    print("=" * 80)
+    print("SCENE FINGERPRINT — HYBRID V12 RUNNER")
+    print("=" * 80)
+    print()
+    print("INPUT :", input_dir)
+    print("OUTPUT:", output_dir)
+    print()
+    print("CONTROL:")
+    print("  DINO        : v33")
+    print("  HYBRID      : v12")
+    print("  ADDRESSES   :", f"{args.first_address}-{args.last_address}")
+    print()
+
+    total_start = time.perf_counter()
+
+    # --------------------------------------------------------
+    # 1. DINO
+    # --------------------------------------------------------
+
+    recognition, recognition_time = run_recognition(
+        input_dir,
+        fingerprints,
+    )
+
+    # --------------------------------------------------------
+    # 2. Load Hybrid subfingerprints
+    # --------------------------------------------------------
+
+    print()
+    print("=" * 80)
+    print("LOADING HYBRID SUBFINGERPRINTS")
+    print("=" * 80)
+
+    subs = load_subs()
+
+    print("Subfingerprints:", len(subs))
+
+    # --------------------------------------------------------
+    # 3. Hybrid v12
+    # --------------------------------------------------------
+
+    print()
+    print("=" * 80)
+    print("HYBRID V12")
+    print("=" * 80)
+
+    settings = Settings()
+
+    embedder = SceneEmbedder(
+        settings
+    )
+
+    hybrid_rows, changed, sub_count = hybrid_v12(
+        recognition,
+        embedder,
+        subs,
+    )
+
+    print()
+    print("Checked:", len(hybrid_rows))
+    print("Border cases:", sub_count)
+    print("Hybrid changes:", len(changed))
+
+    for item in changed:
+        print()
+        print(
+            item["file"]
+        )
+        print(
+            item["old"],
+            "->",
+            item["new"],
+        )
+        print(
+            "margin:",
+            item["margin"],
+        )
+        print(
+            "neighbors:",
+            item["neighbors"],
+        )
+
+    # --------------------------------------------------------
+    # 4. Sort
+    # --------------------------------------------------------
+
+    sorted_rows, counters = sort_results(
+        hybrid_rows,
+        output_dir,
+    )
+
+    # --------------------------------------------------------
+    # 5. Reports
+    # --------------------------------------------------------
+
+    output_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    recognition_json = (
+        output_dir / "recognition.json"
+    )
+
+    hybrid_json = (
+        output_dir / "hybrid_v12.json"
+    )
+
+    report_json = (
+        output_dir / "report.json"
+    )
+
+    statistics_json = (
+        output_dir / "statistics.json"
+    )
+
+    recognition_json.write_text(
+        json.dumps(
+            recognition,
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    hybrid_json.write_text(
+        json.dumps(
+            hybrid_rows,
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    report_json.write_text(
+        json.dumps(
+            sorted_rows,
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    total_time = (
+        time.perf_counter()
+        - total_start
+    )
+
+    statistics = {
+        "total_images": len(hybrid_rows),
+        "sorted_images": len(sorted_rows),
+        "recognition_time_seconds": recognition_time,
+        "total_wall_time_seconds": total_time,
+        "hybrid_border_cases": sub_count,
+        "hybrid_changed": len(changed),
+        "assigned": dict(counters),
+        "control": {
+            "recognizer": "DINOv2 v33",
+            "rerank": "Hybrid v12",
+            "margin_limit": MARGIN_LIMIT,
+            "global_weight": GLOBAL_WEIGHT,
+            "sub_weight": SUB_WEIGHT,
+            "neighbor_weight": NEIGHBOR_WEIGHT,
+        },
+    }
+
+    statistics_json.write_text(
+        json.dumps(
+            statistics,
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    print()
+    print("=" * 80)
+    print("DONE")
+    print("=" * 80)
+    print()
+    print("Images:", len(hybrid_rows))
+    print("Hybrid changes:", len(changed))
+    print(f"Recognition: {recognition_time:.2f} sec")
+    print(f"Total:       {total_time:.2f} sec")
+    print()
+    print("Output:")
+    print(output_dir)
+
+if __name__ == "__main__":
+    main()
+PY
+chmod +x scripts/run_hybrid_v12.py
+```
+
+### Пока ничего не запускаем
+
+Сначала проверим, что файл синтаксически корректный:
+
+```bash
+cd ~/projects/scene_fingerprint_mvp_v02 && \
+uv run python -m py_compile scripts/run_hybrid_v12.py && \
+echo "HYBRID V12 RUNNER: OK"
+```

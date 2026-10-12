@@ -7,7 +7,7 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.ingest.register import PhotoRecord
-from app.preview.database import PreviewRecord, upsert_preview
+from app.preview.database import PreviewRecord, get_preview, upsert_preview
 from app.preview.generator import generate_previews
 from app.preview.result import PreviewResult
 
@@ -81,6 +81,29 @@ def _to_database_record(result: PreviewResult) -> PreviewRecord:
         small_height=result.small.height,
         middle_width=result.middle.width,
         middle_height=result.middle.height,
+    )
+
+
+def _is_preview_up_to_date(result: PreviewResult) -> bool:
+    """
+    True when the registered PostgreSQL row already matches the result.
+
+    When it does, the row does not need to be written again, so the
+    pipeline counts it as database_skipped instead of re-upserting.
+    """
+
+    existing = get_preview(result.photo_id)
+
+    if existing is None:
+        return False
+
+    return (
+        existing.small_path == result.small.path
+        and existing.middle_path == result.middle.path
+        and existing.small_width == result.small.width
+        and existing.small_height == result.small.height
+        and existing.middle_width == result.middle.width
+        and existing.middle_height == result.middle.height
     )
 
 
@@ -166,6 +189,11 @@ def run(
             results.append(result)
 
             if not result.ready:
+                continue
+
+            if _is_preview_up_to_date(result):
+                # Row already matches the validated result: nothing to write.
+                database_skipped += 1
                 continue
 
             db_record = _to_database_record(result)

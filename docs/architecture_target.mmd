@@ -1,0 +1,47 @@
+%% PhotoBAse / Scene Fingerprint — current service flows and proposed web layer
+%% The REST/UI area is a target design, not implemented in this checkout.
+flowchart LR
+    ORIG[(Original photos\nread-only)]
+
+    subgraph EXISTING[Current Python components]
+      DISC[DISCOVER\nnon-recursive JPG/JPEG]
+      INTEG[INTEGRITY\nSHA-256 + Pillow verify/decode]
+      IDENT[IDENTITY\nPH_ + first 24 SHA-256 hex]
+      REG[REGISTER\nfrozen PhotoRecord]
+      RES[RESULT\nIngestFileResult / IngestResult\nVALID or INVALID]
+      DBID{PostgreSQL identity check\nNEW / EXISTING / CONFLICT}
+      PH[(PostgreSQL photos)]
+      PREV[PREVIEW\nSMALL + MIDDLE JPEG\nvalidate then upsert]
+      PREVT[(PostgreSQL photo_previews)]
+      DBATCH[DINO fixed batch\nDINOv2 768-D + compact descriptors]
+      DINOR[(dino_runs + dino_candidates\nTOP-5, score, margin)]
+      HYBRID[HYBRID\nTOP-5 + sequence/neighbors]
+      HYBRIDT[(hybrid runs / verdicts)]
+      GRID[Existing NiceGUI\nfingerprint create / recognize / list]
+    end
+
+    subgraph TARGET[Future web application — proposed, not implemented]
+      API[FastAPI REST API\nPydantic DTO + auth scopes]
+      JOB[Durable job / batch worker]
+      VUE[Vue 3 + Quasar UI]
+      SEARCH[Cursor-paginated search\nvirtual GRID + filters]
+    end
+
+    ORIG --> DISC --> INTEG --> IDENT --> REG --> RES
+    RES -. "explicit coordinator required" .-> DBID
+    DBID --> PH
+    PH --> PREV --> PREVT
+    PH --> DBATCH --> DINOR --> HYBRID --> HYBRIDT
+    HYBRIDT -. "display metadata / eligibility" .-> SEARCH
+    PREVT --> SEARCH
+    PH --> SEARCH
+    GRID -. "current UI; not REST API" .-> PH
+
+    VUE --> API --> JOB
+    API --> PH
+    JOB --> DBATCH
+    JOB --> PREV
+    SEARCH --> API
+
+    classDef proposed fill:#fff4cc,stroke:#ad8700,stroke-dasharray:5 5,color:#222;
+    class API,JOB,VUE,SEARCH proposed;

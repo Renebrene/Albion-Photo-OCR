@@ -1,0 +1,1181 @@
+{
+  "timestamp": "2026-08-26T22:44:24.336346",
+  "model": "qwen3:8b",
+  "total": 234,
+  "success": 69,
+  "errors": 0,
+  "skipped": 165,
+  "total_time": 3022.9904158115387,
+  "results": [
+    {
+      "filename": "chunk_001",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_002",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_003",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_004",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_005",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_006",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_007",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_008",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_009",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_010",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_011",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_012",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_013",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_014",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_015",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_016",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_017",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_018",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_019",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_020",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_021",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_022",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_023",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_024",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_025",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_026",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_027",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_028",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_029",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_030",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_031",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_032",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_033",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_034",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_035",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_036",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_037",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_038",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_039",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_040",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_041",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_042",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_043",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_044",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_045",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_046",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_047",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_048",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_049",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_050",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_051",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_052",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_053",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_054",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_055",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_056",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_057",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_058",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_059",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_060",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_061",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_062",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_063",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_064",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_065",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_066",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_067",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_068",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_069",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_070",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_071",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_072",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_073",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_074",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_075",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_076",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_077",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_078",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_079",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_080",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_081",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_082",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_083",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_084",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_085",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_086",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_087",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_088",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_089",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_090",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_091",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_092",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_093",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_094",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_095",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_096",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_097",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_098",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_099",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_100",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_101",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_102",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_103",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_104",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_105",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_106",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_107",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_108",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_109",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_110",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_111",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_112",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_113",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_114",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_115",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_116",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_117",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_118",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_119",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_120",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_121",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_122",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_123",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_124",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_125",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_126",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_127",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_128",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_129",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_130",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_131",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_132",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_133",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_134",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_135",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_136",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_137",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_138",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_139",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_140",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_141",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_142",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_143",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_144",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_145",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_146",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_147",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_148",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_149",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_150",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_151",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_152",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_153",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_154",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_155",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_156",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_157",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_158",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_159",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_160",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_161",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_162",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_163",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_164",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_165",
+      "status": "skipped",
+      "duration": 0
+    },
+    {
+      "filename": "chunk_166",
+      "status": "success",
+      "duration": 34.92468333244324
+    },
+    {
+      "filename": "chunk_167",
+      "status": "success",
+      "duration": 29.983537912368774
+    },
+    {
+      "filename": "chunk_168",
+      "status": "success",
+      "duration": 14.064410924911499
+    },
+    {
+      "filename": "chunk_169",
+      "status": "success",
+      "duration": 37.033368825912476
+    },
+    {
+      "filename": "chunk_170",
+      "status": "success",
+      "duration": 30.686051845550537
+    },
+    {
+      "filename": "chunk_171",
+      "status": "success",
+      "duration": 27.577359437942505
+    },
+    {
+      "filename": "chunk_172",
+      "status": "success",
+      "duration": 35.22629261016846
+    },
+    {
+      "filename": "chunk_173",
+      "status": "success",
+      "duration": 29.63561773300171
+    },
+    {
+      "filename": "chunk_174",
+      "status": "success",
+      "duration": 68.14019203186035
+    },
+    {
+      "filename": "chunk_175",
+      "status": "success",
+      "duration": 50.99988842010498
+    },
+    {
+      "filename": "chunk_176",
+      "status": "success",
+      "duration": 29.430351734161377
+    },
+    {
+      "filename": "chunk_177",
+      "status": "success",
+      "duration": 33.25892877578735
+    },
+    {
+      "filename": "chunk_178",
+      "status": "success",
+      "duration": 35.16590332984924
+    },
+    {
+      "filename": "chunk_179",
+      "status": "success",
+      "duration": 22.668943405151367
+    },
+    {
+      "filename": "chunk_180",
+      "status": "success",
+      "duration": 33.77550029754639
+    },
+    {
+      "filename": "chunk_181",
+      "status": "success",
+      "duration": 21.68133807182312
+    },
+    {
+      "filename": "chunk_182",
+      "status": "success",
+      "duration": 33.76178526878357
+    },
+    {
+      "filename": "chunk_183",
+      "status": "success",
+      "duration": 40.96116662025452
+    },
+    {
+      "filename": "chunk_184",
+      "status": "success",
+      "duration": 84.55481815338135
+    },
+    {
+      "filename": "chunk_185",
+      "status": "success",
+      "duration": 43.080172538757324
+    },
+    {
+      "filename": "chunk_186",
+      "status": "success",
+      "duration": 72.00600123405457
+    },
+    {
+      "filename": "chunk_187",
+      "status": "success",
+      "duration": 27.97382354736328
+    },
+    {
+      "filename": "chunk_188",
+      "status": "success",
+      "duration": 36.053382396698
+    },
+    {
+      "filename": "chunk_189",
+      "status": "success",
+      "duration": 29.141569137573242
+    },
+    {
+      "filename": "chunk_190",
+      "status": "success",
+      "duration": 28.216426372528076
+    },
+    {
+      "filename": "chunk_191",
+      "status": "success",
+      "duration": 23.29282569885254
+    },
+    {
+      "filename": "chunk_192",
+      "status": "success",
+      "duration": 27.002256155014038
+    },
+    {
+      "filename": "chunk_193",
+      "status": "success",
+      "duration": 32.86707949638367
+    },
+    {
+      "filename": "chunk_194",
+      "status": "success",
+      "duration": 70.2925980091095
+    },
+    {
+      "filename": "chunk_195",
+      "status": "success",
+      "duration": 53.96536731719971
+    },
+    {
+      "filename": "chunk_196",
+      "status": "success",
+      "duration": 46.99284029006958
+    },
+    {
+      "filename": "chunk_197",
+      "status": "success",
+      "duration": 18.97208595275879
+    },
+    {
+      "filename": "chunk_198",
+      "status": "success",
+      "duration": 23.66273283958435
+    },
+    {
+      "filename": "chunk_199",
+      "status": "success",
+      "duration": 33.91476655006409
+    },
+    {
+      "filename": "chunk_200",
+      "status": "success",
+      "duration": 27.478389978408813
+    },
+    {
+      "filename": "chunk_201",
+      "status": "success",
+      "duration": 33.48479700088501
+    },
+    {
+      "filename": "chunk_202",
+      "status": "success",
+      "duration": 12.697712898254395
+    },
+    {
+      "filename": "chunk_203",
+      "status": "success",
+      "duration": 32.447229862213135
+    },
+    {
+      "filename": "chunk_204",
+      "status": "success",
+      "duration": 21.725173950195312
+    },
+    {
+      "filename": "chunk_205",
+      "status": "success",
+      "duration": 30.681907415390015
+    },
+    {
+      "filename": "chunk_206",
+      "status": "success",
+      "duration": 32.54349398612976
+    },
+    {
+      "filename": "chunk_207",
+      "status": "success",
+      "duration": 29.358039617538452
+    },
+    {
+      "filename": "chunk_208",
+      "status": "success",
+      "duration": 89.92123484611511
+    },
+    {
+      "filename": "chunk_209",
+      "status": "success",
+      "duration": 45.353965282440186
+    },
+    {
+      "filename": "chunk_210",
+      "status": "success",
+      "duration": 89.38539052009583
+    },
+    {
+      "filename": "chunk_211",
+      "status": "success",
+      "duration": 32.432103872299194
+    },
+    {
+      "filename": "chunk_212",
+      "status": "success",
+      "duration": 18.07444739341736
+    },
+    {
+      "filename": "chunk_213",
+      "status": "success",
+      "duration": 24.80045747756958
+    },
+    {
+      "filename": "chunk_214",
+      "status": "success",
+      "duration": 33.1924831867218
+    },
+    {
+      "filename": "chunk_215",
+      "status": "success",
+      "duration": 29.79210925102234
+    },
+    {
+      "filename": "chunk_216",
+      "status": "success",
+      "duration": 22.65042757987976
+    },
+    {
+      "filename": "chunk_217",
+      "status": "success",
+      "duration": 27.134655237197876
+    },
+    {
+      "filename": "chunk_218",
+      "status": "success",
+      "duration": 31.53223729133606
+    },
+    {
+      "filename": "chunk_219",
+      "status": "success",
+      "duration": 25.259782552719116
+    },
+    {
+      "filename": "chunk_220",
+      "status": "success",
+      "duration": 80.4261040687561
+    },
+    {
+      "filename": "chunk_221",
+      "status": "success",
+      "duration": 10.215324878692627
+    },
+    {
+      "filename": "chunk_222",
+      "status": "success",
+      "duration": 68.24012017250061
+    },
+    {
+      "filename": "chunk_223",
+      "status": "success",
+      "duration": 27.76381516456604
+    },
+    {
+      "filename": "chunk_224",
+      "status": "success",
+      "duration": 33.6234712600708
+    },
+    {
+      "filename": "chunk_225",
+      "status": "success",
+      "duration": 51.374948263168335
+    },
+    {
+      "filename": "chunk_226",
+      "status": "success",
+      "duration": 34.149715185165405
+    },
+    {
+      "filename": "chunk_227",
+      "status": "success",
+      "duration": 38.860037088394165
+    },
+    {
+      "filename": "chunk_228",
+      "status": "success",
+      "duration": 27.727354049682617
+    },
+    {
+      "filename": "chunk_229",
+      "status": "success",
+      "duration": 23.82066583633423
+    },
+    {
+      "filename": "chunk_230",
+      "status": "success",
+      "duration": 28.230780839920044
+    },
+    {
+      "filename": "chunk_231",
+      "status": "success",
+      "duration": 35.88554382324219
+    },
+    {
+      "filename": "chunk_232",
+      "status": "success",
+      "duration": 15.06116271018982
+    },
+    {
+      "filename": "chunk_233",
+      "status": "success",
+      "duration": 18.212560892105103
+    },
+    {
+      "filename": "chunk_234",
+      "status": "success",
+      "duration": 27.855109453201294
+    }
+  ]
+}

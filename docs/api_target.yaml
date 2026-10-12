@@ -1,0 +1,441 @@
+openapi: 3.1.0
+info:
+  title: PhotoBAse / Scene Fingerprint API (proposed)
+  version: 0.1.0
+  description: >-
+    Proposed contract only. These HTTP endpoints are not implemented in the current
+    NiceGUI checkout. All operations require an isolated development/test database
+    until production deployment is separately approved.
+servers:
+  - url: https://photobase.example.invalid/api
+    description: Placeholder; replace per deployment.
+security:
+  - bearerAuth: []
+tags:
+  - name: system
+  - name: ingest
+  - name: photos
+  - name: search
+  - name: batches
+paths:
+  /health:
+    get:
+      tags: [system]
+      operationId: health
+      security: []
+      summary: Liveness check (proposed)
+      responses:
+        '200':
+          description: Service is live; readiness/dependency status should be separate.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, const: ok }
+                  version: { type: string }
+  /v1/ingest:
+    post:
+      tags: [ingest]
+      operationId: ingestUpload
+      summary: Validate and register uploaded photographs (proposed)
+      description: >-
+        Asynchronous-capable endpoint. Uploads must be size-limited, quarantined,
+        decoded/validated, and registered idempotently. Never accept an arbitrary
+        server filesystem path from an untrusted caller.
+      security:
+        - bearerAuth: [ingest:write]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items: { type: string, format: binary }
+                collection_id: { type: string, maxLength: 128 }
+            encoding:
+              files:
+                contentType: image/jpeg, image/mpo, application/octet-stream
+      responses:
+        '202':
+          description: Accepted for processing.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IngestAccepted' }
+              example:
+                job_id: job_01JABC
+                status: queued
+                submitted: 2
+                status_url: /api/v1/jobs/job_01JABC
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMedia' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/jobs/{job_id}:
+    get:
+      tags: [ingest, batches]
+      operationId: getJob
+      summary: Read job status (proposed)
+      security:
+        - bearerAuth: [jobs:read]
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Job state and per-file outcomes.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobStatus' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/photos/{photo_id}:
+    get:
+      tags: [photos]
+      operationId: getPhoto
+      summary: Read registered photo metadata (proposed)
+      security:
+        - bearerAuth: [photos:read]
+      parameters:
+        - $ref: '#/components/parameters/PhotoId'
+      responses:
+        '200':
+          description: Registered physical identity and processing metadata.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Photo' }
+              example:
+                photo_id: PH_c4a49077cb428c56ad682a36
+                filename: site_01.jpg
+                sha256: c4a49077cb428c56ad682a36fcbd4c6d17e271a5af05fd990481bd33ce1520a6
+                container_format: JPEG
+                width: 4032
+                height: 3024
+                frame_count: 1
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/photos/{photo_id}/previews/{size}:
+    get:
+      tags: [photos]
+      operationId: getPreview
+      summary: Read an authorized generated preview (proposed)
+      security:
+        - bearerAuth: [photos:read]
+      parameters:
+        - $ref: '#/components/parameters/PhotoId'
+        - name: size
+          in: path
+          required: true
+          schema: { type: string, enum: [small, middle] }
+      responses:
+        '200':
+          description: JPEG preview; do not expose arbitrary filesystem paths.
+          headers:
+            Cache-Control:
+              schema: { type: string }
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/search:
+    get:
+      tags: [search]
+      operationId: searchPhotos
+      summary: Cursor-paginated virtual GRID search (proposed)
+      security:
+        - bearerAuth: [photos:read]
+      parameters:
+        - { name: address_id, in: query, schema: { type: string, maxLength: 128 } }
+        - { name: client_id, in: query, schema: { type: string, maxLength: 128 } }
+        - { name: collection_id, in: query, schema: { type: string, maxLength: 128 } }
+        - { name: date_from, in: query, schema: { type: string, format: date } }
+        - { name: date_to, in: query, schema: { type: string, format: date } }
+        - { name: q, in: query, schema: { type: string, maxLength: 256 } }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - name: cursor
+          in: query
+          schema: { type: string, maxLength: 2048 }
+      responses:
+        '200':
+          description: Metadata and preview links; originals are not embedded in GRID results.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/batches/dino:
+    post:
+      tags: [batches]
+      operationId: createDinoBatch
+      summary: Create a fixed DINO batch (proposed)
+      security:
+        - bearerAuth: [jobs:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [run_type]
+              properties:
+                run_type: { type: string, enum: [NORMAL, FORCE_RERUN] }
+                photo_ids:
+                  type: array
+                  maxItems: 1000
+                  uniqueItems: true
+                  items: { $ref: '#/components/schemas/PhotoId' }
+      responses:
+        '202':
+          description: Batch created; membership is immutable after creation.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Batch' }
+              example:
+                batch_id: 42
+                run_type: NORMAL
+                status: PENDING
+                total_count: 2
+                completed_count: 0
+                failed_count: 0
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/batches/{batch_id}:
+    get:
+      tags: [batches]
+      operationId: getBatch
+      summary: Read DINO batch status (proposed)
+      security:
+        - bearerAuth: [jobs:read]
+      parameters:
+        - name: batch_id
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: Batch status and counts.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Batch' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/batches/{batch_id}/hybrid:
+    post:
+      tags: [batches]
+      operationId: createHybridRun
+      summary: Start HYBRID only for a fully successful DINO batch (proposed)
+      security:
+        - bearerAuth: [jobs:write]
+      parameters:
+        - name: batch_id
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '202':
+          description: New immutable HYBRID run created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HybridRun' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    PhotoId:
+      name: photo_id
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/PhotoId' }
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 128 }
+  schemas:
+    PhotoId:
+      type: string
+      pattern: '^PH_[0-9a-f]{24}$'
+    Photo:
+      type: object
+      required: [photo_id, filename, sha256, container_format, width, height, frame_count]
+      properties:
+        photo_id: { $ref: '#/components/schemas/PhotoId' }
+        filename: { type: string }
+        sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        container_format: { type: string, enum: [JPEG, MPO] }
+        width: { type: integer, minimum: 1 }
+        height: { type: integer, minimum: 1 }
+        frame_count: { type: integer, minimum: 1 }
+        created_at: { type: string, format: date-time }
+    IngestAccepted:
+      type: object
+      required: [job_id, status, submitted, status_url]
+      properties:
+        job_id: { type: string }
+        status: { type: string, enum: [queued, running] }
+        submitted: { type: integer, minimum: 0 }
+        status_url: { type: string }
+    IngestFileResult:
+      type: object
+      required: [source_path, filename, status]
+      properties:
+        source_path:
+          type: string
+          description: Internal path; omit or redact for callers without an explicit scope.
+        filename: { type: string }
+        status: { type: string, enum: [VALID, INVALID, NEW, EXISTING, CONFLICT] }
+        record: { $ref: '#/components/schemas/Photo' }
+        error:
+          type: string
+          description: Safe user-facing message; never raw exception/stack trace.
+    IngestResult:
+      type: object
+      required: [discovered, results, counters]
+      properties:
+        discovered: { type: integer, minimum: 0 }
+        results:
+          type: array
+          items: { $ref: '#/components/schemas/IngestFileResult' }
+        counters:
+          type: object
+          additionalProperties: { type: integer, minimum: 0 }
+          example: { VALID: 1, INVALID: 1, NEW: 1, EXISTING: 0, CONFLICT: 0 }
+    JobStatus:
+      type: object
+      required: [job_id, status, submitted, completed, failed]
+      properties:
+        job_id: { type: string }
+        status: { type: string, enum: [queued, running, done, failed, cancelled] }
+        submitted: { type: integer, minimum: 0 }
+        completed: { type: integer, minimum: 0 }
+        failed: { type: integer, minimum: 0 }
+        result: { $ref: '#/components/schemas/IngestResult' }
+    SearchItem:
+      type: object
+      required: [photo_id, filename, preview_url]
+      properties:
+        photo_id: { $ref: '#/components/schemas/PhotoId' }
+        filename: { type: string }
+        address_id: { type: string, nullable: true }
+        client_id: { type: string, nullable: true }
+        captured_at: { type: string, format: date-time, nullable: true }
+        preview_url: { type: string, format: uri-reference }
+        match_score: { type: number, minimum: 0, maximum: 1, nullable: true }
+        match_status: { type: string, nullable: true }
+    SearchPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/SearchItem' }
+        next_cursor: { type: string, nullable: true }
+    Batch:
+      type: object
+      required: [batch_id, run_type, status, total_count, completed_count, failed_count]
+      properties:
+        batch_id: { type: integer }
+        run_type: { type: string, enum: [NORMAL, FORCE_RERUN] }
+        status: { type: string, enum: [PENDING, RUNNING, DONE, FAILED] }
+        total_count: { type: integer, minimum: 0 }
+        completed_count: { type: integer, minimum: 0 }
+        failed_count: { type: integer, minimum: 0 }
+        created_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time, nullable: true }
+    HybridRun:
+      type: object
+      required: [hybrid_run_id, dino_batch_id, status]
+      properties:
+        hybrid_run_id: { type: integer }
+        dino_batch_id: { type: integer }
+        status: { type: string, enum: [PENDING, RUNNING, DONE, FAILED] }
+    Error:
+      type: object
+      required: [code, message, request_id]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        request_id: { type: string }
+        fields:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: { type: string }
+              message: { type: string }
+  responses:
+    BadRequest:
+      description: Invalid request.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid credentials.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Authenticated principal lacks the required scope.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource does not exist or is not visible to the caller.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Identity conflict or invalid workflow state transition.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PayloadTooLarge:
+      description: Upload or request exceeds configured limits.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UnsupportedMedia:
+      description: Unsupported or invalid image media type.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RateLimited:
+      description: Rate limit exceeded.
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unavailable:
+      description: Required dependency is unavailable.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

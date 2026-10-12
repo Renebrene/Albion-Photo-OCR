@@ -429,12 +429,13 @@ class SceneRecognizer:
                 )
             )
 
-            # Always use the best available candidate.
+            # The threshold is an absolute-score gate.
             #
-            # The threshold is NO LONGER a rejection gate.
-            # Even a weak candidate is accepted as the best
-            # available address. The score/confidence are kept
-            # for diagnostics.
+            # A candidate whose best score is below the
+            # threshold is rejected: best_id is left empty and
+            # the status becomes NO_MATCH. The score, margin and
+            # confidence are still reported for diagnostics, and
+            # the full ranked candidate list is returned.
             if best_score < threshold:
                 best_id = None
                 status = "NO_MATCH"

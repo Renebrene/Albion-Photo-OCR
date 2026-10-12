@@ -1,0 +1,3096 @@
+## СЕССИЯ: OCR для табличек
+
+**Создано:** 2026-08-15 01:28:14
+**Обновлено:** 2026-08-19 17:08:05
+**Ссылка:** [https://chatgpt.com/g/g-p-6a85b8a643948191a6d0fa3b107f16c2/c/6a7f9669-79b0-83ea-87f3-ea140ceba73f](https://chatgpt.com/g/g-p-6a85b8a643948191a6d0fa3b107f16c2/c/6a7f9669-79b0-83ea-87f3-ea140ceba73f)
+
+---
+
+### 👤 **User** — 2026-08-15 01:28:14
+
+табличка прямоугольная белая с черной надписью.
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:28:14
+
+Да. Это даже **лучший вариант для OCR**: белая прямоугольная табличка + чёрный текст дает хороший контраст.
+
+Для нашего пайплайна я бы сделал так:
+
+1. **Не искать табличку в фиксированном месте** — она может быть где угодно.
+2. На каждой фотографии сначала делать **быстрый поиск прямоугольных светлых областей**.
+3. Для найденных областей запускать OCR.
+4. Перед OCR автоматически:
+   - выпрямлять перспективу таблички;
+   - увеличивать её;
+   - переводить в grayscale;
+   - усиливать контраст;
+   - пробовать несколько вариантов threshold.
+5. Полученный номер нормализовать:
+   - `12-34` → `1234`;
+   - `12 / 34` → `1234`;
+   - исправлять типичные ошибки OCR вроде `O→0`, `I→1`, `З→3`.
+6. По номеру делать запрос в вашу SQL-базу.
+7. Если номер найден — **присваивать фотографии конкретный адрес/название**.
+8. Если OCR не уверен — оставлять результат как кандидата и использовать наш **DINOv2 fingerprint** как дополнительную проверку.
+
+Причём здесь есть важный момент: **не обязательно гонять тяжёлый OCR по всей фотографии 3500×2500**. Сначала дешёво находим белые прямоугольники, и только потом OCR по нескольким небольшим областям.
+
+Для ваших **200–300 фотографий в день** это вполне реально сделать на RTX 3060. И я бы встроил это в существующий LORA/Scene Fingerprint пайплайн примерно так:
+
+**Фото → поиск таблички → OCR → номер → SQL → имя адреса → DINOv2 подтверждение → сортировка**
+
+Если на 80–90% фотографий эта табличка присутствует, **OCR может стать основным способом определения адреса**, а DINOv2 — страховкой для фотографий, где табличка плохо читается.
+
+---
+
+### 👤 **User** — 2026-08-15 01:29:12
+
+продолжаем. остановимя на этом. ничего нового не придумываем и не улучшаем
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:29:12
+
+Хорошо. **Останавливаемся на текущем варианте. Ничего нового не добавляем и не улучшаем.**
+
+Фиксируем только то, что уже определили:
+
+- белая прямоугольная табличка;
+- чёрная надпись;
+- табличка может находиться **в любом месте фотографии**;
+- используем OCR для чтения номера;
+- по номеру обращаемся к существующей базе;
+- получаем соответствующее имя/адрес;
+- дальше продолжаем работу с текущим пайплайном.
+
+Дальше работаем **только с этим вариантом**.
+
+---
+
+### 👤 **User** — 2026-08-15 01:29:19
+
+работаем
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:29:20
+
+Работаем.
+
+Следующий шаг — **реализуем именно OCR таблички в существующем пайплайне**, без изменения остальной логики.
+
+Присылай текущий скрипт/файл, с которого продолжаем, или последний вывод терминала — будем идти от него.
+
+---
+
+### 👤 **User** — 2026-08-15 01:29:56
+
+OCRеще не реализовывали - это нужно создавать отдельный модуль
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:29:57
+
+Да. **OCR пока не трогаем в существующем коде - создаём отдельный независимый модуль.**
+
+Я бы зафиксировал структуру именно так:
+
+```text
+app/
+├── core/
+│   ├── scene_embedder.py
+│   ├── fingerprint.py
+│   ├── recognizer.py
+│   └── ...
+│
+└── ocr/
+    ├── __init__.py
+    ├── plate_detector.py
+    ├── ocr_engine.py
+    └── ocr_pipeline.py
+```
+
+Но **базово начнём только с одного модуля**, чтобы не разносить код раньше времени:
+
+```text
+app/ocr/
+└── ocr_pipeline.py
+```
+
+Его задача на первом этапе:
+
+```text
+ФОТО
+  ↓
+поиск белой прямоугольной таблички
+  ↓
+выделение таблички
+  ↓
+подготовка изображения
+  ↓
+OCR
+  ↓
+полученный текст/номер
+```
+
+Пока **никакой SQL-базы, присвоения адреса и интеграции с DINOv2 не делаем**.
+
+Сначала отдельно проверяем:
+
+> **может ли модуль стабильно находить такую табличку на ваших реальных фотографиях и читать её номер.**
+
+После этого уже подключим его к существующему распознаванию.
+
+Если продолжаем с текущего проекта `scene_fingerprint_mvp_v02`, следующим шагом я могу дать **конкретный файл `app/ocr/ocr_pipeline.py` и команды для установки OCR**, не затрагивая остальные модули.
+
+---
+
+### 👤 **User** — 2026-08-15 01:30:19
+
+Дай мне конкретный файл app/ocr/ocr_pipeline.py и команды для установки OCR
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:30:19
+
+> **Searching the web**
+>
+> [Quick Start - PaddleOCR Documentation](https://www.paddleocr.ai/latest/en/quick_start.html)
+>
+> **Searched 1 website**
+>
+> 
+>
+> Worked for a couple of seconds
+
+Да. Для нашего проекта я предлагаю **не трогать существующий `SceneEmbedder` и его зависимости**, а добавить OCR как отдельный модуль.
+
+Для первой реализации берём **PaddleOCR**: он умеет одновременно находить текст на изображении и распознавать его, а текущая документация рекомендует установку `paddleocr` отдельно от inference engine. ([PaddleOCR](https://www.paddleocr.ai/latest/en/quick_start.html?utm_source=chatgpt.com))
+
+### 1. Установка
+
+Находясь в корне `scene_fingerprint_mvp_v02`:
+
+```bash
+cd ~/scene_fingerprint_mvp_v02
+
+uv add paddleocr opencv-python
+```
+
+Но для PaddleOCR нужен inference engine. В нашем случае сначала **не будем вмешивать его в CUDA 13 / PyTorch окружение вслепую**. Проверим, какой вариант Paddle доступен для текущего Python/драйвера.
+
+Выполни:
+
+```bash
+nvidia-smi
+```
+
+и:
+
+```bash
+uv run python --version
+```
+
+Потом:
+
+```bash
+uv run python -m pip install paddleocr
+```
+
+Проверка:
+
+```bash
+uv run python -c "import paddleocr; print('PaddleOCR OK')"
+```
+
+**Важно:** официальные инструкции сейчас предлагают PaddlePaddle 3.2.0 и отдельные GPU-пакеты для CUDA 11.8/12.6; физическая версия CUDA toolkit не является единственным критерием - важна совместимость драйвера. ([PaddleOCR](https://www.paddleocr.ai/latest/en/version3.x/paddlepaddle_installation.html?utm_source=chatgpt.com)) Поэтому GPU-движок пока специально не фиксирую, пока не увидим вывод `nvidia-smi`.
+
+---
+
+# 2. Создаём каталог
+
+```bash
+mkdir -p app/ocr
+touch app/ocr/__init__.py
+```
+
+---
+
+# 3. Файл `app/ocr/ocr_pipeline.py`
+
+Создай:
+
+```bash
+nano app/ocr/ocr_pipeline.py
+```
+
+и вставь:
+
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import cv2
+
+@dataclass
+class OCRResult:
+    text: str
+    confidence: float
+    bbox: list[list[int]] | None = None
+
+class OCRPipeline:
+    """
+    Отдельный OCR-модуль.
+
+    На данном этапе:
+    - принимает фотографию;
+    - передает её в PaddleOCR;
+    - возвращает найденный текст.
+
+    Поиск конкретной белой таблички и работа с SQL
+    пока намеренно не реализуются.
+    """
+
+    def __init__(self, lang: str = "ru"):
+        self.lang = lang
+        self._ocr = None
+
+    def _load(self):
+        """Ленивая загрузка PaddleOCR."""
+        if self._ocr is not None:
+            return
+
+        try:
+            from paddleocr import PaddleOCR
+        except ImportError as exc:
+            raise RuntimeError(
+                "PaddleOCR не установлен. "
+                "Установите его командой: "
+                "uv add paddleocr"
+            ) from exc
+
+        self._ocr = PaddleOCR(
+            lang=self.lang,
+        )
+
+    def recognize(self, image_path: str | Path) -> list[OCRResult]:
+        """
+        Распознать весь текст на фотографии.
+
+        Пока не выполняется специальный поиск таблички.
+        Это базовый тест самого OCR.
+        """
+
+        self._load()
+
+        image_path = Path(image_path)
+
+        if not image_path.exists():
+            raise FileNotFoundError(
+                f"Файл изображения не найден: {image_path}"
+            )
+
+        image = cv2.imread(str(image_path))
+
+        if image is None:
+            raise RuntimeError(
+                f"Не удалось открыть изображение: {image_path}"
+            )
+
+        result = self._ocr.predict(str(image_path))
+
+        return self._parse_result(result)
+
+    @staticmethod
+    def _parse_result(result: Any) -> list[OCRResult]:
+        """
+        Преобразовать результат PaddleOCR
+        в простой внутренний формат.
+        """
+
+        results: list[OCRResult] = []
+
+        for item in result:
+            try:
+                data = item.json
+                if callable(data):
+                    data = data()
+            except Exception:
+                data = None
+
+            if not data:
+                continue
+
+            results.extend(
+                OCRPipeline._parse_json_result(data)
+            )
+
+        return results
+
+    @staticmethod
+    def _parse_json_result(data: Any) -> list[OCRResult]:
+        results: list[OCRResult] = []
+
+        if isinstance(data, dict):
+            # PaddleOCR 3.x обычно возвращает данные внутри "res".
+            res = data.get("res", data)
+
+            if isinstance(res, dict):
+                texts = res.get("rec_texts", [])
+                scores = res.get("rec_scores", [])
+                boxes = res.get("rec_polys", [])
+
+                for i, text in enumerate(texts):
+                    try:
+                        confidence = float(scores[i])
+                    except (IndexError, TypeError, ValueError):
+                        confidence = 0.0
+
+                    bbox = None
+
+                    try:
+                        bbox = [
+                            [int(point[0]), int(point[1])]
+                            for point in boxes[i]
+                        ]
+                    except (IndexError, TypeError, ValueError):
+                        pass
+
+                    results.append(
+                        OCRResult(
+                            text=str(text),
+                            confidence=confidence,
+                            bbox=bbox,
+                        )
+                    )
+
+        elif isinstance(data, list):
+            for item in data:
+                results.extend(
+                    OCRPipeline._parse_json_result(item)
+                )
+
+        return results
+
+def recognize_image(
+    image_path: str | Path,
+    lang: str = "ru",
+) -> list[OCRResult]:
+    """
+    Удобная функция для вызова OCR без создания объекта вручную.
+    """
+
+    pipeline = OCRPipeline(lang=lang)
+
+    return pipeline.recognize(image_path)
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Тестовый запуск OCR"
+    )
+
+    parser.add_argument(
+        "image",
+        help="Путь к фотографии",
+    )
+
+    parser.add_argument(
+        "--lang",
+        default="ru",
+        help="Язык OCR, по умолчанию ru",
+    )
+
+    args = parser.parse_args()
+
+    results = recognize_image(
+        args.image,
+        lang=args.lang,
+    )
+
+    print()
+    print("=" * 70)
+    print("OCR RESULT")
+    print("=" * 70)
+
+    if not results:
+        print("Текст не найден.")
+    else:
+        for i, item in enumerate(results, 1):
+            print(
+                f"{i:02d}. "
+                f"text={item.text!r} "
+                f"confidence={item.confidence:.4f} "
+                f"bbox={item.bbox}"
+            )
+
+    print("=" * 70)
+```
+
+### 4. Пока ничего больше не подключаем
+
+То есть сейчас структура будет:
+
+```text
+scene_fingerprint_mvp_v02/
+│
+├── app/
+│   ├── core/
+│   │   └── ...
+│   │
+│   └── ocr/
+│       ├── __init__.py
+│       └── ocr_pipeline.py
+│
+├── data/
+│   ├── fingerprints/
+│   └── input/
+│
+└── ...
+```
+
+### 5. Первый тест
+
+После установки OCR запускаем **на одной реальной фотографии с табличкой**:
+
+```bash
+uv run python -m app.ocr.ocr_pipeline "путь/к/фотографии.JPG"
+```
+
+Например:
+
+```bash
+uv run python -m app.ocr.ocr_pipeline data/input/78/33.JPG
+```
+
+На этом этапе нас интересует только результат примерно такого вида:
+
+```text
+======================================================================
+OCR RESULT
+======================================================================
+01. text='12345' confidence=0.9821 bbox=[[...]]
+02. text='...' confidence=0.7312 bbox=[[...]]
+======================================================================
+```
+
+**Пока не делаем обнаружение белого прямоугольника.** Сначала проверяем, как PaddleOCR ведёт себя на ваших настоящих фотографиях. Затем, уже имея этот результат, сделаем следующий маленький шаг - именно **поиск белой прямоугольной таблички**, не меняя остальной проект.
+
+Официальная документация PaddleOCR подтверждает использование `paddleocr` для обычного OCR и текущий API пайплайна распознавания. ([PaddleOCR](https://www.paddleocr.ai/latest/en/quick_start.html?utm_source=chatgpt.com))
+
+---
+
+**Sources:**
+
+- [Quick Start - PaddleOCR Documentation](https://www.paddleocr.ai/latest/en/quick_start.html?utm_source=chatgpt.com)
+
+---
+
+### 👤 **User** — 2026-08-15 01:31:20
+
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$ nvidia-smi
+Sat Aug 15 01:30:52 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 595.84                 Driver Version: 595.84         CUDA Version: 13.2     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 3060        Off |   00000000:0A:00.0  On |                  N/A |
+|  0%   46C    P8             11W /  170W |    1297MiB /  12288MiB |      6%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A            2408      G   /usr/lib/xorg/Xorg                      367MiB |
+|    0   N/A  N/A            2730      C   ...exice/ComfyUI/venv/bin/python        266MiB |
+|    0   N/A  N/A            2912      C   venv/bin/python                         124MiB |
+|    0   N/A  N/A            3048      G   /usr/bin/gnome-shell                     59MiB |
+|    0   N/A  N/A            4339      G   ...exec/xdg-desktop-portal-gnome          2MiB |
+|    0   N/A  N/A            4497      G   ...mount_pCloudiOBCCb/pcloud.bin         16MiB |
+|    0   N/A  N/A            5159      G   /opt/pro32connect/pro32connect            2MiB |
+|    0   N/A  N/A            5556      G   /usr/bin/megasync                         2MiB |
+|    0   N/A  N/A          125987      G   /usr/bin/nautilus                        18MiB |
+|    0   N/A  N/A          827045      G   .../8702/usr/lib/firefox/firefox        240MiB |
+|    0   N/A  N/A          949009      G   /usr/bin/gnome-system-monitor            12MiB |
+|    0   N/A  N/A          951927      G   /usr/bin/gnome-calculator                 8MiB |
++-----------------------------------------------------------------------------------------+
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$ uv run python --version
+Python 3.12.3
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:31:21
+
+Отлично. Теперь у нас есть точные параметры:
+
+- **RTX 3060 12 GB**
+- драйвер **595.84**
+- CUDA compatibility **13.2**
+- Python **3.12.3**
+- проект: `~/projects/scene_fingerprint_mvp_v02`
+
+И здесь важно: **не ставим пока PaddlePaddle наугад**. У тебя CUDA 13.2, поэтому сначала проверим текущее окружение и доступные пакеты.
+
+Выполни **только эти команды**:
+
+```bash
+cd ~/projects/scene_fingerprint_mvp_v02
+
+uv run python -c "import torch; print('Torch:', torch.__version__); print('CUDA:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available())"
+```
+
+Затем:
+
+```bash
+uv run python -m pip index versions paddlepaddle-gpu
+```
+
+И:
+
+```bash
+uv run python -m pip index versions paddlepaddle
+```
+
+**Пока `paddleocr` и `paddlepaddle` не устанавливай.**
+
+Пришли вывод этих трёх команд. После этого подберём конкретный вариант под **Python 3.12 + RTX 3060 + твой текущий CUDA/драйвер**, чтобы не поломать существующее окружение проекта.
+
+---
+
+### 👤 **User** — 2026-08-15 01:31:43
+
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$ uv run python -c "import paddleocr; print('PaddleOCR OK')"
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "/home/alexice/projects/scene_fingerprint_mvp_v02/.venv/lib/python3.12/site-packages/paddleocr/__init__.py", line 14, in <module>
+    from .paddleocr import (
+  File "/home/alexice/projects/scene_fingerprint_mvp_v02/.venv/lib/python3.12/site-packages/paddleocr/paddleocr.py", line 21, in <module>
+    from paddle.utils import try_import
+ModuleNotFoundError: No module named 'paddle'
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:31:43
+
+Да, всё нормально. Это означает только одно: **PaddleOCR уже установлен, а PaddlePaddle — нет**.
+
+Ошибка:
+
+```text
+ModuleNotFoundError: No module named 'paddle'
+```
+
+как раз это и подтверждает.
+
+Пока **ничего в проекте не меняем**. Сейчас определим совместимый `paddlepaddle`.
+
+Выполни:
+
+```bash
+cd ~/projects/scene_fingerprint_mvp_v02
+
+uv run python -m pip index versions paddlepaddle-gpu
+```
+
+и отдельно:
+
+```bash
+uv run python -m pip index versions paddlepaddle
+```
+
+И ещё одну проверку текущего PyTorch:
+
+```bash
+uv run python -c "import torch; print('Torch:', torch.__version__); print('Torch CUDA:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available())"
+```
+
+Пришли **весь вывод этих трёх команд**.
+
+После этого поставим только необходимый Paddle backend и проверим:
+
+```text
+Paddle
+  ↓
+PaddleOCR
+  ↓
+GPU
+  ↓
+первая фотография
+```
+
+Существующий DINOv2/PyTorch пайплайн пока не трогаем.
+
+---
+
+### 👤 **User** — 2026-08-15 01:32:03
+
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$ cd ~/projects/scene_fingerprint_mvp_v02
+
+uv run python -m pip index versions paddlepaddle-gpu
+/home/alexice/projects/scene_fingerprint_mvp_v02/.venv/bin/python3: No module named pip
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:32:04
+
+Да, это тоже нормально для `uv`: в этом окружении **`pip` вообще не установлен**, поэтому команда через `python -m pip` здесь не подходит.
+
+Не ставим `pip` и ничего лишнего не добавляем.
+
+Сделаем проверку через сам `uv`. Выполни:
+
+```bash
+cd ~/projects/scene_fingerprint_mvp_v02
+
+uv pip index versions paddlepaddle-gpu
+```
+
+Если `uv pip index` тоже не поддерживается, тогда сразу:
+
+```bash
+uv add paddlepaddle
+```
+
+Но **пока не выполняй второй вариант** — сначала пришли результат первой команды.
+
+И отдельно проверим текущий PyTorch:
+
+```bash
+uv run python -c "import torch; print('Torch:', torch.__version__); print('Torch CUDA:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available())"
+```
+
+То есть сейчас у нас уже установлено:
+
+```text
+PaddleOCR → есть
+PaddlePaddle → отсутствует
+PyTorch → уже используется проектом
+```
+
+Наша задача сейчас — **только правильно поставить Paddle backend**, не ломая существующее окружение.
+
+---
+
+### 👤 **User** — 2026-08-15 01:32:20
+
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$ cd ~/projects/scene_fingerprint_mvp_v02
+
+uv pip index versions paddlepaddle-gpu
+error: unrecognized subcommand 'index'
+
+Usage: uv pip [OPTIONS] <COMMAND>
+
+For more information, try '--help'.
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:32:21
+
+Да. Всё понятно: установленный у тебя `uv` действительно не имеет `pip index`. Ничего страшного.
+
+Сейчас **не будем ставить ничего наугад**. Нам нужно узнать версию `uv` и текущий PyTorch.
+
+Выполни две команды:
+
+```bash
+uv --version
+```
+
+и:
+
+```bash
+uv run python -c "import torch; print('Torch:', torch.__version__); print('Torch CUDA:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available())"
+```
+
+Пришли вывод.
+
+После этого я дам **одну конкретную команду установки PaddlePaddle**, совместимую именно с твоим окружением.
+
+Пока ничего больше не устанавливаем.
+
+---
+
+### 👤 **User** — 2026-08-15 01:32:43
+
+Usage: uv pip [OPTIONS] <COMMAND>
+
+For more information, try '--help'.
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$ uv --version
+uv 0.12.3 (x86_64-unknown-linux-gnu)
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$ uv run python -c "import torch; print('Torch:', torch.__version__); print('Torch CUDA:', torch.version.cuda); print('CUDA available:', torch.cuda.is_available())"
+Torch: 2.13.0+cu130
+Torch CUDA: 13.0
+CUDA available: True
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:32:44
+
+Отлично. Теперь картина полная:
+
+```text
+uv              0.12.3
+Python          3.12.3
+PyTorch         2.13.0+cu130
+PyTorch CUDA    13.0
+NVIDIA Driver   595.84
+CUDA runtime    13.2
+GPU             RTX 3060 12 GB
+PaddleOCR       установлен
+PaddlePaddle    отсутствует
+```
+
+**Существующий PyTorch/CUDA не трогаем.**
+
+Но есть важный момент: PaddlePaddle и PyTorch могут сосуществовать в одном `.venv`, однако нам нужно подобрать именно доступный GPU wheel для Linux/Python 3.12. Поэтому не будем экспериментировать с версиями.
+
+Сначала выполни:
+
+```bash
+uv add paddlepaddle
+```
+
+Это поставит обычный CPU backend, если он доступен для твоего Python. **Это не меняет PyTorch и не удаляет CUDA.**
+
+После установки:
+
+```bash
+uv run python -c "import paddle; print('Paddle:', paddle.__version__); print('Compiled CUDA:', paddle.device.is_compiled_with_cuda()); print('Device:', paddle.device.get_device())"
+```
+
+Если увидим:
+
+```text
+Compiled CUDA: False
+```
+
+— **останавливаемся** и не запускаем OCR. Тогда отдельно поставим GPU backend.
+
+Если же:
+
+```text
+Compiled CUDA: True
+```
+
+— проверим PaddleOCR на GPU.
+
+### Сейчас выполни только
+
+```bash
+uv add paddlepaddle
+```
+
+и пришли весь вывод.
+
+**Не устанавливай пока `paddlepaddle-gpu` и не меняй ничего в PyTorch.**
+
+---
+
+### 👤 **User** — 2026-08-15 01:33:36
+
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$ uv run python -c "import paddle; print('Paddle:', paddle.__version__); print('Compiled CUDA:', paddle.device.is_compiled_with_cuda()); print('Device:', paddle.device.get_device())"
+/home/alexice/projects/scene_fingerprint_mvp_v02/.venv/lib/python3.12/site-packages/paddle/utils/cpp_extension/extension_utils.py:712: UserWarning: No ccache found. Please be aware that recompiling all source files may be required. You can download and install ccache from: https://github.com/ccache/ccache/blob/master/doc/INSTALL.md
+  warnings.warn(warning_message)
+Paddle: 3.3.1
+Compiled CUDA: False
+Device: cpu
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:33:37
+
+Отлично. Это именно тот результат, который нам был нужен.
+
+Сейчас:
+
+```text
+Paddle        3.3.1
+Paddle CUDA   False
+Device        cpu
+PaddleOCR     установлен
+PyTorch       2.13.0+cu130
+RTX 3060      доступна
+```
+
+То есть **ничего не сломано**. Сейчас PaddleOCR просто работает через CPU.
+
+Но нам для 200–300 фотографий в день лучше использовать GPU. Поэтому **на этом этапе OCR-файл пока не запускаем**.
+
+Следующий шаг — подобрать GPU-сборку PaddlePaddle, совместимую с твоим окружением. И здесь есть нюанс: у тебя очень свежая связка **драйвер 595 / CUDA 13.2 / Python 3.12**, поэтому не хочу опять ставить пакет вслепую.
+
+Выполни:
+
+```bash
+uv pip show paddlepaddle
+```
+
+и:
+
+```bash
+uv pip show paddleocr
+```
+
+И ещё:
+
+```bash
+uv pip list | grep -E 'paddle|torch|nvidia'
+```
+
+Пришли вывод.
+
+После этого определим **конкретную GPU-версию PaddlePaddle**. `paddlepaddle 3.3.1 CPU` пока оставляем как есть — удалять его сейчас не нужно.
+
+---
+
+### 👤 **User** — 2026-08-15 01:34:13
+
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$ uv pip show paddlepaddle
+Name: paddlepaddle
+Version: 3.3.1
+Location: /home/alexice/projects/scene_fingerprint_mvp_v02/.venv/lib/python3.12/site-packages
+Requires: httpx, networkx, numpy, opt-einsum, pillow, protobuf, safetensors, setuptools, typing-extensions
+Required-by: scene-fingerprint
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$ uv pip show paddleocr
+Name: paddleocr
+Version: 2.10.0
+Location: /home/alexice/projects/scene_fingerprint_mvp_v02/.venv/lib/python3.12/site-packages
+Requires: albucore, albumentations, beautifulsoup4, cython, fire, fonttools, lmdb, numpy, opencv-contrib-python, opencv-python, pillow, pyclipper, python-docx, pyyaml, rapidfuzz, requests, scikit-image, shapely, tqdm
+Required-by: scene-fingerprint
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$ uv pip list | grep -E 'paddle|torch|nvidia'
+nvidia-cublas          13.1.1.3
+nvidia-cuda-cupti      13.0.85
+nvidia-cuda-nvrtc      13.0.88
+nvidia-cuda-runtime    13.0.96
+nvidia-cudnn-cu13      9.20.0.48
+nvidia-cufft           12.0.0.61
+nvidia-cufile          1.15.1.6
+nvidia-curand          10.4.0.35
+nvidia-cusolver        12.0.4.66
+nvidia-cusparse        12.6.3.3
+nvidia-cusparselt-cu13 0.8.1
+nvidia-nccl-cu13       2.29.7
+nvidia-nvjitlink       13.3.33
+nvidia-nvshmem-cu13    3.4.5
+nvidia-nvtx            13.0.85
+paddleocr              2.10.0
+paddlepaddle           3.3.1
+torch                  2.13.0
+torchvision            0.28.0
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:34:14
+
+Да, теперь всё видно.
+
+У нас сейчас:
+
+```text
+Python       3.12.3
+PaddleOCR    2.10.0
+PaddlePaddle 3.3.1 CPU
+PyTorch      2.13.0 + CUDA 13.0
+RTX 3060     12 GB
+```
+
+И важное наблюдение: **PaddleOCR 2.10.0 уже установлен**, поэтому ранее предложенный API из `PaddleOCR 3.x` (`predict()`) для него не подходит. Не будем смешивать версии.
+
+Сейчас наша задача — **только получить GPU PaddlePaddle**, не меняя PyTorch.
+
+Для этого сначала посмотрим, какие варианты Paddle доступны через официальный индекс. Выполни:
+
+```bash
+uv run python -m ensurepip --version
+```
+
+Если команда покажет версию — хорошо. Если скажет, что `ensurepip` отсутствует — просто пришли ошибку.
+
+И ещё:
+
+```bash
+uv pip --help
+```
+
+**Больше ничего пока не устанавливай.**
+
+После этого я дам точную команду для GPU Paddle.
+
+---
+
+### 👤 **User** — 2026-08-15 01:34:39
+
+pyyaml, rapidfuzz, requests, scikit-image, shapely, tqdm
+Required-by: scene-fingerprint
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$ uv pip list | grep -E 'paddle|torch|nvidia'
+nvidia-cublas          13.1.1.3
+nvidia-cuda-cupti      13.0.85
+nvidia-cuda-nvrtc      13.0.88
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$ 
+bash: alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$: No such file or directory
+Name:: command not found
+Version:: command not found
+Location:: command not found
+Requires:: command not found
+Required-by:: command not found
+bash: alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$: No such file or directory
+Name:: command not found
+Version:: command not found
+Location:: command not found
+Requires:: command not found
+Required-by:: command not found
+bash: alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$: No such file or directory
+nvidia-cublas: command not found
+nvidia-cuda-cupti: command not found
+nvidia-cuda-nvrtc: command not found
+nvidia-cuda-runtime: command not found
+nvidia-cudnn-cu13: command not found
+nvidia-cufft: command not found
+nvidia-cufile: command not found
+nvidia-curand: command not found
+nvidia-cusolver: command not found
+nvidia-cusparse: command not found
+nvidia-cusparselt-cu13: command not found
+nvidia-nccl-cu13: command not found
+nvidia-nvjitlink: command not found
+nvidia-nvshmem-cu13: command not found
+nvidia-nvtx: command not found
+paddleocr: command not found
+paddlepaddle: command not found
+Command 'torch' not found, did you mean:
+  command 'touch' from deb coreutils (9.4-3ubuntu6.2)
+  command 'torcs' from deb torcs (1.3.7+dfsg-5build1)
+Try: sudo apt install <deb name>
+torchvision: command not found
+bash: alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$: No such file or directory
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:34:40
+
+Да, вижу, что произошло. **Ничего не сломалось.** Ты случайно вставил в терминал не только команды, но и строки вывода предыдущей команды.
+
+Например:
+
+```text
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$
+Name: paddlepaddle
+Version: 3.3.1
+...
+```
+
+Shell попытался выполнить эти строки как команды, поэтому и появились:
+
+```text
+Name:: command not found
+paddlepaddle: command not found
+```
+
+Это **не означает, что пакеты удалились или окружение сломалось**.
+
+### Сейчас делаем только одну проверку
+
+Вставь **только эту строку**, начиная с `uv`:
+
+```bash
+uv run python -m ensurepip --version
+```
+
+И пришли результат.
+
+Пока **ничего не устанавливаем, не удаляем и не запускаем OCR**.
+
+---
+
+### 👤 **User** — 2026-08-15 01:34:58
+
+pip 24.0
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:34:58
+
+Отлично. Значит `pip` внутри `.venv` есть, просто `uv run python -m pip` раньше не находил его до `ensurepip`.
+
+Теперь можем аккуратно посмотреть доступные пакеты **через pip**, не меняя окружение.
+
+Выполни:
+
+```bash
+uv run python -m pip index versions paddlepaddle-gpu
+```
+
+Если команда отработает, пришли вывод.
+
+Пока **ничего не устанавливаем**.
+
+---
+
+### 👤 **User** — 2026-08-15 01:35:13
+
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$ uv run python -m pip index versions paddlepaddle-gpu
+/home/alexice/projects/scene_fingerprint_mvp_v02/.venv/bin/python3: No module named pip
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:35:13
+
+Да, причина понятна: `ensurepip --version` показывает встроенную версию `pip`, но сам модуль `pip` в `.venv` при этом не установлен. Не будем сейчас гоняться за `pip`.
+
+И ещё важное: **я раньше слишком долго вёл нас к GPU Paddle, хотя для нашего первого теста это не требуется.** Давай не усложнять.
+
+У нас уже есть рабочий CPU PaddlePaddle 3.3.1 и PaddleOCR 2.10.0. Сначала проверим сам OCR на одной фотографии. Это отдельный модуль, как мы договорились.
+
+Но нужно использовать **API именно PaddleOCR 2.10.0**, а не тот код `3.x`, который я дал выше.
+
+### 1. Сначала проверим импорт
+
+Выполни:
+
+```bash
+uv run python -c "from paddleocr import PaddleOCR; print('PaddleOCR import OK')"
+```
+
+Если получим:
+
+```text
+PaddleOCR import OK
+```
+
+переходим дальше.
+
+### 2. Проверим создание OCR
+
+```bash
+uv run python -c "from paddleocr import PaddleOCR; ocr=PaddleOCR(lang='ru', use_gpu=False); print('OCR INIT OK')"
+```
+
+Если здесь будет ошибка — **пришли её целиком**.
+
+Пока больше ничего не устанавливаем и не меняем. Нам сейчас нужно убедиться, что установленная связка
+
+**PaddlePaddle 3.3.1 + PaddleOCR 2.10.0**
+
+вообще нормально запускается в твоём окружении.
+
+---
+
+### 👤 **User** — 2026-08-15 01:37:15
+
+если скорость CPU устроит не будем переходить на GPU           OCR init ok
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:37:15
+
+Да. **Если CPU даст приемлемую скорость — оставляем CPU и вообще не переходим на GPU.** Это соответствует нашей задаче и не усложняет окружение.
+
+`OCR init ok` означает, что связка:
+
+```text
+Python 3.12.3
+PaddleOCR 2.10.0
+PaddlePaddle 3.3.1
+CPU
+```
+
+успешно запускается.
+
+Теперь переходим к **реальному тесту на фотографии**.
+
+Но сначала исправим созданный ранее `ocr_pipeline.py`: он был написан под API PaddleOCR 3.x, а у нас **2.10.0**. Не будем пока добавлять поиск таблички — сначала проверим скорость и качество обычного OCR.
+
+Я дам тебе точный вариант файла следующим сообщением/шагом, а затем прогоняем **одну фотографию с табличкой**. Если, например, обработка 1 фотографии занимает 1–3 секунды, для 200–300 фото это уже вполне рабочий вариант.
+
+---
+
+### 👤 **User** — 2026-08-15 01:37:50
+
+давай
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:37:51
+
+Да. Делаем **только базовый OCR-тест**, без поиска таблички и без SQL.
+
+Заменяем `app/ocr/ocr_pipeline.py` на версию, совместимую с установленным **PaddleOCR 2.10.0**.
+
+### 1. Запиши файл
+
+```bash
+cd ~/projects/scene_fingerprint_mvp_v02
+
+mkdir -p app/ocr
+touch app/ocr/__init__.py
+
+nano app/ocr/ocr_pipeline.py
+```
+
+Вставь целиком:
+
+```python
+from __future__ import annotations
+
+import argparse
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+from paddleocr import PaddleOCR
+
+@dataclass
+class OCRResult:
+    text: str
+    confidence: float
+    bbox: list
+
+class OCRPipeline:
+    """
+    Базовый OCR-модуль.
+
+    На этом этапе:
+    - принимает фотографию;
+    - запускает PaddleOCR;
+    - возвращает весь найденный текст.
+
+    Поиск белой таблички и SQL пока НЕ реализованы.
+    """
+
+    def __init__(self, lang: str = "ru"):
+        self.lang = lang
+
+        print("[OCR] Initializing PaddleOCR...")
+        self.ocr = PaddleOCR(
+            lang=self.lang,
+            use_gpu=False,
+        )
+        print("[OCR] Ready. Device=CPU")
+
+    def recognize(self, image_path: str | Path) -> list[OCRResult]:
+        image_path = Path(image_path)
+
+        if not image_path.exists():
+            raise FileNotFoundError(
+                f"Image not found: {image_path}"
+            )
+
+        start = time.perf_counter()
+
+        result = self.ocr.ocr(
+            str(image_path),
+            cls=True,
+        )
+
+        elapsed = time.perf_counter() - start
+
+        results = []
+
+        if result and result[0]:
+            for line in result[0]:
+                bbox = line[0]
+                text = line[1][0]
+                confidence = float(line[1][1])
+
+                results.append(
+                    OCRResult(
+                        text=text,
+                        confidence=confidence,
+                        bbox=bbox,
+                    )
+                )
+
+        print(f"[OCR] Image: {image_path.name}")
+        print(f"[OCR] Time: {elapsed:.3f} sec")
+        print(f"[OCR] Text regions: {len(results)}")
+
+        return results
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Basic PaddleOCR test"
+    )
+
+    parser.add_argument(
+        "image",
+        help="Path to image",
+    )
+
+    parser.add_argument(
+        "--lang",
+        default="ru",
+        help="OCR language",
+    )
+
+    args = parser.parse_args()
+
+    ocr = OCRPipeline(
+        lang=args.lang,
+    )
+
+    results = ocr.recognize(
+        args.image,
+    )
+
+    print()
+    print("=" * 70)
+    print("OCR RESULT")
+    print("=" * 70)
+
+    if not results:
+        print("No text detected.")
+    else:
+        for i, item in enumerate(results, 1):
+            print(
+                f"{i:02d}. "
+                f"text={item.text!r} "
+                f"confidence={item.confidence:.4f}"
+            )
+
+    print("=" * 70)
+
+if __name__ == "__main__":
+    main()
+```
+
+Сохрани:
+
+**Ctrl+O → Enter → Ctrl+X**
+
+---
+
+### 2. Проверяем сам модуль
+
+```bash
+uv run python -m app.ocr.ocr_pipeline --help
+```
+
+Должно появиться примерно:
+
+```text
+usage: ocr_pipeline.py [-h] [--lang LANG] image
+```
+
+---
+
+### 3. Теперь самое важное — реальная фотография
+
+Возьми **одну фотографию, где хорошо видна наша белая табличка**, и запусти:
+
+```bash
+uv run python -m app.ocr.ocr_pipeline "ПОЛНЫЙ_ПУТЬ_К_ФОТО.JPG"
+```
+
+Например, если фотография лежит в `data/input/78`:
+
+```bash
+uv run python -m app.ocr.ocr_pipeline "data/input/78/33.JPG"
+```
+
+Получим примерно:
+
+```text
+[OCR] Initializing PaddleOCR...
+[OCR] Ready. Device=CPU
+[OCR] Image: 33.JPG
+[OCR] Time: 1.842 sec
+[OCR] Text regions: 7
+
+======================================================================
+OCR RESULT
+======================================================================
+01. text='...' confidence=0.9821
+02. text='...' confidence=0.9143
+03. text='12345' confidence=0.9678
+...
+======================================================================
+```
+
+**Пришли сюда весь вывод этого запуска.**
+
+Особенно нас сейчас интересуют две вещи:
+
+1. **`OCR Time`** — реальная скорость CPU на твоей машине.
+2. **Распознал ли он номер на белой табличке.**
+
+После этого уже будем делать следующий шаг — **именно обнаружение белой прямоугольной таблички в любом месте фотографии**. Остальную систему пока не трогаем.
+
+---
+
+### 👤 **User** — 2026-08-15 01:39:29
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/alexice/projects/scene_fingerprint_mvp_v02/app/ocr/ocr_pipeline.py", line 125, in <module>
+    main()
+  File "/home/alexice/projects/scene_fingerprint_mvp_v02/app/ocr/ocr_pipeline.py", line 102, in main
+    results = ocr.recognize(
+              ^^^^^^^^^^^^^^
+  File "/home/alexice/projects/scene_fingerprint_mvp_v02/app/ocr/ocr_pipeline.py", line 44, in recognize
+    raise FileNotFoundError(
+FileNotFoundError: Image not found: /home/alexice/projects/scene_fingerprint_mvp_v02/data/input/84/33(11).JPG
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:39:31
+
+Да, это **не ошибка OCR**. Модуль запустился, но указанный файл не найден:
+
+```text
+FileNotFoundError:
+.../data/input/84/33(11).JPG
+```
+
+Скорее всего, отличается имя файла — например, пробел, другой номер в скобках или расширение.
+
+Давай ничего не меняем в коде. Просто посмотрим реальные имена файлов в этой папке.
+
+Выполни:
+
+```bash
+ls -lah data/input/84 | head -30
+```
+
+Если хочешь сразу найти именно похожие на `33(11)`:
+
+```bash
+find data/input/84 -maxdepth 1 -type f -iname '*33*11*'
+```
+
+Пришли вывод второй команды. Я скажу **точную команду запуска OCR** для существующей фотографии.
+
+---
+
+### 👤 **User** — 2026-08-15 01:39:52
+
+total 264M
+drwx------  2 alexice alexice 4.0K Aug 12 19:28 .
+drwxrwxr-x 22 alexice alexice 4.0K Aug 14 20:21 ..
+-rw-------  1 alexice alexice 5.3M Aug 18  2025 33 (10).JPG
+-rw-------  1 alexice alexice 5.4M Sep  3  2025 33 (11).JPG
+-rw-------  1 alexice alexice 4.8M Sep 10  2025 33 (12).JPG
+-rw-------  1 alexice alexice 4.4M Jan 14  2025 33 (13).JPG
+-rw-------  1 alexice alexice 4.3M Jan 14  2025 33 (14).JPG
+-rw-------  1 alexice alexice 4.3M Jan 14  2025 33 (15).JPG
+-rw-------  1 alexice alexice 4.1M Jan 14  2025 33 (16).JPG
+-rw-------  1 alexice alexice 4.3M Jan 14  2025 33 (17).JPG
+-rw-------  1 alexice alexice 4.3M Jan 28  2025 33 (18).JPG
+-rw-------  1 alexice alexice 5.7M Feb  5  2025 33 (19).JPG
+-rw-------  1 alexice alexice 4.7M Apr 11  2025 33 (1).JPG
+-rw-------  1 alexice alexice 5.4M Feb  5  2025 33 (20).JPG
+-rw-------  1 alexice alexice 5.5M Feb 18  2025 33 (21).JPG
+-rw-------  1 alexice alexice 5.6M Feb 20  2025 33 (22).JPG
+-rw-------  1 alexice alexice 5.8M Feb 25  2025 33 (23).JPG
+-rw-------  1 alexice alexice 5.9M Feb 25  2025 33 (24).JPG
+-rw-------  1 alexice alexice 4.9M Mar  3  2025 33 (25).JPG
+-rw-------  1 alexice alexice 4.7M Mar  3  2025 33 (26).JPG
+-rw-------  1 alexice alexice 5.0M Mar  3  2025 33 (27).JPG
+-rw-------  1 alexice alexice 5.6M Mar 12  2025 33 (28).JPG
+-rw-------  1 alexice alexice 4.5M Mar 12  2025 33 (29).JPG
+-rw-------  1 alexice alexice 6.0M Apr 18  2025 33 (2).JPG
+-rw-------  1 alexice alexice 4.7M Mar 17  2025 33 (30).JPG
+-rw-------  1 alexice alexice 5.1M Apr  6  2025 33 (31).JPG
+-rw-------  1 alexice alexice 5.5M May  4  2025 33 (3).JPG
+-rw-------  1 alexice alexice 5.1M May 16  2025 33 (4).JPG
+-rw-------  1 alexice alexice 5.6M Jun  2  2025 33 (5).JPG
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$ ,
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:39:52
+
+Да, нашли причину: в имени файла есть **пробел**:
+
+```text
+33 (11).JPG
+```
+
+а мы запускали:
+
+```text
+33(11).JPG
+```
+
+Запусти теперь **точно так**:
+
+```bash
+uv run python -m app.ocr.ocr_pipeline "data/input/84/33 (11).JPG"
+```
+
+Кавычки здесь обязательны из-за пробела в имени.
+
+Пришли весь вывод, особенно:
+
+```text
+[OCR] Time: ...
+```
+
+и блок `OCR RESULT`.
+
+---
+
+### 👤 **User** — 2026-08-15 01:40:19
+
+434
+[OCR] Image: 33 (11).JPG
+[OCR] Time: 0.488 sec
+[OCR] Text regions: 12
+
+======================================================================
+OCR RESULT
+======================================================================
+01. text='тысяч' confidence=0.9220
+02. text='создадим' confidence=0.9813
+03. text='мЕсТ' confidence=0.7230
+04. text='B HовыIХ' confidence=0.8115
+05. text='школахиCадиках' confidence=0.8734
+06. text='B2о25году' confidence=0.8468
+07. text='AEAT POCTOBCKюOEACTы' confidence=0.6909
+08. text='орийслюсар' confidence=0.8101
+09. text='+:320-3020' confidence=0.7750
+10. text='OzOn' confidence=0.7183
+11. text='ођмтъ' confidence=0.7802
+12. text='P8оOKM1' confidence=0.6148
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:40:20
+
+Вот это уже полезный результат.
+
+### Что получили
+
+**Скорость CPU:**
+
+```text
+0.488 сек / фотографию
+```
+
+Это очень хорошо. Даже если реальная средняя скорость будет около **0.5–0.8 сек/фото**, 200–300 фотографий — это примерно **2–4 минуты**. Поэтому **GPU пока действительно не нужен**.
+
+### Но с этой фотографии табличка не распознана
+
+OCR нашёл 12 текстовых областей, но среди них нет очевидного номера нашей таблички.
+
+При этом видно, что обычный OCR вполне работает:
+
+```text
+'создадим'
+'мест'
+'в новых'
+'школахиCадиках'
+'в2025году'
+'Ростовской области'
+'OzOn'
+```
+
+То есть проблема сейчас **не в PaddleOCR и не в скорости**.
+
+Проблема именно в том, что мы дали OCR **всю фотографию целиком**, а наша задача — найти маленькую **белую прямоугольную табличку с чёрной надписью**.
+
+Именно поэтому следующий шаг должен быть тем, о чём мы изначально договорились:
+
+```text
+Фотография
+    ↓
+поиск белой прямоугольной области
+    ↓
+вырезаем табличку
+    ↓
+увеличиваем
+    ↓
+OCR
+```
+
+Причём **сам OCR уже оставляем как есть** — он показал скорость 0.488 с.
+
+Теперь нам нужен следующий отдельный этап внутри OCR-модуля: **детектор таблички**. И его будем сначала тестировать отдельно, не подключая SQL и не меняя DINOv2.
+
+---
+
+### 👤 **User** — 2026-08-15 01:41:03
+
+давай пробовать. в принципе, если не получится - ничего страшного веренмся к варианту с подслепками
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:41:04
+
+Да, именно так. Пробуем **отдельно**, текущий рабочий OCR не ломаем. Если поиск таблички окажется нестабильным — возвращаемся к варианту со слепками.
+
+Для первого теста сделаем простой детектор по признакам самой таблички:
+
+**белая область → прямоугольность → контур → OCR внутри найденной области.**
+
+Но сначала нам нужно увидеть, что именно детектор находит на реальной фотографии. Поэтому модуль будет сохранять тестовое изображение с отмеченными кандидатами.
+
+### 1. Добавляем отдельный `plate_detector.py`
+
+```bash
+cd ~/projects/scene_fingerprint_mvp_v02
+
+nano app/ocr/plate_detector.py
+```
+
+Вставь:
+
+```python
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+import cv2
+
+def detect_white_rectangles(
+    image_path: str | Path,
+    output_path: str | Path,
+    min_area: int = 2000,
+):
+    image_path = Path(image_path)
+    output_path = Path(output_path)
+
+    image = cv2.imread(str(image_path))
+
+    if image is None:
+        raise FileNotFoundError(image_path)
+
+    original = image.copy()
+
+    # Уменьшаем изображение только для поиска кандидатов.
+    # Сам оригинал при этом не изменяется.
+    scale = 1.0
+
+    max_width = 1600
+
+    if image.shape[1] > max_width:
+        scale = max_width / image.shape[1]
+
+        image = cv2.resize(
+            image,
+            None,
+            fx=scale,
+            fy=scale,
+            interpolation=cv2.INTER_AREA,
+        )
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # Белые области.
+    _, mask = cv2.threshold(
+        gray,
+        190,
+        255,
+        cv2.THRESH_BINARY,
+    )
+
+    # Немного объединяем разрывы внутри/по краям таблички.
+    kernel = cv2.getStructuringElement(
+        cv2.MORPH_RECT,
+        (7, 7),
+    )
+
+    mask = cv2.morphologyEx(
+        mask,
+        cv2.MORPH_CLOSE,
+        kernel,
+    )
+
+    contours, _ = cv2.findContours(
+        mask,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE,
+    )
+
+    candidates = []
+
+    for contour in contours:
+        area = cv2.contourArea(contour)
+
+        if area < min_area:
+            continue
+
+        perimeter = cv2.arcLength(
+            contour,
+            True,
+        )
+
+        if perimeter == 0:
+            continue
+
+        approx = cv2.approxPolyDP(
+            contour,
+            0.03 * perimeter,
+            True,
+        )
+
+        x, y, w, h = cv2.boundingRect(contour)
+
+        if w <= 0 or h <= 0:
+            continue
+
+        aspect = w / h
+
+        # Табличка должна быть заметно прямоугольной.
+        if aspect < 1.3 or aspect > 8.0:
+            continue
+
+        # Проверяем заполненность прямоугольника.
+        rect_area = w * h
+        fill_ratio = area / rect_area
+
+        if fill_ratio < 0.45:
+            continue
+
+        candidates.append(
+            {
+                "contour": contour,
+                "bbox": (x, y, w, h),
+                "area": area,
+                "aspect": aspect,
+                "fill_ratio": fill_ratio,
+                "corners": len(approx),
+            }
+        )
+
+    # Сортируем крупные кандидаты первыми.
+    candidates.sort(
+        key=lambda item: item["area"],
+        reverse=True,
+    )
+
+    # Рисуем кандидатов на уменьшенной фотографии.
+    debug = image.copy()
+
+    for index, candidate in enumerate(candidates):
+        x, y, w, h = candidate["bbox"]
+
+        cv2.rectangle(
+            debug,
+            (x, y),
+            (x + w, y + h),
+            (0, 0, 255),
+            3,
+        )
+
+        label = (
+            f"{index + 1} "
+            f"A={candidate['area']:.0f} "
+            f"R={candidate['aspect']:.2f}"
+        )
+
+        cv2.putText(
+            debug,
+            label,
+            (x, max(25, y - 8)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 0, 255),
+            2,
+            cv2.LINE_AA,
+        )
+
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    cv2.imwrite(
+        str(output_path),
+        debug,
+    )
+
+    return candidates
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Detect white rectangular plate candidates"
+    )
+
+    parser.add_argument(
+        "image",
+        help="Input image",
+    )
+
+    parser.add_argument(
+        "--output",
+        default="data/ocr_debug/plate_candidates.jpg",
+        help="Debug output image",
+    )
+
+    args = parser.parse_args()
+
+    candidates = detect_white_rectangles(
+        args.image,
+        args.output,
+    )
+
+    print()
+    print("=" * 70)
+    print("WHITE RECTANGLE DETECTOR")
+    print("=" * 70)
+
+    print(f"Candidates: {len(candidates)}")
+
+    for i, candidate in enumerate(candidates, 1):
+        print(
+            f"{i:02d}. "
+            f"bbox={candidate['bbox']} "
+            f"area={candidate['area']:.0f} "
+            f"aspect={candidate['aspect']:.2f} "
+            f"fill={candidate['fill_ratio']:.2f}"
+        )
+
+    print("=" * 70)
+    print()
+    print(f"Debug image: {args.output}")
+
+if __name__ == "__main__":
+    main()
+```
+
+### 2. Запускаем на той же фотографии
+
+```bash
+uv run python -m app.ocr.plate_detector \
+"data/input/84/33 (11).JPG" \
+--output data/ocr_debug/33_11_candidates.jpg
+```
+
+Получим список примерно:
+
+```text
+WHITE RECTANGLE DETECTOR
+======================================================================
+Candidates: 4
+01. bbox=(...)
+02. bbox=(...)
+03. bbox=(...)
+04. bbox=(...)
+======================================================================
+```
+
+Главное — **посмотреть получившуюся картинку**:
+
+```bash
+xdg-open data/ocr_debug/33_11_candidates.jpg
+```
+
+На ней красными прямоугольниками будут отмечены найденные белые области.
+
+**Пришли мне либо скрин этой картинки, либо сам файл сюда.** По нему будет сразу видно, насколько простой детектор подходит именно к вашим фотографиям.
+
+Пока ничего в OCR не объединяем. Сначала проверим **только обнаружение таблички**.
+
+---
+
+### 👤 **User** — 2026-08-15 01:42:56
+
+он распознал слишком большую область - табличка он занимает где то 1% от фотографии - чтобы ее найти наверно нужно разбивать фотографию на 100 прямоуголников и из центра нчинать их OCRить на нескольких ядрах
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:42:57
+
+Да, мысль правильная. Если табличка занимает примерно **1% кадра**, поиск по крупным белым областям действительно будет давать мусор.
+
+Но я бы сделал именно то, что ты предлагаешь: **разбить кадр на сетку и запускать OCR по небольшим участкам**, причём сначала от центра каждого участка. Это позволяет табличке попасть целиком или почти целиком в один из OCR-кандидатов.
+
+Для фотографии 3500×2500 можно начать с сетки **10×10 = 100 областей**.
+
+При этом есть важный момент: если просто OCRить 100 прямоугольников последовательно, получится около:
+
+**100 × 0.49 с ≈ 49 секунд/фото.**
+
+Поэтому будем запускать эти области **параллельно на CPU**, используя несколько процессов/ядер. Это как раз тот случай, где распараллеливание имеет смысл.
+
+Но я бы не писал сейчас весь новый код сразу. Сначала сделаем **эксперимент на одной фотографии**:
+
+```text
+3500 × 2500
+      ↓
+10 × 10
+      ↓
+100 участков
+      ↓
+OCR параллельно
+      ↓
+собираем все найденные строки
+      ↓
+ищем среди них номер таблички
+```
+
+И ещё важное: **не обязательно ограничиваться строго одним центром**. Если табличка находится на границе двух квадратов, она может оказаться разрезанной. Поэтому после первого прохода можно будет сделать второй проход со смещённой сеткой. Но **пока этого не делаем** — сначала проверяем 10×10.
+
+Текущий `plate_detector.py` тогда нам вообще пока не нужен. **Не удаляй его**, просто не используем.
+
+Следующим шагом я предлагаю написать отдельный:
+
+```text
+app/ocr/grid_ocr.py
+```
+
+который на одной фотографии:
+
+- создаёт 100 тайлов;
+- запускает OCR параллельно;
+- показывает время;
+- выводит, **в каком тайле что распознано**.
+
+И уже по результату посмотрим, увидел ли он нашу табличку. Если нет — спокойно вернёмся к слепкам.
+
+---
+
+### 👤 **User** — 2026-08-15 01:43:32
+
+пишем
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:43:32
+
+Пишем. Делаем **отдельный экспериментальный модуль**, не трогая `ocr_pipeline.py`, `plate_detector.py` и DINOv2.
+
+Создадим:
+
+```text
+app/ocr/grid_ocr.py
+```
+
+Он будет:
+
+- разбивать фото на **10×10 = 100 тайлов**;
+- давать каждому тайлу небольшой запас по краям, чтобы текст на границе не обрезался;
+- запускать OCR **параллельно по процессам**;
+- выводить номер тайла, координаты и распознанный текст;
+- показывать общее время;
+- сохранять результат в текстовый файл.
+
+### 1. Создаём файл
+
+```bash
+cd ~/projects/scene_fingerprint_mvp_v02
+
+nano app/ocr/grid_ocr.py
+```
+
+Вставь:
+
+```python
+from __future__ import annotations
+
+import argparse
+import multiprocessing as mp
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+import cv2
+from paddleocr import PaddleOCR
+
+# ============================================================
+# Настройки эксперимента
+# ============================================================
+
+GRID_ROWS = 10
+GRID_COLS = 10
+
+# Перекрытие соседних тайлов.
+# Нужно, чтобы текст/табличка на границе не разрезались.
+OVERLAP = 0.15
+
+# Количество OCR-процессов.
+# 0 = автоматически.
+WORKERS = 0
+
+@dataclass
+class Tile:
+    index: int
+    row: int
+    col: int
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+
+@dataclass
+class OCRText:
+    tile: Tile
+    text: str
+    confidence: float
+
+# ============================================================
+# Глобальный OCR для каждого worker-процесса
+# ============================================================
+
+_worker_ocr = None
+
+def init_worker():
+    global _worker_ocr
+
+    _worker_ocr = PaddleOCR(
+        lang="ru",
+        use_gpu=False,
+    )
+
+# ============================================================
+# Создание сетки
+# ============================================================
+
+def create_tiles(
+    width: int,
+    height: int,
+) -> list[Tile]:
+
+    tiles = []
+
+    tile_w = width / GRID_COLS
+    tile_h = height / GRID_ROWS
+
+    index = 0
+
+    for row in range(GRID_ROWS):
+        for col in range(GRID_COLS):
+
+            base_x1 = int(col * tile_w)
+            base_y1 = int(row * tile_h)
+
+            base_x2 = int((col + 1) * tile_w)
+            base_y2 = int((row + 1) * tile_h)
+
+            # Добавляем overlap.
+            extra_x = int(tile_w * OVERLAP)
+            extra_y = int(tile_h * OVERLAP)
+
+            x1 = max(0, base_x1 - extra_x)
+            y1 = max(0, base_y1 - extra_y)
+
+            x2 = min(width, base_x2 + extra_x)
+            y2 = min(height, base_y2 + extra_y)
+
+            tiles.append(
+                Tile(
+                    index=index,
+                    row=row,
+                    col=col,
+                    x1=x1,
+                    y1=y1,
+                    x2=x2,
+                    y2=y2,
+                )
+            )
+
+            index += 1
+
+    return tiles
+
+# ============================================================
+# OCR одного тайла
+# ============================================================
+
+def process_tile(
+    args,
+) -> list[OCRText]:
+
+    image_path, tile = args
+
+    global _worker_ocr
+
+    result = _worker_ocr.ocr(
+        str(image_path),
+        cls=True,
+        det=True,
+    )
+
+    results = []
+
+    if not result or not result[0]:
+        return results
+
+    for line in result[0]:
+
+        bbox = line[0]
+        text = str(line[1][0])
+        confidence = float(line[1][1])
+
+        results.append(
+            OCRText(
+                tile=tile,
+                text=text,
+                confidence=confidence,
+            )
+        )
+
+    return results
+
+# ============================================================
+# ВАЖНО:
+# PaddleOCR получает изображение целиком.
+#
+# Поэтому для тайла сначала создаём временный JPEG.
+# ============================================================
+
+def prepare_tile_files(
+    image,
+    tiles,
+    temp_dir,
+):
+    temp_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    paths = []
+
+    for tile in tiles:
+
+        crop = image[
+            tile.y1:tile.y2,
+            tile.x1:tile.x2,
+        ]
+
+        path = temp_dir / f"tile_{tile.index:03d}.jpg"
+
+        cv2.imwrite(
+            str(path),
+            crop,
+            [
+                cv2.IMWRITE_JPEG_QUALITY,
+                92,
+            ],
+        )
+
+        paths.append(
+            (path, tile)
+        )
+
+    return paths
+
+# ============================================================
+# Основной запуск
+# ============================================================
+
+def run_grid_ocr(
+    image_path: str | Path,
+    workers: int = 0,
+):
+
+    image_path = Path(image_path)
+
+    if not image_path.exists():
+        raise FileNotFoundError(
+            image_path
+        )
+
+    image = cv2.imread(
+        str(image_path)
+    )
+
+    if image is None:
+        raise RuntimeError(
+            f"Cannot open image: {image_path}"
+        )
+
+    height, width = image.shape[:2]
+
+    print()
+    print("=" * 70)
+    print("GRID OCR")
+    print("=" * 70)
+
+    print(
+        f"Image: {image_path.name}"
+    )
+
+    print(
+        f"Resolution: {width} x {height}"
+    )
+
+    print(
+        f"Grid: {GRID_COLS} x {GRID_ROWS}"
+    )
+
+    print(
+        f"Tiles: {GRID_COLS * GRID_ROWS}"
+    )
+
+    tiles = create_tiles(
+        width,
+        height,
+    )
+
+    temp_dir = (
+        Path("data/ocr_grid")
+        / image_path.stem
+    )
+
+    tile_files = prepare_tile_files(
+        image,
+        tiles,
+        temp_dir,
+    )
+
+    if workers <= 0:
+        cpu_count = mp.cpu_count()
+
+        # Не забиваем систему полностью.
+        workers = max(
+            1,
+            min(cpu_count, 8),
+        )
+
+    print(
+        f"Workers: {workers}"
+    )
+
+    print(
+        f"Tile directory: {temp_dir}"
+    )
+
+    print()
+    print("Starting OCR...")
+    print()
+
+    start = time.perf_counter()
+
+    tasks = [
+        (
+            path,
+            tile,
+        )
+        for path, tile in tile_files
+    ]
+
+    all_results = []
+
+    # spawn безопаснее для PaddleOCR.
+    ctx = mp.get_context("spawn")
+
+    with ctx.Pool(
+        processes=workers,
+        initializer=init_worker,
+    ) as pool:
+
+        for results in pool.imap_unordered(
+            process_tile,
+            tasks,
+        ):
+
+            all_results.extend(
+                results
+            )
+
+            for item in results:
+
+                print(
+                    f"[TILE {item.tile.index:03d}] "
+                    f"row={item.tile.row} "
+                    f"col={item.tile.col} "
+                    f"confidence={item.confidence:.3f} "
+                    f"text={item.text!r}"
+                )
+
+    elapsed = (
+        time.perf_counter()
+        - start
+    )
+
+    # ========================================================
+    # Сохраняем результаты
+    # ========================================================
+
+    result_file = (
+        Path("data/ocr_grid")
+        / f"{image_path.stem}_results.txt"
+    )
+
+    with result_file.open(
+        "w",
+        encoding="utf-8",
+    ) as f:
+
+        f.write(
+            f"IMAGE: {image_path}\n"
+        )
+
+        f.write(
+            f"RESOLUTION: {width}x{height}\n"
+        )
+
+        f.write(
+            f"GRID: {GRID_COLS}x{GRID_ROWS}\n"
+        )
+
+        f.write(
+            f"WORKERS: {workers}\n"
+        )
+
+        f.write(
+            f"TIME: {elapsed:.3f}\n\n"
+        )
+
+        for item in sorted(
+            all_results,
+            key=lambda x: x.tile.index,
+        ):
+
+            f.write(
+                f"TILE {item.tile.index:03d} "
+                f"row={item.tile.row} "
+                f"col={item.tile.col} "
+                f"bbox=("
+                f"{item.tile.x1},"
+                f"{item.tile.y1},"
+                f"{item.tile.x2},"
+                f"{item.tile.y2}) "
+                f"confidence="
+                f"{item.confidence:.4f} "
+                f"text={item.text!r}\n"
+            )
+
+    print()
+    print("=" * 70)
+    print("GRID OCR FINISHED")
+    print("=" * 70)
+
+    print(
+        f"Time: {elapsed:.3f} sec"
+    )
+
+    print(
+        f"Text regions: "
+        f"{len(all_results)}"
+    )
+
+    print(
+        f"Results: {result_file}"
+    )
+
+    print("=" * 70)
+
+    return all_results
+
+# ============================================================
+# CLI
+# ============================================================
+
+def main():
+
+    parser = argparse.ArgumentParser(
+        description="OCR image using 10x10 grid"
+    )
+
+    parser.add_argument(
+        "image",
+        help="Input image",
+    )
+
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=0,
+        help="Number of OCR workers",
+    )
+
+    args = parser.parse_args()
+
+    run_grid_ocr(
+        args.image,
+        workers=args.workers,
+    )
+
+if __name__ == "__main__":
+    main()
+```
+
+### 2. Важное исправление
+
+В этом эксперименте есть одна вещь, которую я сразу поправлю: **мы не должны заставлять PaddleOCR читать исходный полный файл в `process_tile`**.
+
+Нужно передавать ему именно подготовленный тайл.
+
+Поэтому найди в `process_tile`:
+
+```python
+result = _worker_ocr.ocr(
+    str(image_path),
+    cls=True,
+    det=True,
+)
+```
+
+и оставь именно это — `image_path` здесь уже является путем к временному тайлу. Всё правильно.
+
+### 3. Запускаем
+
+Для первого теста я предлагаю **4 процесса**, а не сразу 8:
+
+```bash
+uv run python -m app.ocr.grid_ocr \
+"data/input/84/33 (11).JPG" \
+--workers 4
+```
+
+Почему 4: сначала посмотрим нагрузку CPU и реальное время. Потом можно попробовать 6 и 8.
+
+### 4. Что нам сейчас нужно узнать
+
+Нас интересуют три вещи:
+
+**1. Время:**
+
+```text
+GRID OCR FINISHED
+Time: X.XXX sec
+```
+
+**2. Что OCR нашёл в каждом тайле:**
+
+```text
+[TILE 037] row=3 col=7 ... text='...'
+```
+
+**3. Появился ли среди результатов номер с нашей таблички.**
+
+Если табличка действительно занимает около 1% кадра, её размер примерно сопоставим с небольшим фрагментом одного из этих тайлов. Перекрытие `15%` специально оставлено, чтобы повысить шанс не разрезать её на границе.
+
+**Пока ничего не оптимизируем.** Сначала один запуск на `33 (11).JPG`. Пришли вывод `GRID OCR FINISHED` и строки `[TILE ...]`, где OCR что-нибудь нашёл.
+
+---
+
+### 👤 **User** — 2026-08-15 01:44:28
+
+Поэтому найди в `process_tile`:
+
+```
+result = _worker_ocr.ocr(
+```
+
+str(image\_path),
+
+cls=True,
+
+det=True,
+
+)
+
+и оставь именно это — `image_path` здесь уже является путем к временному тайлу. Всё правильно.   давай готовый файл
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:44:29
+
+Да. Делаем без ручных исправлений. И сразу поправляю важный момент: в `process_tile()` OCR получает **именно временный файл тайла**.
+
+Замени `app/ocr/grid_ocr.py` целиком:
+
+```python
+from __future__ import annotations
+
+import argparse
+import multiprocessing as mp
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+import cv2
+from paddleocr import PaddleOCR
+
+# ============================================================
+# Настройки
+# ============================================================
+
+GRID_ROWS = 10
+GRID_COLS = 10
+
+# Перекрытие соседних областей.
+# 0.15 = 15%
+OVERLAP = 0.15
+
+# ============================================================
+# Данные
+# ============================================================
+
+@dataclass
+class Tile:
+    index: int
+    row: int
+    col: int
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+
+@dataclass
+class OCRText:
+    tile: Tile
+    text: str
+    confidence: float
+
+# ============================================================
+# OCR для worker-процесса
+# ============================================================
+
+_worker_ocr = None
+
+def init_worker():
+    """
+    Каждый отдельный процесс создаёт собственный экземпляр OCR.
+    """
+
+    global _worker_ocr
+
+    _worker_ocr = PaddleOCR(
+        lang="ru",
+        use_gpu=False,
+    )
+
+# ============================================================
+# Создание сетки
+# ============================================================
+
+def create_tiles(
+    width: int,
+    height: int,
+) -> list[Tile]:
+
+    tiles = []
+
+    tile_w = width / GRID_COLS
+    tile_h = height / GRID_ROWS
+
+    index = 0
+
+    for row in range(GRID_ROWS):
+        for col in range(GRID_COLS):
+
+            base_x1 = int(col * tile_w)
+            base_y1 = int(row * tile_h)
+
+            base_x2 = int((col + 1) * tile_w)
+            base_y2 = int((row + 1) * tile_h)
+
+            extra_x = int(tile_w * OVERLAP)
+            extra_y = int(tile_h * OVERLAP)
+
+            x1 = max(
+                0,
+                base_x1 - extra_x,
+            )
+
+            y1 = max(
+                0,
+                base_y1 - extra_y,
+            )
+
+            x2 = min(
+                width,
+                base_x2 + extra_x,
+            )
+
+            y2 = min(
+                height,
+                base_y2 + extra_y,
+            )
+
+            tiles.append(
+                Tile(
+                    index=index,
+                    row=row,
+                    col=col,
+                    x1=x1,
+                    y1=y1,
+                    x2=x2,
+                    y2=y2,
+                )
+            )
+
+            index += 1
+
+    return tiles
+
+# ============================================================
+# OCR одного тайла
+# ============================================================
+
+def process_tile(
+    args,
+) -> list[OCRText]:
+
+    image_path, tile = args
+
+    global _worker_ocr
+
+    results = []
+
+    try:
+        result = _worker_ocr.ocr(
+            str(image_path),
+            cls=True,
+        )
+
+        if not result:
+            return results
+
+        if not result[0]:
+            return results
+
+        for line in result[0]:
+
+            if not line or len(line) < 2:
+                continue
+
+            bbox = line[0]
+            text_info = line[1]
+
+            if not text_info or len(text_info) < 2:
+                continue
+
+            text = str(text_info[0])
+            confidence = float(text_info[1])
+
+            results.append(
+                OCRText(
+                    tile=tile,
+                    text=text,
+                    confidence=confidence,
+                )
+            )
+
+    except Exception as exc:
+
+        print(
+            f"[TILE {tile.index:03d}] "
+            f"OCR ERROR: {exc}",
+            flush=True,
+        )
+
+    return results
+
+# ============================================================
+# Создание физических файлов тайлов
+# ============================================================
+
+def prepare_tile_files(
+    image,
+    tiles: list[Tile],
+    temp_dir: Path,
+):
+    temp_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    paths = []
+
+    for tile in tiles:
+
+        crop = image[
+            tile.y1:tile.y2,
+            tile.x1:tile.x2,
+        ]
+
+        path = (
+            temp_dir
+            / f"tile_{tile.index:03d}.jpg"
+        )
+
+        ok = cv2.imwrite(
+            str(path),
+            crop,
+            [
+                cv2.IMWRITE_JPEG_QUALITY,
+                92,
+            ],
+        )
+
+        if not ok:
+            raise RuntimeError(
+                f"Cannot save tile: {path}"
+            )
+
+        paths.append(
+            (
+                path,
+                tile,
+            )
+        )
+
+    return paths
+
+# ============================================================
+# Основной GRID OCR
+# ============================================================
+
+def run_grid_ocr(
+    image_path: str | Path,
+    workers: int = 4,
+):
+
+    image_path = Path(image_path)
+
+    if not image_path.exists():
+        raise FileNotFoundError(
+            f"Image not found: {image_path}"
+        )
+
+    image = cv2.imread(
+        str(image_path)
+    )
+
+    if image is None:
+        raise RuntimeError(
+            f"Cannot open image: {image_path}"
+        )
+
+    height, width = image.shape[:2]
+
+    print()
+    print("=" * 70)
+    print("GRID OCR")
+    print("=" * 70)
+
+    print(
+        f"Image: {image_path.name}"
+    )
+
+    print(
+        f"Resolution: {width} x {height}"
+    )
+
+    print(
+        f"Grid: {GRID_COLS} x {GRID_ROWS}"
+    )
+
+    print(
+        f"Tiles: {GRID_COLS * GRID_ROWS}"
+    )
+
+    print(
+        f"Overlap: {OVERLAP * 100:.0f}%"
+    )
+
+    print(
+        f"Workers: {workers}"
+    )
+
+    # --------------------------------------------------------
+    # Сетка
+    # --------------------------------------------------------
+
+    tiles = create_tiles(
+        width,
+        height,
+    )
+
+    # --------------------------------------------------------
+    # Временные файлы тайлов
+    # --------------------------------------------------------
+
+    temp_dir = (
+        Path("data/ocr_grid")
+        / image_path.stem
+    )
+
+    tile_files = prepare_tile_files(
+        image,
+        tiles,
+        temp_dir,
+    )
+
+    print(
+        f"Tile directory: {temp_dir}"
+    )
+
+    print()
+    print("Starting OCR...")
+    print()
+
+    start = time.perf_counter()
+
+    tasks = [
+        (
+            path,
+            tile,
+        )
+        for path, tile in tile_files
+    ]
+
+    all_results: list[OCRText] = []
+
+    # --------------------------------------------------------
+    # multiprocessing
+    # --------------------------------------------------------
+
+    ctx = mp.get_context("spawn")
+
+    with ctx.Pool(
+        processes=workers,
+        initializer=init_worker,
+    ) as pool:
+
+        for results in pool.imap_unordered(
+            process_tile,
+            tasks,
+        ):
+
+            all_results.extend(
+                results
+            )
+
+            for item in results:
+
+                print(
+                    f"[TILE {item.tile.index:03d}] "
+                    f"row={item.tile.row} "
+                    f"col={item.tile.col} "
+                    f"confidence="
+                    f"{item.confidence:.3f} "
+                    f"text={item.text!r}",
+                    flush=True,
+                )
+
+    elapsed = (
+        time.perf_counter()
+        - start
+    )
+
+    # ========================================================
+    # Сортируем результаты
+    # ========================================================
+
+    all_results.sort(
+        key=lambda item: (
+            item.tile.index,
+            -item.confidence,
+        )
+    )
+
+    # ========================================================
+    # Сохраняем результаты
+    # ========================================================
+
+    result_file = (
+        Path("data/ocr_grid")
+        / f"{image_path.stem}_results.txt"
+    )
+
+    with result_file.open(
+        "w",
+        encoding="utf-8",
+    ) as f:
+
+        f.write(
+            f"IMAGE: {image_path}\n"
+        )
+
+        f.write(
+            f"RESOLUTION: "
+            f"{width}x{height}\n"
+        )
+
+        f.write(
+            f"GRID: "
+            f"{GRID_COLS}x{GRID_ROWS}\n"
+        )
+
+        f.write(
+            f"OVERLAP: "
+            f"{OVERLAP}\n"
+        )
+
+        f.write(
+            f"WORKERS: "
+            f"{workers}\n"
+        )
+
+        f.write(
+            f"TIME: "
+            f"{elapsed:.3f}\n"
+        )
+
+        f.write(
+            f"TEXT REGIONS: "
+            f"{len(all_results)}\n\n"
+        )
+
+        for item in all_results:
+
+            f.write(
+                f"TILE "
+                f"{item.tile.index:03d} "
+                f"row={item.tile.row} "
+                f"col={item.tile.col} "
+                f"bbox=("
+                f"{item.tile.x1},"
+                f"{item.tile.y1},"
+                f"{item.tile.x2},"
+                f"{item.tile.y2}) "
+                f"confidence="
+                f"{item.confidence:.4f} "
+                f"text={item.text!r}\n"
+            )
+
+    # ========================================================
+    # Итог
+    # ========================================================
+
+    print()
+    print("=" * 70)
+    print("GRID OCR FINISHED")
+    print("=" * 70)
+
+    print(
+        f"Time: {elapsed:.3f} sec"
+    )
+
+    print(
+        f"Text regions: "
+        f"{len(all_results)}"
+    )
+
+    print(
+        f"Results: "
+        f"{result_file}"
+    )
+
+    print("=" * 70)
+
+    return all_results
+
+# ============================================================
+# CLI
+# ============================================================
+
+def main():
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "OCR image using 10x10 grid"
+        )
+    )
+
+    parser.add_argument(
+        "image",
+        help="Input image",
+    )
+
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=4,
+        help=(
+            "Number of parallel OCR "
+            "workers (default: 4)"
+        ),
+    )
+
+    args = parser.parse_args()
+
+    if args.workers < 1:
+        parser.error(
+            "--workers must be >= 1"
+        )
+
+    run_grid_ocr(
+        args.image,
+        workers=args.workers,
+    )
+
+if __name__ == "__main__":
+    main()
+```
+
+### Запускаем именно на той фотографии
+
+```bash
+cd ~/projects/scene_fingerprint_mvp_v02
+
+uv run python -m app.ocr.grid_ocr \
+"data/input/84/33 (11).JPG" \
+--workers 4
+```
+
+Пока **не меняем 4 на 8 и ничего больше не оптимизируем**.
+
+Нам нужны результаты этого первого эксперимента: прежде всего `Time`, количество найденных текстовых областей и строки `[TILE ...]`.
+
+---
+
+### 👤 **User** — 2026-08-15 01:45:46
+
+C++ Traceback (most recent call last):
+--------------------------------------
+No stack trace in paddle, may be caused by external reasons.
+
+----------------------
+Error Message Summary:
+----------------------
+FatalError: `Termination signal` is detected by the operating system.
+  [TimeInfo: *** Aborted at 1786747533 (unix time) try "date -d @1786747533" if you are using GNU date ***]
+  [SignalInfo: *** SIGTERM (@0x3e8000ef09c) received by PID 979162 (TID 0x78dfea6e9300) from PID 979100 ***]
+
+======================================================================
+GRID OCR FINISHED
+======================================================================
+Time: 4.724 sec
+Text regions: 61
+Results: data/ocr_grid/33 (11)_results.txt
+======================================================================
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$
+
+---
+
+### 🤖 **Assistant** — 2026-08-15 01:45:47
+
+Вот это уже **интересный результат**. Сам эксперимент фактически отработал.
+
+### Что получили
+
+```text
+100 тайлов
+4 OCR-процесса
+4.724 сек
+61 текстовая область
+```
+
+То есть по скорости:
+
+**≈ 0.047 сек на один тайл** в параллельном режиме.
+
+Для 200–300 фотографий это пока ориентировочно:
+
+- 200 × 4.7 сек ≈ **15–16 минут**
+- 300 × 4.7 сек ≈ **23–24 минуты**
+
+Это уже не так быстро, как одиночный OCR, но для первого эксперимента нормально.
+
+### А вот `SIGTERM`
+
+```text
+FatalError: Termination signal
+SIGTERM
+```
+
+Здесь есть важный нюанс: процесс Paddle был остановлен операционной системой/родительским multiprocessing-процессом. Но программа корректно дошла до:
+
+```text
+GRID OCR FINISHED
+```
+
+и сохранила:
+
+```text
+data/ocr_grid/33 (11)_results.txt
+```
+
+Поэтому **сейчас ничего не исправляем и не переустанавливаем**.
+
+### Теперь самое главное
+
+Нужно посмотреть, **что именно нашлось в тайлах**.
+
+Выполни:
+
+```bash
+cat "data/ocr_grid/33 (11)_results.txt"
+```
+
+И пришли вывод.
+
+Особенно нас интересует, появился ли где-нибудь текст, похожий на номер таблички.
+
+Если среди 61 результата **табличка обнаружилась хотя бы в одном тайле**, то направление рабочее.
+
+Если нет — посмотрим на конкретный результат и решим, стоит ли менять размер сетки/перекрытие. **Никаких новых сложных методов пока не добавляем.**
+
+---
+
+### 👤 **User** — 2026-08-15 01:46:24
+
+TILE 037 row=3 col=7 bbox=(2433,760,2894,1104) confidence=0.9747 text='свдад'
+TILE 037 row=3 col=7 bbox=(2433,760,2894,1104) confidence=0.9282 text='шкла'
+TILE 037 row=3 col=7 bbox=(2433,760,2894,1104) confidence=0.9013 text='Е'
+TILE 037 row=3 col=7 bbox=(2433,760,2894,1104) confidence=0.6802 text='HObыl'
+TILE 037 row=3 col=7 bbox=(2433,760,2894,1104) confidence=0.5793 text='B'
+TILE 037 row=3 col=7 bbox=(2433,760,2894,1104) confidence=0.5105 text='2оЭ5'
+TILE 038 row=3 col=8 bbox=(2788,760,3249,1104) confidence=0.9972 text='о'
+TILE 038 row=3 col=8 bbox=(2788,760,3249,1104) confidence=0.9848 text='гду'
+TILE 038 row=3 col=8 bbox=(2788,760,3249,1104) confidence=0.9568 text='здадим'
+TILE 038 row=3 col=8 bbox=(2788,760,3249,1104) confidence=0.9359 text='садиках'
+TILE 038 row=3 col=8 bbox=(2788,760,3249,1104) confidence=0.9181 text='ьсяч'
+TILE 038 row=3 col=8 bbox=(2788,760,3249,1104) confidence=0.8564 text='колах'
+TILE 038 row=3 col=8 bbox=(2788,760,3249,1104) confidence=0.8090 text='Hовых'
+TILE 038 row=3 col=8 bbox=(2788,760,3249,1104) confidence=0.7555 text='2о25'
+TILE 038 row=3 col=8 bbox=(2788,760,3249,1104) confidence=0.6374 text='месТ'
+TILE 039 row=3 col=9 bbox=(3143,760,3552,1104) confidence=0.9242 text='яч'
+TILE 046 row=4 col=6 bbox=(2078,1026,2539,1371) confidence=0.8682 text='3?0-30-20'
+TILE 046 row=4 col=6 bbox=(2078,1026,2539,1371) confidence=0.6123 text='клд'
+TILE 047 row=4 col=7 bbox=(2433,1026,2894,1371) confidence=0.9968 text='юрий'
+TILE 047 row=4 col=7 bbox=(2433,1026,2894,1371) confidence=0.9298 text='B'
+TILE 047 row=4 col=7 bbox=(2433,1026,2894,1371) confidence=0.9148 text='о'
+TILE 047 row=4 col=7 bbox=(2433,1026,2894,1371) confidence=0.8702 text='слюс'
+TILE 047 row=4 col=7 bbox=(2433,1026,2894,1371) confidence=0.8623 text='ла'
+TILE 047 row=4 col=7 bbox=(2433,1026,2894,1371) confidence=0.8515 text='Скайлайн'
+TILE 047 row=4 col=7 bbox=(2433,1026,2894,1371) confidence=0.8009 text='га'
+TILE 047 row=4 col=7 bbox=(2433,1026,2894,1371) confidence=0.7538 text='O-?0'
+TILE 047 row=4 col=7 bbox=(2433,1026,2894,1371) confidence=0.7522 text='еаиыи'
+TILE 047 row=4 col=7 bbox=(2433,1026,2894,1371) confidence=0.5770 text='цEI'
+TILE 047 row=4 col=7 bbox=(2433,1026,2894,1371) confidence=0.5449 text='еЛАТЕ'
+TILE 047 row=4 col=7 bbox=(2433,1026,2894,1371) confidence=0.5187 text='Poetoeekol'
+TILE 048 row=4 col=8 bbox=(2788,1026,3249,1371) confidence=0.9939 text='гду'
+TILE 048 row=4 col=8 bbox=(2788,1026,3249,1371) confidence=0.9191 text='га'
+TILE 048 row=4 col=8 bbox=(2788,1026,3249,1371) confidence=0.7864 text='LEIL'
+TILE 048 row=4 col=8 bbox=(2788,1026,3249,1371) confidence=0.7672 text='иы'
+TILE 048 row=4 col=8 bbox=(2788,1026,3249,1371) confidence=0.7647 text='слсар'
+TILE 048 row=4 col=8 bbox=(2788,1026,3249,1371) confidence=0.7066 text='епате'
+TILE 048 row=4 col=8 bbox=(2788,1026,3249,1371) confidence=0.6999 text='CIIEHEI EEIOHИ'
+TILE 048 row=4 col=8 bbox=(2788,1026,3249,1371) confidence=0.6916 text='2о25'
+TILE 048 row=4 col=8 bbox=(2788,1026,3249,1371) confidence=0.6564 text='N'
+TILE 048 row=4 col=8 bbox=(2788,1026,3249,1371) confidence=0.6374 text='Pаер'
+TILE 048 row=4 col=8 bbox=(2788,1026,3249,1371) confidence=0.6328 text='цеи'
+TILE 048 row=4 col=8 bbox=(2788,1026,3249,1371) confidence=0.6306 text='нй'
+TILE 048 row=4 col=8 bbox=(2788,1026,3249,1371) confidence=0.6098 text='Iш'
+TILE 048 row=4 col=8 bbox=(2788,1026,3249,1371) confidence=0.5879 text='Uелдет'
+TILE 048 row=4 col=8 bbox=(2788,1026,3249,1371) confidence=0.5287 text='EgetEehn'
+TILE 048 row=4 col=8 bbox=(2788,1026,3249,1371) confidence=0.5201 text='еђе'
+TILE 051 row=5 col=1 bbox=(302,1293,763,1637) confidence=0.9111 text='MEA'
+TILE 056 row=5 col=6 bbox=(2078,1293,2539,1637) confidence=0.9682 text='320-30-20'
+TILE 056 row=5 col=6 bbox=(2078,1293,2539,1637) confidence=0.8675 text='г'
+TILE 057 row=5 col=7 bbox=(2433,1293,2894,1637) confidence=0.7876 text='O-?0'
+TILE 057 row=5 col=7 bbox=(2433,1293,2894,1637) confidence=0.5344 text='Gеайпfн'
+TILE 058 row=5 col=8 bbox=(2788,1293,3249,1637) confidence=0.7607 text='ете'
+TILE 062 row=6 col=2 bbox=(657,1559,1118,1903) confidence=0.5432 text='Eeeehie.'
+TILE 065 row=6 col=5 bbox=(1723,1559,2184,1903) confidence=0.5840 text='Teгr'
+TILE 067 row=6 col=7 bbox=(2433,1559,2894,1903) confidence=0.9413 text='аникюра'
+TILE 067 row=6 col=7 bbox=(2433,1559,2894,1903) confidence=0.8222 text='п'
+TILE 068 row=6 col=8 bbox=(2788,1559,3249,1903) confidence=0.6164 text='EиAEPCКеA'
+TILE 068 row=6 col=8 bbox=(2788,1559,3249,1903) confidence=0.5432 text='оzоN'
+TILE 075 row=7 col=5 bbox=(1723,1825,2184,2170) confidence=0.7397 text='ођмђђ'
+TILE 077 row=7 col=7 bbox=(2433,1825,2894,2170) confidence=0.6969 text='P8OOKM16'
+TILE 077 row=7 col=7 bbox=(2433,1825,2894,2170) confidence=0.5059 text='г'
+alexice@NEURO:~/projects/scene_fingerprint_mvp_v02$
+
+---
+
