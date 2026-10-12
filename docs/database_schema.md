@@ -30,6 +30,7 @@ PostgreSQL — источник истины для переходов межд�
 006_job_queue.sql → job_queue
 007_qwen.sql      → photo_qwen; ALTER job_queue ADD QWEN_PHOTO
 008_settings.sql  → app_settings
+009_collections.sql → collections, collection_members
 ```
 
 **`004` теперь backfill-safe и идемпотентен (2026-10-12):** создаёт `dino_batches` при отсутствии, добавляет `dino_runs.batch_id` (nullable) при отсутствии, бэкфиллит существующие runs без batch (по одному legacy-batch на run, со статусом и счётчиками из run), затем ставит `NOT NULL` и создаёт индекс. Повторный прогон — no-op. Ранее файл делал `ADD COLUMN` и сразу `SET NOT NULL`, что падало на непустой `dino_runs`.
@@ -238,6 +239,16 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 | `updated_at` | TIMESTAMP | NOT NULL DEFAULT CURRENT_TIMESTAMP |
 
 Ключ `qwen_model` хранит выбранную модель Ollama.
+
+### 4.11 `collections` / `collection_members` — подборки/закладки
+
+Создаёт `schema/009_collections.sql`; пишет `app/api/repository.py` (через API).
+
+`collections`: `collection_id` BIGSERIAL PK, `user_id` TEXT (пока NULL — пользователей нет), `name` TEXT NOT NULL, `kind` CHECK `Моя`/`Клиентская`, `client` TEXT, `scope` CHECK `addresses`/`clients`/`photos`, `created_at`, `updated_at`.
+
+`collection_members`: `collection_id` FK → `collections` ON DELETE CASCADE, `member_type` CHECK `address`/`client`/`photo`, `member_value` TEXT; PRIMARY KEY `(collection_id, member_type, member_value)`; индекс по `(member_type, member_value)`.
+
+Аналог легаси `collections`/`collection_members`. `manager_selections` (состояние чекбоксов на менеджера) не перенесено — появится с пользователями.
 
 ## 5. Локальная SQLite-очередь (не PostgreSQL)
 
