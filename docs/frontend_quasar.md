@@ -174,6 +174,13 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - UI: экран «Настройки» — выбор модели из списка, кнопки «Сохранить»/«Выгрузить из памяти».
 - Рекомендация для 12 ГБ VRAM: `qwen3-vl:8b` (точность/размер); быстрее — `qwen3-vl:4b-instruct`.
 
+### Срез 7 — prod-раздача SPA
+
+- FastAPI отдаёт собранный `frontend/dist` (если каталог существует): `/assets/*` — статика, остальные пути → `index.html` (SPA-fallback для клиентского роутинга).
+- Маршруты `/api/*` регистрируются раньше и не затмеваются. Если `frontend/dist` нет — API работает как раньше (только `/api`).
+- Один процесс для продакшена: собрать фронт (`bun run build`) и запустить `uvicorn app.api.main:app`. Проверено: `/` и `/processing` → HTML, `/api/health` → JSON, `/assets/*.js` → JS.
+- Тесты: `tests/test_api_spa.py` (скипаются без сборки).
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.

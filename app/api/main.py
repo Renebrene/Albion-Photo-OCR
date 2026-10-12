@@ -12,8 +12,12 @@ No authentication yet: intended for local development.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.config import API_HOST, API_PORT, CORS_ORIGINS
 from app.api.routes import (
@@ -22,6 +26,10 @@ from app.api.routes import (
     public_router,
     read_router,
 )
+
+# Built SPA (frontend/dist). Served when present so production can run from a
+# single process; the API keeps its own /api prefix.
+SPA_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
 def create_app() -> FastAPI:
@@ -47,7 +55,35 @@ def create_app() -> FastAPI:
     app.include_router(originals_router, prefix="/api")
     app.include_router(jobs_router, prefix="/api")
 
+    _mount_spa(app)
+
     return app
+
+
+def _mount_spa(app: FastAPI) -> None:
+    """
+    Serve the built SPA when frontend/dist exists.
+
+    /api routes are registered before this, so they take precedence. Any
+    other path falls back to index.html so client-side routing works.
+    """
+
+    if not SPA_DIST.is_dir():
+        return
+
+    assets = SPA_DIST / "assets"
+
+    if assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa_fallback(full_path: str):
+        candidate = SPA_DIST / full_path
+
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+
+        return FileResponse(SPA_DIST / "index.html")
 
 
 app = create_app()
