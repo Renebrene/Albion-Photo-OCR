@@ -7,6 +7,7 @@ import UsersAdmin from '../components/UsersAdmin.vue'
 import SystemMonitor from '../components/SystemMonitor.vue'
 import FingerprintsList from '../components/FingerprintsList.vue'
 import LastRun from '../components/LastRun.vue'
+import DataModule from '../components/DataModule.vue'
 
 // Mirrors the legacy NiceGUI "технический раздел" (components/technical.py)
 // with its modules: photo_processing, qwen, automation, users, data.
@@ -62,10 +63,7 @@ const tab = ref('processing')
       </q-tab-panel>
 
       <q-tab-panel name="data">
-        <q-banner class="bg-grey-2">
-          Модуль «Данные» (экспорт/импорт, обслуживание хранилища) из
-          легаси-NiceGUI пока не реализован.
-        </q-banner>
+        <DataModule />
       </q-tab-panel>
     </q-tab-panels>
   </q-page>

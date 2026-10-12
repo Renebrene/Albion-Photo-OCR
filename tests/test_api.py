@@ -223,6 +223,54 @@ def test_fingerprints_endpoint():
 
 
 @requires_db
+def test_data_storage_stats():
+    data = client.get("/api/v1/data/storage").json()
+    assert set(data) == {
+        "rows",
+        "database_bytes",
+        "previews",
+        "fingerprints",
+    }
+    assert data["rows"]["photos"] >= 1
+    assert data["database_bytes"] > 0
+
+
+@requires_db
+def test_data_export_json_has_no_paths():
+    body = client.get("/api/v1/data/export?format=json").json()
+    assert body["count"] == len(body["items"])
+
+    for item in body["items"]:
+        assert set(item) == {
+            "photo_id",
+            "filename",
+            "width",
+            "height",
+            "container_format",
+            "created_at",
+            "address",
+            "client",
+            "brand",
+            "category",
+            "description",
+            "tags",
+        }
+        assert "/" not in (item["filename"] or "")
+
+
+@requires_db
+def test_data_export_csv():
+    response = client.get("/api/v1/data/export?format=csv")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.text.splitlines()[0].startswith("photo_id,")
+
+
+def test_data_export_rejects_unknown_format():
+    assert client.get("/api/v1/data/export?format=xml").status_code == 422
+
+
+@requires_db
 def test_last_run():
     data = client.get("/api/v1/runs/last").json()
     assert "jobs" in data

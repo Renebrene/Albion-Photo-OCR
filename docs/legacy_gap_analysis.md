@@ -50,7 +50,7 @@
 - Легаси — **модальный изменяемый диалог** с **8 вкладками**: `photo_processing, last_run, automation, qwen, data, system, fingerprints, users`. `chunk_103.md:1387-1515`.
 - Сейчас: страница с **8 вкладками** (Обработка, Последний запуск, QWEN, Автоматизация, Система, Слепки, Пользователи, Данные); заглушки — `automation`, `data`.
 - **`system/monitor.py`**: CPU/RAM/диск/сеть/температура/uptime. **Реализовано (2026-10-13, частично)**: `GET /v1/system` (psutil: CPU/RAM/диск/uptime/load) + UI-вкладка «Система». Нет сети/температуры.
-- **`data.py`**: экспорт/импорт/обслуживание хранилища — **не реализовано** (вкладка-заглушка). `fingerprints.py` (слепки) — **реализовано**: `GET /v1/fingerprints` + вкладка «Слепки». `last_run.py` (история) — **реализовано**: `GET /v1/runs/last` + вкладка «Последний запуск».
+- **`data.py`**: экспорт/импорт/обслуживание хранилища — **частично реализовано (2026-10-13)**: `GET /v1/data/export?format=json|csv` + `GET /v1/data/storage` + вкладка «Данные». **Импорт — нет** (заглушка; затрагивает INGEST). `fingerprints.py` (слепки) — **реализовано**: `GET /v1/fingerprints` + вкладка «Слепки». `last_run.py` (история) — **реализовано**: `GET /v1/runs/last` + вкладка «Последний запуск».
 
 ### G. Оркестрация и сервисы
 - **`supervisor.py` / `controller.py` / `modes.py`**: режимы **manual / automatic (по времени) / watcher (слежение за папкой, polling)**, таблица **`pipeline_control`** (running/stop_requested/mode/watcher_path), `run_pipeline()` (DINO+Qwen), планировщик `seconds_until`. `chunk_234.md`, `chunk_145.md`, `chunk_142.md`.

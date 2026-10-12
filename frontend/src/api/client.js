@@ -103,6 +103,22 @@ export function fetchPhotoDetails(photoId) {
   return getJson(`${BASE}/v1/photos/${photoId}/details`)
 }
 
+export function fetchDataStorage() {
+  return getJson(`${BASE}/v1/data/storage`)
+}
+
+export async function fetchDataExport(format = 'json') {
+  const response = await fetch(`${BASE}/v1/data/export?format=${format}`, {
+    headers: authHeaders(),
+  })
+
+  if (!response.ok) {
+    throw new Error(`API error ${response.status}`)
+  }
+
+  return response
+}
+
 export function fetchSavedSearches() {
   return getJson(`${BASE}/v1/searches`)
 }

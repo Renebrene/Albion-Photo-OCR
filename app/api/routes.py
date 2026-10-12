@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 
 from app import settings_store
 from app.api import repository
+from app.api import data as data_mod
 from app.api import system as sysinfo
 from app.api.auth import auth_enabled, require_scope
 from app.api.config import PREVIEW_ROOT
@@ -106,6 +107,29 @@ def list_fingerprints():
 @read_router.get("/v1/runs/last", response_model=None)
 def get_last_run():
     return sysinfo.last_run()
+
+
+@read_router.get("/v1/data/storage", response_model=None)
+def data_storage():
+    return data_mod.storage_stats()
+
+
+@read_router.get("/v1/data/export", response_model=None)
+def data_export(format: str = Query("json", pattern=r"^(json|csv)$")):
+    """Export photo + QWEN metadata (no absolute paths)."""
+
+    rows = data_mod.export_rows()
+
+    if format == "csv":
+        return Response(
+            content=data_mod.to_csv(rows),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": "attachment; filename=photos.csv"
+            },
+        )
+
+    return {"items": rows, "count": len(rows)}
 
 
 @read_router.get("/v1/addresses", response_model=None)
