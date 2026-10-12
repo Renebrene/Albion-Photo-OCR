@@ -241,6 +241,13 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - UI-вкладка «Автоматизация»: тумблер, интервал, авто-QWEN/авто-DINO, «Запустить тик сейчас».
 - **Не реализовано намеренно**: watcher папки/авто-INGEST новых файлов (пишет новые данные — требует отдельного согласования).
 
+### Срез 16 — загрузка фото и drag-and-drop
+
+- `POST /v1/upload` (multipart, scope `upload:write`): сохраняет файлы в `SCENE_INBOX` (по умолчанию `data/inbox`) и регистрирует их штатным INGEST (`SHA-256 → photo_id`). Возвращает по каждому файлу `photo_id`/`status`(`NEW`/`EXISTING`/`CONFLICT`) либо `error`.
+- **Безопасность**: имя санитизируется (`basename`, разрешены только `.jpg/.jpeg`), путь строится из фиксированного inbox-каталога, содержимое проверяется декодером (`check_file`), лимиты — `SCENE_UPLOAD_MAX_BYTES` (25 МБ) и `SCENE_UPLOAD_MAX_FILES` (20), существующие inbox-файлы не перезаписываются (уникальное имя), запись атомарная (temp → `os.replace`).
+- UI: кнопка «Загрузить» на GRID и **drag-and-drop** файлов на область сетки; после загрузки — обновление списка и фасетов.
+- `data/inbox/` добавлен в `.gitignore` (runtime-данные).
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.

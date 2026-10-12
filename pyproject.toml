@@ -20,6 +20,9 @@ dependencies = [
     "scikit-learn>=1.9.0",
     "imagehash>=4.3.2",
     "psycopg[binary]>=3.3.5",
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.30,<1",
+    "python-multipart>=0.0.9",
 ]
 
 [tool.uv]
@@ -39,4 +42,5 @@ scene-fingerprint = "app.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=8,<9",
+    "httpx>=0.27,<1",
 ]

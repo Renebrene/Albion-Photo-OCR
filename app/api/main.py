@@ -28,6 +28,7 @@ from app.api.routes import (
     public_router,
     read_router,
     searches_router,
+    uploads_router,
     users_router,
 )
 
@@ -60,6 +61,7 @@ def create_app() -> FastAPI:
     app.include_router(jobs_router, prefix="/api")
     app.include_router(collections_router, prefix="/api")
     app.include_router(searches_router, prefix="/api")
+    app.include_router(uploads_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
     app.include_router(users_router, prefix="/api")
 

@@ -103,6 +103,31 @@ export function fetchPhotoDetails(photoId) {
   return getJson(`${BASE}/v1/photos/${photoId}/details`)
 }
 
+export async function uploadPhotos(files) {
+  const form = new FormData()
+  for (const file of files) form.append('files', file)
+
+  // No Content-Type header: the browser sets the multipart boundary.
+  const response = await fetch(`${BASE}/v1/upload`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: form,
+  })
+
+  if (!response.ok) {
+    let detail = `API error ${response.status}`
+    try {
+      const payload = await response.json()
+      if (payload && payload.detail) detail = payload.detail
+    } catch {
+      // ignore non-JSON error bodies
+    }
+    throw new Error(detail)
+  }
+
+  return response.json()
+}
+
 export function fetchAutomation() {
   return getJson(`${BASE}/v1/automation`)
 }

@@ -3,7 +3,12 @@ import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Notify } from 'quasar'
 
-import { fetchPhotoDetails, originalUrl, previewUrl } from '../api/client'
+import {
+  fetchPhotoDetails,
+  originalUrl,
+  previewUrl,
+  uploadPhotos,
+} from '../api/client'
 import { usePhotosStore } from '../stores/photos'
 
 const store = usePhotosStore()
@@ -38,6 +43,11 @@ const viewerOpen = ref(false)
 const current = ref(null)
 const details = ref(null)
 const detailsLoading = ref(false)
+
+// upload (button + drag-and-drop)
+const fileInput = ref(null)
+const uploading = ref(false)
+const dragging = ref(false)
 
 // "В подборку" dialog
 const bucketOpen = ref(false)
@@ -265,6 +275,41 @@ function downloadSelected() {
   store.selected.forEach((photoId, index) => {
     setTimeout(() => window.open(originalUrl(photoId), '_blank'), index * 150)
   })
+}
+
+function pickFiles() {
+  fileInput.value?.click()
+}
+
+async function onFilesChosen(event) {
+  const files = Array.from(event.target.files || [])
+  event.target.value = '' // allow re-picking the same file
+  await doUpload(files)
+}
+
+async function onDrop(event) {
+  dragging.value = false
+  await doUpload(Array.from(event.dataTransfer?.files || []))
+}
+
+async function doUpload(files) {
+  if (!files.length) return
+  uploading.value = true
+  try {
+    const result = await uploadPhotos(files)
+    const accepted = result.accepted ?? 0
+    const failed = (result.items || []).filter((item) => item.error).length
+    Notify.create({
+      type: accepted ? 'positive' : 'warning',
+      message: `Загружено: ${accepted}, ошибок: ${failed}`,
+    })
+    await store.refresh()
+    await store.loadFacets()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    uploading.value = false
+  }
 }
 
 async function onLoad(index, done) {
@@ -621,13 +666,37 @@ function tagList(meta) {
             label="Скачать выбранные"
             @click="downloadSelected"
           />
+          <q-btn
+            dense
+            color="primary"
+            icon="upload"
+            label="Загрузить"
+            :loading="uploading"
+            @click="pickFiles"
+          />
+          <input
+            ref="fileInput"
+            type="file"
+            accept="image/jpeg,.jpg,.jpeg"
+            multiple
+            class="hidden-input"
+            @change="onFilesChosen"
+          />
         </div>
 
         <div v-if="error" class="q-mb-md">
           <q-banner class="bg-red-1 text-negative">Ошибка: {{ error }}</q-banner>
         </div>
 
-        <q-infinite-scroll @load="onLoad" :offset="300">
+        <q-infinite-scroll
+          @load="onLoad"
+          :offset="300"
+          class="drop-zone"
+          :class="{ 'drop-zone--active': dragging }"
+          @dragover.prevent="dragging = true"
+          @dragleave="dragging = false"
+          @drop.prevent="onDrop"
+        >
           <div v-if="viewMode === 'tiles'" class="photo-grid">
             <q-card
               v-for="photo in sortedItems"
@@ -934,5 +1003,16 @@ function tagList(meta) {
   z-index: 2;
   background: rgba(255, 255, 255, 0.85);
   border-radius: 4px;
+}
+
+.hidden-input {
+  display: none;
+}
+
+.drop-zone--active {
+  outline: 2px dashed var(--q-primary);
+  outline-offset: 4px;
+  border-radius: 6px;
+  background: rgba(33, 150, 243, 0.06);
 }
 </style>

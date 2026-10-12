@@ -11,12 +11,22 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Header,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+)
 
 from app import settings_store
 from app.api import repository
 from app.api import data as data_mod
 from app.api import system as sysinfo
+from app.api import upload as upload_mod
 from app.api.auth import auth_enabled, require_scope
 from app.api.config import PREVIEW_ROOT
 from app.core.errors import redact_paths
@@ -49,6 +59,7 @@ originals_router = APIRouter()
 jobs_router = APIRouter()
 collections_router = APIRouter()
 searches_router = APIRouter()
+uploads_router = APIRouter()
 auth_router = APIRouter()
 users_router = APIRouter()
 
@@ -416,6 +427,38 @@ def get_job(job_id: int):
         raise HTTPException(status_code=404, detail="job not found")
 
     return job
+
+
+# ---------------------------------------------------------------------------
+# Upload → INGEST (bounded, decoder-validated)
+# ---------------------------------------------------------------------------
+
+
+@uploads_router.post(
+    "/v1/upload",
+    status_code=201,
+    dependencies=[Depends(require_scope("upload:write"))],
+)
+def upload_photos(files: list[UploadFile] = File(...)):
+    """Store and register uploaded JPEGs through the INGEST pipeline."""
+
+    if not files:
+        raise HTTPException(status_code=422, detail="no files provided")
+
+    if len(files) > upload_mod.MAX_FILES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"too many files (max {upload_mod.MAX_FILES})",
+        )
+
+    results = [
+        upload_mod.ingest_upload(item.filename, item.file) for item in files
+    ]
+
+    return {
+        "items": results,
+        "accepted": sum(1 for item in results if "photo_id" in item),
+    }
 
 
 # ---------------------------------------------------------------------------

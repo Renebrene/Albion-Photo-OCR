@@ -21,7 +21,13 @@ from fastapi import Header, HTTPException
 # Role -> scopes. Администратор can do anything.
 ROLE_SCOPES: dict[str, set[str]] = {
     "Администратор": {"*"},
-    "Менеджер": {"read", "collections:write", "searches:write", "jobs:read"},
+    "Менеджер": {
+        "read",
+        "collections:write",
+        "searches:write",
+        "upload:write",
+        "jobs:read",
+    },
     "Гость": {"read"},
 }
 

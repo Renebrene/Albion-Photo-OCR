@@ -30,6 +30,9 @@ htmlcov/
 # Source photos — keep physically, do not commit
 data/input/
 
+# Upload inbox — runtime data, do not commit
+data/inbox/
+
 # Runtime databases
 *.db
 *.sqlite
