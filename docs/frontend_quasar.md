@@ -210,6 +210,14 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - `GET /v1/runs/last` — последний DINO batch, последний HYBRID run и счётчики очереди заданий; вкладка «Последний запуск».
 - Техраздел теперь: Обработка, Последний запуск, QWEN, Автоматизация (заглушка), Система, Слепки, Пользователи, Данные (заглушка).
 
+### Срез 12 — расширенный просмотрщик, контекстное меню, единый поиск
+
+- **Поиск** (`q`) в `/v1/photos` теперь ищет сразу по нескольким полям: filename, client, brand, category, description, address (аналог легаси поиска по client/brand/category/description). `PhotoSummary` дополнен `brand`/`category`.
+- **`GET /v1/photos/{photo_id}/details`** — фото + его QWEN-метаданные (`photo_qwen`): status, description, address, client, brand, category, tags, модель, время; `error_message` очищается от абсолютных путей (`redact_paths`).
+- **Просмотрщик (rich)**: диалог с превью MIDDLE слева и панелью справа — Адрес (распознавание), Клиент, Бренд, Категория, статус/модель/время QWEN, Описание, Теги; кнопки «Оригинал»/«Сохранить».
+- **Контекстное меню** на карточке (ПКМ) и в режиме списка: Открыть / Оригинал / Сохранить / В подборку.
+- **Режим плитка/список** и **сортировка** (имя файла / адрес / клиент) — аналог легаси GRID.
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.

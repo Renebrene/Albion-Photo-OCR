@@ -1,9 +1,9 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Notify } from 'quasar'
 
-import { originalUrl, previewUrl } from '../api/client'
+import { fetchPhotoDetails, originalUrl, previewUrl } from '../api/client'
 import { usePhotosStore } from '../stores/photos'
 
 const store = usePhotosStore()
@@ -16,8 +16,28 @@ const period = ref('month')
 const customFrom = ref(null)
 const customTo = ref(null)
 
+// Grid presentation (mirrors the legacy list/tile toggle + sorting).
+const viewMode = ref('tiles')
+const sortKey = ref('filename')
+const sortOptions = [
+  { label: 'По имени файла', value: 'filename' },
+  { label: 'По адресу', value: 'address' },
+  { label: 'По клиенту', value: 'client' },
+]
+
+const sortedItems = computed(() => {
+  const key = sortKey.value
+  return [...items.value].sort((a, b) => {
+    const av = (a[key] || '').toString()
+    const bv = (b[key] || '').toString()
+    return av.localeCompare(bv, 'ru')
+  })
+})
+
 const viewerOpen = ref(false)
 const current = ref(null)
+const details = ref(null)
+const detailsLoading = ref(false)
 
 // "В подборку" dialog
 const bucketOpen = ref(false)
@@ -176,13 +196,51 @@ async function onLoad(index, done) {
   done(!store.hasMore)
 }
 
-function open(photo) {
+async function open(photo) {
   current.value = photo
+  details.value = null
   viewerOpen.value = true
+  detailsLoading.value = true
+
+  try {
+    details.value = await fetchPhotoDetails(photo.photo_id)
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    detailsLoading.value = false
+  }
 }
 
 function viewerUrl() {
   return current.value ? previewUrl(current.value.photo_id, 'middle') : ''
+}
+
+function openOriginal(photo) {
+  window.open(originalUrl(photo.photo_id), '_blank')
+}
+
+function saveOriginal(photo) {
+  const link = document.createElement('a')
+  link.href = originalUrl(photo.photo_id)
+  link.download = photo.filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
+
+async function addOneToBucket(photo) {
+  if (!store.isSelected(photo.photo_id)) {
+    store.toggleSelected(photo.photo_id)
+  }
+  await openBucketDialog()
+}
+
+// QWEN metadata for the open photo (may be null when it has not run).
+const qwen = computed(() => (details.value ? details.value.qwen : null))
+
+function tagList(meta) {
+  const tags = meta?.tags
+  return Array.isArray(tags) ? tags : []
 }
 </script>
 
@@ -321,7 +379,7 @@ function viewerUrl() {
             dense
             outlined
             clearable
-            placeholder="Имя файла"
+            placeholder="Файл, клиент, бренд, категория…"
             class="col-12 col-sm-3"
             @keyup.enter="apply"
           />
@@ -354,6 +412,33 @@ function viewerUrl() {
           </q-chip>
 
           <q-space />
+
+          <q-select
+            v-model="sortKey"
+            :options="sortOptions"
+            dense
+            outlined
+            emit-value
+            map-options
+            option-label="label"
+            option-value="value"
+            label="Сортировка"
+            style="min-width: 170px"
+          />
+
+          <q-btn-toggle
+            v-model="viewMode"
+            dense
+            toggle-color="primary"
+            :options="[
+              { value: 'tiles', slot: 'tiles' },
+              { value: 'list', slot: 'list' },
+            ]"
+          >
+            <template #tiles><q-icon name="grid_view" /></template>
+            <template #list><q-icon name="view_list" /></template>
+          </q-btn-toggle>
+
           <div class="text-caption text-grey">{{ items.length }} фото</div>
         </div>
 
@@ -396,9 +481,9 @@ function viewerUrl() {
         </div>
 
         <q-infinite-scroll @load="onLoad" :offset="300">
-          <div class="photo-grid">
+          <div v-if="viewMode === 'tiles'" class="photo-grid">
             <q-card
-              v-for="photo in items"
+              v-for="photo in sortedItems"
               :key="photo.photo_id"
               class="photo-card"
             >
@@ -425,8 +510,82 @@ function viewerUrl() {
                   {{ photo.client }}
                 </div>
               </q-card-section>
+
+              <!-- right-click context menu -->
+              <q-menu context-menu touch-position>
+                <q-list dense style="min-width: 180px">
+                  <q-item clickable v-close-popup @click="open(photo)">
+                    <q-item-section avatar><q-icon name="visibility" /></q-item-section>
+                    <q-item-section>Открыть</q-item-section>
+                  </q-item>
+                  <q-item clickable v-close-popup @click="openOriginal(photo)">
+                    <q-item-section avatar><q-icon name="open_in_new" /></q-item-section>
+                    <q-item-section>Оригинал</q-item-section>
+                  </q-item>
+                  <q-item clickable v-close-popup @click="saveOriginal(photo)">
+                    <q-item-section avatar><q-icon name="download" /></q-item-section>
+                    <q-item-section>Сохранить</q-item-section>
+                  </q-item>
+                  <q-item clickable v-close-popup @click="addOneToBucket(photo)">
+                    <q-item-section avatar><q-icon name="bookmark_add" /></q-item-section>
+                    <q-item-section>В подборку</q-item-section>
+                  </q-item>
+                </q-list>
+              </q-menu>
             </q-card>
           </div>
+
+          <q-list v-else separator bordered class="rounded-borders">
+            <q-item
+              v-for="photo in sortedItems"
+              :key="photo.photo_id"
+              clickable
+              @click="open(photo)"
+            >
+              <q-item-section side>
+                <q-checkbox
+                  :model-value="store.isSelected(photo.photo_id)"
+                  dense
+                  color="primary"
+                  @click.stop
+                  @update:model-value="store.toggleSelected(photo.photo_id)"
+                />
+              </q-item-section>
+              <q-item-section side>
+                <q-img
+                  :src="previewUrl(photo.photo_id, 'small')"
+                  style="width: 64px; height: 48px"
+                  class="rounded-borders"
+                />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>{{ photo.filename }}</q-item-label>
+                <q-item-label caption>
+                  {{ photo.address || '—' }} · {{ photo.client || '—' }}
+                </q-item-label>
+              </q-item-section>
+              <q-item-section side>
+                <q-btn dense flat icon="more_vert" @click.stop>
+                  <q-menu>
+                    <q-list dense style="min-width: 180px">
+                      <q-item clickable v-close-popup @click="openOriginal(photo)">
+                        <q-item-section avatar><q-icon name="open_in_new" /></q-item-section>
+                        <q-item-section>Оригинал</q-item-section>
+                      </q-item>
+                      <q-item clickable v-close-popup @click="saveOriginal(photo)">
+                        <q-item-section avatar><q-icon name="download" /></q-item-section>
+                        <q-item-section>Сохранить</q-item-section>
+                      </q-item>
+                      <q-item clickable v-close-popup @click="addOneToBucket(photo)">
+                        <q-item-section avatar><q-icon name="bookmark_add" /></q-item-section>
+                        <q-item-section>В подборку</q-item-section>
+                      </q-item>
+                    </q-list>
+                  </q-menu>
+                </q-btn>
+              </q-item-section>
+            </q-item>
+          </q-list>
 
           <template #loading>
             <div class="row justify-center q-my-md">
@@ -442,16 +601,102 @@ function viewerUrl() {
     </div>
 
     <q-dialog v-model="viewerOpen">
-      <q-card style="max-width: 90vw; max-height: 90vh">
-        <q-img :src="viewerUrl()" class="rounded-borders" />
-        <q-card-section class="q-pa-sm">
-          <div class="text-caption text-grey-8">
-            {{ current?.filename }} — {{ current?.photo_id }}
-          </div>
-          <div v-if="current?.description" class="text-caption q-mt-xs">
-            {{ current.description }}
-          </div>
+      <q-card style="width: 1100px; max-width: 95vw; max-height: 92vh">
+        <q-card-section class="row items-center q-pb-sm">
+          <div class="text-subtitle1 col ellipsis">{{ current?.filename }}</div>
+          <q-btn dense flat icon="open_in_new" @click="openOriginal(current)">
+            <q-tooltip>Открыть оригинал</q-tooltip>
+          </q-btn>
+          <q-btn dense flat icon="download" @click="saveOriginal(current)">
+            <q-tooltip>Сохранить оригинал</q-tooltip>
+          </q-btn>
+          <q-btn dense flat icon="close" v-close-popup />
         </q-card-section>
+        <q-separator />
+
+        <div class="row no-wrap" style="max-height: 80vh">
+          <div class="col-7 column items-center bg-grey-3 q-pa-sm">
+            <q-img
+              :src="viewerUrl()"
+              :ratio="4 / 3"
+              class="rounded-borders"
+              style="max-width: 100%"
+            />
+          </div>
+
+          <div class="col-5 column" style="overflow: auto">
+            <q-card-section class="q-gutter-xs">
+              <div class="text-caption text-grey">ID: {{ current?.photo_id }}</div>
+
+              <div v-if="detailsLoading">
+                <q-spinner-dots color="primary" size="28px" />
+              </div>
+
+              <template v-else>
+                <div class="row q-col-gutter-xs">
+                  <div class="col-6">
+                    <div class="text-caption text-grey">Адрес (распознавание)</div>
+                    <div>{{ current?.address || '—' }}</div>
+                  </div>
+                  <div class="col-6">
+                    <div class="text-caption text-grey">Клиент</div>
+                    <div>{{ current?.client || '—' }}</div>
+                  </div>
+                </div>
+
+                <template v-if="qwen">
+                  <div class="row q-col-gutter-xs q-mt-sm">
+                    <div class="col-6">
+                      <div class="text-caption text-grey">Бренд</div>
+                      <div>{{ qwen.brand || '—' }}</div>
+                    </div>
+                    <div class="col-6">
+                      <div class="text-caption text-grey">Категория</div>
+                      <div>{{ qwen.category || '—' }}</div>
+                    </div>
+                  </div>
+
+                  <div class="row items-center q-gutter-xs q-mt-sm">
+                    <q-badge
+                      :color="qwen.status === 'DONE' ? 'positive' : (qwen.status === 'FAILED' ? 'negative' : 'grey')"
+                      :label="qwen.status"
+                    />
+                    <span class="text-caption text-grey">
+                      {{ qwen.qwen_model }}
+                      <template v-if="qwen.qwen_time_sec">
+                        · {{ qwen.qwen_time_sec.toFixed(1) }} c
+                      </template>
+                    </span>
+                  </div>
+
+                  <div v-if="qwen.description" class="q-mt-sm">
+                    <div class="text-caption text-grey">Описание</div>
+                    <div class="text-body2">{{ qwen.description }}</div>
+                  </div>
+
+                  <div v-if="qwen.error_message" class="q-mt-sm">
+                    <q-banner class="bg-red-1 text-negative text-caption">
+                      {{ qwen.error_message }}
+                    </q-banner>
+                  </div>
+
+                  <div v-if="tagList(qwen).length" class="q-mt-sm">
+                    <div class="text-caption text-grey">Теги</div>
+                    <div class="row q-gutter-xs q-mt-xs">
+                      <q-chip v-for="tag in tagList(qwen)" :key="tag" dense>
+                        {{ tag }}
+                      </q-chip>
+                    </div>
+                  </div>
+                </template>
+
+                <div v-else class="text-caption text-grey q-mt-md">
+                  QWEN-метаданных для этого фото нет.
+                </div>
+              </template>
+            </q-card-section>
+          </div>
+        </div>
       </q-card>
     </q-dialog>
 

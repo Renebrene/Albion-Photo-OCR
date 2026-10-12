@@ -98,6 +98,10 @@ export function fetchPhotos({
   return getJson(`${BASE}/v1/photos?${params.toString()}`)
 }
 
+export function fetchPhotoDetails(photoId) {
+  return getJson(`${BASE}/v1/photos/${photoId}/details`)
+}
+
 export function fetchCollections() {
   return getJson(`${BASE}/v1/collections`)
 }
