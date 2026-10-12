@@ -24,6 +24,21 @@ cd "$ROOT"
 
 PY="${PY:-$ROOT/.venv/bin/python}"
 
+# Locate bun: explicit $BUN, then PATH, then common install locations.
+resolve_bun() {
+    if [[ -n "${BUN:-}" ]]; then echo "$BUN"; return; fi
+    if command -v bun >/dev/null 2>&1; then command -v bun; return; fi
+    local candidate
+    for candidate in \
+        "$HOME/.bun/bin/bun" \
+        "$HOME/.cherrystudio/bin/bun" \
+        "/usr/local/bin/bun" \
+        "/usr/bin/bun"; do
+        if [[ -x "$candidate" ]]; then echo "$candidate"; return; fi
+    done
+}
+BUN="$(resolve_bun || true)"
+
 export INGEST_DB_HOST="${INGEST_DB_HOST:-127.0.0.1}"
 export INGEST_DB_PORT="${INGEST_DB_PORT:-5432}"
 export INGEST_DB_NAME="${INGEST_DB_NAME:-photobase_ingest_test}"
@@ -92,13 +107,22 @@ if [[ "$WITH_WORKER" = 1 ]]; then
 fi
 
 if [[ "$WITH_FRONTEND" = 1 ]]; then
+    if [[ -z "$BUN" ]]; then
+        echo "[dev_up] bun not found - frontend dev server disabled."
+        echo "         install bun (https://bun.sh) or set BUN=/path/to/bun,"
+        echo "         then run: cd frontend && bun dev   (backend stays on $API_BASE)"
+        WITH_FRONTEND=0
+    fi
+fi
+
+if [[ "$WITH_FRONTEND" = 1 ]]; then
     if [[ ! -d "$ROOT/frontend/node_modules" ]]; then
-        echo "[dev_up] installing frontend deps (bun install)"
-        (cd "$ROOT/frontend" && bun install)
+        echo "[dev_up] installing frontend deps ($BUN install)"
+        (cd "$ROOT/frontend" && "$BUN" install)
     fi
 
     echo "[dev_up] frontend -> http://localhost:5173  (proxy /api -> $API_BASE)"
-    (cd "$ROOT/frontend" && exec env VITE_API_TARGET="$API_BASE" bun dev) &
+    (cd "$ROOT/frontend" && exec env VITE_API_TARGET="$API_BASE" "$BUN" dev) &
     pids+=($!)
 fi
 
