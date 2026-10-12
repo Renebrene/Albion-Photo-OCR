@@ -55,6 +55,23 @@ def test_parse_result_invalid_json_raises():
         parse_result("not json at all")
 
 
+def test_parse_result_strips_think_block():
+    content = '<think>рассуждение</think>{"description":"Дом","address":null}'
+
+    result = parse_result(content)
+
+    assert result["description"] == "Дом"
+    assert result["address"] is None
+
+
+def test_parse_result_extracts_json_from_prose():
+    content = 'Вот результат: {"description":"Двор"} — всё.'
+
+    result = parse_result(content)
+
+    assert result["description"] == "Двор"
+
+
 # ---------------------------------------------------------------------------
 # Database round-trip (requires PostgreSQL with schema 007)
 # ---------------------------------------------------------------------------

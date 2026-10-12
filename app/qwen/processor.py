@@ -111,6 +111,7 @@ def encode_image(path: str) -> str:
 
 
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
 
 def parse_result(content) -> dict:
@@ -120,6 +121,10 @@ def parse_result(content) -> dict:
         data = content
     else:
         text = str(content).strip()
+
+        # Some models wrap their reasoning in a literal <think>...</think>
+        # block even when thinking is disabled; drop it before parsing.
+        text = _THINK_RE.sub("", text).strip()
 
         if not text:
             raise ValueError("QWEN response is empty")
