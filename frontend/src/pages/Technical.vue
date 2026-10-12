@@ -3,6 +3,7 @@ import { ref } from 'vue'
 
 import Processing from './Processing.vue'
 import Settings from './Settings.vue'
+import UsersAdmin from '../components/UsersAdmin.vue'
 
 // Mirrors the legacy NiceGUI "технический раздел" (components/technical.py)
 // with its modules: photo_processing, qwen, automation, users, data.
@@ -39,11 +40,7 @@ const tab = ref('processing')
       </q-tab-panel>
 
       <q-tab-panel name="users">
-        <q-banner class="bg-grey-2">
-          Управление пользователями не реализовано: сейчас аутентификация —
-          опциональные bearer-токены (<code>SCENE_API_TOKENS</code>),
-          OIDC/OAuth2 — отдельный этап.
-        </q-banner>
+        <UsersAdmin />
       </q-tab-panel>
 
       <q-tab-panel name="data">

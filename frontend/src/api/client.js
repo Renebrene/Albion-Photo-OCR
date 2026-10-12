@@ -2,15 +2,54 @@
 // In dev, /api is proxied to the FastAPI backend by Vite.
 
 const BASE = import.meta.env.VITE_API_BASE || '/api'
+const TOKEN_KEY = 'photobase_token'
+
+export function getToken() {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+export function setToken(token) {
+  if (token) localStorage.setItem(TOKEN_KEY, token)
+  else localStorage.removeItem(TOKEN_KEY)
+}
+
+function authHeaders(extra = {}) {
+  const token = getToken()
+  return token ? { ...extra, Authorization: `Bearer ${token}` } : { ...extra }
+}
 
 async function getJson(url) {
-  const response = await fetch(url)
+  const response = await fetch(url, { headers: authHeaders() })
 
   if (!response.ok) {
     throw new Error(`API error ${response.status}`)
   }
 
   return response.json()
+}
+
+export function login(name, password) {
+  return postJson(`${BASE}/v1/auth/login`, { name, password })
+}
+
+export function logout() {
+  return postJson(`${BASE}/v1/auth/logout`, {})
+}
+
+export function fetchMe() {
+  return getJson(`${BASE}/v1/auth/me`)
+}
+
+export function fetchUsers(activeOnly = false) {
+  return getJson(`${BASE}/v1/users?active_only=${activeOnly}`)
+}
+
+export function createUser(payload) {
+  return postJson(`${BASE}/v1/users`, payload)
+}
+
+export function updateUser(userId, payload) {
+  return patchJson(`${BASE}/v1/users/${userId}`, payload)
 }
 
 function withCursor(path, { limit, cursor } = {}) {
@@ -103,7 +142,7 @@ export function originalUrl(photoId) {
 async function postJson(url, body) {
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(body),
   })
 
@@ -140,7 +179,7 @@ export function enqueueQwen(photoIds = null) {
 async function putJson(url, body) {
   const response = await fetch(url, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(body),
   })
 
@@ -162,8 +201,32 @@ export function fetchQwenModels() {
   return getJson(`${BASE}/v1/qwen/models`)
 }
 
+async function patchJson(url, body) {
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(body),
+  })
+
+  if (!response.ok) {
+    let detail = `API error ${response.status}`
+    try {
+      const payload = await response.json()
+      if (payload && payload.detail) detail = payload.detail
+    } catch {
+      // ignore
+    }
+    throw new Error(detail)
+  }
+
+  return response.json()
+}
+
 async function deleteJson(url) {
-  const response = await fetch(url, { method: 'DELETE' })
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
 
   if (!response.ok) {
     let detail = `API error ${response.status}`
