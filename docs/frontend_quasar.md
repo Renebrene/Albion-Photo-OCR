@@ -226,6 +226,18 @@ python -m app.jobs.worker            # один проход
 python -m app.jobs.worker --watch    # постоянно
 ```
 
+### Всё разом — `scripts/dev_up.sh`
+
+Поднимает backend + worker + frontend dev одной командой и останавливает их по Ctrl+C:
+
+```bash
+INGEST_DB_PASSWORD=lora scripts/dev_up.sh              # backend :8010 + worker + Vite :5173
+INGEST_DB_PASSWORD=lora scripts/dev_up.sh --no-frontend
+INGEST_DB_PASSWORD=lora scripts/dev_up.sh --prod        # собрать SPA и отдавать её из backend
+```
+
+Скрипт ждёт готовности `/api/health`, ставит frontend-зависимости при необходимости и убивает всё дерево процессов на выходе.
+
 ### Ограничения среза
 
 - Нет аутентификации/прав; нет выдачи originals.
