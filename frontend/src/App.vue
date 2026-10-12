@@ -6,8 +6,7 @@
 
         <q-tabs align="right" shrink>
           <q-route-tab to="/" label="Фото" exact />
-          <q-route-tab to="/processing" label="Обработка" exact />
-          <q-route-tab to="/settings" label="Настройки" exact />
+          <q-route-tab to="/technical" label="Технический" exact />
         </q-tabs>
       </q-toolbar>
     </q-header>

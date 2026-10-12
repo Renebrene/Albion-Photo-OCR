@@ -65,8 +65,8 @@ onMounted(load)
 </script>
 
 <template>
-  <q-page class="q-pa-md" style="max-width: 720px">
-    <div class="text-h6 q-mb-md">Настройки</div>
+  <div style="max-width: 720px">
+    <div class="text-h6 q-mb-md">Модель QWEN</div>
 
     <div v-if="error" class="q-mb-md">
       <q-banner class="bg-red-1 text-negative">
@@ -102,5 +102,5 @@ onMounted(load)
         </div>
       </q-card-section>
     </q-card>
-  </q-page>
+  </div>
 </template>

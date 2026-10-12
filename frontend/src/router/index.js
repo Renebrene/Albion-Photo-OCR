@@ -1,8 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import PhotosGrid from '../pages/PhotosGrid.vue'
-import Processing from '../pages/Processing.vue'
-import Settings from '../pages/Settings.vue'
+import Technical from '../pages/Technical.vue'
 
 export default createRouter({
   history: createWebHistory(),
@@ -13,14 +12,12 @@ export default createRouter({
       component: PhotosGrid,
     },
     {
-      path: '/processing',
-      name: 'processing',
-      component: Processing,
+      path: '/technical',
+      name: 'technical',
+      component: Technical,
     },
-    {
-      path: '/settings',
-      name: 'settings',
-      component: Settings,
-    },
+    // Backwards-compatible aliases for the earlier separate pages.
+    { path: '/processing', redirect: '/technical' },
+    { path: '/settings', redirect: '/technical' },
   ],
 })
