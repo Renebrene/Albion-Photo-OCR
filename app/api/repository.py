@@ -78,6 +78,7 @@ def list_photos(
     client: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    collection_id: int | None = None,
 ) -> tuple[list[PhotoSummary], str | None]:
     """
     Return one page of registered photos ordered by photo_id.
@@ -114,6 +115,14 @@ def list_photos(
     if date_to:
         clauses.append("t.created_at < (%s::date + interval '1 day')")
         params.append(date_to)
+
+    if collection_id is not None:
+        clauses.append(
+            "t.photo_id IN ("
+            "SELECT member_value FROM public.collection_members "
+            "WHERE collection_id = %s AND member_type = 'photo')"
+        )
+        params.append(collection_id)
 
     if clauses:
         sql += " WHERE " + " AND ".join(clauses)
@@ -197,6 +206,182 @@ def list_clients(*, limit: int = 1000) -> list[dict]:
                 {"client": row[0], "count": int(row[1])}
                 for row in cur.fetchall()
             ]
+
+
+# ---------------------------------------------------------------------------
+# Collections / bookmarks
+# ---------------------------------------------------------------------------
+
+
+def _collection_row(row) -> dict:
+    return {
+        "collection_id": int(row[0]),
+        "name": row[1],
+        "kind": row[2],
+        "client": row[3],
+        "scope": row[4],
+        "created_at": row[5],
+        "members": int(row[6]),
+    }
+
+
+def list_collections() -> list[dict]:
+    sql = """
+        SELECT
+            c.collection_id,
+            c.name,
+            c.kind,
+            c.client,
+            c.scope,
+            c.created_at,
+            (
+                SELECT count(*)
+                FROM public.collection_members AS m
+                WHERE m.collection_id = c.collection_id
+            ) AS members
+        FROM public.collections AS c
+        ORDER BY lower(c.name)
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            return [_collection_row(row) for row in cur.fetchall()]
+
+
+def get_collection(collection_id: int) -> dict | None:
+    sql = """
+        SELECT
+            c.collection_id, c.name, c.kind, c.client, c.scope, c.created_at,
+            (
+                SELECT count(*)
+                FROM public.collection_members AS m
+                WHERE m.collection_id = c.collection_id
+            ) AS members
+        FROM public.collections AS c
+        WHERE c.collection_id = %s
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (collection_id,))
+            row = cur.fetchone()
+
+    return _collection_row(row) if row is not None else None
+
+
+def create_collection(
+    *,
+    name: str,
+    kind: str = "Моя",
+    client: str | None = None,
+    scope: str = "photos",
+) -> dict:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO public.collections (name, kind, client, scope)
+                VALUES (%s, %s, %s, %s)
+                RETURNING collection_id
+                """,
+                (name, kind, client, scope),
+            )
+            collection_id = int(cur.fetchone()[0])
+
+            cur.execute(
+                """
+                SELECT c.collection_id, c.name, c.kind, c.client, c.scope,
+                       c.created_at, 0 AS members
+                FROM public.collections AS c
+                WHERE c.collection_id = %s
+                """,
+                (collection_id,),
+            )
+            return _collection_row(cur.fetchone())
+
+
+def delete_collection(collection_id: int) -> bool:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM public.collections WHERE collection_id = %s",
+                (collection_id,),
+            )
+            return cur.rowcount == 1
+
+
+def collection_member_values(
+    collection_id: int,
+    member_type: str = "photo",
+) -> list[str]:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT member_value
+                FROM public.collection_members
+                WHERE collection_id = %s AND member_type = %s
+                ORDER BY member_value
+                """,
+                (collection_id, member_type),
+            )
+            return [row[0] for row in cur.fetchall()]
+
+
+def add_collection_members(
+    collection_id: int,
+    *,
+    member_type: str,
+    values: list[str],
+) -> int:
+    if not values:
+        return 0
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO public.collection_members (
+                    collection_id, member_type, member_value
+                )
+                VALUES (%s, %s, %s)
+                ON CONFLICT DO NOTHING
+                """,
+                [(collection_id, member_type, value) for value in values],
+            )
+            inserted = cur.rowcount
+
+            cur.execute(
+                "UPDATE public.collections SET updated_at = CURRENT_TIMESTAMP "
+                "WHERE collection_id = %s",
+                (collection_id,),
+            )
+
+            return inserted
+
+
+def remove_collection_members(
+    collection_id: int,
+    *,
+    member_type: str,
+    values: list[str],
+) -> int:
+    if not values:
+        return 0
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM public.collection_members
+                WHERE collection_id = %s
+                  AND member_type = %s
+                  AND member_value = ANY(%s)
+                """,
+                (collection_id, member_type, values),
+            )
+            return cur.rowcount
 
 
 def get_photo_source(photo_id: str) -> dict | None:

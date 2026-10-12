@@ -196,6 +196,13 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - «Автоматизация», «Пользователи», «Данные» — заглушки с пояснением: watcher/расписание, OIDC и экспорт/обслуживание хранилища ещё не реализованы.
 - Роуты `/processing` и `/settings` редиректят на `/technical`.
 
+### Срез 10 — подборки/закладки и выбор фото
+
+- **Схема `009_collections.sql`**: `collections` (name, kind `Моя/Клиентская`, client, scope `addresses/clients/photos`) и `collection_members` (member_type `address/client/photo`, member_value). Идемпотентно.
+- **API**: `GET /v1/collections`, `GET /v1/collections/{id}/members`; `POST /v1/collections`, `DELETE /v1/collections/{id}`, `POST /v1/collections/{id}/members`, `POST /v1/collections/{id}/members/remove` (scope `collections:write`); `/v1/photos?collection_id=` фильтрует по подборке.
+- **UI**: панель «Подборки» в левой колонке (клик фильтрует, удаление), чекбоксы на карточках, «Выбрать все / Снять», счётчик выбранного, «В подборку» (существующая или новая), «Скачать выбранные» (открывает `/original`).
+- Аналог легаси `collections.py` + `collections`/`collection_members`. Не перенесено: `manager_selections` (состояние чекбоксов на менеджера) — появится вместе с пользователями.
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.

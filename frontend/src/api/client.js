@@ -32,6 +32,7 @@ export function fetchPhotos({
   client = null,
   date_from = null,
   date_to = null,
+  collection_id = null,
 } = {}) {
   const params = new URLSearchParams()
   params.set('limit', String(limit))
@@ -41,8 +42,32 @@ export function fetchPhotos({
   if (client) params.set('client', client)
   if (date_from) params.set('date_from', date_from)
   if (date_to) params.set('date_to', date_to)
+  if (collection_id) params.set('collection_id', String(collection_id))
 
   return getJson(`${BASE}/v1/photos?${params.toString()}`)
+}
+
+export function fetchCollections() {
+  return getJson(`${BASE}/v1/collections`)
+}
+
+export function createCollection(payload) {
+  return postJson(`${BASE}/v1/collections`, payload)
+}
+
+export function deleteCollection(collectionId) {
+  return deleteJson(`${BASE}/v1/collections/${collectionId}`)
+}
+
+export function addCollectionMembers(collectionId, payload) {
+  return postJson(`${BASE}/v1/collections/${collectionId}/members`, payload)
+}
+
+export function removeCollectionMembers(collectionId, payload) {
+  return postJson(
+    `${BASE}/v1/collections/${collectionId}/members/remove`,
+    payload,
+  )
 }
 
 export function fetchAddresses() {
@@ -69,6 +94,10 @@ export function fetchHybridRuns({ limit = 50, cursor = null } = {}) {
 
 export function previewUrl(photoId, size = 'small') {
   return `${BASE}/v1/photos/${photoId}/previews/${size}`
+}
+
+export function originalUrl(photoId) {
+  return `${BASE}/v1/photos/${photoId}/original`
 }
 
 async function postJson(url, body) {
@@ -131,6 +160,23 @@ async function putJson(url, body) {
 
 export function fetchQwenModels() {
   return getJson(`${BASE}/v1/qwen/models`)
+}
+
+async function deleteJson(url) {
+  const response = await fetch(url, { method: 'DELETE' })
+
+  if (!response.ok) {
+    let detail = `API error ${response.status}`
+    try {
+      const payload = await response.json()
+      if (payload && payload.detail) detail = payload.detail
+    } catch {
+      // ignore
+    }
+    throw new Error(detail)
+  }
+
+  return response.json()
 }
 
 export function setQwenModel(model) {

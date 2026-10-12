@@ -1,12 +1,14 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
+import { Notify } from 'quasar'
 
-import { previewUrl } from '../api/client'
+import { originalUrl, previewUrl } from '../api/client'
 import { usePhotosStore } from '../stores/photos'
 
 const store = usePhotosStore()
-const { items, error, loading, addresses, clients } = storeToRefs(store)
+const { items, error, loading, addresses, clients, collections } =
+  storeToRefs(store)
 
 const q = ref('')
 const dateMode = ref('upload')
@@ -16,6 +18,13 @@ const customTo = ref(null)
 
 const viewerOpen = ref(false)
 const current = ref(null)
+
+// "В подборку" dialog
+const bucketOpen = ref(false)
+const bucketId = ref(null)
+const newName = ref('')
+const newKind = ref('Моя')
+const newClient = ref('')
 
 const dateModes = [
   { label: 'Дата загрузки', value: 'upload' },
@@ -66,6 +75,7 @@ async function apply() {
     client: store.client,
     dateFrom,
     dateTo,
+    collectionId: store.collectionId,
   })
 }
 
@@ -79,14 +89,21 @@ async function pickClient(client) {
   await apply()
 }
 
-async function clearAddress() {
-  store.address = ''
-  await apply()
+async function pickCollection(collection) {
+  await store.selectCollection(
+    store.collectionId === collection.collection_id
+      ? null
+      : collection.collection_id,
+  )
 }
 
-async function clearClient() {
-  store.client = ''
-  await apply()
+async function removeCollection(collection) {
+  try {
+    await store.deleteCollectionById(collection.collection_id)
+    Notify.create({ type: 'positive', message: 'Подборка удалена' })
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
 }
 
 async function reset() {
@@ -96,7 +113,57 @@ async function reset() {
   customTo.value = null
   store.address = ''
   store.client = ''
+  store.collectionId = null
+  store.clearSelection()
   await apply()
+}
+
+async function openBucketDialog() {
+  if (!store.selectedCount) {
+    Notify.create({ type: 'info', message: 'Сначала выберите фото' })
+    return
+  }
+  await store.loadCollections()
+  bucketId.value = null
+  newName.value = ''
+  bucketOpen.value = true
+}
+
+async function saveToBucket() {
+  try {
+    let collectionId = bucketId.value
+
+    if (!collectionId) {
+      const name = newName.value.trim()
+      if (!name) {
+        Notify.create({ type: 'warning', message: 'Введите название подборки' })
+        return
+      }
+      const created = await store.createCollection({
+        name,
+        kind: newKind.value,
+        client: newClient.value.trim() || null,
+        scope: 'photos',
+      })
+      collectionId = created.collection_id
+    }
+
+    const added = await store.addSelectedToCollection(collectionId)
+    Notify.create({ type: 'positive', message: `Добавлено в подборку: ${added}` })
+    bucketOpen.value = false
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
+function downloadSelected() {
+  if (!store.selectedCount) {
+    Notify.create({ type: 'info', message: 'Сначала выберите фото' })
+    return
+  }
+  store.selected.forEach((photoId, index) => {
+    setTimeout(() => window.open(originalUrl(photoId), '_blank'), index * 150)
+  })
 }
 
 async function onLoad(index, done) {
@@ -122,18 +189,13 @@ function viewerUrl() {
 <template>
   <q-page class="q-pa-md">
     <div class="row no-wrap q-col-gutter-md">
-      <!-- LEFT: period + addresses + clients (mirrors the legacy NiceGUI UI) -->
+      <!-- LEFT: period + addresses + clients + collections -->
       <div class="col-auto" style="width: 360px; min-width: 320px">
         <q-card flat bordered class="q-mb-sm">
           <q-card-section class="q-pb-sm">
             <div class="text-subtitle2 q-mb-sm">Период</div>
 
-            <q-option-group
-              v-model="dateMode"
-              :options="dateModes"
-              inline
-              dense
-            />
+            <q-option-group v-model="dateMode" :options="dateModes" inline dense />
 
             <q-select
               v-model="period"
@@ -161,12 +223,12 @@ function viewerUrl() {
             </div>
 
             <div class="text-caption text-orange q-mt-xs">
-              «Дата съёмки» не сохраняется — фильтр идёт по дате загрузки.
+              «Дата съёмки» не сохраняется — фильтр по дате загрузки.
             </div>
           </q-card-section>
         </q-card>
 
-        <div class="row no-wrap" style="height: 360px">
+        <div class="row no-wrap q-mb-sm" style="height: 300px">
           <q-card flat bordered class="col q-mr-xs column">
             <q-card-section class="q-pb-xs">
               <div class="text-subtitle2">Адреса</div>
@@ -211,9 +273,47 @@ function viewerUrl() {
             </q-scroll-area>
           </q-card>
         </div>
+
+        <q-card flat bordered class="column" style="height: 240px">
+          <q-card-section class="q-pb-xs row items-center">
+            <div class="text-subtitle2 col">Подборки</div>
+            <q-btn dense flat icon="add" size="sm" @click="openBucketDialog" />
+          </q-card-section>
+          <q-separator />
+          <q-scroll-area class="col">
+            <q-list dense>
+              <q-item
+                v-for="collection in collections"
+                :key="collection.collection_id"
+                clickable
+                :active="store.collectionId === collection.collection_id"
+                active-class="bg-secondary text-white"
+                @click="pickCollection(collection)"
+              >
+                <q-item-section avatar>
+                  <q-icon name="bookmark" size="18px" />
+                </q-item-section>
+                <q-item-section>
+                  <div class="ellipsis">{{ collection.name }}</div>
+                  <div class="text-caption text-grey-7">{{ collection.kind }}</div>
+                </q-item-section>
+                <q-item-section side>{{ collection.members }}</q-item-section>
+                <q-item-section side>
+                  <q-btn
+                    dense
+                    flat
+                    size="sm"
+                    icon="delete"
+                    @click.stop="removeCollection(collection)"
+                  />
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-scroll-area>
+        </q-card>
       </div>
 
-      <!-- RIGHT: grid -->
+      <!-- RIGHT: toolbar + grid -->
       <div class="col">
         <div class="row items-center q-gutter-sm q-mb-sm">
           <q-input
@@ -239,7 +339,7 @@ function viewerUrl() {
             removable
             color="primary"
             text-color="white"
-            @remove="clearAddress"
+            @remove="pickAddress(store.address)"
           >
             Адрес: {{ store.address }}
           </q-chip>
@@ -248,13 +348,47 @@ function viewerUrl() {
             removable
             color="secondary"
             text-color="white"
-            @remove="clearClient"
+            @remove="pickClient(store.client)"
           >
             Клиент: {{ store.client }}
           </q-chip>
 
           <q-space />
           <div class="text-caption text-grey">{{ items.length }} фото</div>
+        </div>
+
+        <div class="row items-center q-gutter-sm q-mb-sm">
+          <q-btn
+            flat
+            dense
+            icon="select_all"
+            label="Выбрать все"
+            @click="store.selectAllCurrent()"
+          />
+          <q-btn
+            flat
+            dense
+            icon="deselect"
+            label="Снять"
+            @click="store.clearSelection()"
+          />
+          <q-badge v-if="store.selectedCount" color="primary">
+            выбрано: {{ store.selectedCount }}
+          </q-badge>
+          <q-btn
+            dense
+            color="secondary"
+            icon="bookmark_add"
+            label="В подборку"
+            @click="openBucketDialog"
+          />
+          <q-btn
+            dense
+            flat
+            icon="download"
+            label="Скачать выбранные"
+            @click="downloadSelected"
+          />
         </div>
 
         <div v-if="error" class="q-mb-md">
@@ -266,13 +400,21 @@ function viewerUrl() {
             <q-card
               v-for="photo in items"
               :key="photo.photo_id"
-              class="photo-card cursor-pointer"
-              @click="open(photo)"
+              class="photo-card"
             >
+              <q-checkbox
+                :model-value="store.isSelected(photo.photo_id)"
+                class="photo-check"
+                dense
+                color="primary"
+                @update:model-value="store.toggleSelected(photo.photo_id)"
+              />
               <q-img
                 :src="previewUrl(photo.photo_id, 'small')"
                 :ratio="4 / 3"
                 spinner-color="primary"
+                class="cursor-pointer"
+                @click="open(photo)"
               />
               <q-card-section class="q-pa-xs">
                 <div class="ellipsis text-caption">{{ photo.filename }}</div>
@@ -312,6 +454,47 @@ function viewerUrl() {
         </q-card-section>
       </q-card>
     </q-dialog>
+
+    <q-dialog v-model="bucketOpen">
+      <q-card style="min-width: 360px">
+        <q-card-section class="text-subtitle1">В подборку</q-card-section>
+        <q-separator />
+        <q-card-section class="q-gutter-sm">
+          <q-select
+            v-model="bucketId"
+            :options="collections"
+            option-label="name"
+            option-value="collection_id"
+            emit-value
+            map-options
+            dense
+            outlined
+            clearable
+            label="Существующая подборка"
+          />
+          <div class="text-caption text-grey">или создать новую:</div>
+          <q-input v-model="newName" dense outlined label="Название" />
+          <q-select
+            v-model="newKind"
+            :options="['Моя', 'Клиентская']"
+            dense
+            outlined
+            label="Тип"
+          />
+          <q-input
+            v-if="newKind === 'Клиентская'"
+            v-model="newClient"
+            dense
+            outlined
+            label="Клиент"
+          />
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Отмена" v-close-popup />
+          <q-btn color="primary" label="Добавить" @click="saveToBucket" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
@@ -323,6 +506,16 @@ function viewerUrl() {
 }
 
 .photo-card {
+  position: relative;
   overflow: hidden;
+}
+
+.photo-check {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 2;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 4px;
 }
 </style>

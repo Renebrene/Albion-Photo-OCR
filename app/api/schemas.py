@@ -107,6 +107,28 @@ class QwenModelRequest(BaseModel):
     model: str = Field(min_length=1, max_length=128)
 
 
+class CollectionSummary(BaseModel):
+    collection_id: int
+    name: str
+    kind: str
+    client: str | None = None
+    scope: str
+    created_at: datetime | None = None
+    members: int = 0
+
+
+class CollectionCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    kind: str = Field(default="Моя", pattern=r"^(Моя|Клиентская)$")
+    client: str | None = Field(default=None, max_length=200)
+    scope: str = Field(default="photos", pattern=r"^(addresses|clients|photos)$")
+
+
+class CollectionMembersRequest(BaseModel):
+    member_type: str = Field(default="photo", pattern=r"^(address|client|photo)$")
+    values: list[str] = Field(min_length=1)
+
+
 class JobSummary(BaseModel):
     id: int
     job_type: str

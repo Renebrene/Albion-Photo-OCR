@@ -18,6 +18,8 @@ from app.api import repository
 from app.api.auth import require_scope
 from app.api.config import PREVIEW_ROOT
 from app.api.schemas import (
+    CollectionCreate,
+    CollectionMembersRequest,
     DinoBatchRequest,
     HybridRequest,
     QwenJobRequest,
@@ -33,6 +35,7 @@ public_router = APIRouter()
 read_router = APIRouter(dependencies=[Depends(require_scope("read"))])
 originals_router = APIRouter()
 jobs_router = APIRouter()
+collections_router = APIRouter()
 
 PHOTO_ID_RE = re.compile(r"^PH_[0-9a-f]{24}$")
 
@@ -60,6 +63,7 @@ def list_photos(
     client: str | None = Query(None, max_length=256),
     date_from: str | None = Query(None, max_length=10),
     date_to: str | None = Query(None, max_length=10),
+    collection_id: int | None = Query(None, ge=1),
 ):
     items, next_cursor = repository.list_photos(
         limit=limit,
@@ -69,6 +73,7 @@ def list_photos(
         client=client,
         date_from=date_from,
         date_to=date_to,
+        collection_id=collection_id,
     )
     return {
         "items": [item.model_dump() for item in items],
@@ -324,6 +329,96 @@ def get_job(job_id: int):
         raise HTTPException(status_code=404, detail="job not found")
 
     return job
+
+
+# ---------------------------------------------------------------------------
+# Collections / bookmarks
+# ---------------------------------------------------------------------------
+
+
+@read_router.get("/v1/collections", response_model=None)
+def list_collections():
+    return {"items": repository.list_collections()}
+
+
+@read_router.get("/v1/collections/{collection_id}/members", response_model=None)
+def list_collection_members(
+    collection_id: int,
+    member_type: str = Query("photo", pattern=r"^(address|client|photo)$"),
+):
+    if repository.get_collection(collection_id) is None:
+        raise HTTPException(status_code=404, detail="collection not found")
+
+    return {
+        "items": repository.collection_member_values(
+            collection_id, member_type
+        )
+    }
+
+
+@collections_router.post(
+    "/v1/collections",
+    status_code=201,
+    dependencies=[Depends(require_scope("collections:write"))],
+)
+def create_collection(request: CollectionCreate):
+    return repository.create_collection(
+        name=request.name,
+        kind=request.kind,
+        client=request.client,
+        scope=request.scope,
+    )
+
+
+@collections_router.delete(
+    "/v1/collections/{collection_id}",
+    dependencies=[Depends(require_scope("collections:write"))],
+)
+def delete_collection(collection_id: int):
+    if not repository.delete_collection(collection_id):
+        raise HTTPException(status_code=404, detail="collection not found")
+
+    return {"deleted": collection_id}
+
+
+@collections_router.post(
+    "/v1/collections/{collection_id}/members",
+    dependencies=[Depends(require_scope("collections:write"))],
+)
+def add_collection_members(
+    collection_id: int,
+    request: CollectionMembersRequest,
+):
+    if repository.get_collection(collection_id) is None:
+        raise HTTPException(status_code=404, detail="collection not found")
+
+    added = repository.add_collection_members(
+        collection_id,
+        member_type=request.member_type,
+        values=request.values,
+    )
+
+    return {"collection_id": collection_id, "added": added}
+
+
+@collections_router.post(
+    "/v1/collections/{collection_id}/members/remove",
+    dependencies=[Depends(require_scope("collections:write"))],
+)
+def remove_collection_members(
+    collection_id: int,
+    request: CollectionMembersRequest,
+):
+    if repository.get_collection(collection_id) is None:
+        raise HTTPException(status_code=404, detail="collection not found")
+
+    removed = repository.remove_collection_members(
+        collection_id,
+        member_type=request.member_type,
+        values=request.values,
+    )
+
+    return {"collection_id": collection_id, "removed": removed}
 
 
 # ---------------------------------------------------------------------------

@@ -46,7 +46,32 @@ def cleanup_jobs():
                 )
 
 
-def test_enqueue_then_claim_then_done(cleanup_jobs):
+def _queue_busy() -> bool:
+    """True when another consumer (a running worker) is using the queue."""
+
+    with jobs_db.get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) FROM public.job_queue "
+                "WHERE status IN ('PENDING', 'RUNNING')"
+            )
+            return cur.fetchone()[0] > 0
+
+
+@pytest.fixture
+def require_idle_queue():
+    """
+    Claim-order tests need exclusive access to the queue.
+
+    When a worker is actively consuming jobs (a live QWEN/DINO run), skip
+    instead of asserting on a shared, concurrently-mutated queue.
+    """
+
+    if _queue_busy():
+        pytest.skip("job queue is being consumed by a running worker")
+
+
+def test_enqueue_then_claim_then_done(cleanup_jobs, require_idle_queue):
     job_id = jobs_db.enqueue("DINO_BATCH", {"batch_id": 1})
     cleanup_jobs.append(job_id)
 
@@ -69,7 +94,7 @@ def test_enqueue_then_claim_then_done(cleanup_jobs):
     assert final["finished_at"] is not None
 
 
-def test_mark_failed(cleanup_jobs):
+def test_mark_failed(cleanup_jobs, require_idle_queue):
     job_id = jobs_db.enqueue("HYBRID_RUN", {"hybrid_run_id": 1})
     cleanup_jobs.append(job_id)
 
@@ -102,7 +127,7 @@ def test_rejects_unknown_job_type():
         jobs_db.enqueue("NOPE", {})
 
 
-def test_list_jobs_returns_created(cleanup_jobs):
+def test_list_jobs_returns_created(cleanup_jobs, require_idle_queue):
     job_id = jobs_db.enqueue("DINO_BATCH", {"batch_id": 7})
     cleanup_jobs.append(job_id)
 
