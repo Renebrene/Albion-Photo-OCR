@@ -21,11 +21,13 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.config import API_HOST, API_PORT, CORS_ORIGINS
 from app.api.routes import (
+    auth_router,
     collections_router,
     jobs_router,
     originals_router,
     public_router,
     read_router,
+    users_router,
 )
 
 # Built SPA (frontend/dist). Served when present so production can run from a
@@ -47,7 +49,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=CORS_ORIGINS,
-        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["*"],
     )
 
@@ -56,6 +58,8 @@ def create_app() -> FastAPI:
     app.include_router(originals_router, prefix="/api")
     app.include_router(jobs_router, prefix="/api")
     app.include_router(collections_router, prefix="/api")
+    app.include_router(auth_router, prefix="/api")
+    app.include_router(users_router, prefix="/api")
 
     _mount_spa(app)
 

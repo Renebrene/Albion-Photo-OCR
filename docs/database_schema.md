@@ -31,6 +31,7 @@ PostgreSQL — источник истины для переходов межд�
 007_qwen.sql      → photo_qwen; ALTER job_queue ADD QWEN_PHOTO
 008_settings.sql  → app_settings
 009_collections.sql → collections, collection_members
+010_users.sql     → users, sessions (seed: Администратор, Гость)
 ```
 
 **`004` теперь backfill-safe и идемпотентен (2026-10-12):** создаёт `dino_batches` при отсутствии, добавляет `dino_runs.batch_id` (nullable) при отсутствии, бэкфиллит существующие runs без batch (по одному legacy-batch на run, со статусом и счётчиками из run), затем ставит `NOT NULL` и создаёт индекс. Повторный прогон — no-op. Ранее файл делал `ADD COLUMN` и сразу `SET NOT NULL`, что падало на непустой `dino_runs`.
@@ -249,6 +250,16 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 `collection_members`: `collection_id` FK → `collections` ON DELETE CASCADE, `member_type` CHECK `address`/`client`/`photo`, `member_value` TEXT; PRIMARY KEY `(collection_id, member_type, member_value)`; индекс по `(member_type, member_value)`.
 
 Аналог легаси `collections`/`collection_members`. `manager_selections` (состояние чекбоксов на менеджера) не перенесено — появится с пользователями.
+
+### 4.12 `users` / `sessions` — пользователи и сессии
+
+Создаёт `schema/010_users.sql`; логика — `app/users/` (security + database), вход — `POST /v1/auth/login`.
+
+`users`: `user_id` BIGSERIAL PK, `name` TEXT UNIQUE, `color` TEXT, `role` CHECK `Администратор`/`Менеджер`/`Гость`, `active` BOOLEAN, `password_hash` TEXT (scrypt, `NULL` = без пароля), `created_at`. Сид: `Администратор`, `Гость`.
+
+`sessions`: `session_id` TEXT PK (opaque), `user_id` FK → `users` ON DELETE CASCADE, `created_at`, `expires_at`. Индекс по `user_id`.
+
+Пароли — `scrypt$<salt>$<hash>` (stdlib `hashlib.scrypt`), сверка `hmac.compare_digest`. Open-text сравнение из легаси не повторяется. Роли → scopes: Администратор `*`, Менеджер `read, collections:write, jobs:read`, Гость `read`.
 
 ## 5. Локальная SQLite-очередь (не PostgreSQL)
 

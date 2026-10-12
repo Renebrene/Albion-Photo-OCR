@@ -11,21 +11,26 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 
 from app import settings_store
 from app.api import repository
-from app.api.auth import require_scope
+from app.api.auth import auth_enabled, require_scope
 from app.api.config import PREVIEW_ROOT
 from app.api.schemas import (
     CollectionCreate,
     CollectionMembersRequest,
     DinoBatchRequest,
     HybridRequest,
+    LoginRequest,
     QwenJobRequest,
     QwenModelRequest,
+    UserCreate,
+    UserUpdate,
 )
 from app.qwen import processor as qwen
+from app.users import database as users_db
+from app.users.security import verify_password
 from app.dino import database as dino_db
 from app.hybrid import database as hybrid_db
 from app.jobs import database as jobs_db
@@ -36,6 +41,8 @@ read_router = APIRouter(dependencies=[Depends(require_scope("read"))])
 originals_router = APIRouter()
 jobs_router = APIRouter()
 collections_router = APIRouter()
+auth_router = APIRouter()
+users_router = APIRouter()
 
 PHOTO_ID_RE = re.compile(r"^PH_[0-9a-f]{24}$")
 
@@ -419,6 +426,96 @@ def remove_collection_members(
     )
 
     return {"collection_id": collection_id, "removed": removed}
+
+
+# ---------------------------------------------------------------------------
+# Authentication (users + sessions)
+# ---------------------------------------------------------------------------
+
+
+def _public_user(user: dict) -> dict:
+    return {key: value for key, value in user.items() if key != "password_hash"}
+
+
+@auth_router.post("/v1/auth/login")
+def login(request: LoginRequest):
+    user = users_db.get_user_by_name(request.name)
+
+    if (
+        user is None
+        or not user["active"]
+        or not verify_password(request.password, user.get("password_hash"))
+    ):
+        raise HTTPException(status_code=401, detail="invalid credentials")
+
+    token = users_db.create_session(user["user_id"])
+
+    return {"token": token, "user": _public_user(user)}
+
+
+@auth_router.post("/v1/auth/logout")
+def logout(authorization: str | None = Header(default=None)):
+    token = None
+
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+
+    return {"logged_out": bool(token and users_db.delete_session(token))}
+
+
+@auth_router.get("/v1/auth/me", response_model=None)
+def me(principal=Depends(require_scope("read"))):
+    user = principal.get("user") if principal else None
+    return {"user": user, "auth_enabled": auth_enabled()}
+
+
+@read_router.get("/v1/users", response_model=None)
+def list_users(active_only: bool = Query(False)):
+    return {"items": users_db.list_users(active_only=active_only)}
+
+
+@users_router.post(
+    "/v1/users",
+    status_code=201,
+    dependencies=[Depends(require_scope("users:manage"))],
+)
+def create_user(request: UserCreate):
+    try:
+        return _public_user(
+            users_db.create_user(
+                name=request.name,
+                role=request.role,
+                color=request.color,
+                password=request.password,
+            )
+        )
+    except Exception as exc:  # unique violation etc.
+        raise HTTPException(
+            status_code=409,
+            detail=f"cannot create user: {exc}",
+        ) from exc
+
+
+@users_router.patch(
+    "/v1/users/{user_id}",
+    dependencies=[Depends(require_scope("users:manage"))],
+)
+def update_user(user_id: int, request: UserUpdate):
+    if users_db.get_user(user_id) is None:
+        raise HTTPException(status_code=404, detail="user not found")
+
+    updated = users_db.update_user(
+        user_id,
+        name=request.name,
+        color=request.color,
+        role=request.role,
+        active=request.active,
+    )
+
+    if request.password is not None:
+        users_db.set_password(user_id, request.password or None)
+
+    return _public_user(updated)
 
 
 # ---------------------------------------------------------------------------

@@ -129,6 +129,40 @@ class CollectionMembersRequest(BaseModel):
     values: list[str] = Field(min_length=1)
 
 
+class LoginRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    password: str = Field(default="", max_length=200)
+
+
+class UserSummary(BaseModel):
+    user_id: int
+    name: str
+    color: str | None = None
+    role: str
+    active: bool
+
+
+class UserCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    role: str = Field(
+        default="Менеджер",
+        pattern=r"^(Администратор|Менеджер|Гость)$",
+    )
+    color: str | None = Field(default=None, max_length=32)
+    password: str | None = Field(default=None, max_length=200)
+
+
+class UserUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    color: str | None = Field(default=None, max_length=32)
+    role: str | None = Field(
+        default=None,
+        pattern=r"^(Администратор|Менеджер|Гость)$",
+    )
+    active: bool | None = None
+    password: str | None = Field(default=None, max_length=200)
+
+
 class JobSummary(BaseModel):
     id: int
     job_type: str
