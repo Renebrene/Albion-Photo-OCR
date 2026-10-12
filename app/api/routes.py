@@ -27,6 +27,7 @@ from app.api.schemas import (
     LoginRequest,
     QwenJobRequest,
     QwenModelRequest,
+    SavedSearchCreate,
     UserCreate,
     UserUpdate,
 )
@@ -44,6 +45,7 @@ read_router = APIRouter(dependencies=[Depends(require_scope("read"))])
 originals_router = APIRouter()
 jobs_router = APIRouter()
 collections_router = APIRouter()
+searches_router = APIRouter()
 auth_router = APIRouter()
 users_router = APIRouter()
 
@@ -69,8 +71,8 @@ def list_photos(
     limit: int = Query(50, ge=1, le=100),
     cursor: str | None = Query(None, max_length=64),
     q: str | None = Query(None, max_length=256),
-    address: str | None = Query(None, max_length=256),
-    client: str | None = Query(None, max_length=256),
+    address: list[str] | None = Query(None, max_length=64),
+    client: list[str] | None = Query(None, max_length=64),
     date_from: str | None = Query(None, max_length=10),
     date_to: str | None = Query(None, max_length=10),
     collection_id: int | None = Query(None, ge=1),
@@ -79,8 +81,8 @@ def list_photos(
         limit=limit,
         cursor=cursor,
         query=q,
-        address=address,
-        client=client,
+        addresses=address,
+        clients=client,
         date_from=date_from,
         date_to=date_to,
         collection_id=collection_id,
@@ -478,6 +480,39 @@ def remove_collection_members(
     )
 
     return {"collection_id": collection_id, "removed": removed}
+
+
+# ---------------------------------------------------------------------------
+# Saved searches (bookmarked GRID filters)
+# ---------------------------------------------------------------------------
+
+
+@read_router.get("/v1/searches", response_model=None)
+def list_saved_searches():
+    return {"items": repository.list_saved_searches()}
+
+
+@searches_router.post(
+    "/v1/searches",
+    status_code=201,
+    dependencies=[Depends(require_scope("searches:write"))],
+)
+def create_saved_search(request: SavedSearchCreate):
+    return repository.create_saved_search(
+        name=request.name,
+        filters=request.filters,
+    )
+
+
+@searches_router.delete(
+    "/v1/searches/{search_id}",
+    dependencies=[Depends(require_scope("searches:write"))],
+)
+def delete_saved_search(search_id: int):
+    if not repository.delete_saved_search(search_id):
+        raise HTTPException(status_code=404, detail="saved search not found")
+
+    return {"deleted": search_id}
 
 
 # ---------------------------------------------------------------------------

@@ -7,6 +7,8 @@ issued. photo_id is always passed as a query parameter, never interpolated.
 
 from __future__ import annotations
 
+from psycopg.types.json import Json
+
 from app.api.schemas import (
     DinoBatchSummary,
     DinoRunSummary,
@@ -79,8 +81,8 @@ def list_photos(
     limit: int,
     cursor: str | None = None,
     query: str | None = None,
-    address: str | None = None,
-    client: str | None = None,
+    addresses: list[str] | None = None,
+    clients: list[str] | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     collection_id: int | None = None,
@@ -88,11 +90,12 @@ def list_photos(
     """
     Return one page of registered photos ordered by photo_id.
 
-    `address` is the recognition result (HYBRID/DINO), `client` is the QWEN
-    metadata. `query` searches several fields at once (filename, client,
-    brand, category, description, address), mirroring the legacy global
-    search. date_from/date_to filter by upload date (photos.created_at).
-    Fetches limit + 1 rows to detect whether a further page exists.
+    `addresses` are recognition results (HYBRID/DINO) and `clients` are the
+    QWEN metadata; both accept several values with OR semantics (matching the
+    legacy multi-select panels). `query` searches several fields at once
+    (filename, client, brand, category, description, address), mirroring the
+    legacy global search. date_from/date_to filter by upload date
+    (photos.created_at). Fetches limit + 1 rows to detect a further page.
     """
 
     sql = _PHOTO_SELECT
@@ -112,13 +115,19 @@ def list_photos(
         )
         params.extend([like] * 6)
 
-    if address:
-        clauses.append("t.address ILIKE %s")
-        params.append(f"%{address}%")
+    if addresses:
+        likes = [f"%{value}%" for value in addresses]
+        clauses.append(
+            "(" + " OR ".join(["t.address ILIKE %s"] * len(likes)) + ")"
+        )
+        params.extend(likes)
 
-    if client:
-        clauses.append("t.client ILIKE %s")
-        params.append(f"%{client}%")
+    if clients:
+        likes = [f"%{value}%" for value in clients]
+        clauses.append(
+            "(" + " OR ".join(["t.client ILIKE %s"] * len(likes)) + ")"
+        )
+        params.extend(likes)
 
     if date_from:
         clauses.append("t.created_at >= %s::date")
@@ -589,3 +598,54 @@ def list_hybrid_runs(
     next_cursor = items[-1].hybrid_run_id if has_next and items else None
 
     return items, next_cursor
+
+
+# ---------------------------------------------------------------------------
+# Saved searches (bookmarked GRID filters)
+# ---------------------------------------------------------------------------
+
+
+def _saved_search_row(row) -> dict:
+    return {
+        "search_id": int(row[0]),
+        "name": row[1],
+        "filters": row[2] or {},
+        "created_at": row[3],
+    }
+
+
+def list_saved_searches() -> list[dict]:
+    sql = """
+        SELECT search_id, name, filters, created_at
+        FROM public.saved_searches
+        ORDER BY lower(name)
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            return [_saved_search_row(row) for row in cur.fetchall()]
+
+
+def create_saved_search(*, name: str, filters: dict) -> dict:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO public.saved_searches (name, filters)
+                VALUES (%s, %s)
+                RETURNING search_id, name, filters, created_at
+                """,
+                (name, Json(filters or {})),
+            )
+            return _saved_search_row(cur.fetchone())
+
+
+def delete_saved_search(search_id: int) -> bool:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM public.saved_searches WHERE search_id = %s",
+                (search_id,),
+            )
+            return cur.rowcount == 1

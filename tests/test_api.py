@@ -171,6 +171,25 @@ def test_search_matches_filename_substring():
 
 
 @requires_db
+def test_multiple_addresses_filter_or_semantics():
+    """Several `address` params combine with OR (multi-select panels)."""
+
+    addresses = client.get("/api/v1/addresses").json()["items"]
+    if len(addresses) < 2:
+        pytest.skip("fewer than two addresses in the corpus")
+
+    first, second = addresses[0]["address"], addresses[1]["address"]
+    body = client.get(
+        f"/api/v1/photos?address={first}&address={second}&limit=100"
+    ).json()
+
+    assert body["items"], "no photos returned"
+    for item in body["items"]:
+        value = item["address"] or ""
+        assert first in value or second in value
+
+
+@requires_db
 def test_photo_details_shape():
     first = client.get("/api/v1/photos?limit=1").json()
     if not first["items"]:

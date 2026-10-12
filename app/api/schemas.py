@@ -131,6 +131,13 @@ class CollectionMembersRequest(BaseModel):
     values: list[str] = Field(min_length=1)
 
 
+class SavedSearchCreate(BaseModel):
+    """Named snapshot of the GRID filter state (bookmarked search)."""
+
+    name: str = Field(min_length=1, max_length=200)
+    filters: dict = Field(default_factory=dict)
+
+
 class LoginRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     password: str = Field(default="", max_length=200)

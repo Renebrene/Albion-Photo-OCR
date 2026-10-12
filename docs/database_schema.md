@@ -32,6 +32,7 @@ PostgreSQL — источник истины для переходов межд�
 008_settings.sql  → app_settings
 009_collections.sql → collections, collection_members
 010_users.sql     → users, sessions (seed: Администратор, Гость)
+011_saved_searches.sql → saved_searches
 ```
 
 **`004` теперь backfill-safe и идемпотентен (2026-10-12):** создаёт `dino_batches` при отсутствии, добавляет `dino_runs.batch_id` (nullable) при отсутствии, бэкфиллит существующие runs без batch (по одному legacy-batch на run, со статусом и счётчиками из run), затем ставит `NOT NULL` и создаёт индекс. Повторный прогон — no-op. Ранее файл делал `ADD COLUMN` и сразу `SET NOT NULL`, что падало на непустой `dino_runs`.
@@ -259,7 +260,15 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 
 `sessions`: `session_id` TEXT PK (opaque), `user_id` FK → `users` ON DELETE CASCADE, `created_at`, `expires_at`. Индекс по `user_id`.
 
-Пароли — `scrypt$<salt>$<hash>` (stdlib `hashlib.scrypt`), сверка `hmac.compare_digest`. Open-text сравнение из легаси не повторяется. Роли → scopes: Администратор `*`, Менеджер `read, collections:write, jobs:read`, Гость `read`.
+Пароли — `scrypt$<salt>$<hash>` (stdlib `hashlib.scrypt`), сверка `hmac.compare_digest`. Open-text сравнение из легаси не повторяется. Роли → scopes: Администратор `*`, Менеджер `read, collections:write, searches:write, jobs:read`, Гость `read`.
+
+### 4.13 `saved_searches` — сохранённые поиски
+
+Создаёт `schema/011_saved_searches.sql`; пишет `app/api/repository.py` (через API `/v1/searches`).
+
+`saved_searches`: `search_id` BIGSERIAL PK, `user_id` TEXT (NULL, пока не привязано к сессии), `name` TEXT NOT NULL, `filters` JSONB (снимок фильтров GRID: `q`, `addresses[]`, `clients[]`, `date_from`, `date_to`, `collection_id`), `created_at`; индекс по `user_id`.
+
+Аналог легаси `search`/«История поиска». Не влияет на пайплайны — только восстанавливает набор фильтров в UI.
 
 ## 5. Локальная SQLite-очередь (не PostgreSQL)
 

@@ -7,7 +7,7 @@ import { fetchPhotoDetails, originalUrl, previewUrl } from '../api/client'
 import { usePhotosStore } from '../stores/photos'
 
 const store = usePhotosStore()
-const { items, error, loading, addresses, clients, collections } =
+const { items, error, loading, addresses, clients, collections, savedSearches } =
   storeToRefs(store)
 
 const q = ref('')
@@ -91,21 +91,47 @@ async function apply() {
   const [dateFrom, dateTo] = currentDates()
   await store.applyFilters({
     q: q.value.trim(),
-    address: store.address,
-    client: store.client,
+    addresses: [...store.selectedAddresses],
+    clients: [...store.selectedClients],
     dateFrom,
     dateTo,
     collectionId: store.collectionId,
   })
 }
 
+function toggleValue(list, value) {
+  const index = list.indexOf(value)
+  if (index === -1) list.push(value)
+  else list.splice(index, 1)
+}
+
 async function pickAddress(address) {
-  store.address = store.address === address ? '' : address
+  toggleValue(store.selectedAddresses, address)
   await apply()
 }
 
 async function pickClient(client) {
-  store.client = store.client === client ? '' : client
+  toggleValue(store.selectedClients, client)
+  await apply()
+}
+
+async function selectAllAddresses() {
+  store.selectedAddresses = addresses.value.map((item) => item.address)
+  await apply()
+}
+
+async function clearAddresses() {
+  store.selectedAddresses = []
+  await apply()
+}
+
+async function selectAllClients() {
+  store.selectedClients = clients.value.map((item) => item.client)
+  await apply()
+}
+
+async function clearClients() {
+  store.selectedClients = []
   await apply()
 }
 
@@ -131,11 +157,66 @@ async function reset() {
   period.value = 'all'
   customFrom.value = null
   customTo.value = null
-  store.address = ''
-  store.client = ''
+  store.selectedAddresses = []
+  store.selectedClients = []
   store.collectionId = null
   store.clearSelection()
   await apply()
+}
+
+// ---- saved searches ----
+
+const saveSearchOpen = ref(false)
+const saveSearchName = ref('')
+
+function openSaveSearch() {
+  saveSearchName.value = ''
+  saveSearchOpen.value = true
+}
+
+async function saveSearch() {
+  const name = saveSearchName.value.trim()
+  if (!name) {
+    Notify.create({ type: 'warning', message: 'Введите название поиска' })
+    return
+  }
+  try {
+    await store.saveCurrentSearch(name)
+    Notify.create({ type: 'positive', message: 'Поиск сохранён' })
+    saveSearchOpen.value = false
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
+async function applySavedSearch(search) {
+  const filters = search.filters || {}
+  q.value = filters.q || ''
+  store.collectionId = filters.collection_id || null
+
+  const from = filters.date_from || null
+  const to = filters.date_to || null
+  customFrom.value = from
+  customTo.value = to
+  period.value = from || to ? 'custom' : 'all'
+
+  await store.applyFilters({
+    q: q.value,
+    addresses: filters.addresses || [],
+    clients: filters.clients || [],
+    dateFrom: from,
+    dateTo: to,
+    collectionId: filters.collection_id || null,
+  })
+}
+
+async function removeSavedSearch(search) {
+  try {
+    await store.deleteSavedSearchById(search.search_id)
+    Notify.create({ type: 'positive', message: 'Поиск удалён' })
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
 }
 
 async function openBucketDialog() {
@@ -288,8 +369,10 @@ function tagList(meta) {
 
         <div class="row no-wrap q-mb-sm" style="height: 300px">
           <q-card flat bordered class="col q-mr-xs column">
-            <q-card-section class="q-pb-xs">
-              <div class="text-subtitle2">Адреса</div>
+            <q-card-section class="q-pb-xs row items-center">
+              <div class="text-subtitle2 col">Адреса</div>
+              <q-btn dense flat size="sm" label="Все" @click="selectAllAddresses" />
+              <q-btn dense flat size="sm" label="Снять" @click="clearAddresses" />
             </q-card-section>
             <q-separator />
             <q-scroll-area class="col">
@@ -298,10 +381,17 @@ function tagList(meta) {
                   v-for="item in addresses"
                   :key="item.address"
                   clickable
-                  :active="store.address === item.address"
-                  active-class="bg-primary text-white"
                   @click="pickAddress(item.address)"
                 >
+                  <q-item-section side>
+                    <q-checkbox
+                      :model-value="store.selectedAddresses.includes(item.address)"
+                      dense
+                      color="primary"
+                      @click.stop
+                      @update:model-value="pickAddress(item.address)"
+                    />
+                  </q-item-section>
                   <q-item-section>{{ item.address }}</q-item-section>
                   <q-item-section side>{{ item.count }}</q-item-section>
                 </q-item>
@@ -310,8 +400,10 @@ function tagList(meta) {
           </q-card>
 
           <q-card flat bordered class="col column">
-            <q-card-section class="q-pb-xs">
-              <div class="text-subtitle2">Клиенты</div>
+            <q-card-section class="q-pb-xs row items-center">
+              <div class="text-subtitle2 col">Клиенты</div>
+              <q-btn dense flat size="sm" label="Все" @click="selectAllClients" />
+              <q-btn dense flat size="sm" label="Снять" @click="clearClients" />
             </q-card-section>
             <q-separator />
             <q-scroll-area class="col">
@@ -320,10 +412,17 @@ function tagList(meta) {
                   v-for="item in clients"
                   :key="item.client"
                   clickable
-                  :active="store.client === item.client"
-                  active-class="bg-primary text-white"
                   @click="pickClient(item.client)"
                 >
+                  <q-item-section side>
+                    <q-checkbox
+                      :model-value="store.selectedClients.includes(item.client)"
+                      dense
+                      color="primary"
+                      @click.stop
+                      @update:model-value="pickClient(item.client)"
+                    />
+                  </q-item-section>
                   <q-item-section>{{ item.client }}</q-item-section>
                   <q-item-section side>{{ item.count }}</q-item-section>
                 </q-item>
@@ -369,6 +468,52 @@ function tagList(meta) {
             </q-list>
           </q-scroll-area>
         </q-card>
+
+        <q-card flat bordered class="column q-mt-sm" style="height: 200px">
+          <q-card-section class="q-pb-xs row items-center">
+            <div class="text-subtitle2 col">История поиска</div>
+            <q-btn
+              dense
+              flat
+              size="sm"
+              icon="bookmark_add"
+              label="Сохранить поиск"
+              @click="openSaveSearch"
+            />
+          </q-card-section>
+          <q-separator />
+          <q-scroll-area class="col">
+            <q-list dense>
+              <q-item
+                v-for="search in savedSearches"
+                :key="search.search_id"
+                clickable
+                @click="applySavedSearch(search)"
+              >
+                <q-item-section avatar>
+                  <q-icon name="bookmark" size="18px" />
+                </q-item-section>
+                <q-item-section>
+                  <div class="ellipsis">{{ search.name }}</div>
+                </q-item-section>
+                <q-item-section side>
+                  <q-btn
+                    dense
+                    flat
+                    size="sm"
+                    icon="delete"
+                    @click.stop="removeSavedSearch(search)"
+                  />
+                </q-item-section>
+              </q-item>
+              <q-item v-if="!savedSearches.length">
+                <q-item-section class="text-caption text-grey">
+                  Нет сохранённых поисков
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-scroll-area>
+        </q-card>
       </div>
 
       <!-- RIGHT: toolbar + grid -->
@@ -393,22 +538,24 @@ function tagList(meta) {
           <q-btn flat icon="restart_alt" dense label="Сброс" @click="reset" />
 
           <q-chip
-            v-if="store.address"
+            v-for="value in store.selectedAddresses"
+            :key="`a-${value}`"
             removable
             color="primary"
             text-color="white"
-            @remove="pickAddress(store.address)"
+            @remove="pickAddress(value)"
           >
-            Адрес: {{ store.address }}
+            Адрес: {{ value }}
           </q-chip>
           <q-chip
-            v-if="store.client"
+            v-for="value in store.selectedClients"
+            :key="`c-${value}`"
             removable
             color="secondary"
             text-color="white"
-            @remove="pickClient(store.client)"
+            @remove="pickClient(value)"
           >
-            Клиент: {{ store.client }}
+            Клиент: {{ value }}
           </q-chip>
 
           <q-space />
@@ -737,6 +884,31 @@ function tagList(meta) {
         <q-card-actions align="right">
           <q-btn flat label="Отмена" v-close-popup />
           <q-btn color="primary" label="Добавить" @click="saveToBucket" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <q-dialog v-model="saveSearchOpen">
+      <q-card style="min-width: 360px">
+        <q-card-section class="text-subtitle1">Сохранить поиск</q-card-section>
+        <q-separator />
+        <q-card-section>
+          <q-input
+            v-model="saveSearchName"
+            dense
+            outlined
+            label="Название поиска"
+            autofocus
+            @keyup.enter="saveSearch"
+          />
+          <div class="text-caption text-grey q-mt-sm">
+            Сохраняются текущие фильтры: запрос, адреса, клиенты, период,
+            подборка.
+          </div>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Отмена" v-close-popup />
+          <q-btn color="primary" label="Сохранить" @click="saveSearch" />
         </q-card-actions>
       </q-card>
     </q-dialog>

@@ -89,8 +89,9 @@ export function fetchPhotos({
   params.set('limit', String(limit))
   if (cursor) params.set('cursor', cursor)
   if (q) params.set('q', q)
-  if (address) params.set('address', address)
-  if (client) params.set('client', client)
+  // `address`/`client` accept a single value or an array (OR semantics).
+  if (address) [].concat(address).forEach((v) => params.append('address', v))
+  if (client) [].concat(client).forEach((v) => params.append('client', v))
   if (date_from) params.set('date_from', date_from)
   if (date_to) params.set('date_to', date_to)
   if (collection_id) params.set('collection_id', String(collection_id))
@@ -100,6 +101,18 @@ export function fetchPhotos({
 
 export function fetchPhotoDetails(photoId) {
   return getJson(`${BASE}/v1/photos/${photoId}/details`)
+}
+
+export function fetchSavedSearches() {
+  return getJson(`${BASE}/v1/searches`)
+}
+
+export function createSavedSearch(payload) {
+  return postJson(`${BASE}/v1/searches`, payload)
+}
+
+export function deleteSavedSearch(searchId) {
+  return deleteJson(`${BASE}/v1/searches/${searchId}`)
 }
 
 export function fetchCollections() {
