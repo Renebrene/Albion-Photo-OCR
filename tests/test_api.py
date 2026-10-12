@@ -1,0 +1,93 @@
+"""
+Tests for the read-only web API (app.api).
+
+Health and input validation run everywhere; endpoints that need PostgreSQL
+skip unless INGEST_DB_* is configured.
+"""
+
+from __future__ import annotations
+
+import os
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.api.main import app
+
+
+def _db_available() -> bool:
+    if not os.getenv("INGEST_DB_PASSWORD"):
+        return False
+    try:
+        from app.ingest.database import get_connection
+
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("select to_regclass('public.photos')")
+                return cur.fetchone()[0] is not None
+    except Exception:
+        return False
+
+
+requires_db = pytest.mark.skipif(
+    not _db_available(),
+    reason="integration PostgreSQL is not configured (INGEST_DB_*)",
+)
+
+client = TestClient(app)
+
+
+def test_health():
+    response = client.get("/api/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+def test_invalid_photo_id_returns_404():
+    assert client.get("/api/v1/photos/not-an-id").status_code == 404
+
+
+def test_invalid_preview_id_returns_404():
+    response = client.get("/api/v1/photos/PH_zzz/previews/small")
+    assert response.status_code == 404
+
+
+def test_unknown_preview_size_returns_404():
+    response = client.get(
+        "/api/v1/photos/PH_" + "0" * 24 + "/previews/large"
+    )
+    assert response.status_code == 404
+
+
+def test_limit_is_bounded():
+    response = client.get("/api/v1/photos?limit=999")
+    assert response.status_code == 422
+
+
+@requires_db
+def test_list_photos_returns_page():
+    response = client.get("/api/v1/photos?limit=5")
+    assert response.status_code == 200
+
+    body = response.json()
+    assert "items" in body and "next_cursor" in body
+    assert len(body["items"]) <= 5
+
+    for item in body["items"]:
+        assert item["photo_id"].startswith("PH_")
+        assert item["container_format"] in {"JPEG", "MPO"}
+
+
+@requires_db
+def test_cursor_pagination_is_stable():
+    first = client.get("/api/v1/photos?limit=3").json()
+    if not first["next_cursor"]:
+        pytest.skip("corpus too small for pagination")
+
+    second = client.get(
+        f"/api/v1/photos?limit=3&cursor={first['next_cursor']}"
+    ).json()
+
+    first_ids = {item["photo_id"] for item in first["items"]}
+    second_ids = {item["photo_id"] for item in second["items"]}
+    assert first_ids.isdisjoint(second_ids)

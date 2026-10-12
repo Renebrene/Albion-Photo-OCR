@@ -109,7 +109,49 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - Единый контракт DTO (Pydantic) для грида/поиска/статусов.
 - Аутентификация и права на просмотр previews/originals.
 
-## 6. Источники
+## 6. Реализованный срез 1 (2026-10-13)
+
+Первый вертикальный срез: read-only API + Quasar GRID на реальной БД. Аутентификации **нет** — только локальная разработка.
+
+### Backend — `app/api/` (FastAPI)
+
+- `GET /api/health` → `{"status":"ok","version":...}`
+- `GET /api/v1/photos?limit=&cursor=&q=` → страница зарегистрированных фото (cursor-пагинация по `photo_id`, `limit` 1..100, `q` — подстрока в `filename`); ответ `{items, next_cursor}`.
+- `GET /api/v1/photos/{photo_id}` → сводка фото.
+- `GET /api/v1/photos/{photo_id}/previews/{small|middle}` → JPEG-превью.
+
+Особенности: `photo_id` валидируется по `^PH_[0-9a-f]{24}$` (иначе 404); путь превью строится из `photo_id` и `SCENE_PREVIEW_ROOT`, а не из пользовательского ввода; подключение к БД — через `INGEST_DB_*`. Конфиг API не тянет torch (`app/api/config.py`). CORS — по `SCENE_CORS_ORIGINS` (по умолчанию localhost:5173).
+
+Тесты: `tests/test_api.py` (health, валидация, 404; list/cursor — с БД).
+
+### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
+
+- Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.
+- Dev-прокси `/api` → `http://127.0.0.1:8000` (см. `frontend/vite.config.js`).
+- Quasar подключён готовым CSS (`quasar/dist/quasar.css`), без sass.
+
+### Запуск
+
+```bash
+# backend
+export INGEST_DB_HOST=127.0.0.1 INGEST_DB_PORT=5432 \
+       INGEST_DB_NAME=photobase_ingest_test INGEST_DB_USER=lora_ingest INGEST_DB_PASSWORD=lora
+python -m uvicorn app.api.main:app --host 127.0.0.1 --port 8000
+
+# frontend (dev)
+cd frontend && bun install && bun dev      # http://localhost:5173
+# сборка
+cd frontend && bun run build               # frontend/dist
+```
+
+### Ограничения среза
+
+- Нет аутентификации/прав; нет выдачи originals.
+- Фильтры — только по имени файла: в текущей схеме нет `address`/`client` (в легаси их давал QWEN, см. [`qwen_process.md`](qwen_process.md)).
+- Нет экранов обработки (INGEST/DINO/HYBRID) и подборок — следующие этапы.
+- Prod-раздача: собрать `frontend/dist` и отдать статику (reverse proxy или FastAPI static).
+
+## 7. Источники
 
 - `111/chat_chunks/chunk_178.md` — раскладка `app/web/main.py`, `ui.run(...)`.
 - `111/chat_chunks/chunk_201.md` — NiceGUI/FastAPI mount, запуск.
