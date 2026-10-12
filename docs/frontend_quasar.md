@@ -1,0 +1,117 @@
+# Фронтенд: старый NiceGUI → целевой Quasar
+
+**Статус:** описание исторического фронтенда (по `111/`) и план переноса на Vue 3 + Quasar. Текущий репозиторий фронтенда на Quasar не содержит. Контракт API — [`api_target.yaml`](api_target.yaml), ТЗ — [`future_implementation_tz.md`](future_implementation_tz.md).
+
+## 1. Что есть сейчас в репозитории
+
+Текущий UI — минимальный NiceGUI в `app/main.py`: одна страница с тремя вкладками (`Создать слепок`, `Распознавание`, `База слепков`), синхронные вызовы `SceneEmbedder`/`FingerprintManager`/`SceneRecognizer`, создание моделей при импорте модуля. Это демонстрационный UI для fingerprint-слепков, а не фото-грид.
+
+## 2. Исторический фронтенд (легаси NiceGUI, `app/web/`)
+
+Более развитый фронтенд существовал в легаси-проекте `scene_fingerprint_mvp_v02` под `app/web/`. Заголовок окна — «АЛЬБИОН: Фотобаза. Офис».
+
+Модульная структура:
+
+- `app/web/main.py` — сборка страницы.
+- `app/web/state.py`, `session.py` — состояние/сессия (в т.ч. `STATE.refresh_photos`).
+- `app/web/config.py` — пути/конфиг.
+- `app/web/frontend_v01.py`, `frontend_v02.py` — ранние версии.
+- `app/web/components/`:
+  - `header.py`, `filters.py`,
+  - `photos.py` — грид фотографий (самый крупный модуль),
+  - `addresses.py`, `clients.py` — панели-списки,
+  - `collections.py` — подборки,
+  - `search.py` — поиск (в легаси — только по данным Qwen, без DINO),
+  - `technical.py`.
+- `app/web/components/technical_modules/`: `photo_processing.py`, `qwen.py`, `automation.py`, `users.py`, `data.py`.
+- `app/web/*_db.py`: `photo_db.py`, `client_db.py`, `directory_db.py`, `users_db.py` — доступ к PostgreSQL через `psycopg2` с `PG_CONFIG = {host: localhost, port: 5432, dbname: "photobase", user: "lora"}` (легаси-схема).
+
+Типовая раскладка (из `111/chat_chunks/chunk_178.md`, `app/web/main.py`):
+
+```python
+ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаза. Офис")
+```
+
+```text
++----------------------+-------------------------------+
+|  ПЕРИОД (card)       |                               |
+|  [radio][select]     |                               |
++----------+-----------+                               |
+| АДРЕСА   | КЛИЕНТЫ   |          ФОТО / GRID          |
+| ↕ scroll | ↕ scroll  |                               |
++----------+-----------+-------------------------------+
+```
+
+Левая фиксированная колонка (~580px): карточка «Период» (`ui.radio` «Дата съёмки/Дата загрузки», `ui.select` «Текущий месяц/Предыдущий месяц/Все даты/Выбрать период»), ниже — две равные прокручиваемые панели «Адреса» и «Клиенты». Правая часть — грид фотографий (`build_photos()`), обновляемый через колбэк `STATE.refresh_photos`.
+
+Виджеты NiceGUI, которые использовались: `ui.page`, `ui.row/column/card/label`, `ui.tabs/ui.tab_panel`, `ui.radio`, `ui.select`, `ui.input`, `ui.scroll_area`, `ui.dialog`, всплывающие окна («Показать фотографии»). Стилизация — Tailwind-классы через `.classes(...)` + `.style(...)`.
+
+Легаси-грид грузил превью, показывал адрес/клиента/статус Qwen, поиск и подборки; оригиналы — по клику. Технический раздел (обработка, qwen, automaton, users, data) — отдельные модули.
+
+## 3. Целевой фронтенд: Vue 3 + Quasar
+
+Полностью отдельный SPA, работающий с FastAPI по [`api_target.yaml`](api_target.yaml). Никакого прямого доступа к PostgreSQL из фронтенда.
+
+Принципы:
+
+- данные только через REST API; оригиналы и previews — через API с проверкой прав;
+- грид показывает **preview**, оригинал не грузится по умолчанию;
+- серверная **cursor pagination** (≤100 элементов), ленивая подгрузка (`q-infinite-scroll`);
+- UI не сортирует/не копирует исходники и не пересчитывает распознавание;
+- статусы обработки — из API (реальные job/batch), а не отдельный журнал.
+
+### 3.1 Соответствие виджетов NiceGUI → Quasar
+
+| NiceGUI | Quasar |
+|---|---|
+| `ui.tabs` / `ui.tab_panel` | `q-tabs` / `q-tab-panels` / `q-route-tab` (Vue Router) |
+| `ui.card` | `q-card` / `q-card-section` |
+| `ui.row` / `ui.column` | `q-...` + flex-классы |
+| `ui.select` | `q-select` |
+| `ui.radio` | `q-option-group` / `q-radio` |
+| `ui.input` | `q-input` |
+| `ui.scroll_area` | `q-scroll-area` / `q-infinite-scroll` |
+| `ui.dialog` | `q-dialog` |
+| грид фото | `q-card` в `q-page` + `q-infinite-scroll`, либо `q-table` в grid-режиме |
+| состояние (`STATE`) | Pinia store |
+| HTTP | `axios`/`fetch` к FastAPI |
+
+### 3.2 Экраны (v1)
+
+1. **Фото (GRID)** — фильтры (адрес, клиент, дата, подборка, поиск), кнопка «Показать фотографии», сетка карточек на SMALL-preview, lazy-load, клик → просмотр (MIDDLE, далее original при наличии прав), отображение результата распознавания и score.
+2. **Обработка (технический раздел)** — запуск/статус INGEST, DINO batch (NORMAL/FORCE_RERUN), HYBRID, прогресс и per-item ошибки; подтверждение дорогих операций; отображение реального состояния из API.
+3. **Подборки/поиск** — saved searches (условия, не копия выдачи), collections (набор `photo_id`); мультизапрос AND/OR — следующий этап.
+4. **Администрирование** — пользователи/роли (по правам), аудит.
+
+### 3.3 Данные и безопасность
+
+- авторизация OIDC/OAuth2, scopes (`photos:read`, `ingest:write`, `jobs:read`, `jobs:write`, `admin`);
+- previews/оригиналы — только через авторизованный endpoint; фронтенд не принимает произвольные пути;
+- CORS — allowlist UI origin; no secrets/EXIF в UI без необходимости.
+
+### 3.4 Технологический стек
+
+`Vue 3` + `Vue Router` + `Pinia` + `Quasar` (+ Vite). Сборка отдельным артефактом; раздача статики — reverse proxy или FastAPI static.
+
+## 4. Что переиспользовать из легаси-фронтенда
+
+- **Раскладку** «Период + Адреса/Клиенты + GRID» — как основу экрана «Фото».
+- **Модульность** (header/filters/photos/addresses/clients/collections/search/technical) — перенести как Vue-компоненты.
+- **Семантику фильтров** (период: дата съёмки/загрузки; месяцы; адрес/клиент/подборка; поиск) — в фильтры грида.
+- **Смысл технических модулей** (обработка, qwen, automation, users, data) — как отдельные разделы SPA.
+
+Не переиспользовать: прямой `psycopg2` из UI, легаси-схему `photos` (`address/client/qwen_*`), Qwen-специфичный поиск как единственный источник.
+
+## 5. Что нужно решить до реализации
+
+- Нормализованные сущности адресов/клиентов (или фильтры по строкам) — влияет на фильтры и API.
+- Источник адреса/клиента: HYBRID-вердикт (fingerprint-id) vs Qwen-метаданные vs отдельный реестр (см. [`qwen_process.md`](qwen_process.md)).
+- Единый контракт DTO (Pydantic) для грида/поиска/статусов.
+- Аутентификация и права на просмотр previews/originals.
+
+## 6. Источники
+
+- `111/chat_chunks/chunk_178.md` — раскладка `app/web/main.py`, `ui.run(...)`.
+- `111/chat_chunks/chunk_201.md` — NiceGUI/FastAPI mount, запуск.
+- `111/chat_chunks/chunk_205.md`, `chunk_087.md` — `search.py`, `photo_db.py`, поля.
+- Инвентарь модулей — grep по `app/web/...` в `111/`.
