@@ -190,16 +190,40 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 
 ### Запуск
 
+Backend (из корня репозитория):
+
 ```bash
-# backend
 export INGEST_DB_HOST=127.0.0.1 INGEST_DB_PORT=5432 \
        INGEST_DB_NAME=photobase_ingest_test INGEST_DB_USER=lora_ingest INGEST_DB_PASSWORD=lora
-python -m uvicorn app.api.main:app --host 127.0.0.1 --port 8000
+python -m app.api.main            # слушает http://127.0.0.1:8010
 
-# frontend (dev)
-cd frontend && bun install && bun dev      # http://localhost:5173
-# сборка
-cd frontend && bun run build               # frontend/dist
+# альтернатива (порт задавайте явно; uvicorn по умолчанию использует 8000):
+python -m uvicorn app.api.main:app --host 127.0.0.1 --port 8010
+```
+
+Frontend dev (порт 5173, прокси `/api` → backend):
+
+```bash
+cd frontend
+bun install
+VITE_API_TARGET=http://127.0.0.1:8010 bun dev   # http://localhost:5173
+```
+
+Порт API по умолчанию — `8010` (`SCENE_API_PORT`), dev-прокси по умолчанию нацелен на `http://127.0.0.1:8010` (`VITE_API_TARGET`). 8000 выбран не был, чтобы не конфликтовать с другими локальными сервисами; при необходимости порт переопределяется обеими переменными.
+
+Prod — один процесс:
+
+```bash
+cd frontend && bun run build          # собирает frontend/dist
+cd .. && python -m uvicorn app.api.main:app --host 0.0.0.0 --port 8010
+# SPA и API на одном порту: http://127.0.0.1:8010
+```
+
+Worker обработки (отдельный процесс):
+
+```bash
+python -m app.jobs.worker            # один проход
+python -m app.jobs.worker --watch    # постоянно
 ```
 
 ### Ограничения среза

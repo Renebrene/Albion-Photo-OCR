@@ -17,7 +17,9 @@ PREVIEW_ROOT = Path(
 )
 
 API_HOST = os.getenv("SCENE_API_HOST", "127.0.0.1")
-API_PORT = int(os.getenv("SCENE_API_PORT", "8000"))
+# Default 8010 (not 8000) to avoid clashing with other local services;
+# override with SCENE_API_PORT.
+API_PORT = int(os.getenv("SCENE_API_PORT", "8010"))
 
 # Comma-separated list of allowed browser origins (dev servers).
 CORS_ORIGINS = [
