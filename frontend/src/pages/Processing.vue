@@ -5,6 +5,7 @@ import { Notify } from 'quasar'
 import {
   createDinoBatch,
   createHybridRun,
+  enqueueQwen,
   fetchDinoBatchRuns,
   fetchDinoBatches,
   fetchHybridRuns,
@@ -138,6 +139,20 @@ async function startNormalBatch() {
   }
 }
 
+async function startQwen() {
+  starting.value = true
+
+  try {
+    const result = await enqueueQwen()
+    Notify.create({ type: 'positive', message: `QWEN заданий: ${result.jobs}` })
+    await loadJobs()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    starting.value = false
+  }
+}
+
 async function startHybrid(batch) {
   try {
     const result = await createHybridRun(batch.batch_id)
@@ -182,6 +197,13 @@ onMounted(loadDino)
         label="Запустить DINO (NORMAL)"
         :loading="starting"
         @click="startNormalBatch"
+      />
+      <q-btn
+        color="secondary"
+        icon="auto_awesome"
+        label="Запустить QWEN (все фото)"
+        :loading="starting"
+        @click="startQwen"
       />
       <q-btn icon="refresh" flat dense @click="reload" />
       <q-space />

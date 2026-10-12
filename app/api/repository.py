@@ -15,7 +15,27 @@ from app.api.schemas import (
 )
 from app.ingest.database import get_connection
 
-_COLUMNS = "photo_id, filename, width, height, container_format"
+_PHOTO_COLUMNS = (
+    "p.photo_id, p.filename, p.width, p.height, p.container_format, "
+    "q.address, q.client"
+)
+
+_PHOTO_FROM = (
+    "FROM public.photos AS p "
+    "LEFT JOIN public.photo_qwen AS q ON q.photo_id = p.photo_id"
+)
+
+
+def _photo_row(row) -> PhotoSummary:
+    return PhotoSummary(
+        photo_id=row[0],
+        filename=row[1],
+        width=row[2],
+        height=row[3],
+        container_format=row[4],
+        address=row[5],
+        client=row[6],
+    )
 
 
 def list_photos(
@@ -23,29 +43,40 @@ def list_photos(
     limit: int,
     cursor: str | None = None,
     query: str | None = None,
+    address: str | None = None,
+    client: str | None = None,
 ) -> tuple[list[PhotoSummary], str | None]:
     """
-    Return one page of registered photos ordered by photo_id.
+    Return one page of registered photos ordered by photo_id,
+    joined with the optional QWEN metadata (address/client).
 
     Fetches limit + 1 rows to detect whether a further page exists.
     """
 
-    sql = f"SELECT {_COLUMNS} FROM public.photos"  # noqa: S608 - fixed columns
+    sql = f"SELECT {_PHOTO_COLUMNS} {_PHOTO_FROM}"  # noqa: S608 - fixed columns
     clauses: list[str] = []
     params: list[object] = []
 
     if cursor:
-        clauses.append("photo_id > %s")
+        clauses.append("p.photo_id > %s")
         params.append(cursor)
 
     if query:
-        clauses.append("filename ILIKE %s")
+        clauses.append("p.filename ILIKE %s")
         params.append(f"%{query}%")
+
+    if address:
+        clauses.append("q.address ILIKE %s")
+        params.append(f"%{address}%")
+
+    if client:
+        clauses.append("q.client ILIKE %s")
+        params.append(f"%{client}%")
 
     if clauses:
         sql += " WHERE " + " AND ".join(clauses)
 
-    sql += " ORDER BY photo_id LIMIT %s"
+    sql += " ORDER BY p.photo_id LIMIT %s"
     params.append(limit + 1)
 
     with get_connection() as conn:
@@ -56,16 +87,7 @@ def list_photos(
     has_next = len(rows) > limit
     rows = rows[:limit]
 
-    items = [
-        PhotoSummary(
-            photo_id=row[0],
-            filename=row[1],
-            width=row[2],
-            height=row[3],
-            container_format=row[4],
-        )
-        for row in rows
-    ]
+    items = [_photo_row(row) for row in rows]
 
     next_cursor = items[-1].photo_id if has_next and items else None
 
@@ -78,21 +100,22 @@ def get_photo(photo_id: str) -> PhotoSummary | None:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"SELECT {_COLUMNS} FROM public.photos WHERE photo_id = %s",  # noqa: S608
+                f"SELECT {_PHOTO_COLUMNS} {_PHOTO_FROM} "  # noqa: S608
+                "WHERE p.photo_id = %s",
                 (photo_id,),
             )
             row = cur.fetchone()
 
-    if row is None:
-        return None
+    return _photo_row(row) if row is not None else None
 
-    return PhotoSummary(
-        photo_id=row[0],
-        filename=row[1],
-        width=row[2],
-        height=row[3],
-        container_format=row[4],
-    )
+
+def all_photo_ids() -> list[str]:
+    """Return every registered photo_id, ordered."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT photo_id FROM public.photos ORDER BY photo_id")
+            return [row[0] for row in cur.fetchall()]
 
 
 def get_photo_source(photo_id: str) -> dict | None:

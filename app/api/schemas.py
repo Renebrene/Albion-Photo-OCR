@@ -22,6 +22,8 @@ class PhotoSummary(BaseModel):
     width: int
     height: int
     container_format: str
+    address: str | None = None
+    client: str | None = None
 
 
 class PhotoPage(BaseModel):
@@ -91,6 +93,12 @@ class HybridRequest(BaseModel):
     """Request to create (and enqueue) a HYBRID run for a DINO batch."""
 
     dino_batch_id: int = Field(ge=1)
+
+
+class QwenJobRequest(BaseModel):
+    """Request to enqueue QWEN metadata for specific or all photos."""
+
+    photo_ids: list[str] | None = None
 
 
 class JobSummary(BaseModel):

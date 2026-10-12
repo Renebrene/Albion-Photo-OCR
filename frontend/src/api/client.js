@@ -24,11 +24,19 @@ function withCursor(path, { limit, cursor } = {}) {
   return query ? `${path}?${query}` : path
 }
 
-export function fetchPhotos({ limit = 50, cursor = null, q = null } = {}) {
+export function fetchPhotos({
+  limit = 50,
+  cursor = null,
+  q = null,
+  address = null,
+  client = null,
+} = {}) {
   const params = new URLSearchParams()
   params.set('limit', String(limit))
   if (cursor) params.set('cursor', cursor)
   if (q) params.set('q', q)
+  if (address) params.set('address', address)
+  if (client) params.set('client', client)
 
   return getJson(`${BASE}/v1/photos?${params.toString()}`)
 }
@@ -82,4 +90,8 @@ export function createHybridRun(dinoBatchId) {
 
 export function fetchJobs({ limit = 50, cursor = null } = {}) {
   return getJson(withCursor(`${BASE}/v1/jobs`, { limit, cursor }))
+}
+
+export function enqueueQwen(photoIds = null) {
+  return postJson(`${BASE}/v1/jobs/qwen`, { photo_ids: photoIds })
 }

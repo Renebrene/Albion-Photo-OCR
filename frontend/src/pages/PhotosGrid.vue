@@ -8,7 +8,9 @@ import { usePhotosStore } from '../stores/photos'
 const store = usePhotosStore()
 const { items, error, loading } = storeToRefs(store)
 
-const search = ref('')
+const q = ref('')
+const address = ref('')
+const client = ref('')
 const viewerOpen = ref(false)
 const current = ref(null)
 
@@ -16,8 +18,12 @@ onMounted(() => {
   store.refresh()
 })
 
-function applySearch() {
-  store.applySearch(search.value.trim())
+function applyFilters() {
+  store.applyFilters({
+    q: q.value.trim(),
+    address: address.value.trim(),
+    client: client.value.trim(),
+  })
 }
 
 async function onLoad(index, done) {
@@ -42,25 +48,37 @@ function viewerUrl() {
 
 <template>
   <q-page class="q-pa-md">
-    <div class="row items-center q-gutter-md q-mb-md">
+    <div class="row items-center q-gutter-sm q-mb-md">
       <q-input
-        v-model="search"
+        v-model="q"
         dense
         outlined
         clearable
-        placeholder="Поиск по имени файла"
-        class="col-12 col-sm-4"
-        @keyup.enter="applySearch"
-      >
-        <template #append>
-          <q-btn icon="search" flat dense @click="applySearch" />
-        </template>
-      </q-input>
-
+        placeholder="Имя файла"
+        class="col-12 col-sm-3"
+        @keyup.enter="applyFilters"
+      />
+      <q-input
+        v-model="address"
+        dense
+        outlined
+        clearable
+        placeholder="Адрес (QWEN)"
+        class="col-12 col-sm-3"
+        @keyup.enter="applyFilters"
+      />
+      <q-input
+        v-model="client"
+        dense
+        outlined
+        clearable
+        placeholder="Клиент (QWEN)"
+        class="col-12 col-sm-3"
+        @keyup.enter="applyFilters"
+      />
+      <q-btn icon="search" color="primary" dense label="Найти" @click="applyFilters" />
       <q-btn icon="refresh" flat dense @click="store.refresh()" />
-
       <q-space />
-
       <div class="text-caption text-grey">{{ items.length }} фото</div>
     </div>
 
@@ -85,6 +103,12 @@ function viewerUrl() {
           />
           <q-card-section class="q-pa-xs">
             <div class="ellipsis text-caption">{{ photo.filename }}</div>
+            <div v-if="photo.address" class="ellipsis text-caption text-grey-8">
+              {{ photo.address }}
+            </div>
+            <div v-if="photo.client" class="ellipsis text-caption text-grey-8">
+              {{ photo.client }}
+            </div>
           </q-card-section>
         </q-card>
       </div>
@@ -109,6 +133,9 @@ function viewerUrl() {
         <q-card-section class="q-pa-sm">
           <div class="text-caption text-grey-8">
             {{ current?.filename }} — {{ current?.photo_id }}
+          </div>
+          <div v-if="current?.description" class="text-caption q-mt-xs">
+            {{ current.description }}
           </div>
         </q-card-section>
       </q-card>

@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from app.api import repository
 from app.api.auth import require_scope
 from app.api.config import PREVIEW_ROOT
-from app.api.schemas import DinoBatchRequest, HybridRequest
+from app.api.schemas import DinoBatchRequest, HybridRequest, QwenJobRequest
 from app.dino import database as dino_db
 from app.hybrid import database as hybrid_db
 from app.jobs import database as jobs_db
@@ -49,11 +49,15 @@ def list_photos(
     limit: int = Query(50, ge=1, le=100),
     cursor: str | None = Query(None, max_length=64),
     q: str | None = Query(None, max_length=256),
+    address: str | None = Query(None, max_length=256),
+    client: str | None = Query(None, max_length=256),
 ):
     items, next_cursor = repository.list_photos(
         limit=limit,
         cursor=cursor,
         query=q,
+        address=address,
+        client=client,
     )
     return {
         "items": [item.model_dump() for item in items],
@@ -246,6 +250,31 @@ def enqueue_hybrid(request: HybridRequest):
         "hybrid_run_id": run.hybrid_run_id,
         "status": run.status,
         "total_count": run.total_count,
+    }
+
+
+@jobs_router.post(
+    "/v1/jobs/qwen",
+    status_code=202,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def enqueue_qwen(request: QwenJobRequest):
+    photo_ids = request.photo_ids or repository.all_photo_ids()
+
+    if not photo_ids:
+        raise HTTPException(
+            status_code=422,
+            detail="no photos to process",
+        )
+
+    job_ids = [
+        jobs_db.enqueue("QWEN_PHOTO", {"photo_id": photo_id})
+        for photo_id in photo_ids
+    ]
+
+    return {
+        "jobs": len(job_ids),
+        "first_job_id": job_ids[0],
     }
 
 

@@ -37,6 +37,11 @@ def _execute(job: dict) -> dict:
         final = get_run(hybrid_run_id)
         return {"hybrid_run_id": final.hybrid_run_id, "status": final.status}
 
+    if job_type == "QWEN_PHOTO":
+        from app.qwen.processor import run_photo
+
+        return run_photo(str(payload["photo_id"]))
+
     raise ValueError(f"Unsupported job type: {job_type}")
 
 

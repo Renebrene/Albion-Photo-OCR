@@ -156,6 +156,16 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - UI: кнопка «Запустить DINO (NORMAL)», действие «HYBRID» у `DONE`-batch и вкладка «Задания».
 - Тесты: `tests/test_jobs_queue.py`, `tests/test_api_jobs.py`.
 
+### Срез 5 — QWEN (текстовые метаданные)
+
+- Параллельный процесс, независимый от DINO/HYBRID: `app/qwen/` + очередь (`job_type = QWEN_PHOTO`). Схема: `schema/007_qwen.sql` (таблица `photo_qwen`).
+- Модель — через локальный **Ollama**; имя конфигурируемо (`QWEN_MODEL`, по умолчанию `qwen3-vl:8b`), `OLLAMA_URL`. Изображение (MPO → frame 0) ужимается и отправляется в `/api/chat` с `format=json`, `think=false`.
+- Извлекаются поля: `description`, `address`, `client`, `brand`, `category`, `tags`.
+- `POST /api/v1/jobs/qwen` (scope `jobs:write`) — ставит задания на указанные `photo_ids` или на все фото; выполняет тот же `app.jobs.worker`.
+- `GET /api/v1/photos` расширен полями `address`/`client` (LEFT JOIN `photo_qwen`) и фильтрами `address`/`client`.
+- UI: в карточках GRID — адрес/клиент и описание; фильтры «Адрес (QWEN)»/«Клиент (QWEN)»; на экране «Обработка» — кнопка «Запустить QWEN».
+- Тесты: `tests/test_qwen.py` (парсинг — всегда; БД — с базой; живой прогон — `QWEN_LIVE_TEST=1`).
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.

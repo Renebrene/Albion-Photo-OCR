@@ -9,6 +9,8 @@ export const usePhotosStore = defineStore('photos', {
     loading: false,
     error: null,
     query: '',
+    address: '',
+    client: '',
   }),
 
   getters: {
@@ -25,6 +27,8 @@ export const usePhotosStore = defineStore('photos', {
           limit: 50,
           cursor: this.nextCursor,
           q: this.query || null,
+          address: this.address || null,
+          client: this.client || null,
         })
 
         this.items.push(...page.items)
@@ -42,8 +46,10 @@ export const usePhotosStore = defineStore('photos', {
       await this.loadPage()
     },
 
-    async applySearch(query) {
-      this.query = query
+    async applyFilters({ q = '', address = '', client = '' } = {}) {
+      this.query = q
+      this.address = address
+      this.client = client
       await this.refresh()
     },
   },

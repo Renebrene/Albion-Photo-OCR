@@ -28,6 +28,7 @@ PostgreSQL — источник истины для переходов межд�
 004_dino_batches.sql → dino_batches, ALTER dino_runs ADD batch_id
 005_hybrid.sql   → hybrid_runs, hybrid_results
 006_job_queue.sql → job_queue
+007_qwen.sql      → photo_qwen; ALTER job_queue ADD QWEN_PHOTO
 ```
 
 **`004` теперь backfill-safe и идемпотентен (2026-10-12):** создаёт `dino_batches` при отсутствии, добавляет `dino_runs.batch_id` (nullable) при отсутствии, бэкфиллит существующие runs без batch (по одному legacy-batch на run, со статусом и счётчиками из run), затем ставит `NOT NULL` и создаёт индекс. Повторный прогон — no-op. Ранее файл делал `ADD COLUMN` и сразу `SET NOT NULL`, что падало на непустой `dino_runs`.
@@ -205,7 +206,25 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 | `created_at` | TIMESTAMP | NOT NULL DEFAULT CURRENT_TIMESTAMP |
 | `started_at` / `finished_at` | TIMESTAMP | |
 
-Индекс `idx_job_queue_status(status, id)`. Забор задания — `SELECT … FOR UPDATE SKIP LOCKED` + `UPDATE … status='RUNNING'` (атомарно). `payload` для `DINO_BATCH` = `{batch_id}`, для `HYBRID_RUN` = `{hybrid_run_id}`.
+Индекс `idx_job_queue_status(status, id)`. Забор задания — `SELECT … FOR UPDATE SKIP LOCKED` + `UPDATE … status='RUNNING'` (атомарно). `payload` для `DINO_BATCH` = `{batch_id}`, для `HYBRID_RUN` = `{hybrid_run_id}`, для `QWEN_PHOTO` = `{photo_id}`.
+
+### 4.9 `photo_qwen` — текстовые метаданные (QWEN)
+
+Создаёт `schema/007_qwen.sql`; пишет `app/qwen` (через worker). Параллельный процесс, независимый от DINO/HYBRID; на идентичность и распознавание не влияет.
+
+| Колонка | Тип | Ограничения |
+|---|---|---|
+| `photo_id` | TEXT | PRIMARY KEY, FK → `photos` ON DELETE CASCADE |
+| `status` | TEXT | NOT NULL DEFAULT `PENDING`, CHECK `PENDING`/`RUNNING`/`DONE`/`FAILED` |
+| `description` / `address` / `client` / `brand` / `category` | TEXT | |
+| `tags` | JSONB | |
+| `raw` | JSONB | полный ответ модели |
+| `qwen_model` | TEXT | имя модели |
+| `qwen_time_sec` | DOUBLE PRECISION | |
+| `error_message` | TEXT | |
+| `created_at` / `finished_at` | TIMESTAMP | |
+
+Индексы по `status`, `address`, `client`. `007` также расширяет `job_queue.job_type` значением `QWEN_PHOTO`.
 
 ## 5. Локальная SQLite-очередь (не PostgreSQL)
 
