@@ -95,6 +95,33 @@ def get_photo(photo_id: str) -> PhotoSummary | None:
     )
 
 
+def get_photo_source(photo_id: str) -> dict | None:
+    """
+    Return the registered source path/metadata for one photo.
+
+    The path comes from the database registration; it is never taken from
+    client input.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT source_path, filename, container_format "
+                "FROM public.photos WHERE photo_id = %s",
+                (photo_id,),
+            )
+            row = cur.fetchone()
+
+    if row is None:
+        return None
+
+    return {
+        "source_path": row[0],
+        "filename": row[1],
+        "container_format": row[2],
+    }
+
+
 # ---------------------------------------------------------------------------
 # DINO batches / runs and HYBRID runs (read-only status views)
 # ---------------------------------------------------------------------------

@@ -134,6 +134,18 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 
 Запуск обработки (INGEST/DINO/HYBRID) в этом срезе **не реализован** — отдельный этап (enqueue + фоновый worker, без inference в request handler).
 
+### Срез 3 — auth + originals
+
+- `app/api/auth.py`: **опциональные** bearer-токены через `SCENE_API_TOKENS`
+  (формат `token:scope1|scope2`, повторяющиеся через запятую, `*` = все scope).
+  Если переменная не задана — API открыт (локальная разработка).
+- Read-эндпоинты требуют scope `read`; `GET /api/v1/photos/{photo_id}/original`
+  требует scope `originals` и отдаёт зарегистрированный исходник (путь берётся
+  из БД, не из клиента). `GET /api/health` всегда открыт.
+- SPA в этом срезе работает без токенов (если включить `SCENE_API_TOKENS`,
+  фронтенду понадобится поле токена — следующий этап).
+- OIDC/OAuth2 — будущая замена этого слоя без изменения эндпоинтов.
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.

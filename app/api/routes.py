@@ -1,20 +1,26 @@
 """
 Read-only API endpoints.
 
-No authentication in this first slice: intended for local development only.
+Authentication is optional (see app/api/auth.py): when SCENE_API_TOKENS is
+unset, everything is open for local development. Read endpoints require the
+"read" scope; original files require the "originals" scope.
 """
 
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.api import repository
+from app.api.auth import require_scope
 from app.api.config import PREVIEW_ROOT
 from app.preview.generator import build_preview_paths
 
-router = APIRouter()
+public_router = APIRouter()
+read_router = APIRouter(dependencies=[Depends(require_scope("read"))])
+originals_router = APIRouter()
 
 PHOTO_ID_RE = re.compile(r"^PH_[0-9a-f]{24}$")
 
@@ -28,12 +34,12 @@ def _validate_photo_id(photo_id: str) -> str:
     return photo_id
 
 
-@router.get("/health")
+@public_router.get("/health")
 def health() -> dict:
     return {"status": "ok", "version": "0.1.0"}
 
 
-@router.get("/v1/photos", response_model=None)
+@read_router.get("/v1/photos", response_model=None)
 def list_photos(
     limit: int = Query(50, ge=1, le=100),
     cursor: str | None = Query(None, max_length=64),
@@ -50,7 +56,7 @@ def list_photos(
     }
 
 
-@router.get("/v1/photos/{photo_id}", response_model=None)
+@read_router.get("/v1/photos/{photo_id}", response_model=None)
 def get_photo(photo_id: str):
     photo_id = _validate_photo_id(photo_id)
     photo = repository.get_photo(photo_id)
@@ -61,7 +67,7 @@ def get_photo(photo_id: str):
     return photo.model_dump()
 
 
-@router.get("/v1/photos/{photo_id}/previews/{size}")
+@read_router.get("/v1/photos/{photo_id}/previews/{size}")
 def get_preview(photo_id: str, size: str) -> Response:
     photo_id = _validate_photo_id(photo_id)
 
@@ -85,7 +91,31 @@ def get_preview(photo_id: str, size: str) -> Response:
     )
 
 
-@router.get("/v1/batches/dino", response_model=None)
+@originals_router.get(
+    "/v1/photos/{photo_id}/original",
+    dependencies=[Depends(require_scope("originals"))],
+)
+def get_original(photo_id: str) -> Response:
+    photo_id = _validate_photo_id(photo_id)
+
+    source = repository.get_photo_source(photo_id)
+
+    if source is None:
+        raise HTTPException(status_code=404, detail="photo not found")
+
+    # Path comes from the database registration, never from the client.
+    path = Path(source["source_path"])
+
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="original not found")
+
+    return Response(
+        content=path.read_bytes(),
+        media_type="image/jpeg",
+    )
+
+
+@read_router.get("/v1/batches/dino", response_model=None)
 def list_dino_batches(
     limit: int = Query(50, ge=1, le=100),
     cursor: int | None = Query(None, ge=1),
@@ -100,7 +130,7 @@ def list_dino_batches(
     }
 
 
-@router.get("/v1/batches/dino/{batch_id}", response_model=None)
+@read_router.get("/v1/batches/dino/{batch_id}", response_model=None)
 def get_dino_batch(batch_id: int):
     batch = repository.get_dino_batch(batch_id)
 
@@ -110,7 +140,7 @@ def get_dino_batch(batch_id: int):
     return batch.model_dump()
 
 
-@router.get("/v1/batches/dino/{batch_id}/runs", response_model=None)
+@read_router.get("/v1/batches/dino/{batch_id}/runs", response_model=None)
 def list_dino_runs(
     batch_id: int,
     limit: int = Query(50, ge=1, le=100),
@@ -130,7 +160,7 @@ def list_dino_runs(
     }
 
 
-@router.get("/v1/hybrid/runs", response_model=None)
+@read_router.get("/v1/hybrid/runs", response_model=None)
 def list_hybrid_runs(
     limit: int = Query(50, ge=1, le=100),
     cursor: int | None = Query(None, ge=1),

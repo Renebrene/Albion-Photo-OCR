@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.config import API_HOST, API_PORT, CORS_ORIGINS
-from app.api.routes import router
+from app.api.routes import originals_router, public_router, read_router
 
 
 def create_app() -> FastAPI:
@@ -25,7 +25,8 @@ def create_app() -> FastAPI:
         version="0.1.0",
         description=(
             "Read-only API over registered photos and their previews. "
-            "Authentication is not implemented in this slice."
+            "Authentication is optional (SCENE_API_TOKENS); when unset the "
+            "API is open for local development."
         ),
     )
 
@@ -36,7 +37,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    app.include_router(router, prefix="/api")
+    app.include_router(public_router, prefix="/api")
+    app.include_router(read_router, prefix="/api")
+    app.include_router(originals_router, prefix="/api")
 
     return app
 
