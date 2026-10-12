@@ -103,6 +103,18 @@ export function fetchPhotoDetails(photoId) {
   return getJson(`${BASE}/v1/photos/${photoId}/details`)
 }
 
+export function fetchAutomation() {
+  return getJson(`${BASE}/v1/automation`)
+}
+
+export function updateAutomation(payload) {
+  return putJson(`${BASE}/v1/automation`, payload)
+}
+
+export function runAutomation(force = false) {
+  return postJson(`${BASE}/v1/automation/run?force=${force}`, {})
+}
+
 export function fetchDataStorage() {
   return getJson(`${BASE}/v1/data/storage`)
 }

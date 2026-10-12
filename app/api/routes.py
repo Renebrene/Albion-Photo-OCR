@@ -21,6 +21,7 @@ from app.api.auth import auth_enabled, require_scope
 from app.api.config import PREVIEW_ROOT
 from app.core.errors import redact_paths
 from app.api.schemas import (
+    AutomationUpdate,
     CollectionCreate,
     CollectionMembersRequest,
     DinoBatchRequest,
@@ -38,6 +39,7 @@ from app.users import database as users_db
 from app.users.security import verify_password
 from app.dino import database as dino_db
 from app.hybrid import database as hybrid_db
+from app.jobs import automation
 from app.jobs import database as jobs_db
 from app.preview.generator import build_preview_paths
 
@@ -414,6 +416,39 @@ def get_job(job_id: int):
         raise HTTPException(status_code=404, detail="job not found")
 
     return job
+
+
+# ---------------------------------------------------------------------------
+# Automation scheduler (settings + one manual tick)
+# ---------------------------------------------------------------------------
+
+
+@read_router.get("/v1/automation", response_model=None)
+def get_automation():
+    return automation.get_settings()
+
+
+@jobs_router.put(
+    "/v1/automation",
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def update_automation(request: AutomationUpdate):
+    return automation.update_settings(
+        enabled=request.enabled,
+        interval_minutes=request.interval_minutes,
+        auto_dino=request.auto_dino,
+        auto_qwen=request.auto_qwen,
+    )
+
+
+@jobs_router.post(
+    "/v1/automation/run",
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def run_automation(force: bool = Query(False)):
+    """Run one scheduler tick now (force ignores enabled/interval)."""
+
+    return automation.run_tick(force=force)
 
 
 # ---------------------------------------------------------------------------

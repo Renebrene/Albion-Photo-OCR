@@ -232,6 +232,15 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - UI-вкладка «Данные»: кнопки скачивания JSON/CSV + таблица обслуживания хранилища.
 - **Импорт не реализован** (заглушка-баннер): затрагивает INGEST и требует отдельного согласования.
 
+### Срез 15 — автоматизация (планировщик)
+
+- **Схема `012_automation.sql`**: одна строка `automation_settings` (enabled=FALSE по умолчанию).
+- `app/jobs/automation.py`: `get_settings`/`update_settings`/`is_due`/`run_tick`. Тик только ставит в очередь уже существующие операции: NORMAL DINO batch (фото без прогонов) и QWEN (фото без `photo_qwen`).
+- **API**: `GET /v1/automation`; `PUT /v1/automation`, `POST /v1/automation/run` (scope `jobs:write`).
+- **Worker**: `python -m app.jobs.worker --automation` (подразумевает `--watch`) вызывает `run_tick()` в цикле.
+- UI-вкладка «Автоматизация»: тумблер, интервал, авто-QWEN/авто-DINO, «Запустить тик сейчас».
+- **Не реализовано намеренно**: watcher папки/авто-INGEST новых файлов (пишет новые данные — требует отдельного согласования).
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.

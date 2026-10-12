@@ -131,6 +131,15 @@ class CollectionMembersRequest(BaseModel):
     values: list[str] = Field(min_length=1)
 
 
+class AutomationUpdate(BaseModel):
+    """Partial update of the automation scheduler settings."""
+
+    enabled: bool | None = None
+    interval_minutes: int | None = Field(default=None, ge=1, le=10080)
+    auto_dino: bool | None = None
+    auto_qwen: bool | None = None
+
+
 class SavedSearchCreate(BaseModel):
     """Named snapshot of the GRID filter state (bookmarked search)."""
 

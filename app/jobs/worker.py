@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import time
 
+from app.jobs import automation
 from app.jobs import database as jobs
 
 
@@ -94,7 +95,18 @@ def main() -> None:
             "to PENDING (recovery after a crashed worker)."
         ),
     )
+    parser.add_argument(
+        "--automation",
+        action="store_true",
+        help=(
+            "Also run the scheduler loop (see automation_settings). "
+            "Off by default; implies --watch."
+        ),
+    )
     args = parser.parse_args()
+
+    if args.automation:
+        args.watch = True
 
     if args.requeue_stale is not None:
         requeued = jobs.requeue_stale(older_than_minutes=args.requeue_stale)
@@ -109,6 +121,14 @@ def main() -> None:
 
     print("[worker] watching for jobs (Ctrl+C to stop)", flush=True)
     while True:
+        if args.automation:
+            try:
+                summary = automation.run_tick()
+                if summary.get("dino_batch_id") or summary.get("qwen_jobs"):
+                    print(f"[worker] automation enqueued {summary}", flush=True)
+            except Exception as exc:  # noqa: BLE001 - keep the loop alive
+                print(f"[worker] automation tick failed: {exc}", flush=True)
+
         if not run_once():
             time.sleep(args.interval)
 

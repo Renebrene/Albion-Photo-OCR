@@ -53,10 +53,10 @@
 - **`data.py`**: экспорт/импорт/обслуживание хранилища — **частично реализовано (2026-10-13)**: `GET /v1/data/export?format=json|csv` + `GET /v1/data/storage` + вкладка «Данные». **Импорт — нет** (заглушка; затрагивает INGEST). `fingerprints.py` (слепки) — **реализовано**: `GET /v1/fingerprints` + вкладка «Слепки». `last_run.py` (история) — **реализовано**: `GET /v1/runs/last` + вкладка «Последний запуск».
 
 ### G. Оркестрация и сервисы
-- **`supervisor.py` / `controller.py` / `modes.py`**: режимы **manual / automatic (по времени) / watcher (слежение за папкой, polling)**, таблица **`pipeline_control`** (running/stop_requested/mode/watcher_path), `run_pipeline()` (DINO+Qwen), планировщик `seconds_until`. `chunk_234.md`, `chunk_145.md`, `chunk_142.md`.
+- **`supervisor.py` / `controller.py` / `modes.py`**: режимы **manual / automatic (по времени) / watcher (слежение за папкой, polling)**, таблица **`pipeline_control`** (running/stop_requested/mode/watcher_path), `run_pipeline()` (DINO+Qwen), планировщик `seconds_until`. `chunk_234.md`, `chunk_145.md`, `chunk_142.md`. — **Частично реализовано (2026-10-13)**: расписание (`schema/012_automation.sql` + `/v1/automation` + `worker --automation`), авто-QWEN/авто-DINO. **Watcher папки/авто-INGEST — нет** (пишет новые данные).
 - **`recovery.py`**: возврат «зависших» `processing → pending`. **Реализовано (2026-10-13)**: `app/jobs/database.py:requeue_stale()` (RUNNING старше N минут → PENDING), CLI-флаг `python -m app.jobs.worker --requeue-stale MINUTES` и `POST /v1/jobs/requeue-stale` (scope `jobs:write`). Проверено на реальном случае: 2 зависших QWEN-задания восстановлены и дообработаны.
 - **systemd-юниты** (`scene-fingerprint.service`, `lora.service`, `dashboard.service`). `chunk_106.md:2469`.
-- Сейчас: очередь + `python -m app.jobs.worker` (polling), `scripts/dev_up.sh`; режимов/watcher/recovery/systemd нет.
+- Сейчас: очередь + `python -m app.jobs.worker` (polling), `--automation` (расписание), `requeue-stale` (recovery), `scripts/dev_up.sh`. Нет: watcher папки/авто-INGEST и systemd-юнитов.
 
 ### H. OCR
 - `app/ocr/{plate_detector,grid_ocr,ocr_pipeline}.py` — **перенесены**, но **не подключены** (ни пайплайн, ни API, ни UI). Задумывались как доп. корректор DINO только для спорных случаев; были «заморожены».

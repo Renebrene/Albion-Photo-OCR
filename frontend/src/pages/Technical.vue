@@ -8,6 +8,7 @@ import SystemMonitor from '../components/SystemMonitor.vue'
 import FingerprintsList from '../components/FingerprintsList.vue'
 import LastRun from '../components/LastRun.vue'
 import DataModule from '../components/DataModule.vue'
+import Automation from '../components/Automation.vue'
 
 // Mirrors the legacy NiceGUI "технический раздел" (components/technical.py)
 // with its modules: photo_processing, qwen, automation, users, data.
@@ -51,11 +52,7 @@ const tab = ref('processing')
       </q-tab-panel>
 
       <q-tab-panel name="automation">
-        <q-banner class="bg-grey-2">
-          Модуль автоматизации (watcher / расписание запусков) из легаси-NiceGUI
-          пока не реализован. Сейчас запуск — вручную из «Обработка» или через
-          очередь заданий (<code>app.jobs.worker</code>).
-        </q-banner>
+        <Automation />
       </q-tab-panel>
 
       <q-tab-panel name="users">
