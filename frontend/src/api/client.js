@@ -30,6 +30,8 @@ export function fetchPhotos({
   q = null,
   address = null,
   client = null,
+  date_from = null,
+  date_to = null,
 } = {}) {
   const params = new URLSearchParams()
   params.set('limit', String(limit))
@@ -37,8 +39,18 @@ export function fetchPhotos({
   if (q) params.set('q', q)
   if (address) params.set('address', address)
   if (client) params.set('client', client)
+  if (date_from) params.set('date_from', date_from)
+  if (date_to) params.set('date_to', date_to)
 
   return getJson(`${BASE}/v1/photos?${params.toString()}`)
+}
+
+export function fetchAddresses() {
+  return getJson(`${BASE}/v1/addresses`)
+}
+
+export function fetchClients() {
+  return getJson(`${BASE}/v1/clients`)
 }
 
 export function fetchDinoBatches({ limit = 50, cursor = null } = {}) {

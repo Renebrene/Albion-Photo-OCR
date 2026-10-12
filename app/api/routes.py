@@ -58,6 +58,8 @@ def list_photos(
     q: str | None = Query(None, max_length=256),
     address: str | None = Query(None, max_length=256),
     client: str | None = Query(None, max_length=256),
+    date_from: str | None = Query(None, max_length=10),
+    date_to: str | None = Query(None, max_length=10),
 ):
     items, next_cursor = repository.list_photos(
         limit=limit,
@@ -65,11 +67,23 @@ def list_photos(
         query=q,
         address=address,
         client=client,
+        date_from=date_from,
+        date_to=date_to,
     )
     return {
         "items": [item.model_dump() for item in items],
         "next_cursor": next_cursor,
     }
+
+
+@read_router.get("/v1/addresses", response_model=None)
+def list_addresses(limit: int = Query(1000, ge=1, le=5000)):
+    return {"items": repository.list_addresses(limit=limit)}
+
+
+@read_router.get("/v1/clients", response_model=None)
+def list_clients(limit: int = Query(1000, ge=1, le=5000)):
+    return {"items": repository.list_clients(limit=limit)}
 
 
 @read_router.get("/v1/photos/{photo_id}", response_model=None)

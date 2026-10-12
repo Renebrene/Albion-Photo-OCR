@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 
-import { fetchPhotos } from '../api/client'
+import { fetchAddresses, fetchClients, fetchPhotos } from '../api/client'
 
 export const usePhotosStore = defineStore('photos', {
   state: () => ({
@@ -8,9 +8,18 @@ export const usePhotosStore = defineStore('photos', {
     nextCursor: null,
     loading: false,
     error: null,
+
+    // active filters
     query: '',
     address: '',
     client: '',
+    dateFrom: null,
+    dateTo: null,
+
+    // side panels (mirroring the legacy UI)
+    addresses: [],
+    clients: [],
+    facetsLoading: false,
   }),
 
   getters: {
@@ -29,6 +38,8 @@ export const usePhotosStore = defineStore('photos', {
           q: this.query || null,
           address: this.address || null,
           client: this.client || null,
+          date_from: this.dateFrom || null,
+          date_to: this.dateTo || null,
         })
 
         this.items.push(...page.items)
@@ -46,11 +57,40 @@ export const usePhotosStore = defineStore('photos', {
       await this.loadPage()
     },
 
-    async applyFilters({ q = '', address = '', client = '' } = {}) {
+    async loadFacets() {
+      this.facetsLoading = true
+
+      try {
+        const [addresses, clients] = await Promise.all([
+          fetchAddresses(),
+          fetchClients(),
+        ])
+        this.addresses = addresses.items || []
+        this.clients = clients.items || []
+      } catch (err) {
+        this.error = err.message
+      } finally {
+        this.facetsLoading = false
+      }
+    },
+
+    async applyFilters({
+      q = '',
+      address = '',
+      client = '',
+      dateFrom = null,
+      dateTo = null,
+    } = {}) {
       this.query = q
       this.address = address
       this.client = client
+      this.dateFrom = dateFrom
+      this.dateTo = dateTo
       await this.refresh()
+    },
+
+    resetFilters() {
+      return this.applyFilters({})
     },
   },
 })

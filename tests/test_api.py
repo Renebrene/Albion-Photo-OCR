@@ -125,6 +125,31 @@ def test_list_hybrid_runs():
 
 
 @requires_db
+def test_address_and_client_facets():
+    addresses = client.get("/api/v1/addresses").json()
+    clients = client.get("/api/v1/clients").json()
+
+    assert "items" in addresses
+    assert "items" in clients
+
+    for item in addresses["items"]:
+        assert set(item) == {"address", "count"}
+    for item in clients["items"]:
+        assert set(item) == {"client", "count"}
+
+
+@requires_db
+def test_photos_date_filter():
+    all_time = client.get(
+        "/api/v1/photos?date_from=2000-01-01&date_to=2099-12-31&limit=5"
+    ).json()
+    assert len(all_time["items"]) >= 1
+
+    future = client.get("/api/v1/photos?date_from=2099-01-01").json()
+    assert future["items"] == []
+
+
+@requires_db
 def test_address_comes_from_recognition():
     """Photo address is the DINO/HYBRID result, not QWEN metadata."""
 

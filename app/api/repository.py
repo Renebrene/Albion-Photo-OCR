@@ -24,6 +24,7 @@ _PHOTO_DERIVED = """
         p.width           AS width,
         p.height          AS height,
         p.container_format AS container_format,
+        p.created_at      AS created_at,
         COALESCE(
             (
                 SELECT h.hybrid_final_id
@@ -75,12 +76,15 @@ def list_photos(
     query: str | None = None,
     address: str | None = None,
     client: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> tuple[list[PhotoSummary], str | None]:
     """
     Return one page of registered photos ordered by photo_id.
 
     `address` is the recognition result (HYBRID/DINO), `client` is the QWEN
-    metadata. Fetches limit + 1 rows to detect whether a further page exists.
+    metadata. date_from/date_to filter by upload date (photos.created_at).
+    Fetches limit + 1 rows to detect whether a further page exists.
     """
 
     sql = _PHOTO_SELECT
@@ -102,6 +106,14 @@ def list_photos(
     if client:
         clauses.append("t.client ILIKE %s")
         params.append(f"%{client}%")
+
+    if date_from:
+        clauses.append("t.created_at >= %s::date")
+        params.append(date_from)
+
+    if date_to:
+        clauses.append("t.created_at < (%s::date + interval '1 day')")
+        params.append(date_to)
 
     if clauses:
         sql += " WHERE " + " AND ".join(clauses)
@@ -145,6 +157,46 @@ def all_photo_ids() -> list[str]:
         with conn.cursor() as cur:
             cur.execute("SELECT photo_id FROM public.photos ORDER BY photo_id")
             return [row[0] for row in cur.fetchall()]
+
+
+def list_addresses(*, limit: int = 1000) -> list[dict]:
+    """
+    Distinct addresses (recognition result) with photo counts.
+
+    Used by the side panel that mirrors the legacy UI.
+    """
+
+    sql = (
+        "SELECT address, count(*) AS count FROM (" + _PHOTO_SELECT + ") AS t "
+        "WHERE address IS NOT NULL AND address <> '' "
+        "GROUP BY address ORDER BY address LIMIT %s"
+    )
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (limit,))
+            return [
+                {"address": row[0], "count": int(row[1])}
+                for row in cur.fetchall()
+            ]
+
+
+def list_clients(*, limit: int = 1000) -> list[dict]:
+    """Distinct QWEN clients with photo counts."""
+
+    sql = (
+        "SELECT client, count(*) AS count FROM (" + _PHOTO_SELECT + ") AS t "
+        "WHERE client IS NOT NULL AND client <> '' "
+        "GROUP BY client ORDER BY lower(client) LIMIT %s"
+    )
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (limit,))
+            return [
+                {"client": row[0], "count": int(row[1])}
+                for row in cur.fetchall()
+            ]
 
 
 def get_photo_source(photo_id: str) -> dict | None:
