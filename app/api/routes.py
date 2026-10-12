@@ -18,6 +18,7 @@ from app.api import repository
 from app.api import system as sysinfo
 from app.api.auth import auth_enabled, require_scope
 from app.api.config import PREVIEW_ROOT
+from app.core.errors import redact_paths
 from app.api.schemas import (
     CollectionCreate,
     CollectionMembersRequest,
@@ -30,6 +31,7 @@ from app.api.schemas import (
     UserUpdate,
 )
 from app.qwen import processor as qwen
+from app.qwen import database as qwen_db
 from app.users import database as users_db
 from app.users.security import verify_password
 from app.dino import database as dino_db
@@ -123,6 +125,29 @@ def get_photo(photo_id: str):
         raise HTTPException(status_code=404, detail="photo not found")
 
     return photo.model_dump()
+
+
+@read_router.get("/v1/photos/{photo_id}/details", response_model=None)
+def get_photo_details(photo_id: str):
+    """Registered photo plus its QWEN metadata (brand/category/objects/...)."""
+
+    photo_id = _validate_photo_id(photo_id)
+    photo = repository.get_photo(photo_id)
+
+    if photo is None:
+        raise HTTPException(status_code=404, detail="photo not found")
+
+    qwen_meta = qwen_db.get(photo_id)
+
+    if qwen_meta is not None and qwen_meta.get("error_message"):
+        # Keep the message but drop any absolute local path in it.
+        source = repository.get_photo_source(photo_id)
+        qwen_meta["error_message"] = redact_paths(
+            qwen_meta["error_message"],
+            source["source_path"] if source else None,
+        )
+
+    return {"photo": photo.model_dump(), "qwen": qwen_meta}
 
 
 @read_router.get("/v1/photos/{photo_id}/previews/{size}")

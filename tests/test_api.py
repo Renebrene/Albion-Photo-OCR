@@ -47,6 +47,10 @@ def test_invalid_photo_id_returns_404():
     assert client.get("/api/v1/photos/not-an-id").status_code == 404
 
 
+def test_invalid_photo_details_id_returns_404():
+    assert client.get("/api/v1/photos/not-an-id/details").status_code == 404
+
+
 def test_invalid_preview_id_returns_404():
     response = client.get("/api/v1/photos/PH_zzz/previews/small")
     assert response.status_code == 404
@@ -147,6 +151,42 @@ def test_photos_date_filter():
 
     future = client.get("/api/v1/photos?date_from=2099-01-01").json()
     assert future["items"] == []
+
+
+@requires_db
+def test_search_matches_filename_substring():
+    """Multi-field `q` still matches on the filename."""
+
+    first = client.get("/api/v1/photos?limit=1").json()
+    if not first["items"]:
+        pytest.skip("corpus is empty")
+
+    filename = first["items"][0]["filename"]
+    needle = filename.split(".")[0][:8]
+    if len(needle) < 3:
+        pytest.skip("filename too short to search")
+
+    body = client.get(f"/api/v1/photos?q={needle}").json()
+    assert any(item["photo_id"] == first["items"][0]["photo_id"] for item in body["items"])
+
+
+@requires_db
+def test_photo_details_shape():
+    first = client.get("/api/v1/photos?limit=1").json()
+    if not first["items"]:
+        pytest.skip("corpus is empty")
+
+    photo_id = first["items"][0]["photo_id"]
+    body = client.get(f"/api/v1/photos/{photo_id}/details").json()
+
+    assert body["photo"]["photo_id"] == photo_id
+    assert "qwen" in body  # may be null when QWEN has not run
+
+
+@requires_db
+def test_photo_details_unknown_photo_returns_404():
+    response = client.get("/api/v1/photos/PH_" + "0" * 24 + "/details")
+    assert response.status_code == 404
 
 
 def test_system_info():

@@ -24,6 +24,8 @@ class PhotoSummary(BaseModel):
     container_format: str
     address: str | None = None
     client: str | None = None
+    brand: str | None = None
+    category: str | None = None
 
 
 class PhotoPage(BaseModel):

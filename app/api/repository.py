@@ -46,14 +46,17 @@ _PHOTO_DERIVED = """
                 LIMIT 1
             )
         ) AS address,
-        q.client AS client
+        q.client AS client,
+        q.brand AS brand,
+        q.category AS category,
+        q.description AS description
     FROM public.photos AS p
     LEFT JOIN public.photo_qwen AS q ON q.photo_id = p.photo_id
 """
 
 _PHOTO_SELECT = (
     "SELECT photo_id, filename, width, height, container_format, "
-    "address, client FROM (" + _PHOTO_DERIVED + ") AS t"
+    "address, client, brand, category FROM (" + _PHOTO_DERIVED + ") AS t"
 )
 
 
@@ -66,6 +69,8 @@ def _photo_row(row) -> PhotoSummary:
         container_format=row[4],
         address=row[5],
         client=row[6],
+        brand=row[7],
+        category=row[8],
     )
 
 
@@ -84,7 +89,9 @@ def list_photos(
     Return one page of registered photos ordered by photo_id.
 
     `address` is the recognition result (HYBRID/DINO), `client` is the QWEN
-    metadata. date_from/date_to filter by upload date (photos.created_at).
+    metadata. `query` searches several fields at once (filename, client,
+    brand, category, description, address), mirroring the legacy global
+    search. date_from/date_to filter by upload date (photos.created_at).
     Fetches limit + 1 rows to detect whether a further page exists.
     """
 
@@ -97,8 +104,13 @@ def list_photos(
         params.append(cursor)
 
     if query:
-        clauses.append("t.filename ILIKE %s")
-        params.append(f"%{query}%")
+        like = f"%{query}%"
+        clauses.append(
+            "(t.filename ILIKE %s OR t.client ILIKE %s OR t.brand ILIKE %s "
+            "OR t.category ILIKE %s OR t.description ILIKE %s "
+            "OR t.address ILIKE %s)"
+        )
+        params.extend([like] * 6)
 
     if address:
         clauses.append("t.address ILIKE %s")
