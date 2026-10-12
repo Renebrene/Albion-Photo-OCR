@@ -248,6 +248,14 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - UI: кнопка «Загрузить» на GRID и **drag-and-drop** файлов на область сетки; после загрузки — обновление списка и фасетов.
 - `data/inbox/` добавлен в `.gitignore` (runtime-данные).
 
+### Срез 17 — NL-поиск (Qwen)
+
+- `POST /v1/jobs/nl-search {query}` (scope `read`) ставит задание `NL_SEARCH`; `GET /v1/jobs/nl-search/{id}` (scope `read`) отдаёт статус и результат `{filters, photo_ids, count}`.
+- Worker (`app/api/nl_search.py`): локальный QWEN переводит запрос в фильтры (`q/client/brand/category/address`), затем обычный поиск; несколько терминов объединяются по `photo_id`. **Инференс только в воркере**, не в HTTP-обработчике.
+- `GET /v1/photos?...&ids=` фильтрует по списку photo_id (для показа результата NL).
+- UI: поле «Спросить: …» + кнопка «NL-поиск» на GRID (enqueue → опрос задания → фильтр по полученным id), чип «NL: N» и сброс.
+- Аналог легаси `search.py` («Qwen — языковой интерфейс к БД»).
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.

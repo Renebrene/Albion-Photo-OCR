@@ -84,6 +84,7 @@ export function fetchPhotos({
   date_from = null,
   date_to = null,
   collection_id = null,
+  ids = null,
 } = {}) {
   const params = new URLSearchParams()
   params.set('limit', String(limit))
@@ -95,6 +96,7 @@ export function fetchPhotos({
   if (date_from) params.set('date_from', date_from)
   if (date_to) params.set('date_to', date_to)
   if (collection_id) params.set('collection_id', String(collection_id))
+  if (ids) [].concat(ids).forEach((v) => params.append('ids', v))
 
   return getJson(`${BASE}/v1/photos?${params.toString()}`)
 }
@@ -126,6 +128,14 @@ export async function uploadPhotos(files) {
   }
 
   return response.json()
+}
+
+export function enqueueNlSearch(query) {
+  return postJson(`${BASE}/v1/jobs/nl-search`, { query })
+}
+
+export function fetchNlSearchJob(jobId) {
+  return getJson(`${BASE}/v1/jobs/nl-search/${jobId}`)
 }
 
 export function fetchAutomation() {

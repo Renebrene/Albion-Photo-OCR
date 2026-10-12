@@ -14,7 +14,7 @@ from psycopg.types.json import Json
 
 from app.ingest.database import get_connection
 
-JOB_TYPES = {"DINO_BATCH", "HYBRID_RUN", "QWEN_PHOTO"}
+JOB_TYPES = {"DINO_BATCH", "HYBRID_RUN", "QWEN_PHOTO", "NL_SEARCH"}
 
 _JOB_COLUMNS = (
     "id, job_type, payload, status, attempts, "

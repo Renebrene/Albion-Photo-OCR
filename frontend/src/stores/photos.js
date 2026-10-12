@@ -27,6 +27,7 @@ export const usePhotosStore = defineStore('photos', {
     dateFrom: null,
     dateTo: null,
     collectionId: null,
+    nlIds: [],
 
     // side panels (mirroring the legacy UI)
     addresses: [],
@@ -61,6 +62,7 @@ export const usePhotosStore = defineStore('photos', {
           date_from: this.dateFrom || null,
           date_to: this.dateTo || null,
           collection_id: this.collectionId || null,
+          ids: this.nlIds.length ? this.nlIds : null,
         })
 
         this.items.push(...page.items)
@@ -115,6 +117,7 @@ export const usePhotosStore = defineStore('photos', {
       dateFrom = null,
       dateTo = null,
       collectionId = null,
+      ids = [],
     } = {}) {
       this.query = q
       this.selectedAddresses = addresses
@@ -122,6 +125,7 @@ export const usePhotosStore = defineStore('photos', {
       this.dateFrom = dateFrom
       this.dateTo = dateTo
       this.collectionId = collectionId
+      this.nlIds = ids
       await this.refresh()
     },
 
@@ -133,6 +137,21 @@ export const usePhotosStore = defineStore('photos', {
         dateFrom: this.dateFrom,
         dateTo: this.dateTo,
         collectionId,
+        ids: this.nlIds,
+      })
+    },
+
+    // ---- natural-language search ----
+
+    async applyNlResults(ids) {
+      await this.applyFilters({
+        q: this.query,
+        addresses: this.selectedAddresses,
+        clients: this.selectedClients,
+        dateFrom: this.dateFrom,
+        dateTo: this.dateTo,
+        collectionId: this.collectionId,
+        ids,
       })
     },
 

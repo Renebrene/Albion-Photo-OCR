@@ -62,10 +62,10 @@
 - `app/ocr/{plate_detector,grid_ocr,ocr_pipeline}.py` — **перенесены**, но **не подключены** (ни пайплайн, ни API, ни UI). Задумывались как доп. корректор DINO только для спорных случаев; были «заморожены».
 
 ### I. Qwen — расширения
-- **NL/поиск по Qwen-полям** в БД (`search.py`: `ILIKE` по client/brand/category/description/text/objects) и идея «Qwen — языковой интерфейс к БД».
-- Флаг **«Автоматически запускать Qwen после DINO»**, «Повторно запустить Qwen», старт/стоп из UI.
-- Нормализация клиентов Qwen (`smart_client_normalizer.py`, qwen3:4b).
-- Сейчас: только извлечение (`QWEN_PHOTO`) + выбор модели; NL-поиска и авто-цепочки нет.
+- **NL/поиск по Qwen-полям** в БД (`search.py`: `ILIKE` по client/brand/category/description/text/objects) и идея «Qwen — языковой интерфейс к БД». — **Реализовано (2026-10-13)**: `q` ищет по Qwen-полям; NL-поиск (job `NL_SEARCH` + `POST /v1/jobs/nl-search`), QWEN переводит запрос в фильтры в воркере.
+- Флаг **«Автоматически запускать Qwen после DINO»**, «Повторно запустить Qwen», старт/стоп из UI. — **Частично**: авто-QWEN в планировщике (`auto_qwen`); повторный запуск — `POST /v1/jobs/qwen` с `photo_ids`.
+- Нормализация клиентов Qwen (`smart_client_normalizer.py`, qwen3:4b). — нет.
+- Сейчас: извлечение (`QWEN_PHOTO`), выбор модели, NL-поиск.
 
 ## 3. Что стоит добавить (рекомендация, по приоритету)
 

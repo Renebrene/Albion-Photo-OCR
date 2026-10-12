@@ -86,6 +86,7 @@ def list_photos(
     date_from: str | None = None,
     date_to: str | None = None,
     collection_id: int | None = None,
+    ids: list[str] | None = None,
 ) -> tuple[list[PhotoSummary], str | None]:
     """
     Return one page of registered photos ordered by photo_id.
@@ -144,6 +145,10 @@ def list_photos(
             "WHERE collection_id = %s AND member_type = 'photo')"
         )
         params.append(collection_id)
+
+    if ids:
+        clauses.append("t.photo_id = ANY(%s)")
+        params.append(list(ids))
 
     if clauses:
         sql += " WHERE " + " AND ".join(clauses)

@@ -37,6 +37,7 @@ from app.api.schemas import (
     DinoBatchRequest,
     HybridRequest,
     LoginRequest,
+    NlSearchRequest,
     QwenJobRequest,
     QwenModelRequest,
     SavedSearchCreate,
@@ -90,6 +91,7 @@ def list_photos(
     date_from: str | None = Query(None, max_length=10),
     date_to: str | None = Query(None, max_length=10),
     collection_id: int | None = Query(None, ge=1),
+    ids: list[str] | None = Query(None, max_length=200),
 ):
     items, next_cursor = repository.list_photos(
         limit=limit,
@@ -100,6 +102,7 @@ def list_photos(
         date_from=date_from,
         date_to=date_to,
         collection_id=collection_id,
+        ids=ids,
     )
     return {
         "items": [item.model_dump() for item in items],
@@ -389,6 +392,39 @@ def enqueue_qwen(request: QwenJobRequest):
         "jobs": len(job_ids),
         "first_job_id": job_ids[0],
     }
+
+
+@jobs_router.post(
+    "/v1/jobs/nl-search",
+    status_code=202,
+    dependencies=[Depends(require_scope("read"))],
+)
+def enqueue_nl_search(request: NlSearchRequest):
+    """
+    Enqueue a natural-language search.
+
+    The QWEN translation runs in the worker; poll GET /v1/jobs/{id} for the
+    result ({filters, photo_ids, count}).
+    """
+
+    job_id = jobs_db.enqueue("NL_SEARCH", {"query": request.query})
+    return {"job_id": job_id}
+
+
+@jobs_router.get(
+    "/v1/jobs/nl-search/{job_id}",
+    response_model=None,
+    dependencies=[Depends(require_scope("read"))],
+)
+def get_nl_search(job_id: int):
+    """Return an NL-search job (status + result) readable with just `read`."""
+
+    job = jobs_db.get_job(job_id)
+
+    if job is None or job.get("job_type") != "NL_SEARCH":
+        raise HTTPException(status_code=404, detail="nl search not found")
+
+    return job
 
 
 @jobs_router.get(

@@ -34,6 +34,7 @@ PostgreSQL — источник истины для переходов межд�
 010_users.sql     → users, sessions (seed: Администратор, Гость)
 011_saved_searches.sql → saved_searches
 012_automation.sql → automation_settings (сид: одна строка, enabled=FALSE)
+013_nl_search.sql → ALTER job_queue: + job_type NL_SEARCH
 ```
 
 **`004` теперь backfill-safe и идемпотентен (2026-10-12):** создаёт `dino_batches` при отсутствии, добавляет `dino_runs.batch_id` (nullable) при отсутствии, бэкфиллит существующие runs без batch (по одному legacy-batch на run, со статусом и счётчиками из run), затем ставит `NOT NULL` и создаёт индекс. Повторный прогон — no-op. Ранее файл делал `ADD COLUMN` и сразу `SET NOT NULL`, что падало на непустой `dino_runs`.
@@ -276,6 +277,10 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 Создаёт `schema/012_automation.sql`; логика — `app/jobs/automation.py`, API `/v1/automation`, цикл — `python -m app.jobs.worker --automation`.
 
 Одна строка `id = 1`: `enabled` BOOLEAN (по умолчанию FALSE), `interval_minutes` INT (1..10080), `auto_dino` BOOLEAN, `auto_qwen` BOOLEAN, `last_tick` TIMESTAMP, `updated_at`. Планировщик только **ставит в очередь** уже существующие операции (NORMAL DINO batch для фото без прогонов, QWEN для фото без `photo_qwen`); новые файлы не импортирует и данные не удаляет. Watcher-режим легаси не реализован намеренно.
+
+### 4.15 NL-поиск — типы заданий
+
+`schema/013_nl_search.sql` расширяет `job_queue.job_type` значением `NL_SEARCH` (идемпотентно, через DROP/ADD CHECK). Само NL-задание не пишет таблиц: worker переводит запрос в фильтры локальным QWEN и выполняет обычный поиск, результат кладётся в `job_queue.result` (JSONB). Инференс — только в воркере (`app/api/nl_search.py`).
 
 ## 5. Локальная SQLite-очередь (не PostgreSQL)
 

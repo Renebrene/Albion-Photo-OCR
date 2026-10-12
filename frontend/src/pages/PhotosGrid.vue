@@ -4,6 +4,8 @@ import { storeToRefs } from 'pinia'
 import { Notify } from 'quasar'
 
 import {
+  enqueueNlSearch,
+  fetchNlSearchJob,
   fetchPhotoDetails,
   originalUrl,
   previewUrl,
@@ -16,6 +18,8 @@ const { items, error, loading, addresses, clients, collections, savedSearches } 
   storeToRefs(store)
 
 const q = ref('')
+const nlQuery = ref('')
+const nlBusy = ref(false)
 const dateMode = ref('upload')
 const period = ref('month')
 const customFrom = ref(null)
@@ -310,6 +314,44 @@ async function doUpload(files) {
   } finally {
     uploading.value = false
   }
+}
+
+async function runNlSearch() {
+  const query = nlQuery.value.trim()
+  if (!query) return
+
+  nlBusy.value = true
+  try {
+    const { job_id: jobId } = await enqueueNlSearch(query)
+
+    let job = null
+    for (let i = 0; i < 40; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+      job = await fetchNlSearchJob(jobId)
+      if (job.status === 'DONE' || job.status === 'FAILED') break
+    }
+
+    if (!job || job.status !== 'DONE') {
+      Notify.create({
+        type: 'negative',
+        message: `NL-поиск: ${job ? job.status : 'таймаут'}`,
+      })
+      return
+    }
+
+    const ids = (job.result && job.result.photo_ids) || []
+    Notify.create({ type: 'info', message: `NL-поиск: найдено ${ids.length}` })
+    await store.applyNlResults(ids)
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    nlBusy.value = false
+  }
+}
+
+async function clearNlSearch() {
+  nlQuery.value = ''
+  await store.applyNlResults([])
 }
 
 async function onLoad(index, done) {
@@ -632,6 +674,38 @@ function tagList(meta) {
           </q-btn-toggle>
 
           <div class="text-caption text-grey">{{ items.length }} фото</div>
+        </div>
+
+        <div class="row items-center q-gutter-sm q-mb-sm">
+          <q-input
+            v-model="nlQuery"
+            dense
+            outlined
+            clearable
+            placeholder="Спросить: «вывески бренда Luvio»"
+            class="col-12 col-sm-6"
+            :disable="nlBusy"
+            @keyup.enter="runNlSearch"
+          />
+          <q-btn
+            dense
+            color="teal"
+            icon="auto_awesome"
+            label="NL-поиск"
+            :loading="nlBusy"
+            @click="runNlSearch"
+          />
+          <q-btn
+            v-if="store.nlIds.length"
+            dense
+            flat
+            icon="close"
+            label="Сбросить NL"
+            @click="clearNlSearch"
+          />
+          <q-badge v-if="store.nlIds.length" color="teal">
+            NL: {{ store.nlIds.length }}
+          </q-badge>
         </div>
 
         <div class="row items-center q-gutter-sm q-mb-sm">

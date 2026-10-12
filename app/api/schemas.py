@@ -131,6 +131,12 @@ class CollectionMembersRequest(BaseModel):
     values: list[str] = Field(min_length=1)
 
 
+class NlSearchRequest(BaseModel):
+    """Natural-language query, translated to filters by the worker."""
+
+    query: str = Field(min_length=1, max_length=500)
+
+
 class AutomationUpdate(BaseModel):
     """Partial update of the automation scheduler settings."""
 

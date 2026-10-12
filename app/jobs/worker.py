@@ -43,6 +43,11 @@ def _execute(job: dict) -> dict:
 
         return run_photo(str(payload["photo_id"]))
 
+    if job_type == "NL_SEARCH":
+        from app.api.nl_search import run as nl_run
+
+        return nl_run(str(payload["query"]))
+
     raise ValueError(f"Unsupported job type: {job_type}")
 
 
