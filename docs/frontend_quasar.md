@@ -146,6 +146,16 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
   фронтенду понадобится поле токена — следующий этап).
 - OIDC/OAuth2 — будущая замена этого слоя без изменения эндпоинтов.
 
+### Срез 4 — запуск обработки (очередь + worker)
+
+- Очередь: таблица `job_queue` (`schema/006_job_queue.sql`). API только ставит задание, inference выполняет отдельный процесс.
+- `POST /api/v1/jobs/dino-batch` (scope `jobs:write`) — создаёт DINO batch (`NORMAL`/`FORCE_RERUN`) и ставит задание → `202 {job_id, batch_id}`.
+- `POST /api/v1/jobs/hybrid` (scope `jobs:write`) — создаёт HYBRID run для `DONE` batch и ставит задание → `202 {job_id, hybrid_run_id}`; неготовый batch → `409`.
+- `GET /api/v1/jobs` и `GET /api/v1/jobs/{job_id}` (scope `jobs:read`) — статусы.
+- **Worker:** `python -m app.jobs.worker` (один проход) или `--watch`. Забирает задание атомарно (`FOR UPDATE SKIP LOCKED`) и вызывает `app.dino.runner.run_batch` / `app.hybrid.runner.run`. Inference **никогда** не идёт в HTTP-хендлере.
+- UI: кнопка «Запустить DINO (NORMAL)», действие «HYBRID» у `DONE`-batch и вкладка «Задания».
+- Тесты: `tests/test_jobs_queue.py`, `tests/test_api_jobs.py`.
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.

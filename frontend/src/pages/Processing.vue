@@ -1,18 +1,24 @@
 <script setup>
 import { onMounted, ref } from 'vue'
+import { Notify } from 'quasar'
 
 import {
+  createDinoBatch,
+  createHybridRun,
   fetchDinoBatchRuns,
   fetchDinoBatches,
   fetchHybridRuns,
+  fetchJobs,
 } from '../api/client'
 
 const tab = ref('dino')
 const loading = ref(false)
 const error = ref(null)
+const starting = ref(false)
 
 const dinoBatches = ref([])
 const hybridRuns = ref([])
+const jobs = ref([])
 
 const runsDialog = ref(false)
 const runsLoading = ref(false)
@@ -25,7 +31,7 @@ const dinoColumns = [
   { name: 'status', label: 'Статус', field: 'status', align: 'left' },
   { name: 'counts', label: 'Готово / Всего', field: 'completed_count', align: 'left' },
   { name: 'failed_count', label: 'Ошибки', field: 'failed_count', align: 'left' },
-  { name: 'finished_at', label: 'Завершён', field: 'finished_at', align: 'left' },
+  { name: 'actions', label: 'Действия', field: 'actions', align: 'left' },
 ]
 
 const hybridColumns = [
@@ -35,6 +41,14 @@ const hybridColumns = [
   { name: 'counts', label: 'Готово / Всего', field: 'completed_count', align: 'left' },
   { name: 'failed_count', label: 'Ошибки', field: 'failed_count', align: 'left' },
   { name: 'finished_at', label: 'Завершён', field: 'finished_at', align: 'left' },
+]
+
+const jobColumns = [
+  { name: 'id', label: 'Job', field: 'id', align: 'left', sortable: true },
+  { name: 'job_type', label: 'Тип', field: 'job_type', align: 'left' },
+  { name: 'status', label: 'Статус', field: 'status', align: 'left' },
+  { name: 'attempts', label: 'Попытки', field: 'attempts', align: 'left' },
+  { name: 'error_message', label: 'Ошибка', field: 'error_message', align: 'left' },
 ]
 
 const runColumns = [
@@ -85,9 +99,59 @@ async function loadHybrid() {
   }
 }
 
+async function loadJobs() {
+  loading.value = true
+  error.value = null
+
+  try {
+    jobs.value = (await fetchJobs()).items
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    loading.value = false
+  }
+}
+
 function reload() {
   if (tab.value === 'dino') loadDino()
-  else loadHybrid()
+  else if (tab.value === 'hybrid') loadHybrid()
+  else loadJobs()
+}
+
+async function startNormalBatch() {
+  starting.value = true
+
+  try {
+    const result = await createDinoBatch({ run_type: 'NORMAL' })
+
+    if (result.job_id) {
+      Notify.create({ type: 'positive', message: `Задание ${result.job_id} создано (batch ${result.batch_id})` })
+    } else {
+      Notify.create({ type: 'info', message: 'Нет фотографий, требующих DINO' })
+    }
+
+    await loadDino()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    starting.value = false
+  }
+}
+
+async function startHybrid(batch) {
+  try {
+    const result = await createHybridRun(batch.batch_id)
+
+    if (result.job_id) {
+      Notify.create({ type: 'positive', message: `HYBRID задание ${result.job_id} создано` })
+    } else {
+      Notify.create({ type: 'info', message: 'Нет данных для HYBRID' })
+    }
+
+    await loadDino()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
 }
 
 async function openBatch(batch) {
@@ -112,6 +176,13 @@ onMounted(loadDino)
   <q-page class="q-pa-md">
     <div class="row items-center q-gutter-md q-mb-md">
       <div class="text-h6">Обработка</div>
+      <q-btn
+        color="primary"
+        icon="play_arrow"
+        label="Запустить DINO (NORMAL)"
+        :loading="starting"
+        @click="startNormalBatch"
+      />
       <q-btn icon="refresh" flat dense @click="reload" />
       <q-space />
     </div>
@@ -122,9 +193,10 @@ onMounted(loadDino)
       </q-banner>
     </div>
 
-    <q-tabs v-model="tab" dense align="left" class="text-primary q-mb-sm">
+    <q-tabs v-model="tab" dense align="left" class="text-primary q-mb-sm" @update:model-value="reload">
       <q-tab name="dino" label="DINO batches" />
       <q-tab name="hybrid" label="HYBRID runs" />
+      <q-tab name="jobs" label="Задания" />
     </q-tabs>
 
     <q-tab-panels v-model="tab" animated>
@@ -149,6 +221,19 @@ onMounted(loadDino)
               {{ props.row.completed_count }} / {{ props.row.total_count }}
             </q-td>
           </template>
+          <template #body-cell-actions="props">
+            <q-td :props="props" @click.stop>
+              <q-btn
+                v-if="props.row.status === 'DONE'"
+                size="sm"
+                flat
+                dense
+                color="primary"
+                label="HYBRID"
+                @click="startHybrid(props.row)"
+              />
+            </q-td>
+          </template>
         </q-table>
       </q-tab-panel>
 
@@ -170,6 +255,24 @@ onMounted(loadDino)
           <template #body-cell-counts="props">
             <q-td :props="props">
               {{ props.row.completed_count }} / {{ props.row.total_count }}
+            </q-td>
+          </template>
+        </q-table>
+      </q-tab-panel>
+
+      <q-tab-panel name="jobs" class="q-pa-none">
+        <q-table
+          :rows="jobs"
+          :columns="jobColumns"
+          row-key="id"
+          :loading="loading"
+          flat
+          bordered
+          no-data-label="Нет заданий"
+        >
+          <template #body-cell-status="props">
+            <q-td :props="props">
+              <q-badge :color="statusColor(props.row.status)" :label="props.row.status" />
             </q-td>
           </template>
         </q-table>

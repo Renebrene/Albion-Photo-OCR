@@ -16,7 +16,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.config import API_HOST, API_PORT, CORS_ORIGINS
-from app.api.routes import originals_router, public_router, read_router
+from app.api.routes import (
+    jobs_router,
+    originals_router,
+    public_router,
+    read_router,
+)
 
 
 def create_app() -> FastAPI:
@@ -33,13 +38,14 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=CORS_ORIGINS,
-        allow_methods=["GET"],
+        allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )
 
     app.include_router(public_router, prefix="/api")
     app.include_router(read_router, prefix="/api")
     app.include_router(originals_router, prefix="/api")
+    app.include_router(jobs_router, prefix="/api")
 
     return app
 

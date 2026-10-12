@@ -60,7 +60,7 @@ psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 \
 
 ```bash
 export PGPASSWORD="$INGEST_DB_PASSWORD"
-for f in 001_ingest 002_preview 003_dino 004_dino_batches 005_hybrid; do
+for f in 001_ingest 002_preview 003_dino 004_dino_batches 005_hybrid 006_job_queue; do
     psql -h 127.0.0.1 -U lora_ingest -d photobase_ingest_test \
          -v ON_ERROR_STOP=1 -f "schema/$f.sql"
 done

@@ -78,3 +78,34 @@ class HybridRunSummary(BaseModel):
 class HybridRunPage(BaseModel):
     items: list[HybridRunSummary]
     next_cursor: int | None = None
+
+
+class DinoBatchRequest(BaseModel):
+    """Request to create (and enqueue) a DINO batch."""
+
+    run_type: str = Field(default="NORMAL", pattern=r"^(NORMAL|FORCE_RERUN)$")
+    photo_ids: list[str] | None = None
+
+
+class HybridRequest(BaseModel):
+    """Request to create (and enqueue) a HYBRID run for a DINO batch."""
+
+    dino_batch_id: int = Field(ge=1)
+
+
+class JobSummary(BaseModel):
+    id: int
+    job_type: str
+    status: str
+    attempts: int
+    payload: dict
+    result: dict | None = None
+    error_message: str | None = None
+    created_at: datetime | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class JobPage(BaseModel):
+    items: list[JobSummary]
+    next_cursor: int | None = None

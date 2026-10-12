@@ -16,11 +16,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from app.api import repository
 from app.api.auth import require_scope
 from app.api.config import PREVIEW_ROOT
+from app.api.schemas import DinoBatchRequest, HybridRequest
+from app.dino import database as dino_db
+from app.hybrid import database as hybrid_db
+from app.jobs import database as jobs_db
 from app.preview.generator import build_preview_paths
 
 public_router = APIRouter()
 read_router = APIRouter(dependencies=[Depends(require_scope("read"))])
 originals_router = APIRouter()
+jobs_router = APIRouter()
 
 PHOTO_ID_RE = re.compile(r"^PH_[0-9a-f]{24}$")
 
@@ -173,3 +178,99 @@ def list_hybrid_runs(
         "items": [item.model_dump() for item in items],
         "next_cursor": next_cursor,
     }
+
+
+# ---------------------------------------------------------------------------
+# Job queue: create a batch/run and enqueue deferred processing.
+# Inference runs in app.jobs.worker, never here.
+# ---------------------------------------------------------------------------
+
+
+@jobs_router.post(
+    "/v1/jobs/dino-batch",
+    status_code=202,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def enqueue_dino_batch(request: DinoBatchRequest):
+    if request.run_type == "FORCE_RERUN" and not request.photo_ids:
+        raise HTTPException(
+            status_code=422,
+            detail="FORCE_RERUN requires photo_ids",
+        )
+
+    try:
+        batch = dino_db.create_batch(
+            request.run_type,
+            request.photo_ids,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    job_id = None
+
+    if batch.total_count > 0:
+        job_id = jobs_db.enqueue(
+            "DINO_BATCH",
+            {"batch_id": batch.batch_id},
+        )
+
+    return {
+        "job_id": job_id,
+        "batch_id": batch.batch_id,
+        "batch_status": batch.status,
+        "total_count": batch.total_count,
+    }
+
+
+@jobs_router.post(
+    "/v1/jobs/hybrid",
+    status_code=202,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def enqueue_hybrid(request: HybridRequest):
+    try:
+        run = hybrid_db.create_run(request.dino_batch_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    job_id = None
+
+    if run.total_count > 0:
+        job_id = jobs_db.enqueue(
+            "HYBRID_RUN",
+            {"hybrid_run_id": run.hybrid_run_id},
+        )
+
+    return {
+        "job_id": job_id,
+        "hybrid_run_id": run.hybrid_run_id,
+        "status": run.status,
+        "total_count": run.total_count,
+    }
+
+
+@jobs_router.get(
+    "/v1/jobs",
+    response_model=None,
+    dependencies=[Depends(require_scope("jobs:read"))],
+)
+def list_jobs(
+    limit: int = Query(50, ge=1, le=100),
+    cursor: int | None = Query(None, ge=1),
+):
+    items, next_cursor = jobs_db.list_jobs(limit=limit, cursor=cursor)
+    return {"items": items, "next_cursor": next_cursor}
+
+
+@jobs_router.get(
+    "/v1/jobs/{job_id}",
+    response_model=None,
+    dependencies=[Depends(require_scope("jobs:read"))],
+)
+def get_job(job_id: int):
+    job = jobs_db.get_job(job_id)
+
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+
+    return job

@@ -76,7 +76,7 @@ existing="$(app_psql -tAc "select coalesce(to_regclass('public.photos')::text, '
 if [[ -n "$existing" ]]; then
     echo "  public.photos already exists -> skipping 001..005 (schema is not idempotent)"
 else
-    for name in 001_ingest 002_preview 003_dino 004_dino_batches 005_hybrid; do
+    for name in 001_ingest 002_preview 003_dino 004_dino_batches 005_hybrid 006_job_queue; do
         echo "  applying schema/$name.sql"
         app_psql -v ON_ERROR_STOP=1 -f "$SCHEMA_DIR/$name.sql"
     done

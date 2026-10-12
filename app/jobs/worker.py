@@ -1,0 +1,98 @@
+"""
+Deferred job worker.
+
+Run (one pass over the queue):
+    python -m app.jobs.worker
+Keep polling:
+    python -m app.jobs.worker --watch
+
+Heavy work (DINO inference, HYBRID) happens ONLY here, never inside the web
+API request handlers. Jobs are claimed atomically from public.job_queue.
+"""
+
+from __future__ import annotations
+
+import argparse
+import time
+
+from app.jobs import database as jobs
+
+
+def _execute(job: dict) -> dict:
+    job_type = job["job_type"]
+    payload = job["payload"] or {}
+
+    if job_type == "DINO_BATCH":
+        from app.dino.runner import run_batch
+
+        final = run_batch(int(payload["batch_id"]))
+        return {"batch_id": final.batch_id, "status": final.status}
+
+    if job_type == "HYBRID_RUN":
+        from app.hybrid.database import get_run
+        from app.hybrid.runner import run as hybrid_run
+
+        hybrid_run_id = int(payload["hybrid_run_id"])
+        hybrid_run(hybrid_run_id)
+        final = get_run(hybrid_run_id)
+        return {"hybrid_run_id": final.hybrid_run_id, "status": final.status}
+
+    raise ValueError(f"Unsupported job type: {job_type}")
+
+
+def run_once() -> bool:
+    """Claim and execute one job. Returns False when the queue is empty."""
+
+    job = jobs.claim_next()
+
+    if job is None:
+        return False
+
+    print(
+        f"[worker] job {job['id']} {job['job_type']} "
+        f"payload={job['payload']}",
+        flush=True,
+    )
+
+    try:
+        result = _execute(job)
+    except Exception as exc:  # noqa: BLE001 - reported to the queue
+        jobs.mark_failed(job["id"], repr(exc))
+        print(f"[worker] job {job['id']} FAILED: {exc}", flush=True)
+        return True
+
+    jobs.mark_done(job["id"], result)
+    print(f"[worker] job {job['id']} DONE {result}", flush=True)
+    return True
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="PhotoBAse job worker")
+    parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="Keep polling instead of processing the queue once.",
+    )
+    parser.add_argument(
+        "--interval",
+        type=float,
+        default=3.0,
+        help="Polling interval in seconds (with --watch).",
+    )
+    args = parser.parse_args()
+
+    if not args.watch:
+        processed = 0
+        while run_once():
+            processed += 1
+        print(f"[worker] processed {processed} job(s)", flush=True)
+        return
+
+    print("[worker] watching for jobs (Ctrl+C to stop)", flush=True)
+    while True:
+        if not run_once():
+            time.sleep(args.interval)
+
+
+if __name__ == "__main__":
+    main()
