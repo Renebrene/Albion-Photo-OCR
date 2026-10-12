@@ -170,3 +170,45 @@ def test_hybrid_accepts_done_batch(temp_photos):
     assert run.status == "PENDING"
     assert run.total_count == 1
     assert run.dino_batch_id == batch.batch_id
+
+
+def test_finish_batch_is_idempotent(temp_photos):
+    batch = dino_db.create_batch(
+        "FORCE_RERUN", [r.photo_id for r in temp_photos]
+    )
+    _set_run_status(batch.batch_id, ["DONE", "DONE"])
+
+    first = dino_db.finish_batch(batch.batch_id)
+    second = dino_db.finish_batch(batch.batch_id)
+
+    assert first.status == "DONE"
+    assert second.status == "DONE"
+    assert second.completed_count == 2
+    assert second.failed_count == 0
+
+
+def test_concurrent_finish_batch_is_consistent(temp_photos):
+    import concurrent.futures
+
+    batch = dino_db.create_batch(
+        "FORCE_RERUN", [r.photo_id for r in temp_photos]
+    )
+    _set_run_status(batch.batch_id, ["DONE", "FAILED"])
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [
+            executor.submit(dino_db.finish_batch, batch.batch_id)
+            for _ in range(4)
+        ]
+        results = [future.result() for future in futures]
+
+    assert all(result.status == "FAILED" for result in results)
+    assert all(
+        result.completed_count == 1 and result.failed_count == 1
+        for result in results
+    )
+
+    final = dino_db.get_batch(batch.batch_id)
+    assert final.status == "FAILED"
+    assert final.completed_count == 1
+    assert final.failed_count == 1

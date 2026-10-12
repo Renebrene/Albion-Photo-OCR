@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -106,10 +108,22 @@ def _create_one(
     action: str,
 ) -> PreviewFileResult:
     """
-    Create one preview and validate it afterwards.
+    Create one preview in a temporary file, validate it, then publish.
+
+    The preview is written next to its final path and moved into place with
+    os.replace only after it passes validation, so a failure never leaves a
+    partial preview behind.
     """
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    handle, temp_name = tempfile.mkstemp(
+        prefix=f".{output_path.name}.tmp-",
+        dir=output_path.parent,
+    )
+    os.close(handle)
+
+    temp_path = Path(temp_name)
 
     source = None
     preview = None
@@ -123,13 +137,15 @@ def _create_one(
         )
 
         preview.save(
-            output_path,
+            temp_path,
             format="JPEG",
             quality=90,
             optimize=True,
         )
 
     except Exception as exc:
+        temp_path.unlink(missing_ok=True)
+
         return PreviewFileResult(
             kind=kind,
             path=str(output_path),
@@ -147,9 +163,11 @@ def _create_one(
         if source is not None:
             source.close()
 
-    validation = validate_preview(output_path)
+    validation = validate_preview(temp_path)
 
     if not validation.valid:
+        temp_path.unlink(missing_ok=True)
+
         return PreviewFileResult(
             kind=kind,
             path=str(output_path),
@@ -159,6 +177,8 @@ def _create_one(
             height=validation.height,
             error=validation.error,
         )
+
+    os.replace(temp_path, output_path)
 
     return PreviewFileResult(
         kind=kind,

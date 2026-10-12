@@ -413,7 +413,13 @@ class FingerprintManager:
         metadata = {
             "id": fingerprint_id,
             "version": self.VERSION,
-            "model": "dinov2_vitb14",
+            "model": str(
+                getattr(
+                    embedder,
+                    "model_name",
+                    self.settings.model_name,
+                )
+            ),
             "images": len(paths),
             "dimension": int(
                 embeddings.shape[1]

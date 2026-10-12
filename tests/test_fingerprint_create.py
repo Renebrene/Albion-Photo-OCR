@@ -78,6 +78,8 @@ def test_successful_create_publishes_complete_fingerprint(tmp_path):
 
     assert metadata["id"] == "fp_ok"
     assert metadata["version"] == "3.3"
+    # The configured model name is recorded, not a hardcoded label.
+    assert metadata["model"] == settings.model_name
 
     data = manager.load("fp_ok")
     assert data["embeddings"].shape == (3, 768)
