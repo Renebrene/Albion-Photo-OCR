@@ -166,6 +166,41 @@ def mark_done(job_id: int, result: dict[str, Any] | None = None) -> None:
                 )
 
 
+def requeue_stale(
+    *,
+    older_than_minutes: int = 30,
+) -> int:
+    """
+    Return jobs stuck in RUNNING (older than the threshold) to PENDING.
+
+    A crashed or killed worker can leave a claimed job RUNNING forever; this
+    recovers it so another worker pass can pick it up. Returns how many jobs
+    were requeued.
+    """
+
+    if older_than_minutes < 0:
+        raise ValueError("older_than_minutes must be >= 0")
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.job_queue
+                SET
+                    status = 'PENDING',
+                    started_at = NULL,
+                    error_message = COALESCE(error_message || ' | ', '')
+                        || 'requeued (stale RUNNING)'
+                WHERE status = 'RUNNING'
+                  AND started_at IS NOT NULL
+                  AND started_at < CURRENT_TIMESTAMP
+                        - (%s || ' minutes')::interval
+                """,
+                (str(int(older_than_minutes)),),
+            )
+            return cur.rowcount
+
+
 def mark_failed(job_id: int, error_message: str) -> None:
     with get_connection() as conn:
         with conn.cursor() as cur:

@@ -324,6 +324,17 @@ def list_jobs(
     return {"items": items, "next_cursor": next_cursor}
 
 
+@jobs_router.post(
+    "/v1/jobs/requeue-stale",
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def requeue_stale_jobs(
+    older_than_minutes: int = Query(30, ge=0, le=10080),
+):
+    count = jobs_db.requeue_stale(older_than_minutes=older_than_minutes)
+    return {"requeued": count}
+
+
 @jobs_router.get(
     "/v1/jobs/{job_id}",
     response_model=None,

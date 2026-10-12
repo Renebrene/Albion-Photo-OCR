@@ -84,7 +84,21 @@ def main() -> None:
         default=3.0,
         help="Polling interval in seconds (with --watch).",
     )
+    parser.add_argument(
+        "--requeue-stale",
+        type=int,
+        default=None,
+        metavar="MINUTES",
+        help=(
+            "Before starting, return RUNNING jobs older than MINUTES "
+            "to PENDING (recovery after a crashed worker)."
+        ),
+    )
     args = parser.parse_args()
+
+    if args.requeue_stale is not None:
+        requeued = jobs.requeue_stale(older_than_minutes=args.requeue_stale)
+        print(f"[worker] requeued stale jobs: {requeued}", flush=True)
 
     if not args.watch:
         processed = 0

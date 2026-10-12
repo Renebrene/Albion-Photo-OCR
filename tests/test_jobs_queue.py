@@ -131,5 +131,22 @@ def test_list_jobs_returns_created(cleanup_jobs, require_idle_queue):
     job_id = jobs_db.enqueue("DINO_BATCH", {"batch_id": 7})
     cleanup_jobs.append(job_id)
 
-    items, _ = jobs_db.list_jobs(limit=100)
+    # Page from just before our job so it is on the first page even when the
+    # table already holds many older jobs.
+    items, _ = jobs_db.list_jobs(limit=100, cursor=job_id - 1)
     assert any(item["id"] == job_id for item in items)
+
+
+def test_requeue_stale_returns_running_job(cleanup_jobs, require_idle_queue):
+    job_id = jobs_db.enqueue("DINO_BATCH", {"batch_id": 1})
+    cleanup_jobs.append(job_id)
+
+    claimed = jobs_db.claim_next()
+    assert claimed["id"] == job_id
+    assert jobs_db.get_job(job_id)["status"] == "RUNNING"
+
+    # A zero-minute threshold makes the claimed job immediately stale.
+    requeued = jobs_db.requeue_stale(older_than_minutes=0)
+
+    assert requeued >= 1
+    assert jobs_db.get_job(job_id)["status"] == "PENDING"
