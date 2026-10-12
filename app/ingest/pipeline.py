@@ -4,6 +4,7 @@ import os
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
+from app.core.errors import redact_paths
 from app.ingest.identity import create_identity
 from app.ingest.integrity import check_file, discover_files
 from app.ingest.register import PhotoRecord, register_photo
@@ -90,7 +91,7 @@ def run(
                     invalid_result(
                         source_path=str(path),
                         filename=path.name,
-                        error=str(exc),
+                        error=redact_paths(str(exc), path),
                     )
                 )
 

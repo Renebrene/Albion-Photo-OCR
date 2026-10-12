@@ -2,6 +2,8 @@ from pathlib import Path
 import hashlib
 from PIL import Image
 
+from app.core.errors import redact_paths
+
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg"}
 SUPPORTED_FORMATS = {"JPEG", "MPO"}
 
@@ -66,7 +68,7 @@ def check_file(path: Path) -> dict:
         result["integrity_status"] = "VALID"
 
     except Exception as exc:
-        result["error"] = str(exc)
+        result["error"] = redact_paths(str(exc), path)
 
     return result
 

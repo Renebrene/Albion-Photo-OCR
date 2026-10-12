@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from app.core.errors import redact_paths
 from app.ingest.register import PhotoRecord
 from app.preview.result import PreviewFileResult, PreviewResult
 from app.preview.validator import validate_preview
@@ -153,7 +154,11 @@ def _create_one(
             valid=False,
             width=None,
             height=None,
-            error=str(exc),
+            error=redact_paths(
+                str(exc),
+                record.source_path,
+                temp_path,
+            ),
         )
 
     finally:
@@ -175,7 +180,11 @@ def _create_one(
             valid=False,
             width=validation.width,
             height=validation.height,
-            error=validation.error,
+            error=redact_paths(
+                validation.error,
+                temp_path,
+                output_path,
+            ),
         )
 
     os.replace(temp_path, output_path)
