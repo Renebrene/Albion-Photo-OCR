@@ -91,3 +91,34 @@ def test_cursor_pagination_is_stable():
     first_ids = {item["photo_id"] for item in first["items"]}
     second_ids = {item["photo_id"] for item in second["items"]}
     assert first_ids.isdisjoint(second_ids)
+
+
+@requires_db
+def test_list_dino_batches():
+    response = client.get("/api/v1/batches/dino?limit=5")
+    assert response.status_code == 200
+
+    body = response.json()
+    assert "items" in body and "next_cursor" in body
+    for item in body["items"]:
+        assert item["status"] in {"PENDING", "RUNNING", "DONE", "FAILED"}
+        assert item["run_type"] in {"NORMAL", "FORCE_RERUN"}
+
+
+@requires_db
+def test_unknown_dino_batch_returns_404():
+    assert client.get("/api/v1/batches/dino/999999").status_code == 404
+
+
+@requires_db
+def test_unknown_dino_batch_runs_returns_404():
+    assert (
+        client.get("/api/v1/batches/dino/999999/runs").status_code == 404
+    )
+
+
+@requires_db
+def test_list_hybrid_runs():
+    response = client.get("/api/v1/hybrid/runs?limit=5")
+    assert response.status_code == 200
+    assert "items" in response.json()

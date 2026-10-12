@@ -3,6 +3,11 @@
     <q-header elevated class="bg-primary text-white">
       <q-toolbar>
         <q-toolbar-title>PhotoBAse</q-toolbar-title>
+
+        <q-tabs align="right" shrink>
+          <q-route-tab to="/" label="Фото" exact />
+          <q-route-tab to="/processing" label="Обработка" exact />
+        </q-tabs>
       </q-toolbar>
     </q-header>
 

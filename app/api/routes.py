@@ -83,3 +83,63 @@ def get_preview(photo_id: str, size: str) -> Response:
         media_type="image/jpeg",
         headers={"Cache-Control": "public, max-age=3600"},
     )
+
+
+@router.get("/v1/batches/dino", response_model=None)
+def list_dino_batches(
+    limit: int = Query(50, ge=1, le=100),
+    cursor: int | None = Query(None, ge=1),
+):
+    items, next_cursor = repository.list_dino_batches(
+        limit=limit,
+        cursor=cursor,
+    )
+    return {
+        "items": [item.model_dump() for item in items],
+        "next_cursor": next_cursor,
+    }
+
+
+@router.get("/v1/batches/dino/{batch_id}", response_model=None)
+def get_dino_batch(batch_id: int):
+    batch = repository.get_dino_batch(batch_id)
+
+    if batch is None:
+        raise HTTPException(status_code=404, detail="batch not found")
+
+    return batch.model_dump()
+
+
+@router.get("/v1/batches/dino/{batch_id}/runs", response_model=None)
+def list_dino_runs(
+    batch_id: int,
+    limit: int = Query(50, ge=1, le=100),
+    cursor: int | None = Query(None, ge=1),
+):
+    if repository.get_dino_batch(batch_id) is None:
+        raise HTTPException(status_code=404, detail="batch not found")
+
+    items, next_cursor = repository.list_dino_runs(
+        batch_id=batch_id,
+        limit=limit,
+        cursor=cursor,
+    )
+    return {
+        "items": [item.model_dump() for item in items],
+        "next_cursor": next_cursor,
+    }
+
+
+@router.get("/v1/hybrid/runs", response_model=None)
+def list_hybrid_runs(
+    limit: int = Query(50, ge=1, le=100),
+    cursor: int | None = Query(None, ge=1),
+):
+    items, next_cursor = repository.list_hybrid_runs(
+        limit=limit,
+        cursor=cursor,
+    )
+    return {
+        "items": [item.model_dump() for item in items],
+        "next_cursor": next_cursor,
+    }

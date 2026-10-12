@@ -3,19 +3,48 @@
 
 const BASE = import.meta.env.VITE_API_BASE || '/api'
 
-export async function fetchPhotos({ limit = 50, cursor = null, q = null } = {}) {
-  const params = new URLSearchParams()
-  params.set('limit', String(limit))
-  if (cursor) params.set('cursor', cursor)
-  if (q) params.set('q', q)
-
-  const response = await fetch(`${BASE}/v1/photos?${params.toString()}`)
+async function getJson(url) {
+  const response = await fetch(url)
 
   if (!response.ok) {
     throw new Error(`API error ${response.status}`)
   }
 
   return response.json()
+}
+
+function withCursor(path, { limit, cursor } = {}) {
+  const params = new URLSearchParams()
+
+  if (limit) params.set('limit', String(limit))
+  if (cursor) params.set('cursor', String(cursor))
+
+  const query = params.toString()
+
+  return query ? `${path}?${query}` : path
+}
+
+export function fetchPhotos({ limit = 50, cursor = null, q = null } = {}) {
+  const params = new URLSearchParams()
+  params.set('limit', String(limit))
+  if (cursor) params.set('cursor', cursor)
+  if (q) params.set('q', q)
+
+  return getJson(`${BASE}/v1/photos?${params.toString()}`)
+}
+
+export function fetchDinoBatches({ limit = 50, cursor = null } = {}) {
+  return getJson(withCursor(`${BASE}/v1/batches/dino`, { limit, cursor }))
+}
+
+export function fetchDinoBatchRuns(batchId, { limit = 100, cursor = null } = {}) {
+  return getJson(
+    withCursor(`${BASE}/v1/batches/dino/${batchId}/runs`, { limit, cursor }),
+  )
+}
+
+export function fetchHybridRuns({ limit = 50, cursor = null } = {}) {
+  return getJson(withCursor(`${BASE}/v1/hybrid/runs`, { limit, cursor }))
 }
 
 export function previewUrl(photoId, size = 'small') {

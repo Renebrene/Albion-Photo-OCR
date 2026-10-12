@@ -124,6 +124,16 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 
 Тесты: `tests/test_api.py` (health, валидация, 404; list/cursor — с БД).
 
+### Срез 2 — статусы обработки (read-only)
+
+- `GET /api/v1/batches/dino?limit=&cursor=` — список DINO batch-ей (тип, статус, счётчики, тайминги).
+- `GET /api/v1/batches/dino/{batch_id}` — детали batch (`404`, если нет).
+- `GET /api/v1/batches/dino/{batch_id}/runs?limit=&cursor=` — runs batch-а.
+- `GET /api/v1/hybrid/runs?limit=&cursor=` — список HYBRID-запусков.
+- Экран «Обработка» в SPA: вкладки DINO batches / HYBRID runs, статус-бейджи, клик по batch → диалог со списком runs.
+
+Запуск обработки (INGEST/DINO/HYBRID) в этом срезе **не реализован** — отдельный этап (enqueue + фоновый worker, без inference в request handler).
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.
