@@ -149,6 +149,28 @@ def test_photos_date_filter():
     assert future["items"] == []
 
 
+def test_system_info():
+    data = client.get("/api/v1/system").json()
+    assert data["cpu_count"] >= 1
+    assert data["memory"]["total"] > 0
+    assert "uptime_sec" in data
+
+
+def test_fingerprints_endpoint():
+    data = client.get("/api/v1/fingerprints").json()
+    assert "items" in data
+    for item in data["items"]:
+        assert set(item) == {"id", "images", "dimension", "version", "model"}
+
+
+@requires_db
+def test_last_run():
+    data = client.get("/api/v1/runs/last").json()
+    assert "jobs" in data
+    assert "dino_batch" in data
+    assert "hybrid_run" in data
+
+
 @requires_db
 def test_address_comes_from_recognition():
     """Photo address is the DINO/HYBRID result, not QWEN metadata."""

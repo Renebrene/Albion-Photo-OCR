@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 
 from app import settings_store
 from app.api import repository
+from app.api import system as sysinfo
 from app.api.auth import auth_enabled, require_scope
 from app.api.config import PREVIEW_ROOT
 from app.api.schemas import (
@@ -86,6 +87,21 @@ def list_photos(
         "items": [item.model_dump() for item in items],
         "next_cursor": next_cursor,
     }
+
+
+@read_router.get("/v1/system", response_model=None)
+def get_system_info():
+    return sysinfo.system_info()
+
+
+@read_router.get("/v1/fingerprints", response_model=None)
+def list_fingerprints():
+    return {"items": sysinfo.list_fingerprints()}
+
+
+@read_router.get("/v1/runs/last", response_model=None)
+def get_last_run():
+    return sysinfo.last_run()
 
 
 @read_router.get("/v1/addresses", response_model=None)

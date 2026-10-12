@@ -44,6 +44,18 @@ export function fetchUsers(activeOnly = false) {
   return getJson(`${BASE}/v1/users?active_only=${activeOnly}`)
 }
 
+export function fetchSystem() {
+  return getJson(`${BASE}/v1/system`)
+}
+
+export function fetchFingerprints() {
+  return getJson(`${BASE}/v1/fingerprints`)
+}
+
+export function fetchLastRun() {
+  return getJson(`${BASE}/v1/runs/last`)
+}
+
 export function createUser(payload) {
   return postJson(`${BASE}/v1/users`, payload)
 }

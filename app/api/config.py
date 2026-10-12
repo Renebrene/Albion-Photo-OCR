@@ -16,6 +16,11 @@ PREVIEW_ROOT = Path(
     os.getenv("SCENE_PREVIEW_ROOT", "data/preview")
 )
 
+# Fingerprint artifacts (FAISS + metadata) live next to the data directory.
+FINGERPRINTS_ROOT = Path(
+    os.getenv("SCENE_DATA", "data")
+) / "fingerprints"
+
 API_HOST = os.getenv("SCENE_API_HOST", "127.0.0.1")
 # Default 8010 (not 8000) to avoid clashing with other local services;
 # override with SCENE_API_PORT.
