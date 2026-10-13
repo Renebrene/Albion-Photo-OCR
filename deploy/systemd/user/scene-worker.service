@@ -1,0 +1,15 @@
+[Unit]
+Description=PhotoBAse job worker (DINO/HYBRID/QWEN/NL)
+After=network-online.target scene-api.service
+Wants=network-online.target scene-api.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/alexice/scene-fingerprint
+EnvironmentFile=/home/alexice/.config/scene-fingerprint.env
+ExecStart=/home/alexice/scene-fingerprint/.venv/bin/python -m app.jobs.worker --watch --requeue-stale 30 --interval 5
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

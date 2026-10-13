@@ -64,6 +64,33 @@ Then log in through the web UI. Changing a password invalidates its sessions.
 `SCENE_ORIGINALS_ROOTS` must point at the mounted photo volume (comma-separated
 roots); with it empty the original-file endpoint is refused entirely.
 
+## Local single-machine variant (user units, no root)
+
+When the app runs on the same workstation as the data and root is not available,
+install the same two services as **user** units instead of system ones:
+
+```bash
+mkdir -p ~/.config/systemd/user
+# units (WorkingDirectory must have no spaces -> use a symlink):
+ln -sfn "/path/to/scene_fingerprint_RELEASE_v38_1_v33 (2)" ~/scene-fingerprint
+cp deploy/systemd/user/scene-api.service deploy/systemd/user/scene-worker.service ~/.config/systemd/user/
+install -m 600 deploy/systemd/user/scene.env.example ~/.config/scene-fingerprint.env
+# edit ~/scene-fingerprint paths + DB password, then:
+systemctl --user daemon-reload
+systemctl --user enable --now scene-api scene-worker
+```
+
+Notes that matter:
+
+- **No spaces in `WorkingDirectory`.** systemd does not unquote these paths, so
+  a checkout under a name with spaces must be reached through a symlink
+  (e.g. `~/scene-fingerprint`).
+- **Autostart at boot** requires lingering: `sudo loginctl enable-linger <user>`
+  (otherwise user services start at login only).
+- The frontend is served by the API process (built `frontend/dist`), so there
+  is **no separate frontend unit**.
+- Inspect logs with `journalctl --user -u scene-api -f`.
+
 ## Operating notes
 
 - **Secrets**: `SCENE_API_TOKENS` and `INGEST_DB_PASSWORD` live only in

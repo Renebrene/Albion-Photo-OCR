@@ -1,0 +1,16 @@
+[Unit]
+Description=PhotoBAse API (FastAPI + built SPA)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Symlink without spaces/parentheses (systemd WorkingDirectory cannot use them).
+WorkingDirectory=/home/alexice/scene-fingerprint
+EnvironmentFile=/home/alexice/.config/scene-fingerprint.env
+ExecStart=/home/alexice/scene-fingerprint/.venv/bin/python -m uvicorn app.api.main:app --host 0.0.0.0 --port 8010
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
