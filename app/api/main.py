@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api.auth import validate_token_config
 from app.api.config import API_HOST, API_PORT, CORS_ORIGINS
 from app.api.routes import (
     auth_router,
@@ -38,6 +39,10 @@ SPA_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
 def create_app() -> FastAPI:
+    # Fail fast on a malformed SCENE_API_TOKENS instead of weakening access
+    # control silently at request time.
+    validate_token_config()
+
     app = FastAPI(
         title="PhotoBAse API",
         version="0.1.0",

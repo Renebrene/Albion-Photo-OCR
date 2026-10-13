@@ -18,6 +18,10 @@ import os
 
 from fastapi import Header, HTTPException
 
+# Cache for the validated SCENE_API_TOKENS parse.
+_tokens_cache_raw: str | None = None
+_tokens_cache_value: dict[str, set[str]] = {}
+
 # Role -> scopes. Администратор can do anything.
 ROLE_SCOPES: dict[str, set[str]] = {
     "Администратор": {"*"},
@@ -32,31 +36,75 @@ ROLE_SCOPES: dict[str, set[str]] = {
 }
 
 
-def _token_scopes() -> dict[str, set[str]]:
-    raw = os.getenv("SCENE_API_TOKENS", "").strip()
+def parse_tokens(raw: str) -> dict[str, set[str]]:
+    """
+    Parse SCENE_API_TOKENS into {token: scopes}.
+
+    Format: ``token:scope1|scope2, token2:scope3`` ("*" = all scopes).
+
+    Raises ValueError on a malformed entry (no colon, empty token, empty scope
+    list, or a duplicate token), so a typo cannot silently weaken access
+    control.
+    """
 
     tokens: dict[str, set[str]] = {}
 
-    if not raw:
-        return tokens
-
-    for entry in raw.split(","):
+    for entry in (raw or "").split(","):
         entry = entry.strip()
 
         if not entry:
             continue
 
-        token, _, scopes = entry.partition(":")
+        token, sep, scopes = entry.partition(":")
         token = token.strip()
 
-        if token:
-            tokens[token] = {
-                scope.strip()
-                for scope in scopes.split("|")
-                if scope.strip()
-            }
+        if not sep:
+            raise ValueError(
+                f"SCENE_API_TOKENS entry {entry!r} has no ':scopes' part"
+            )
+
+        if not token:
+            raise ValueError("SCENE_API_TOKENS has an entry with an empty token")
+
+        parsed = {scope.strip() for scope in scopes.split("|") if scope.strip()}
+
+        if not parsed:
+            raise ValueError(
+                f"SCENE_API_TOKENS token {token!r} has no scopes"
+            )
+
+        if token in tokens:
+            raise ValueError(f"SCENE_API_TOKENS defines token {token!r} twice")
+
+        tokens[token] = parsed
 
     return tokens
+
+
+def _token_scopes() -> dict[str, set[str]]:
+    """
+    Cached, validated parse of SCENE_API_TOKENS.
+
+    An invalid configuration raises (fail-closed): requests fail loudly rather
+    than running with a partially applied access policy.
+    """
+
+    raw = os.getenv("SCENE_API_TOKENS", "").strip()
+
+    global _tokens_cache_raw, _tokens_cache_value
+
+    if raw == _tokens_cache_raw:
+        return _tokens_cache_value
+
+    try:
+        parsed = parse_tokens(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"invalid SCENE_API_TOKENS: {exc}") from exc
+
+    _tokens_cache_raw = raw
+    _tokens_cache_value = parsed
+
+    return parsed
 
 
 def _forced() -> bool:
@@ -72,6 +120,17 @@ def _forced() -> bool:
         "true",
         "yes",
     }
+
+
+def validate_token_config() -> None:
+    """
+    Validate SCENE_API_TOKENS at startup; raises RuntimeError when malformed.
+
+    Called from the app factory so a typo fails the boot instead of weakening
+    access control at request time.
+    """
+
+    _token_scopes()
 
 
 def auth_enabled() -> bool:

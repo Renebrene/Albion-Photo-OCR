@@ -17,8 +17,39 @@ from app.api.config import FINGERPRINTS_ROOT
 from app.ingest.database import get_connection
 
 
+def _temperatures() -> list[dict]:
+    """Best-effort CPU/board temperatures (empty when unsupported)."""
+
+    try:
+        sensors = psutil.sensors_temperatures(fahrenheit=False) or {}
+    except (AttributeError, OSError):
+        return []
+
+    readings = []
+
+    for name, entries in sensors.items():
+        for entry in entries:
+            if entry.current is None:
+                continue
+
+            readings.append(
+                {
+                    "sensor": name,
+                    "label": entry.label or name,
+                    "current": round(float(entry.current), 1),
+                    "high": (
+                        round(float(entry.high), 1)
+                        if entry.high is not None
+                        else None
+                    ),
+                }
+            )
+
+    return readings
+
+
 def system_info() -> dict:
-    """Host CPU / memory / disk / uptime snapshot."""
+    """Host CPU / memory / disk / network / temperature / uptime snapshot."""
 
     memory = psutil.virtual_memory()
     disk = psutil.disk_usage(str(Path.cwd()))
@@ -27,6 +58,15 @@ def system_info() -> dict:
         load_avg = list(os.getloadavg())
     except (AttributeError, OSError):
         load_avg = None
+
+    try:
+        net = psutil.net_io_counters()
+        network = {
+            "bytes_sent": net.bytes_sent,
+            "bytes_recv": net.bytes_recv,
+        }
+    except (AttributeError, OSError):
+        network = {}
 
     return {
         "cpu_count": psutil.cpu_count(logical=True),
@@ -42,6 +82,8 @@ def system_info() -> dict:
             "used": disk.used,
             "percent": disk.percent,
         },
+        "network": network,
+        "temperatures": _temperatures(),
         "uptime_sec": max(0.0, time.time() - psutil.boot_time()),
     }
 

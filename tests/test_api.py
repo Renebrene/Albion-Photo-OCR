@@ -213,6 +213,8 @@ def test_system_info():
     assert data["cpu_count"] >= 1
     assert data["memory"]["total"] > 0
     assert "uptime_sec" in data
+    assert "network" in data
+    assert isinstance(data["temperatures"], list)
 
 
 def test_fingerprints_endpoint():

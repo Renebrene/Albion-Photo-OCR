@@ -309,6 +309,11 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - **`/v1/users`**: доступ только с `users:manage` (администратор); вкладка «Пользователи» скрыта для не-админов.
 - **Ошибки без путей**: `redact_absolute_paths()` применён к job/DINO/HYBRID/QWEN `error_message`; создание пользователя больше не отдаёт текст исключения.
 
+### Срез 25 — валидация токенов и расширенный монитор системы
+
+- **`SCENE_API_TOKENS`** валидируется (`app/api/auth.py:parse_tokens`): ошибка при отсутствии `:scopes`, пустом токене/списке scopes и дубликате токена. Проверка ленивая с кэшем и вызывается на старте приложения (`validate_token_config()`), поэтому опечатка ломает запуск, а не тихо ослабляет доступ.
+- **Монитор системы**: `/v1/system` теперь отдаёт `network` (bytes sent/recv) и `temperatures` (psutil, если поддерживается); вкладка «Система» показывает сеть и чипы температур (подсветка ≥80 °C).
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.

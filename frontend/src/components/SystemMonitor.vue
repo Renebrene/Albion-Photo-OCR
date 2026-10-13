@@ -104,6 +104,43 @@ onUnmounted(() => {
           <div class="text-h6">{{ uptime(info.uptime_sec) }}</div>
         </q-card-section>
       </q-card>
+
+      <q-card
+        v-if="info.network && info.network.bytes_recv !== undefined"
+        flat
+        bordered
+        class="col-12 col-sm-6"
+      >
+        <q-card-section>
+          <div class="text-caption text-grey">Сеть (с запуска)</div>
+          <div class="text-body2 q-mt-xs">
+            ↓ {{ gb(info.network.bytes_recv) }} ГБ ·
+            ↑ {{ gb(info.network.bytes_sent) }} ГБ
+          </div>
+        </q-card-section>
+      </q-card>
+
+      <q-card
+        v-if="info.temperatures && info.temperatures.length"
+        flat
+        bordered
+        class="col-12 col-sm-6"
+      >
+        <q-card-section>
+          <div class="text-caption text-grey">Температуры</div>
+          <div class="row q-gutter-sm q-mt-xs">
+            <q-chip
+              v-for="t in info.temperatures"
+              :key="`${t.sensor}-${t.label}`"
+              dense
+              :color="t.current >= 80 ? 'negative' : 'grey-4'"
+              :text-color="t.current >= 80 ? 'white' : 'black'"
+            >
+              {{ t.label }}: {{ t.current }}°C
+            </q-chip>
+          </div>
+        </q-card-section>
+      </q-card>
     </div>
   </div>
 </template>

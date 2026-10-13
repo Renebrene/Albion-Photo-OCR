@@ -19,6 +19,21 @@ from app.api.main import app
 client = TestClient(app, raise_server_exceptions=False)
 
 
+def test_token_config_parsing_and_validation():
+    from app.api.auth import parse_tokens
+
+    assert parse_tokens("a:read|write, b:*") == {
+        "a": {"read", "write"},
+        "b": {"*"},
+    }
+    assert parse_tokens("") == {}
+    assert parse_tokens("  ") == {}
+
+    for bad in ("nocolon", "tok:", ":read", "a:read,a:write"):
+        with pytest.raises(ValueError):
+            parse_tokens(bad)
+
+
 def test_health_is_always_open(monkeypatch):
     monkeypatch.setenv("SCENE_API_TOKENS", "tok:read")
     assert client.get("/api/health").status_code == 200
