@@ -84,6 +84,18 @@ describe('api client', () => {
     expect(url).toContain('collection_id=3')
   })
 
+  it('passes the date filter source only when set', async () => {
+    mockFetchOnce(okJson({ items: [] }))
+    await fetchPhotos({ limit: 5, date_mode: 'capture' })
+    expect(global.fetch.mock.calls[0][0]).toContain('date_mode=capture')
+  })
+
+  it('omits the date filter source by default', async () => {
+    mockFetchOnce(okJson({ items: [] }))
+    await fetchPhotos({ limit: 5 })
+    expect(global.fetch.mock.calls[0][0]).not.toContain('date_mode')
+  })
+
   it('throws a generic error on a failed GET', async () => {
     mockFetchOnce({ ok: false, status: 500, json: async () => ({}) })
     await expect(fetchPhotos({ limit: 5 })).rejects.toThrow('API error 500')

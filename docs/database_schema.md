@@ -39,6 +39,8 @@ PostgreSQL — источник истины для переходов межд�
 015_manager_selections.sql → manager_selections
 016_client_aliases.sql → client_aliases
 017_job_dedup.sql → индекс для дедупа активных QWEN-заданий
+018_photo_metadata.sql → ALTER photos: + taken_at (EXIF), + size_bytes
+019_job_ingest.sql → ALTER job_queue: + job_type INGEST_DIR (+ индекс дедупа)
 ```
 
 **`004` теперь backfill-safe и идемпотентен (2026-10-12):** создаёт `dino_batches` при отсутствии, добавляет `dino_runs.batch_id` (nullable) при отсутствии, бэкфиллит существующие runs без batch (по одному legacy-batch на run, со статусом и счётчиками из run), затем ставит `NOT NULL` и создаёт индекс. Повторный прогон — no-op. Ранее файл делал `ADD COLUMN` и сразу `SET NOT NULL`, что падало на непустой `dino_runs`.
@@ -80,8 +82,12 @@ erDiagram
 | `width` | INTEGER | NOT NULL |
 | `height` | INTEGER | NOT NULL |
 | `created_at` | TIMESTAMP | NOT NULL DEFAULT CURRENT_TIMESTAMP |
+| `taken_at` | TIMESTAMP | NULL — дата съёмки из EXIF (`018`) |
+| `size_bytes` | BIGINT | NULL — размер исходного файла в байтах (`018`) |
 
 `photo_id = PH_ + первые 24 hex SHA-256`. `sha256 UNIQUE` гарантирует одну строку на физический файл.
+
+**`taken_at` / `size_bytes` (2026-10-14, `018_photo_metadata.sql`).** `taken_at` — `EXIF DateTimeOriginal` (fallback `DateTimeDigitized`) кадра 0; `NULL`, если тега нет. `size_bytes` — `stat()` исходника; используется для быстрого пропуска уже зарегистрированных файлов по паре (имя, размер) и для показа веса в интерфейсе. Обе колонки аддитивные; строки, зарегистрированные до `018`, остаются `NULL` до `scripts/backfill_photo_metadata.py` (скрипт только читает исходники). Фильтр грида по дате выбирает колонку: `date_mode=upload` → `created_at`, `date_mode=capture` → `taken_at`.
 
 ### 4.2 `photo_previews` — производные превью (PREVIEW)
 
@@ -207,7 +213,7 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 | Колонка | Тип | Ограничения |
 |---|---|---|
 | `id` | BIGSERIAL | PRIMARY KEY |
-| `job_type` | TEXT | NOT NULL, CHECK `DINO_BATCH`/`HYBRID_RUN` |
+| `job_type` | TEXT | NOT NULL, CHECK `DINO_BATCH`/`HYBRID_RUN`/`QWEN_PHOTO`/`NL_SEARCH`/`INGEST_DIR` |
 | `payload` | JSONB | NOT NULL DEFAULT `{}` |
 | `status` | TEXT | NOT NULL DEFAULT `PENDING`, CHECK `PENDING`/`RUNNING`/`DONE`/`FAILED` |
 | `attempts` | INTEGER | NOT NULL DEFAULT 0, CHECK ≥ 0 |
@@ -285,6 +291,8 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 ### 4.15 NL-поиск — типы заданий
 
 `schema/013_nl_search.sql` расширяет `job_queue.job_type` значением `NL_SEARCH` (идемпотентно, через DROP/ADD CHECK). Само NL-задание не пишет таблиц: worker переводит запрос в фильтры локальным QWEN и выполняет обычный поиск, результат кладётся в `job_queue.result` (JSONB). Инференс — только в воркере (`app/api/nl_search.py`).
+
+`schema/019_job_ingest.sql` добавляет `INGEST_DIR` — обход рабочей папки. Задание кладёт `app/api/routes.py` (`POST /v1/ingest/run`), выполняет воркер через `app/ingest/runner.py:ingest_directory`, результат (`counters`, `registered`, `existing`, `conflicts`) — в `job_queue.result`. Активное задание на ту же папку не дублируется (индекс `idx_job_queue_ingest_active_dir`). Хеширование и декодирование никогда не выполняются в обработчике запроса.
 
 ### 4.16 Индексы поиска — `pg_trgm` + GIN
 

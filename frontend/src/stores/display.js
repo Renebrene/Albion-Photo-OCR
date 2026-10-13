@@ -16,6 +16,7 @@ export const LIST_FIELDS = [
   { value: 'category', label: 'Категория' },
   { value: 'size', label: 'Размер, px' },
   { value: 'created_at', label: 'Дата загрузки' },
+  { value: 'taken_at', label: 'Дата съёмки' },
 ]
 
 const DEFAULT_TILE_COLUMNS = 4
@@ -83,5 +84,10 @@ export function fieldText(photo, key) {
       : '—'
   }
   const value = photo[key]
-  return value === null || value === undefined || value === '' ? '—' : value
+  if (value === null || value === undefined || value === '') return '—'
+  // Dates are shown by day only: the time of an EXIF stamp is noise here.
+  if (key === 'taken_at' || key === 'created_at') {
+    return String(value).slice(0, 10)
+  }
+  return value
 }

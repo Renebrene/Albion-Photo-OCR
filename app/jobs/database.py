@@ -14,7 +14,13 @@ from psycopg.types.json import Json
 
 from app.ingest.database import get_connection
 
-JOB_TYPES = {"DINO_BATCH", "HYBRID_RUN", "QWEN_PHOTO", "NL_SEARCH"}
+JOB_TYPES = {
+    "DINO_BATCH",
+    "HYBRID_RUN",
+    "QWEN_PHOTO",
+    "NL_SEARCH",
+    "INGEST_DIR",
+}
 
 _JOB_COLUMNS = (
     "id, job_type, payload, status, attempts, "
@@ -80,6 +86,36 @@ def enqueue_qwen(photo_id: str) -> int | None:
                 RETURNING id
                 """,
                 (Json({"photo_id": photo_id}), photo_id),
+            )
+            row = cur.fetchone()
+
+            return int(row[0]) if row is not None else None
+
+
+def enqueue_ingest(directory: str) -> int | None:
+    """
+    Enqueue an INGEST job for one folder, deduplicated while active.
+
+    Returns the new job id, or None when a PENDING/RUNNING ingest of the same
+    folder already exists (a second scan of a big tree would only duplicate
+    work). The folder itself is validated by the API before this call.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO public.job_queue (job_type, payload, status)
+                SELECT 'INGEST_DIR', %s, 'PENDING'
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM public.job_queue
+                    WHERE job_type = 'INGEST_DIR'
+                      AND status IN ('PENDING', 'RUNNING')
+                      AND payload ->> 'directory' = %s
+                )
+                RETURNING id
+                """,
+                (Json({"directory": directory}), directory),
             )
             row = cur.fetchone()
 

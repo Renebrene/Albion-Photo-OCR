@@ -107,3 +107,12 @@ Notes that matter:
   source photo folders live outside the checkout, add them to `ReadWritePaths`.
 - **Uploads** land in `SCENE_INBOX` (`data/inbox`); ensure it is on the same
   filesystem as the process user can write.
+- **INGEST folder**: `SCENE_SOURCE_FOLDER` (default, overridable in the UI and
+  stored in `app_settings`) is scanned by the worker when `POST /v1/ingest/run`
+  or `scene-fingerprint ingest <folder>` is used. Set `SCENE_SOURCE_ROOTS` to
+  restrict which folders may be picked; leave it empty only on a single-owner
+  host. Files already registered under the same (name, size) are skipped
+  without hashing.
+- **Migrations**: after pulling a change that touches `schema/`, run
+  `scripts/migrate.py` **before** restarting the units — the API/worker read
+  columns added by the new migration (see `docs/db_setup.md`).

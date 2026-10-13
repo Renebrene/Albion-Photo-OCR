@@ -30,6 +30,26 @@ ORIGINALS_ROOTS = [
     if root.strip()
 ]
 
+# --- Working (source) folder for INGEST ------------------------------------
+# The folder the ingest scans for new photos. It is selected in the UI and
+# persisted in app_settings; SCENE_SOURCE_FOLDER is only the fallback default.
+SOURCE_FOLDER_KEY = "source_folder"
+SOURCE_FOLDER_DEFAULT = os.getenv("SCENE_SOURCE_FOLDER", "")
+
+# Optional allowlist: when non-empty, only folders below these roots can be
+# selected, counted or ingested. Empty means "any readable directory", which
+# is acceptable on the single-machine deployment (the endpoints still require
+# the jobs:write scope); set it on a shared host.
+SOURCE_ROOTS = [
+    Path(root.strip())
+    for root in os.getenv("SCENE_SOURCE_ROOTS", "").split(",")
+    if root.strip()
+]
+
+# Upper bound for the folder statistics walk, so a huge tree cannot keep a
+# request busy forever. Exceeding it reports truncated=True.
+SOURCE_SCAN_FILE_LIMIT = int(os.getenv("SCENE_SOURCE_SCAN_LIMIT", "200000"))
+
 API_HOST = os.getenv("SCENE_API_HOST", "127.0.0.1")
 # Default 8010 (not 8000) to avoid clashing with other local services;
 # override with SCENE_API_PORT.

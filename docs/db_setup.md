@@ -82,9 +82,22 @@ done
 
 ## 4. Важные предупреждения
 
-- **Не применять `schema/*.sql` повторно на непустой БД.** Файлы используют
-  `CREATE TABLE` без `IF NOT EXISTS`; повторный прогон упадёт. Миграционного
-  раннера в проекте нет.
+- **Не применять `schema/*.sql` вручную и повторно на непустой БД.** Часть
+  файлов использует `CREATE TABLE` без `IF NOT EXISTS` и на повторном прогоне
+  упадёт. Применяйте схемы только через версионированный раннер
+  `scripts/migrate.py` (§3 выше): он выполняет каждый файл ровно один раз, ведёт
+  `public.schema_migrations` и останавливается при изменении уже применённого файла
+  (checksum-drift).
+- **`018_photo_metadata.sql` / `019_job_ingest.sql` (2026-10-14).** `018` добавляет
+  `photos.taken_at` (EXIF-дата съёмки) и `photos.size_bytes` (`ADD COLUMN IF NOT
+  EXISTS`, данные не переписываются); `019` расширяет `job_queue.job_type`
+  значением `INGEST_DIR`. После `018` заполните метаданные уже зарегистрированных
+  фото скриптом `scripts/backfill_photo_metadata.py` (только читает исходники):
+  `python scripts/backfill_photo_metadata.py [--dry-run] [--limit N]`. Откат обеих —
+  в шапке соответствующего файла.
+- **Важно про порядок выката:** код ветки читает `photos.taken_at`/`size_bytes`, поэтому
+  до применения `018` перезапускать API/воркер нельзя — фото-эндпоинты упадут с
+  `UndefinedColumn`. Сначала `scripts/migrate.py`, затем рестарт сервисов.
 - **`004_dino_batches.sql` теперь backfill-safe и идемпотентен**: создаёт
   `dino_batches` при отсутствии, добавляет nullable `batch_id`, бэкфиллит orphan-runs
   (по одному legacy-batch на run), затем `SET NOT NULL`; повторный прогон — no-op.
@@ -113,9 +126,11 @@ PGPASSWORD="$INGEST_DB_PASSWORD" psql -h 127.0.0.1 -U lora_ingest -d photobase_i
 Проверка на реальной БД (integration-тесты) выполняется отдельно и требует
 `INGEST_DB_PASSWORD`.
 
-Статус на 2026-10-12 (эта машина): БД `photobase_ingest_test` и роль `lora_ingest`
-созданы, применены `schema/001–005` (7 таблиц), `app.ingest.database.check_identity_batch()`
-успешно классифицирует запись как `NEW` (read-only). Таблицы пусты.
+Статус на 2026-10-14 (эта машина): БД `photobase_ingest_test` и роль `lora_ingest`
+созданы, применены `schema/001–017`; в корпусе 256 фото (256 QWEN DONE, 256
+`dino_runs`). `schema/018_photo_metadata.sql` и `schema/019_job_ingest.sql`
+подготовлены, но на момент записи ещё не применены — сначала `scripts/migrate.py`,
+затем бэкфилл метаданных и рестарт сервисов.
 
 > Замечание по безопасности: пароль роли приложения — `lora` (задан владельцем, для
 > локальной разработки). Это слабый пароль: для любого сетевого/общего окружения

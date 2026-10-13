@@ -96,6 +96,7 @@ PhotoRecord → DATABASE IDENTITY CHECK → NEW / EXISTING / CONFLICT → INSERT
 7. определение контейнерного формата;
 8. определение ширины и высоты;
 9. определение количества кадров;
+9a. чтение даты съёмки из EXIF (`DateTimeOriginal`, fallback `DateTimeDigitized`, кадр 0) — best-effort: отсутствие или поломка EXIF не влияет на `integrity_status`;
 10. выполнение `Image.verify()`;
 11. повторное открытие файла;
 12. переход на frame 0 через `seek(0)`;
@@ -116,6 +117,7 @@ PhotoRecord → DATABASE IDENTITY CHECK → NEW / EXISTING / CONFLICT → INSERT
 - `width`;
 - `height`;
 - `frame_count`;
+- `taken_at` (ISO-строка или `NULL`);
 - `decoded`;
 - `integrity_status`;
 - `error`.
@@ -125,6 +127,8 @@ PhotoRecord → DATABASE IDENTITY CHECK → NEW / EXISTING / CONFLICT → INSERT
 Он не создает JPEG-копии, preview или другие производные файлы.
 
 Для MPO визуальным источником является frame 0, но физический исходный MPO-файл не изменяется.
+
+`discover_files()` обходит папку **рекурсивно по умолчанию** (`recursive=False` — только верхний уровень), отбирает `.jpg`/`.jpeg`, результат отсортирован. `scan_directory()` считает фото и суммарный объём без чтения содержимого — это то, что вызывает окно выбора папки.
 
 ### app/ingest/identity.py
 
@@ -348,15 +352,31 @@ SHA-256 сначала нормализуется и проверяется ка
 
 возникает `ValueError`.
 
-`run(directory, workers)`:
+`run(directory, workers, *, recursive=True, skip_known=None)`:
 
 - обнаруживает файлы через `discover_files()`;
 - если файлов нет, возвращает пустой `IngestResult`;
-- запускает `process_file()` для каждого обнаруженного файла;
+- при `skip_known` — вызывающая сторона передаёт функцию, которая по списку пар `(имя, размер)` возвращает уже зарегистрированные; такие файлы помечаются `SKIPPED` и **не читаются и не хешируются** (сам доступ к БД в `pipeline.py` не встроен — это сохраняет модуль независимым от PostgreSQL);
+- запускает `process_file()` для каждого оставшегося файла;
 - `VALID` результат формируется через `valid_result()`;
 - исключение при обработке конкретного файла преобразуется в `INVALID` через `invalid_result()`;
 - ошибка одного файла не останавливает обработку остальных файлов;
-- возвращает итоговый `IngestResult`.
+- возвращает итоговый `IngestResult` со счётчиками `VALID`/`INVALID`/`SKIPPED`.
+
+### app/ingest/runner.py
+
+Обход папки целиком — общий путь для CLI и для задания воркера:
+
+    папка → pipeline.run (пропуск известных)
+          → check_identity_batch → INSERT только NEW
+
+`ingest_directory(directory, *, workers, skip_known=True, recursive=True)` возвращает JSON-совместимую сводку: `discovered`, `counters`, `registered`, `existing`, `conflicts`, `errors`. Конфликты **не прерывают** обход (в отличие от `register_new_photos()`, который используется на пути загрузки) — они возвращаются списком `photo_id`.
+
+Команда CLI:
+
+    scene-fingerprint ingest <папка> [--workers N] [--no-skip] [--no-recursive]
+
+Через API то же самое делает `POST /v1/ingest/run` (задание `INGEST_DIR`, выполняется воркером). **Пропуск по паре (имя, размер) — только ускорение:** решение о записи по-прежнему принимает проверка `sha256` (NEW/EXISTING/CONFLICT). Компромисс: другой файл с тем же именем и ровно тем же размером будет пропущен; отключается флагом `--no-skip`.
 
 Порядок результатов:
 

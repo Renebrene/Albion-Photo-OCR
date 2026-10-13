@@ -69,9 +69,17 @@ describe('fieldText', () => {
     expect(fieldText({ address: '' }, 'address')).toBe('—')
     expect(fieldText({}, 'client')).toBe('—')
     expect(fieldText(null, 'filename')).toBe('—')
+    expect(fieldText({ client: 'Яндекс' }, 'client')).toBe('Яндекс')
+  })
+
+  it('shows dates by day only', () => {
     expect(fieldText({ created_at: '2026-05-01T10:00:00' }, 'created_at')).toBe(
-      '2026-05-01T10:00:00',
+      '2026-05-01',
     )
+    expect(fieldText({ taken_at: '2026-04-30T08:15:02' }, 'taken_at')).toBe(
+      '2026-04-30',
+    )
+    expect(fieldText({ taken_at: null }, 'taken_at')).toBe('—')
   })
 
   it('every configurable field has a label', () => {

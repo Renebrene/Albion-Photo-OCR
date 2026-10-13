@@ -10,8 +10,8 @@ class IngestFileResult:
     """
     Result of processing one source file through INGEST.
 
-    A file is either VALID with a PhotoRecord,
-    or INVALID with an error message.
+    A file is VALID with a PhotoRecord, INVALID with an error message, or
+    SKIPPED because (filename, size) already exists in the database.
     """
 
     source_path: str
@@ -62,12 +62,30 @@ def invalid_result(
     )
 
 
+def skipped_result(*, source_path: str, filename: str) -> IngestFileResult:
+    """
+    A file that is already registered (same name and size in the database).
+
+    Skipping is only a shortcut: the identity check on sha256 still decides
+    whether anything is written.
+    """
+
+    return IngestFileResult(
+        source_path=source_path,
+        filename=filename,
+        status="SKIPPED",
+        record=None,
+        error=None,
+    )
+
+
 def create_ingest_result(
     results: list[IngestFileResult],
 ) -> IngestResult:
     counters = {
         "VALID": sum(result.status == "VALID" for result in results),
         "INVALID": sum(result.status == "INVALID" for result in results),
+        "SKIPPED": sum(result.status == "SKIPPED" for result in results),
     }
 
     return IngestResult(

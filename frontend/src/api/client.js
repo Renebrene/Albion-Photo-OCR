@@ -140,6 +140,7 @@ export function fetchPhotos({
   client = null,
   date_from = null,
   date_to = null,
+  date_mode = null,
   collection_id = null,
   ids = null,
 } = {}) {
@@ -152,6 +153,8 @@ export function fetchPhotos({
   if (client) [].concat(client).forEach((v) => params.append('client', v))
   if (date_from) params.set('date_from', date_from)
   if (date_to) params.set('date_to', date_to)
+  // Date filter source: upload date (default) or EXIF capture date.
+  if (date_mode) params.set('date_mode', date_mode)
   if (collection_id) params.set('collection_id', String(collection_id))
   if (ids) [].concat(ids).forEach((v) => params.append('ids', v))
 
@@ -434,4 +437,23 @@ export function updateQwenSettings(payload) {
 
 export function unloadQwen() {
   return postJson(`${BASE}/v1/qwen/unload`, {})
+}
+
+// ---- working (source) folder for INGEST ----
+
+export function fetchIngestFolder() {
+  return getJson(`${BASE}/v1/ingest/folder`)
+}
+
+export function saveIngestFolder(path) {
+  return putJson(`${BASE}/v1/ingest/folder`, { path })
+}
+
+export function scanIngestFolder(path) {
+  return postJson(`${BASE}/v1/ingest/scan`, { path })
+}
+
+/** Enqueue an INGEST run; without a path the configured folder is used. */
+export function runIngest(path = null) {
+  return postJson(`${BASE}/v1/ingest/run`, path ? { path } : {})
 }

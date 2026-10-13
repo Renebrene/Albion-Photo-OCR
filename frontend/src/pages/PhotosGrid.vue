@@ -71,7 +71,7 @@ const newClient = ref('')
 
 const dateModes = [
   { label: 'Дата загрузки', value: 'upload' },
-  { label: 'Дата съёмки', value: 'capture', disable: true },
+  { label: 'Дата съёмки', value: 'capture' },
 ]
 
 const periods = [
@@ -136,6 +136,7 @@ async function apply() {
     clients: [...store.selectedClients],
     dateFrom,
     dateTo,
+    dateMode: dateMode.value,
     collectionId: store.collectionId,
   })
 }
@@ -240,6 +241,7 @@ async function applySavedSearch(search) {
   customFrom.value = from
   customTo.value = to
   period.value = from || to ? 'custom' : 'all'
+  dateMode.value = filters.date_mode === 'capture' ? 'capture' : 'upload'
 
   await store.applyFilters({
     q: q.value,
@@ -247,6 +249,7 @@ async function applySavedSearch(search) {
     clients: filters.clients || [],
     dateFrom: from,
     dateTo: to,
+    dateMode: dateMode.value,
     collectionId: filters.collection_id || null,
   })
 }
@@ -445,7 +448,8 @@ function tagList(meta) {
             </div>
 
             <div class="text-caption text-grey-7 q-mt-xs">
-              Пока фильтр по дате загрузки.
+              «Дата съёмки» — из EXIF; у фото без EXIF даты нет, и они в этот
+              период не попадут.
             </div>
           </q-card-section>
         </q-card>

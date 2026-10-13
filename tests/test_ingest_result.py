@@ -15,6 +15,7 @@ from app.ingest.result import (
     IngestResult,
     create_ingest_result,
     invalid_result,
+    skipped_result,
     valid_result,
 )
 
@@ -56,26 +57,35 @@ def test_invalid_result_carries_error_and_no_record():
     assert result.error == "Integrity check failed"
 
 
-def test_counters_count_valid_and_invalid():
+def test_counters_count_valid_invalid_and_skipped():
     summary = create_ingest_result(
         [
             valid_result(_record()),
             invalid_result(source_path="a", filename="a", error="x"),
             invalid_result(source_path="b", filename="b", error="y"),
+            skipped_result(source_path="c", filename="c"),
         ]
     )
 
     assert isinstance(summary, IngestResult)
-    assert summary.discovered == 3
-    assert summary.counters == {"VALID": 1, "INVALID": 2}
-    assert len(summary.results) == 3
+    assert summary.discovered == 4
+    assert summary.counters == {"VALID": 1, "INVALID": 2, "SKIPPED": 1}
+    assert len(summary.results) == 4
+
+
+def test_skipped_result_carries_no_record_or_error():
+    result = skipped_result(source_path="/photos/a.jpg", filename="a.jpg")
+
+    assert result.status == "SKIPPED"
+    assert result.record is None
+    assert result.error is None
 
 
 def test_empty_batch_has_zero_counters():
     summary = create_ingest_result([])
 
     assert summary.discovered == 0
-    assert summary.counters == {"VALID": 0, "INVALID": 0}
+    assert summary.counters == {"VALID": 0, "INVALID": 0, "SKIPPED": 0}
     assert summary.results == []
 
 

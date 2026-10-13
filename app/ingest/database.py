@@ -85,6 +85,39 @@ def get_connection():
     return pool.connection()
 
 
+def known_source_files(entries: list[tuple[str, int]]) -> set[tuple[str, int]]:
+    """
+    Which (filename, size_bytes) pairs are already registered.
+
+    A cheap pre-filter for repeated folder scans: a match means this name and
+    size are in the database, so the file does not have to be hashed again.
+    It is a shortcut only - the sha256 identity check still decides what is
+    written. Trade-off: a *different* file that happens to share both name and
+    byte size with a registered one is skipped too, which is why callers may
+    turn the shortcut off.
+    """
+
+    if not entries:
+        return set()
+
+    filenames = [name for name, _ in entries]
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT filename, size_bytes
+                FROM public.photos
+                WHERE filename = ANY(%s)
+                  AND size_bytes IS NOT NULL
+                """,
+                (filenames,),
+            )
+            stored = {(filename, size) for filename, size in cur.fetchall()}
+
+    return stored & set(entries)
+
+
 def check_identity_batch(
     records: list[PhotoRecord],
 ) -> dict[str, list[PhotoRecord]]:
@@ -193,7 +226,9 @@ def insert_photos(records: list[PhotoRecord]) -> None:
                     container_format,
                     frame_count,
                     width,
-                    height
+                    height,
+                    size_bytes,
+                    taken_at
                 )
                 VALUES (
                     %(photo_id)s,
@@ -203,7 +238,9 @@ def insert_photos(records: list[PhotoRecord]) -> None:
                     %(container_format)s,
                     %(frame_count)s,
                     %(width)s,
-                    %(height)s
+                    %(height)s,
+                    %(size_bytes)s,
+                    %(taken_at)s
                 )
                 """,
                 [
@@ -216,6 +253,8 @@ def insert_photos(records: list[PhotoRecord]) -> None:
                         "frame_count": record.frame_count,
                         "width": record.width,
                         "height": record.height,
+                        "size_bytes": record.size_bytes,
+                        "taken_at": record.taken_at,
                     }
                     for record in records
                 ],
@@ -238,7 +277,9 @@ def insert_photo(record: PhotoRecord) -> None:
                     container_format,
                     frame_count,
                     width,
-                    height
+                    height,
+                    size_bytes,
+                    taken_at
                 )
                 VALUES (
                     %(photo_id)s,
@@ -248,7 +289,9 @@ def insert_photo(record: PhotoRecord) -> None:
                     %(container_format)s,
                     %(frame_count)s,
                     %(width)s,
-                    %(height)s
+                    %(height)s,
+                    %(size_bytes)s,
+                    %(taken_at)s
                 )
                 """,
                 {
@@ -260,5 +303,7 @@ def insert_photo(record: PhotoRecord) -> None:
                     "frame_count": record.frame_count,
                     "width": record.width,
                     "height": record.height,
+                    "size_bytes": record.size_bytes,
+                    "taken_at": record.taken_at,
                 },
             )

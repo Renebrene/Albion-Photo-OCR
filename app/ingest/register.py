@@ -24,6 +24,13 @@ class PhotoRecord:
     width: int
     height: int
 
+    # Physical size of the source file; used to skip an already-registered
+    # file without hashing it again.
+    size_bytes: int | None = None
+
+    # EXIF capture date ("YYYY-MM-DD HH:MM:SS"), None when the file has none.
+    taken_at: str | None = None
+
 
 def register_photo(
     *,
@@ -35,6 +42,8 @@ def register_photo(
     frame_count: int,
     width: int,
     height: int,
+    size_bytes: int | None = None,
+    taken_at: str | None = None,
 ) -> PhotoRecord:
     """
     Assemble validated results from the INGEST stages
@@ -66,6 +75,9 @@ def register_photo(
     if width < 1 or height < 1:
         raise ValueError("Invalid image dimensions")
 
+    if size_bytes is not None and size_bytes < 0:
+        raise ValueError("size_bytes must be >= 0")
+
     return PhotoRecord(
         photo_id=photo_id,
         source_path=source_path,
@@ -75,4 +87,6 @@ def register_photo(
         frame_count=frame_count,
         width=width,
         height=height,
+        size_bytes=size_bytes,
+        taken_at=taken_at,
     )

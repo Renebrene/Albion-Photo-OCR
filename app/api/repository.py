@@ -50,14 +50,18 @@ _PHOTO_DERIVED = """
         ) AS address,
         q.client AS client,
         q.brand AS brand,
-        q.category AS category
+        q.category AS category,
+        p.created_at AS created_at,
+        p.taken_at AS taken_at,
+        p.size_bytes AS size_bytes
     FROM public.photos AS p
     LEFT JOIN public.photo_qwen AS q ON q.photo_id = p.photo_id
 """
 
 _PHOTO_SELECT = (
     "SELECT photo_id, filename, width, height, container_format, "
-    "address, client, brand, category FROM (" + _PHOTO_DERIVED + ") AS t"
+    "address, client, brand, category, created_at, taken_at, size_bytes "
+    "FROM (" + _PHOTO_DERIVED + ") AS t"
 )
 
 
@@ -72,6 +76,9 @@ def _photo_row(row) -> PhotoSummary:
         client=row[6],
         brand=row[7],
         category=row[8],
+        created_at=row[9],
+        taken_at=row[10],
+        size_bytes=row[11],
     )
 
 
@@ -84,6 +91,7 @@ def list_photos(
     clients: list[str] | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    date_mode: str = "upload",
     collection_id: int | None = None,
     ids: list[str] | None = None,
 ) -> tuple[list[PhotoSummary], str | None]:
@@ -94,9 +102,16 @@ def list_photos(
     QWEN metadata; both accept several values with OR semantics (matching the
     legacy multi-select panels). `query` searches several fields at once
     (filename, client, brand, category, description, address), mirroring the
-    legacy global search. date_from/date_to filter by upload date
-    (photos.created_at). Fetches limit + 1 rows to detect a further page.
+    legacy global search. date_from/date_to filter by the upload date
+    (photos.created_at) or, with date_mode="capture", by the EXIF capture
+    date (photos.taken_at; photos without one are not matched). Fetches
+    limit + 1 rows to detect a further page.
     """
+
+    if date_mode not in {"upload", "capture"}:
+        raise ValueError("date_mode must be 'upload' or 'capture'")
+
+    date_column = "t.taken_at" if date_mode == "capture" else "t.created_at"
 
     sql = _PHOTO_SELECT
     clauses: list[str] = []
@@ -146,11 +161,11 @@ def list_photos(
         clauses.append("(" + " OR ".join(parts) + ")")
 
     if date_from:
-        clauses.append("t.created_at >= %s::date")
+        clauses.append(f"{date_column} >= %s::date")
         params.append(date_from)
 
     if date_to:
-        clauses.append("t.created_at < (%s::date + interval '1 day')")
+        clauses.append(f"{date_column} < (%s::date + interval '1 day')")
         params.append(date_to)
 
     if collection_id is not None:

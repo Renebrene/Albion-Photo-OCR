@@ -32,6 +32,8 @@ export const usePhotosStore = defineStore('photos', {
     selectedClients: [],
     dateFrom: null,
     dateTo: null,
+    // Which date the range filter uses: upload date or EXIF capture date.
+    dateMode: 'upload',
     collectionId: null,
     nlIds: [],
 
@@ -69,6 +71,7 @@ export const usePhotosStore = defineStore('photos', {
           client: this.selectedClients.length ? this.selectedClients : null,
           date_from: this.dateFrom || null,
           date_to: this.dateTo || null,
+          date_mode: this.dateMode || 'upload',
           collection_id: this.collectionId || null,
           ids: this.nlIds.length ? this.nlIds : null,
         })
@@ -124,6 +127,7 @@ export const usePhotosStore = defineStore('photos', {
       clients = [],
       dateFrom = null,
       dateTo = null,
+      dateMode = 'upload',
       collectionId = null,
       ids = [],
     } = {}) {
@@ -132,6 +136,7 @@ export const usePhotosStore = defineStore('photos', {
       this.selectedClients = clients
       this.dateFrom = dateFrom
       this.dateTo = dateTo
+      this.dateMode = dateMode
       this.collectionId = collectionId
       this.nlIds = ids
       await this.refresh()
@@ -144,6 +149,7 @@ export const usePhotosStore = defineStore('photos', {
         clients: this.selectedClients,
         dateFrom: this.dateFrom,
         dateTo: this.dateTo,
+        dateMode: this.dateMode,
         collectionId,
         ids: this.nlIds,
       })
@@ -158,6 +164,7 @@ export const usePhotosStore = defineStore('photos', {
         clients: this.selectedClients,
         dateFrom: this.dateFrom,
         dateTo: this.dateTo,
+        dateMode: this.dateMode,
         collectionId: this.collectionId,
         ids,
       })
@@ -180,6 +187,7 @@ export const usePhotosStore = defineStore('photos', {
         clients: this.selectedClients,
         date_from: this.dateFrom,
         date_to: this.dateTo,
+        date_mode: this.dateMode,
         collection_id: this.collectionId,
       }
       const created = await createSavedSearchApi({ name, filters })

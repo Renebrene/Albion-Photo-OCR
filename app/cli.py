@@ -47,6 +47,39 @@ def build_parser():
     )
 
     # --------------------------------------------------
+    # INGEST
+    # --------------------------------------------------
+
+    ingest_parser = subparsers.add_parser(
+        "ingest",
+        help="Scan a folder and register its new photos (INGEST)",
+    )
+
+    ingest_parser.add_argument(
+        "folder",
+        help="Folder with working photos (scanned recursively)",
+    )
+
+    ingest_parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Parallel workers (default: half of the CPU threads)",
+    )
+
+    ingest_parser.add_argument(
+        "--no-skip",
+        action="store_true",
+        help="Hash every file, even when (name, size) is already registered",
+    )
+
+    ingest_parser.add_argument(
+        "--no-recursive",
+        action="store_true",
+        help="Only look at the top level of the folder",
+    )
+
+    # --------------------------------------------------
     # QUEUE ADD
     # --------------------------------------------------
 
@@ -339,6 +372,50 @@ def main():
     # --------------------------------------------------
     # CREATE
     # --------------------------------------------------
+
+    if args.command == "ingest":
+
+        from app.ingest.pipeline import DEFAULT_WORKERS
+        from app.ingest.runner import ingest_directory
+
+        folder = Path(args.folder)
+
+        if not folder.is_dir():
+            raise FileNotFoundError(f"Folder not found: {folder}")
+
+        workers = args.workers or DEFAULT_WORKERS
+
+        print(f"[Ingest] folder={folder}")
+        print(f"[Ingest] workers={workers}")
+
+        summary = ingest_directory(
+            folder,
+            workers=workers,
+            skip_known=not args.no_skip,
+            recursive=not args.no_recursive,
+        )
+
+        counters = summary["counters"]
+
+        print(
+            f"[Ingest] discovered={summary['discovered']} "
+            f"valid={counters['VALID']} "
+            f"skipped={counters['SKIPPED']} "
+            f"invalid={counters['INVALID']}"
+        )
+        print(
+            f"[Ingest] registered={summary['registered']} "
+            f"existing={summary['existing']} "
+            f"conflicts={len(summary['conflicts'])}"
+        )
+
+        for item in summary["errors"]:
+            print(f"[Ingest] error {item['filename']}: {item['error']}")
+
+        for photo_id in summary["conflicts"]:
+            print(f"[Ingest] conflict {photo_id}")
+
+        return 0
 
     if args.command == "queue-add":
 

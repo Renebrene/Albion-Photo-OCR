@@ -78,7 +78,7 @@ def test_corrupt_jpeg_is_invalid(tmp_path):
     assert result["error"] is not None
 
 
-def test_discover_files_is_non_recursive_and_case_insensitive(tmp_path):
+def test_discover_files_is_recursive_by_default_and_case_insensitive(tmp_path):
     (tmp_path / "a.JPG").write_bytes(b"x")
     (tmp_path / "b.jpeg").write_bytes(b"x")
     (tmp_path / "c.png").write_bytes(b"x")
@@ -90,7 +90,13 @@ def test_discover_files_is_non_recursive_and_case_insensitive(tmp_path):
 
     discovered = discover_files(tmp_path)
 
-    assert discovered == sorted([tmp_path / "a.JPG", tmp_path / "b.jpeg"])
+    assert discovered == sorted(
+        [tmp_path / "a.JPG", tmp_path / "b.jpeg", nested / "d.JPG"]
+    )
+
+    flat = discover_files(tmp_path, recursive=False)
+
+    assert flat == sorted([tmp_path / "a.JPG", tmp_path / "b.jpeg"])
 
 
 def test_supported_constants_are_jpeg_only():

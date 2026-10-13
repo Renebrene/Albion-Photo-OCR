@@ -13,6 +13,7 @@ from app.ingest.result import (
     IngestResult,
     create_ingest_result,
     invalid_result,
+    skipped_result,
     valid_result,
 )
 
@@ -54,47 +55,93 @@ def process_file(path: str | Path) -> PhotoRecord:
         frame_count=integrity["frame_count"],
         width=integrity["width"],
         height=integrity["height"],
+        size_bytes=integrity["size_bytes"],
+        taken_at=integrity["taken_at"],
     )
+
+
+def known_pairs(files: list[Path]) -> list[tuple[str, int]]:
+    """(filename, size) of every discovered file that can be stat()-ed."""
+
+    pairs = []
+
+    for path in files:
+        try:
+            pairs.append((path.name, path.stat().st_size))
+        except OSError:
+            continue
+
+    return pairs
+
 
 def run(
     directory: str | Path,
     workers: int = DEFAULT_WORKERS,
+    *,
+    recursive: bool = True,
+    skip_known=None,
 ) -> IngestResult:
     """
-    Run INGEST in parallel.
+    Run INGEST in parallel over every supported file in *directory*.
 
     Every discovered file produces one result.
     INVALID files do not stop processing of the remaining files.
+
+    *skip_known* is an optional lookup `(filename, size) -> bool`. A file it
+    accepts is reported as SKIPPED without being read or hashed; the database
+    lookup itself is left to the caller so this function stays free of any
+    database dependency.
     """
 
     if workers < 1:
         raise ValueError("workers must be >= 1")
 
-    files = discover_files(directory)
+    files = discover_files(directory, recursive=recursive)
 
     if not files:
         return create_ingest_result([])
 
     results = []
 
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        # Bounded window: do not materialise one future per discovered file.
-        for path, future in bounded_submit(
-            executor,
-            process_file,
-            files,
-            window=default_window(workers),
-        ):
+    if skip_known is not None:
+        known = skip_known(known_pairs(files))
+        pending = []
+
+        for path in files:
             try:
-                record = future.result()
-                results.append(valid_result(record))
-            except Exception as exc:
+                size = path.stat().st_size
+            except OSError:
+                pending.append(path)
+                continue
+
+            if (path.name, size) in known:
                 results.append(
-                    invalid_result(
-                        source_path=str(path),
-                        filename=path.name,
-                        error=redact_paths(str(exc), path),
-                    )
+                    skipped_result(source_path=str(path), filename=path.name)
                 )
+            else:
+                pending.append(path)
+
+        files = pending
+
+    if files:
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            # Bounded window: do not materialise one future per discovered file.
+            for path, future in bounded_submit(
+                executor,
+                process_file,
+                files,
+                window=default_window(workers),
+            ):
+                try:
+                    record = future.result()
+                    results.append(valid_result(record))
+                except Exception as exc:
+                    results.append(
+                        invalid_result(
+                            source_path=str(path),
+                            filename=path.name,
+                            error=redact_paths(str(exc), path),
+                        )
+                    )
 
     return create_ingest_result(results)

@@ -49,6 +49,11 @@ def _execute(job: dict) -> dict:
 
         return nl_run(str(payload["query"]))
 
+    if job_type == "INGEST_DIR":
+        from app.ingest.runner import ingest_directory
+
+        return ingest_directory(str(payload["directory"]))
+
     raise ValueError(f"Unsupported job type: {job_type}")
 
 

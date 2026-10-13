@@ -26,6 +26,7 @@ from fastapi import (
 from app import settings_store
 from app.api import repository
 from app.api import data as data_mod
+from app.api import sources
 from app.api import system as sysinfo
 from app.api import upload as upload_mod
 from app.api.auth import auth_enabled, require_scope, resolve_principal
@@ -44,6 +45,8 @@ from app.api.schemas import (
     QwenModelRequest,
     QwenSettingsUpdate,
     SavedSearchCreate,
+    SourcePathRequest,
+    SourceRunRequest,
     SelectionState,
     UserCreate,
     UserUpdate,
@@ -94,6 +97,7 @@ def list_photos(
     client: list[str] | None = Query(None, max_length=64),
     date_from: str | None = Query(None, max_length=10),
     date_to: str | None = Query(None, max_length=10),
+    date_mode: str = Query("upload", pattern="^(upload|capture)$"),
     collection_id: int | None = Query(None, ge=1),
     ids: list[str] | None = Query(None, max_length=200),
 ):
@@ -105,6 +109,7 @@ def list_photos(
         clients=client,
         date_from=date_from,
         date_to=date_to,
+        date_mode=date_mode,
         collection_id=collection_id,
         ids=ids,
     )
@@ -996,3 +1001,58 @@ def unload_qwen():
         }
 
     return {"status": "unloaded", "model": qwen.resolve_model()}
+
+
+# --- working (source) folder for INGEST -------------------------------------
+
+
+@read_router.get("/v1/ingest/folder", response_model=None)
+def get_ingest_folder():
+    """Configured working folder plus its photo count and total size."""
+
+    return sources.folder_state()
+
+
+@jobs_router.put(
+    "/v1/ingest/folder",
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def update_ingest_folder(request: SourcePathRequest):
+    """Validate and persist the working folder (recursive count + MB)."""
+
+    return sources.set_folder(request.path)
+
+
+@jobs_router.post(
+    "/v1/ingest/scan",
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def scan_ingest_folder(request: SourcePathRequest):
+    """Count photos and total size of a folder without saving or ingesting it."""
+
+    return sources.folder_stats(sources.resolve_directory(request.path))
+
+
+@jobs_router.post(
+    "/v1/ingest/run",
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def run_ingest(request: SourceRunRequest):
+    """
+    Enqueue an INGEST job for the working folder.
+
+    The scan itself runs in the worker (hashing and decoding must not happen
+    in a request handler). An active job for the same folder is not
+    duplicated. The folder is optional: without it the configured one is used.
+    """
+
+    directory = sources.resolve_directory(
+        request.path or sources.current_folder()
+    )
+    job_id = jobs_db.enqueue_ingest(str(directory))
+
+    return {
+        "job_id": job_id,
+        "skipped": job_id is None,
+        "directory": str(directory),
+    }

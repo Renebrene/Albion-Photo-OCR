@@ -27,6 +27,12 @@ class PhotoSummary(BaseModel):
     brand: str | None = None
     category: str | None = None
 
+    # INGEST metadata (schema 018). created_at is the upload/registration
+    # time, taken_at the EXIF capture date (None when the file has none).
+    created_at: datetime | None = None
+    taken_at: datetime | None = None
+    size_bytes: int | None = None
+
 
 class PhotoPage(BaseModel):
     items: list[PhotoSummary]
@@ -159,6 +165,18 @@ class SelectionState(BaseModel):
     """Free-form per-manager GRID state blob."""
 
     state: dict = Field(default_factory=dict)
+
+
+class SourcePathRequest(BaseModel):
+    """A server-side folder chosen in the UI (validated by the API)."""
+
+    path: str = Field(min_length=1, max_length=4096)
+
+
+class SourceRunRequest(BaseModel):
+    """Folder for an INGEST run; omitted -> the configured working folder."""
+
+    path: str | None = Field(default=None, max_length=4096)
 
 
 class NlSearchRequest(BaseModel):
