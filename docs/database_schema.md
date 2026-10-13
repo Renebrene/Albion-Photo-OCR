@@ -304,7 +304,15 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 - **Дедуп планировщика.** `automation.run_tick` сериализован advisory-lock'ом (`pg_try_advisory_lock`) и не создаёт новый DINO batch, если уже есть PENDING/RUNNING (`dino_db.has_active_batch`).
 - **Дедуп QWEN-заданий.** `jobs_db.enqueue_qwen` вставляет задание только при отсутствии активного (PENDING/RUNNING) задания для того же `photo_id` (одним statement); индекс `idx_job_queue_qwen_active_photo` (schema 017) держит проверку дешёвой. Роут `/v1/jobs/qwen` возвращает `skipped`.
 
-### 4.19 `client_aliases` — нормализация клиентов QWEN
+### 4.19 Пул соединений и bounded futures (2026-10-13)
+
+- **Пул соединений.** `app/ingest/database.py:get_connection()` теперь отдаёт подключение из общего `psycopg_pool.ConnectionPool` (те же commit/rollback-семантики, что и `psycopg.connect`). Управление: `SCENE_DB_POOL` (по умолчанию `1`), `SCENE_DB_POOL_MIN` (1), `SCENE_DB_POOL_MAX` (10). DINO/PREVIEW/HYBRID используют тот же аксессор.
+  - **Fork-безопасность.** INGEST/PREVIEW форкают процессы через `ProcessPoolExecutor`; в ребёнке пул **отключается** (`os.register_at_fork`), а унаследованные соединения не собираются GC (иначе закрытие отправило бы Terminate в сокет родителя).
+  - **Замер (локально, 20 запросов, медиана):** `/v1/photos?limit=50` 20.63 → **2.42 мс**, `/v1/clients` 18.68 → **2.04 мс**, `/v1/qwen/stats` 34.42 → **1.06 мс**. Под нагрузкой 64 параллельных запроса при `max_size=10` — все 200, без PoolTimeout.
+  - Ограничение: с пулом нельзя рассчитывать на `CREATE TEMP TABLE` между вызовами `get_connection()` (соединение может отличаться).
+- **Bounded futures.** `app/core/parallel.py:bounded_submit()` ограничивает число одновременных futures (окно ≈ 2×workers) в INGEST, PREVIEW, DINO и HYBRID — вместо создания future на каждый элемент сразу (важно для больших импортов).
+
+### 4.20 `client_aliases` — нормализация клиентов QWEN
 
 `schema/016_client_aliases.sql` (идемпотентно): `alias` TEXT PK, `canonical` TEXT, `created_at`. Аналог легаси `client_aliases`/`client_normalizer`: сопоставляет «сырое» написание клиента от QWEN каноническому. Исходные строки в `photo_qwen` не меняются. `list_clients` группирует по `COALESCE(alias.canonical, client)`; фильтр `client=` в `/v1/photos` тоже учитывает алиасы. API `GET /v1/client-aliases`, `PUT/DELETE /v1/client-aliases` (scope `collections:write`).
 

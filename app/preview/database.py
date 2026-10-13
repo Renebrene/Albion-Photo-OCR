@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 
-import psycopg
+# Same database/credentials as INGEST, including the bounded connection pool.
+from app.ingest.database import get_connection  # noqa: F401
 
 
 @dataclass(frozen=True)
@@ -24,19 +24,6 @@ class PreviewRecord:
     middle_height: int
 
 
-def get_connection() -> psycopg.Connection:
-    """
-    Open a PostgreSQL connection using the same environment
-    convention as INGEST.
-    """
-
-    return psycopg.connect(
-        host=os.getenv("INGEST_DB_HOST", "localhost"),
-        port=os.getenv("INGEST_DB_PORT", "5432"),
-        dbname=os.getenv("INGEST_DB_NAME", "photobase_ingest_test"),
-        user=os.getenv("INGEST_DB_USER", "lora_ingest"),
-        password=os.environ["INGEST_DB_PASSWORD"],
-    )
 
 
 def upsert_preview(record: PreviewRecord) -> None:

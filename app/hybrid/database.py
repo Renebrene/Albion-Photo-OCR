@@ -1,22 +1,8 @@
-import os
 from dataclasses import dataclass
 from typing import Any
 
-import psycopg
-
-
-def get_connection():
-    password = os.getenv("INGEST_DB_PASSWORD")
-    if not password:
-        raise RuntimeError("INGEST_DB_PASSWORD is not set")
-
-    return psycopg.connect(
-        host=os.getenv("INGEST_DB_HOST", "localhost"),
-        port=int(os.getenv("INGEST_DB_PORT", "5432")),
-        dbname=os.getenv("INGEST_DB_NAME", "photobase_ingest_test"),
-        user=os.getenv("INGEST_DB_USER", "lora_ingest"),
-        password=password,
-    )
+# Same database/credentials as INGEST, including the bounded connection pool.
+from app.ingest.database import get_connection  # noqa: F401
 
 
 @dataclass(frozen=True)

@@ -1,26 +1,11 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-import psycopg
-
-
-def get_connection() -> psycopg.Connection:
-    """
-    Open a connection to the DINO PostgreSQL database.
-
-    DINO uses the same PostgreSQL database and credentials
-    as INGEST. Credentials are never stored in source code.
-    """
-    return psycopg.connect(
-        host=os.getenv("INGEST_DB_HOST", "localhost"),
-        port=os.getenv("INGEST_DB_PORT", "5432"),
-        dbname=os.getenv("INGEST_DB_NAME", "photobase_ingest_test"),
-        user=os.getenv("INGEST_DB_USER", "lora_ingest"),
-        password=os.environ["INGEST_DB_PASSWORD"],
-    )
+# DINO uses the same PostgreSQL database and credentials as INGEST; the shared
+# accessor also provides the bounded connection pool.
+from app.ingest.database import get_connection  # noqa: F401
 
 
 @dataclass(frozen=True)

@@ -5,6 +5,7 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from app.core.errors import redact_paths
+from app.core.parallel import bounded_submit, default_window
 from app.ingest.identity import create_identity
 from app.ingest.integrity import check_file, discover_files
 from app.ingest.register import PhotoRecord, register_photo
@@ -77,12 +78,13 @@ def run(
     results = []
 
     with ProcessPoolExecutor(max_workers=workers) as executor:
-        futures = [
-            executor.submit(process_file, path)
-            for path in files
-        ]
-
-        for path, future in zip(files, futures):
+        # Bounded window: do not materialise one future per discovered file.
+        for path, future in bounded_submit(
+            executor,
+            process_file,
+            files,
+            window=default_window(workers),
+        ):
             try:
                 record = future.result()
                 results.append(valid_result(record))

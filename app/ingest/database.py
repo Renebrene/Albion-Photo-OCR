@@ -1,26 +1,88 @@
 from __future__ import annotations
 
 import os
+import threading
 
 import psycopg
+from psycopg_pool import ConnectionPool
 
 from app.ingest.register import PhotoRecord
 
 
-def get_connection() -> psycopg.Connection:
-    """
-    Open a connection to the dedicated INGEST PostgreSQL database.
+def _conn_params() -> dict:
+    """Connection parameters from the environment (no secrets in code)."""
 
-    Connection parameters are taken from environment variables.
-    No credentials are stored in source code.
+    return {
+        "host": os.getenv("INGEST_DB_HOST", "localhost"),
+        "port": os.getenv("INGEST_DB_PORT", "5432"),
+        "dbname": os.getenv("INGEST_DB_NAME", "photobase_ingest_test"),
+        "user": os.getenv("INGEST_DB_USER", "lora_ingest"),
+        "password": os.environ["INGEST_DB_PASSWORD"],
+    }
+
+
+def _pool_enabled() -> bool:
+    return os.getenv("SCENE_DB_POOL", "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+    }
+
+
+# The pool lives in long-lived processes (API, worker). INGEST/PREVIEW fork via
+# ProcessPoolExecutor: the child inherits the pool's connections, so it must not
+# use them (and must not let them be garbage-collected, which would send a
+# Terminate on the parent's socket). So the child only sets a flag and leaves
+# the pool object referenced.
+_pool: ConnectionPool | None = None
+_pool_lock = threading.Lock()
+_pool_disabled_in_child = False
+
+
+def _after_fork_child() -> None:  # pragma: no cover - fork side effect
+    global _pool_disabled_in_child
+    _pool_disabled_in_child = True
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_after_fork_child)
+
+
+def _get_pool() -> ConnectionPool | None:
+    global _pool
+
+    if not _pool_enabled() or _pool_disabled_in_child:
+        return None
+
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:
+                _pool = ConnectionPool(
+                    conninfo=psycopg.conninfo.make_conninfo(**_conn_params()),
+                    min_size=int(os.getenv("SCENE_DB_POOL_MIN", "1")),
+                    max_size=int(os.getenv("SCENE_DB_POOL_MAX", "10")),
+                    open=True,
+                    name="scene",
+                )
+
+    return _pool
+
+
+def get_connection():
     """
-    return psycopg.connect(
-        host=os.getenv("INGEST_DB_HOST", "localhost"),
-        port=os.getenv("INGEST_DB_PORT", "5432"),
-        dbname=os.getenv("INGEST_DB_NAME", "photobase_ingest_test"),
-        user=os.getenv("INGEST_DB_USER", "lora_ingest"),
-        password=os.environ["INGEST_DB_PASSWORD"],
-    )
+    Return a connection context manager for the INGEST PostgreSQL database.
+
+    With pooling enabled (default) the connection comes from a bounded pool
+    and is committed/rolled back on context exit, exactly like a fresh
+    ``psycopg.connect()``. Set SCENE_DB_POOL=0 to always open a new connection.
+    """
+
+    pool = _get_pool()
+
+    if pool is None:
+        return psycopg.connect(**_conn_params())
+
+    return pool.connection()
 
 
 def check_identity_batch(

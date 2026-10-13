@@ -3,9 +3,11 @@ from __future__ import annotations
 import os
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 from app.core.config import settings
+from app.core.parallel import bounded_submit, default_window
 from app.ingest.register import PhotoRecord
 from app.preview.database import PreviewRecord, get_preview, upsert_preview
 from app.preview.generator import generate_previews
@@ -166,19 +168,20 @@ def run(
     database_updated = 0
     database_skipped = 0
 
-    with ProcessPoolExecutor(max_workers=worker_count) as executor:
-        futures = [
-            executor.submit(
-                process_record,
-                record,
-                preview_root=preview_root,
-                small_size=small_size,
-                middle_size=middle_size,
-            )
-            for record in records
-        ]
+    worker = partial(
+        process_record,
+        preview_root=preview_root,
+        small_size=small_size,
+        middle_size=middle_size,
+    )
 
-        for record, future in zip(records, futures):
+    with ProcessPoolExecutor(max_workers=worker_count) as executor:
+        for record, future in bounded_submit(
+            executor,
+            worker,
+            records,
+            window=default_window(worker_count),
+        ):
             try:
                 result = future.result()
             except Exception as exc:

@@ -2,9 +2,11 @@ import argparse
 import json
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 
 from app.core.errors import redact_absolute_paths
+from app.core.parallel import bounded_submit, default_window
 from app.hybrid.database import (
     HybridWorkItem,
     completed_photo_ids,
@@ -235,18 +237,15 @@ def run(
             )
 
     else:
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = [
-                executor.submit(
-                    _process_item,
-                    hybrid_run_id,
-                    items,
-                    index,
-                )
-                for index in pending_indexes
-            ]
+        worker = partial(_process_item, hybrid_run_id, items)
 
-            for future in as_completed(futures):
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            for _index, future in bounded_submit(
+                executor,
+                worker,
+                pending_indexes,
+                window=default_window(workers),
+            ):
                 photo_id, ok = future.result()
 
                 if ok:

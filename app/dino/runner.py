@@ -3,13 +3,15 @@ from __future__ import annotations
 import argparse
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 
 from app.core.config import settings
 from app.core.embedder import SceneEmbedder
 from app.core.errors import redact_absolute_paths
+from app.core.parallel import bounded_submit, default_window
 from app.core.fingerprint import FingerprintManager
 from app.core.scene_analyzer import CompactDescriptor
 from app.dino.database import (
@@ -392,21 +394,18 @@ def run_batch(
                 )
 
     else:
+        worker = partial(_process_item, runner)
+
         with ThreadPoolExecutor(
             max_workers=runner.workers
         ) as executor:
-            futures = {
-                executor.submit(
-                    _process_item,
-                    runner,
-                    item,
-                ): item
-                for item in items
-            }
-
-            for future in as_completed(futures):
-                item = futures[future]
-
+            # Bounded window: keep at most ~2x workers futures in flight.
+            for item, future in bounded_submit(
+                executor,
+                worker,
+                items,
+                window=default_window(runner.workers),
+            ):
                 try:
                     run_item, result = future.result()
 
