@@ -50,8 +50,7 @@ _PHOTO_DERIVED = """
         ) AS address,
         q.client AS client,
         q.brand AS brand,
-        q.category AS category,
-        q.description AS description
+        q.category AS category
     FROM public.photos AS p
     LEFT JOIN public.photo_qwen AS q ON q.photo_id = p.photo_id
 """
@@ -109,10 +108,19 @@ def list_photos(
 
     if query:
         like = f"%{query}%"
+        # Split by relation so each predicate can use its trigram GIN index
+        # (schema/014): a multi-relation OR spanning photos and photo_qwen
+        # cannot be pushed into index scans, but a UNION of per-table lookups
+        # can (BitmapOr on photo_qwen). `address` is a computed column and
+        # stays as a plain ILIKE on the outer query.
         clauses.append(
-            "(t.filename ILIKE %s OR t.client ILIKE %s OR t.brand ILIKE %s "
-            "OR t.category ILIKE %s OR t.description ILIKE %s "
-            "OR t.address ILIKE %s)"
+            "(t.photo_id IN ("
+            "  SELECT photo_id FROM public.photos WHERE filename ILIKE %s "
+            "  UNION "
+            "  SELECT photo_id FROM public.photo_qwen "
+            "  WHERE (client ILIKE %s OR brand ILIKE %s "
+            "         OR category ILIKE %s OR description ILIKE %s)"
+            ") OR t.address ILIKE %s)"
         )
         params.extend([like] * 6)
 

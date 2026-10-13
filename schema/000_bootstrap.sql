@@ -41,4 +41,20 @@ WHERE NOT EXISTS (
     SELECT 1 FROM pg_database WHERE datname = :'app_db'
 )\gexec
 
-\echo '[bootstrap] done. Apply schema/001..005 as the application role next.'
+\echo '[bootstrap] enabling pg_trgm in the application database...'
+
+-- Trigram search indexes (schema/014) need the pg_trgm extension. Creating an
+-- extension requires superuser, so it is done here, in the app database.
+-- If the extension files are missing on this host, bootstrap still succeeds;
+-- schema/014 then skips index creation with a NOTICE.
+\connect :app_db
+
+DO $$
+BEGIN
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE '[bootstrap] pg_trgm unavailable (%); search indexes will be skipped', SQLERRM;
+END
+$$;
+
+\echo '[bootstrap] done. Apply schema/001..014 as the application role next.'
