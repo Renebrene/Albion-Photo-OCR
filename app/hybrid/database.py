@@ -364,7 +364,8 @@ def save_success(
     """
     Save one successful HYBRID result.
 
-    The result is immutable for this HYBRID RUN/photo pair.
+    Idempotent for a (hybrid_run_id, photo_id) pair: a retried or recovered
+    run overwrites its previous row instead of failing on the primary key.
     """
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -438,6 +439,19 @@ def save_success(
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     'DONE', NULL, %s, CURRENT_TIMESTAMP
                 )
+                ON CONFLICT (hybrid_run_id, photo_id) DO UPDATE SET
+                    dino_run_id = EXCLUDED.dino_run_id,
+                    hybrid_original_id = EXCLUDED.hybrid_original_id,
+                    hybrid_final_id = EXCLUDED.hybrid_final_id,
+                    hybrid_changed = EXCLUDED.hybrid_changed,
+                    hybrid_old_score = EXCLUDED.hybrid_old_score,
+                    hybrid_score = EXCLUDED.hybrid_score,
+                    hybrid_margin = EXCLUDED.hybrid_margin,
+                    hybrid_neighbors = EXCLUDED.hybrid_neighbors,
+                    status = 'DONE',
+                    error_message = NULL,
+                    hybrid_time_sec = EXCLUDED.hybrid_time_sec,
+                    finished_at = CURRENT_TIMESTAMP
                 """,
                 (
                     hybrid_run_id,
@@ -539,6 +553,12 @@ def save_failure(
                     %s, %s, %s, NULL, NULL, FALSE, NULL, NULL, NULL, NULL,
                     'FAILED', %s, %s, CURRENT_TIMESTAMP
                 )
+                ON CONFLICT (hybrid_run_id, photo_id) DO UPDATE SET
+                    dino_run_id = EXCLUDED.dino_run_id,
+                    status = 'FAILED',
+                    error_message = EXCLUDED.error_message,
+                    hybrid_time_sec = EXCLUDED.hybrid_time_sec,
+                    finished_at = CURRENT_TIMESTAMP
                 """,
                 (
                     hybrid_run_id,
@@ -673,3 +693,50 @@ def finish_run(
                 completed_count=completed_count,
                 failed_count=failed_count,
             )
+
+
+def completed_photo_ids(hybrid_run_id: int) -> set[str]:
+    """photo_ids that already have a DONE result in this HYBRID run."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT photo_id
+                FROM public.hybrid_results
+                WHERE hybrid_run_id = %s
+                  AND status = 'DONE'
+                """,
+                (hybrid_run_id,),
+            )
+            return {str(row[0]) for row in cur.fetchall()}
+
+
+def requeue_stale_runs(*, older_than_minutes: int = 30) -> int:
+    """
+    Return HYBRID runs stuck in RUNNING (older than the threshold) to PENDING.
+
+    Only the run status is reset; any results already written are kept and the
+    rerun is idempotent (save_success upserts), so recovery does not lose
+    completed work.
+    """
+
+    if older_than_minutes < 0:
+        raise ValueError("older_than_minutes must be >= 0")
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.hybrid_runs
+                SET
+                    status = 'PENDING',
+                    started_at = NULL
+                WHERE status = 'RUNNING'
+                  AND started_at IS NOT NULL
+                  AND started_at < CURRENT_TIMESTAMP
+                        - (%s || ' minutes')::interval
+                """,
+                (str(int(older_than_minutes)),),
+            )
+            return cur.rowcount

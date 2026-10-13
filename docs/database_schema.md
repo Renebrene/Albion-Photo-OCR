@@ -38,6 +38,7 @@ PostgreSQL — источник истины для переходов межд�
 014_search_indexes.sql → pg_trgm + GIN-индексы (filename, client/brand/category/description)
 015_manager_selections.sql → manager_selections
 016_client_aliases.sql → client_aliases
+017_job_dedup.sql → индекс для дедупа активных QWEN-заданий
 ```
 
 **`004` теперь backfill-safe и идемпотентен (2026-10-12):** создаёт `dino_batches` при отсутствии, добавляет `dino_runs.batch_id` (nullable) при отсутствии, бэкфиллит существующие runs без batch (по одному legacy-batch на run, со статусом и счётчиками из run), затем ставит `NOT NULL` и создаёт индекс. Повторный прогон — no-op. Ранее файл делал `ADD COLUMN` и сразу `SET NOT NULL`, что падало на непустой `dino_runs`.
@@ -295,7 +296,15 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 
 `schema/015_manager_selections.sql` (идемпотентно): `user_id` TEXT PK, `state` JSONB, `updated_at`. Аналог легаси `manager_selections`: хранит снимок состояния GRID на пользователя (выбранные `photo_id`). API `GET/PUT /v1/selection` требует аутентифицированного пользователя (`_require_user`), запись идёт только в строку текущего `user_id` (scope `collections:write`). В открытом режиме без сессии — 401.
 
-### 4.18 `client_aliases` — нормализация клиентов QWEN
+### 4.18 Надёжность воркеров (recovery, claim, дедуп)
+
+- **Recovery доменных строк.** `POST /v1/jobs/requeue-stale` и `python -m app.jobs.worker --requeue-stale MINUTES` теперь восстанавливают не только `job_queue`, но и зависшие `dino_runs` (`app/dino/database.py:requeue_stale_runs`) и `hybrid_runs` (`app/hybrid/database.py:requeue_stale_runs`) — RUNNING старше порога возвращается в PENDING; завершённые результаты не трогаются.
+- **Атомарный claim HYBRID.** Runner принимает только `PENDING` и делает атомарный `UPDATE ... WHERE status='PENDING'` (через `start_run`); повторный/параллельный запуск того же run отклоняется. При повторном прогоне уже завершённые фото пропускаются (`completed_photo_ids`).
+- **Идемпотентные результаты.** `dino_candidates` и `hybrid_results` пишутся с `ON CONFLICT ... DO UPDATE`, поэтому восстановленный run не падает на дублях.
+- **Дедуп планировщика.** `automation.run_tick` сериализован advisory-lock'ом (`pg_try_advisory_lock`) и не создаёт новый DINO batch, если уже есть PENDING/RUNNING (`dino_db.has_active_batch`).
+- **Дедуп QWEN-заданий.** `jobs_db.enqueue_qwen` вставляет задание только при отсутствии активного (PENDING/RUNNING) задания для того же `photo_id` (одним statement); индекс `idx_job_queue_qwen_active_photo` (schema 017) держит проверку дешёвой. Роут `/v1/jobs/qwen` возвращает `skipped`.
+
+### 4.19 `client_aliases` — нормализация клиентов QWEN
 
 `schema/016_client_aliases.sql` (идемпотентно): `alias` TEXT PK, `canonical` TEXT, `created_at`. Аналог легаси `client_aliases`/`client_normalizer`: сопоставляет «сырое» написание клиента от QWEN каноническому. Исходные строки в `photo_qwen` не меняются. `list_clients` группирует по `COALESCE(alias.canonical, client)`; фильтр `client=` в `/v1/photos` тоже учитывает алиасы. API `GET /v1/client-aliases`, `PUT/DELETE /v1/client-aliases` (scope `collections:write`).
 

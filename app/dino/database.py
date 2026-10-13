@@ -442,6 +442,15 @@ def save_success(
                     %(best_image)s,
                     %(best_image_score)s
                 )
+                ON CONFLICT (run_id, rank) DO UPDATE SET
+                    fingerprint_id = EXCLUDED.fingerprint_id,
+                    score = EXCLUDED.score,
+                    global_score = EXCLUDED.global_score,
+                    environment_score = EXCLUDED.environment_score,
+                    color_score = EXCLUDED.color_score,
+                    spatial_score = EXCLUDED.spatial_score,
+                    best_image = EXCLUDED.best_image,
+                    best_image_score = EXCLUDED.best_image_score
                 """,
                 [
                     {
@@ -772,3 +781,49 @@ def get_candidates(
         dict(zip(columns, row))
         for row in rows
     ]
+
+
+def requeue_stale_runs(*, older_than_minutes: int = 30) -> int:
+    """
+    Return DINO runs stuck in RUNNING (older than the threshold) to PENDING.
+
+    A crashed worker can leave a run RUNNING forever; the job queue recovery
+    alone does not fix that, so the batch would never finish. Returns how many
+    runs were reset. Candidates already written for such a run are safe to
+    rewrite (save_success upserts), but a run is only reset if it is still
+    RUNNING (never a completed one).
+    """
+
+    if older_than_minutes < 0:
+        raise ValueError("older_than_minutes must be >= 0")
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.dino_runs
+                SET
+                    status = 'PENDING',
+                    started_at = NULL,
+                    error_message = COALESCE(error_message || ' | ', '')
+                        || 'requeued (stale RUNNING)'
+                WHERE status = 'RUNNING'
+                  AND started_at IS NOT NULL
+                  AND started_at < CURRENT_TIMESTAMP
+                        - (%s || ' minutes')::interval
+                """,
+                (str(int(older_than_minutes)),),
+            )
+            return cur.rowcount
+
+
+def has_active_batch() -> bool:
+    """True when a DINO batch is still PENDING or RUNNING."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM public.dino_batches "
+                "WHERE status IN ('PENDING', 'RUNNING') LIMIT 1"
+            )
+            return cur.fetchone() is not None

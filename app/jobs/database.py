@@ -56,6 +56,36 @@ def enqueue(job_type: str, payload: dict[str, Any]) -> int:
             return int(cur.fetchone()[0])
 
 
+def enqueue_qwen(photo_id: str) -> int | None:
+    """
+    Enqueue a QWEN job for one photo, deduplicated while active.
+
+    Returns the new job id, or None when a PENDING/RUNNING QWEN job already
+    exists for that photo (checked in the same statement, so two concurrent
+    callers cannot both insert).
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO public.job_queue (job_type, payload, status)
+                SELECT 'QWEN_PHOTO', %s, 'PENDING'
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM public.job_queue
+                    WHERE job_type = 'QWEN_PHOTO'
+                      AND status IN ('PENDING', 'RUNNING')
+                      AND payload ->> 'photo_id' = %s
+                )
+                RETURNING id
+                """,
+                (Json({"photo_id": photo_id}), photo_id),
+            )
+            row = cur.fetchone()
+
+            return int(row[0]) if row is not None else None
+
+
 def get_job(job_id: int) -> dict | None:
     with get_connection() as conn:
         with conn.cursor() as cur:

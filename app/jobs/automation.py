@@ -131,12 +131,18 @@ def _photos_without_qwen() -> list[str]:
             return [row[0] for row in cur.fetchall()]
 
 
+# Advisory lock key so only one tick can create work at a time.
+_TICK_LOCK_KEY = 0x5CE7E1
+
+
 def run_tick(*, force: bool = False) -> dict:
     """
     Enqueue one round of automatic work.
 
-    Returns a summary dict. Does nothing when disabled (unless *force*), when
-    not yet due, or when there is nothing new to process.
+    Serialized with a PostgreSQL advisory lock, so two workers (or a manual
+    tick overlapping the loop) cannot both create the same DINO batch / QWEN
+    jobs. Does nothing when disabled (unless *force*), when not yet due, or
+    when there is nothing new to process.
     """
 
     settings = get_settings()
@@ -147,12 +153,26 @@ def run_tick(*, force: bool = False) -> dict:
     if not force and not is_due(settings):
         return {"skipped": "not_due"}
 
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(%s)", (_TICK_LOCK_KEY,))
+            locked = bool(cur.fetchone()[0])
+
+        if not locked:
+            return {"skipped": "locked"}
+
+        try:
+            return _run_tick_locked(settings)
+        finally:
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_unlock(%s)", (_TICK_LOCK_KEY,))
+
+
+def _run_tick_locked(settings: dict) -> dict:
     result: dict = {"dino_batch_id": None, "qwen_jobs": 0}
 
-    if settings["auto_dino"]:
-        pending = _photos_without_dino()
-
-        if pending > 0:
+    if settings["auto_dino"] and not dino_db.has_active_batch():
+        if _photos_without_dino() > 0:
             batch = dino_db.create_batch("NORMAL")
 
             if batch.total_count > 0:
@@ -161,12 +181,13 @@ def run_tick(*, force: bool = False) -> dict:
                 result["dino_total"] = batch.total_count
 
     if settings["auto_qwen"]:
-        photo_ids = _photos_without_qwen()
+        created = 0
 
-        for photo_id in photo_ids:
-            jobs_db.enqueue("QWEN_PHOTO", {"photo_id": photo_id})
+        for photo_id in _photos_without_qwen():
+            if jobs_db.enqueue_qwen(photo_id) is not None:
+                created += 1
 
-        result["qwen_jobs"] = len(photo_ids)
+        result["qwen_jobs"] = created
 
     with get_connection() as conn:
         with conn.cursor() as cur:

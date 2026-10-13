@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from app.hybrid.database import (
     HybridWorkItem,
+    completed_photo_ids,
     get_run,
     get_run_items,
     save_failure,
@@ -165,9 +166,11 @@ def run(
 
     run_info = get_run(hybrid_run_id)
 
-    if run_info.status not in {"PENDING", "RUNNING"}:
+    # Only a PENDING run may be claimed; a RUNNING one belongs to another
+    # executor (or was left by a crashed one and must be recovered first).
+    if run_info.status != "PENDING":
         raise ValueError(
-            f"HYBRID run {hybrid_run_id} cannot run from status "
+            f"HYBRID run {hybrid_run_id} cannot be claimed from status "
             f"{run_info.status}"
         )
 
@@ -179,8 +182,16 @@ def run(
             f"{len(items)} items, expected {run_info.total_count}"
         )
 
-    if run_info.status == "PENDING":
-        start_run(hybrid_run_id)
+    # Atomic PENDING -> RUNNING claim (UPDATE ... WHERE status='PENDING').
+    start_run(hybrid_run_id)
+
+    # On a recovered rerun, skip items that already produced a DONE result.
+    already_done = completed_photo_ids(hybrid_run_id)
+    pending_indexes = [
+        index
+        for index in range(len(items))
+        if items[index].photo_id not in already_done
+    ]
 
     print("=" * 80)
     print("HYBRID RUNNER")
@@ -188,6 +199,8 @@ def run(
     print(f"run_id={hybrid_run_id}")
     print(f"dino_batch_id={run_info.dino_batch_id}")
     print(f"items={len(items)}")
+    print(f"already_done={len(already_done)}")
+    print(f"to_process={len(pending_indexes)}")
     print(f"workers={workers}")
     print(f"GLOBAL_WEIGHT={GLOBAL_WEIGHT}")
     print(f"NEIGHBOR_BONUS={NEIGHBOR_BONUS}")
@@ -202,7 +215,7 @@ def run(
     failed = 0
 
     if workers == 1:
-        for index in range(len(items)):
+        for index in pending_indexes:
             photo_id, ok = _process_item(
                 hybrid_run_id,
                 items,
@@ -215,7 +228,7 @@ def run(
                 failed += 1
 
             print(
-                f"[HYBRID] {completed + failed}/{len(items)} "
+                f"[HYBRID] {completed + failed}/{len(pending_indexes)} "
                 f"photo={photo_id} "
                 f"status={'DONE' if ok else 'FAILED'}"
             )
@@ -229,7 +242,7 @@ def run(
                     items,
                     index,
                 )
-                for index in range(len(items))
+                for index in pending_indexes
             ]
 
             for future in as_completed(futures):
@@ -241,7 +254,7 @@ def run(
                     failed += 1
 
                 print(
-                    f"[HYBRID] {completed + failed}/{len(items)} "
+                    f"[HYBRID] {completed + failed}/{len(pending_indexes)} "
                     f"photo={photo_id} "
                     f"status={'DONE' if ok else 'FAILED'}"
                 )

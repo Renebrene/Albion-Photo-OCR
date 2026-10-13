@@ -417,14 +417,22 @@ def enqueue_qwen(request: QwenJobRequest):
             detail="no photos to process",
         )
 
-    job_ids = [
-        jobs_db.enqueue("QWEN_PHOTO", {"photo_id": photo_id})
-        for photo_id in photo_ids
-    ]
+    job_ids = []
+    skipped = 0
+
+    for photo_id in photo_ids:
+        # Deduplicated: a photo with an active QWEN job is skipped.
+        job_id = jobs_db.enqueue_qwen(photo_id)
+
+        if job_id is None:
+            skipped += 1
+        else:
+            job_ids.append(job_id)
 
     return {
         "jobs": len(job_ids),
-        "first_job_id": job_ids[0],
+        "skipped": skipped,
+        "first_job_id": job_ids[0] if job_ids else None,
     }
 
 
@@ -481,8 +489,24 @@ def list_jobs(
 def requeue_stale_jobs(
     older_than_minutes: int = Query(30, ge=0, le=10080),
 ):
-    count = jobs_db.requeue_stale(older_than_minutes=older_than_minutes)
-    return {"requeued": count}
+    """
+    Recover stale work: queue jobs plus their DINO runs / HYBRID runs.
+
+    Queue recovery alone leaves a crashed run stuck in RUNNING, which would
+    block its batch forever.
+    """
+
+    return {
+        "jobs": jobs_db.requeue_stale(
+            older_than_minutes=older_than_minutes
+        ),
+        "dino_runs": dino_db.requeue_stale_runs(
+            older_than_minutes=older_than_minutes
+        ),
+        "hybrid_runs": hybrid_db.requeue_stale_runs(
+            older_than_minutes=older_than_minutes
+        ),
+    }
 
 
 @jobs_router.get(

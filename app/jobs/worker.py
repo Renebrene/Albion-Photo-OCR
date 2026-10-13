@@ -138,8 +138,19 @@ def main() -> None:
         args.watch = True
 
     if args.requeue_stale is not None:
-        requeued = jobs.requeue_stale(older_than_minutes=args.requeue_stale)
-        print(f"[worker] requeued stale jobs: {requeued}", flush=True)
+        from app.dino import database as dino_db
+        from app.hybrid import database as hybrid_db
+
+        minutes = args.requeue_stale
+        requeued = jobs.requeue_stale(older_than_minutes=minutes)
+        dino_runs = dino_db.requeue_stale_runs(older_than_minutes=minutes)
+        hybrid_runs = hybrid_db.requeue_stale_runs(older_than_minutes=minutes)
+
+        print(
+            "[worker] requeued stale: "
+            f"jobs={requeued} dino_runs={dino_runs} hybrid_runs={hybrid_runs}",
+            flush=True,
+        )
 
     if not args.watch:
         processed = 0
