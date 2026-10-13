@@ -35,6 +35,26 @@ def default_workers() -> int:
     return max(1, (os.cpu_count() or 1) // 2)
 
 
+def resolve_workers(workers: int | None = None) -> int:
+    """
+    Resolve the DINO worker count.
+
+    Explicit value wins; otherwise SCENE_DINO_WORKERS is used (0 = automatic
+    half-CPU, matching the documented default).
+    """
+
+    if workers is None:
+        workers = settings.dino_workers
+
+    if workers == 0:
+        workers = default_workers()
+
+    if workers < 1:
+        raise ValueError("workers must be >= 1")
+
+    return workers
+
+
 def confidence_status(score: float, margin: float) -> tuple[str, str]:
     if score >= HIGH_SCORE and margin >= HIGH_MARGIN:
         return "HIGH", "CONFIDENT"
@@ -298,9 +318,11 @@ def _process_item(runner: DinoRunner, item: DinoWorkItem) -> tuple[DinoWorkItem,
 
 def run_batch(
     batch_id: int,
-    workers: int = 1,
+    workers: int | None = None,
     limit: int | None = None,
 ):
+    workers = resolve_workers(workers)
+
     batch = get_batch(batch_id)
 
     if batch is None:
@@ -434,7 +456,8 @@ def main():
     parser.add_argument(
         "--workers",
         type=int,
-        default=1,
+        default=None,
+        help="worker threads; default from SCENE_DINO_WORKERS (0 = half CPU)",
     )
 
     parser.add_argument(

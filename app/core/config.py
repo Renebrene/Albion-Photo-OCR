@@ -25,6 +25,13 @@ class Settings:
         os.getenv("SCENE_PREVIEW_WORKERS", "0")
     )
 
+    # DINO worker threads per batch. Default 1: measured on CPU, threads give
+    # almost no wall-clock gain while inflating per-item time (GIL/CPU-bound).
+    # 0 = automatic (half of logical CPUs) for experiments.
+    dino_workers: int = int(
+        os.getenv("SCENE_DINO_WORKERS", "1")
+    )
+
     @property
     def fingerprints_dir(self):
         return self.data_dir / "fingerprints"

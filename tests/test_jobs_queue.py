@@ -141,8 +141,19 @@ def test_requeue_stale_returns_running_job(cleanup_jobs, require_idle_queue):
     job_id = jobs_db.enqueue("DINO_BATCH", {"batch_id": 1})
     cleanup_jobs.append(job_id)
 
-    claimed = jobs_db.claim_next()
-    assert claimed["id"] == job_id
+    # Claim this specific job (claim_next() takes the globally oldest PENDING
+    # row, which is not necessarily ours in a shared queue).
+    with jobs_db.get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.job_queue
+                SET status = 'RUNNING', started_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+                """,
+                (job_id,),
+            )
+
     assert jobs_db.get_job(job_id)["status"] == "RUNNING"
 
     # A zero-minute threshold makes the claimed job immediately stale.
