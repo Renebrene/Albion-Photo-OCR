@@ -4,6 +4,8 @@ import { storeToRefs } from 'pinia'
 import { Notify } from 'quasar'
 
 import {
+  authImageUrl,
+  downloadAuthenticated,
   enqueueNlSearch,
   fetchNlSearchJob,
   fetchPhotoDetails,
@@ -11,6 +13,7 @@ import {
   previewUrl,
   uploadPhotos,
 } from '../api/client'
+import AuthImage from '../components/AuthImage.vue'
 import { usePhotosStore } from '../stores/photos'
 
 const store = usePhotosStore()
@@ -271,14 +274,20 @@ async function saveToBucket() {
   }
 }
 
-function downloadSelected() {
+async function downloadSelected() {
   if (!store.selectedCount) {
     Notify.create({ type: 'info', message: 'Сначала выберите фото' })
     return
   }
-  store.selected.forEach((photoId, index) => {
-    setTimeout(() => window.open(originalUrl(photoId), '_blank'), index * 150)
-  })
+
+  for (const photoId of [...store.selected]) {
+    try {
+      await downloadAuthenticated(originalUrl(photoId), photoId)
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+      break
+    }
+  }
 }
 
 function pickFiles() {
@@ -383,17 +392,21 @@ function viewerUrl() {
   return current.value ? previewUrl(current.value.photo_id, 'middle') : ''
 }
 
-function openOriginal(photo) {
-  window.open(originalUrl(photo.photo_id), '_blank')
+async function openOriginal(photo) {
+  try {
+    const objectUrl = await authImageUrl(originalUrl(photo.photo_id))
+    window.open(objectUrl, '_blank')
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
 }
 
-function saveOriginal(photo) {
-  const link = document.createElement('a')
-  link.href = originalUrl(photo.photo_id)
-  link.download = photo.filename
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
+async function saveOriginal(photo) {
+  try {
+    await downloadAuthenticated(originalUrl(photo.photo_id), photo.filename)
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
 }
 
 async function addOneToBucket(photo) {
@@ -784,10 +797,9 @@ function tagList(meta) {
                 color="primary"
                 @update:model-value="store.toggleSelected(photo.photo_id)"
               />
-              <q-img
-                :src="previewUrl(photo.photo_id, 'small')"
+              <AuthImage
+                :url="previewUrl(photo.photo_id, 'small')"
                 :ratio="4 / 3"
-                spinner-color="primary"
                 class="cursor-pointer"
                 @click="open(photo)"
               />
@@ -842,8 +854,8 @@ function tagList(meta) {
                 />
               </q-item-section>
               <q-item-section side>
-                <q-img
-                  :src="previewUrl(photo.photo_id, 'small')"
+                <AuthImage
+                  :url="previewUrl(photo.photo_id, 'small')"
                   style="width: 64px; height: 48px"
                   class="rounded-borders"
                 />
@@ -906,8 +918,8 @@ function tagList(meta) {
 
         <div class="row no-wrap" style="max-height: 80vh">
           <div class="col-7 column items-center bg-grey-3 q-pa-sm">
-            <q-img
-              :src="viewerUrl()"
+            <AuthImage
+              :url="viewerUrl()"
               :ratio="4 / 3"
               class="rounded-borders"
               style="max-width: 100%"

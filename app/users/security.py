@@ -2,8 +2,8 @@
 Password hashing (scrypt from the standard library, no extra dependency).
 
 Stored format: scrypt$<salt_hex>$<hash_hex>. A NULL/empty stored value means
-"no password required" (the legacy default users) — never confuse that with a
-failed comparison.
+no password has been set yet: such an account CANNOT log in (fail-closed).
+Set a password with scripts/set_password.py.
 """
 
 from __future__ import annotations
@@ -38,11 +38,21 @@ def hash_password(password: str) -> str:
     return f"{_ALGO}${salt_hex}${hash_hex}"
 
 
+def has_password(stored: str | None) -> bool:
+    """True when a password hash is set for the account."""
+
+    return bool(stored)
+
+
 def verify_password(password: str, stored: str | None) -> bool:
-    """True when *password* matches *stored*, or when no password is set."""
+    """
+    True only when a password is set and matches.
+
+    An account without a stored hash cannot authenticate: fail-closed.
+    """
 
     if not stored:
-        return True
+        return False
 
     try:
         algo, salt_hex, hash_hex = stored.split("$")

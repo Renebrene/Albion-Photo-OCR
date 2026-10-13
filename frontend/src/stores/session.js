@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { setCssVar } from 'quasar'
 
 import {
+  clearImageCache,
   fetchMe,
   fetchUsers,
   login as loginApi,
@@ -40,6 +41,8 @@ export const useSessionStore = defineStore('session', {
     async login(name, password) {
       const data = await loginApi(name, password)
       setToken(data.token)
+      // Permissions changed: drop any cached media from the previous session.
+      clearImageCache()
       this.user = data.user
       this.applyColor()
       return data.user
@@ -52,6 +55,7 @@ export const useSessionStore = defineStore('session', {
         // ignore
       }
       setToken(null)
+      clearImageCache()
       this.user = null
       this.applyColor()
     },

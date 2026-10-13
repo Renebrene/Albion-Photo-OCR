@@ -21,6 +21,15 @@ FINGERPRINTS_ROOT = Path(
     os.getenv("SCENE_DATA", "data")
 ) / "fingerprints"
 
+# Allowed roots for serving original files. Comma-separated absolute paths
+# (e.g. the mounted photo volume). Empty -> originals are refused (fail-closed):
+# a registered path outside these roots is never served.
+ORIGINALS_ROOTS = [
+    Path(root.strip())
+    for root in os.getenv("SCENE_ORIGINALS_ROOTS", "").split(",")
+    if root.strip()
+]
+
 API_HOST = os.getenv("SCENE_API_HOST", "127.0.0.1")
 # Default 8010 (not 8000) to avoid clashing with other local services;
 # override with SCENE_API_PORT.

@@ -13,9 +13,66 @@ export function setToken(token) {
   else localStorage.removeItem(TOKEN_KEY)
 }
 
-function authHeaders(extra = {}) {
+export function authHeaders(extra = {}) {
   const token = getToken()
   return token ? { ...extra, Authorization: `Bearer ${token}` } : { ...extra }
+}
+
+// --- authenticated media -----------------------------------------------------
+// <img>/window.open cannot attach a bearer token, so media is fetched with
+// auth and turned into a blob object URL.
+
+const _imageCache = new Map()
+const _imageInflight = new Map()
+
+export async function authImageUrl(url) {
+  if (_imageCache.has(url)) return _imageCache.get(url)
+  if (_imageInflight.has(url)) return _imageInflight.get(url)
+
+  const task = (async () => {
+    const response = await fetch(url, { headers: authHeaders() })
+
+    if (!response.ok) {
+      throw new Error(`image error ${response.status}`)
+    }
+
+    const objectUrl = URL.createObjectURL(await response.blob())
+    _imageCache.set(url, objectUrl)
+
+    return objectUrl
+  })()
+
+  _imageInflight.set(url, task)
+
+  try {
+    return await task
+  } finally {
+    _imageInflight.delete(url)
+  }
+}
+
+export function clearImageCache() {
+  for (const objectUrl of _imageCache.values()) {
+    URL.revokeObjectURL(objectUrl)
+  }
+  _imageCache.clear()
+}
+
+export async function downloadAuthenticated(url, filename) {
+  const response = await fetch(url, { headers: authHeaders() })
+
+  if (!response.ok) {
+    throw new Error(`download error ${response.status}`)
+  }
+
+  const objectUrl = URL.createObjectURL(await response.blob())
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = filename || 'download'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
 }
 
 async function getJson(url) {

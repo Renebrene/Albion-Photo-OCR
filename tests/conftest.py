@@ -22,6 +22,20 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
+@pytest.fixture(autouse=True)
+def _open_api_for_tests(monkeypatch):
+    """
+    Keep the API open for the test session.
+
+    Authentication is fail-closed by default in production; tests opt into the
+    old open behaviour explicitly, and individual tests can still enable auth
+    by setting SCENE_API_TOKENS or removing SCENE_AUTH_REQUIRED.
+    """
+
+    monkeypatch.delenv("SCENE_API_TOKENS", raising=False)
+    monkeypatch.setenv("SCENE_AUTH_REQUIRED", "0")
+
+
 @pytest.fixture
 def make_jpeg(tmp_path):
     """

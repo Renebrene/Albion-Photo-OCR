@@ -8,29 +8,31 @@ import { useSessionStore } from './stores/session'
 const session = useSessionStore()
 const photos = usePhotosStore()
 
-const loginOpen = ref(false)
-const selectedName = ref(null)
 const password = ref('')
+const loginName = ref('')
 
 onMounted(async () => {
   await session.load()
-  await session.loadUsers()
-  if (session.user) await photos.loadSelectionState()
+
+  if (!needsLogin.value) {
+    await afterAuth()
+  }
 })
 
-function openLogin(name) {
-  if (!name) return
-  selectedName.value = name
-  password.value = ''
-  loginOpen.value = true
+function afterAuth() {
+  photos.loadSelectionState()
+}
+
+// Auth is required and nobody is logged in: show the login screen.
+function needsLogin() {
+  return session.authEnabled && !session.user
 }
 
 async function doLogin() {
   try {
-    const user = await session.login(selectedName.value, password.value)
+    const user = await session.login(loginName.value, password.value)
     Notify.create({ type: 'positive', message: `Вы вошли как ${user.name}` })
-    loginOpen.value = false
-    await photos.loadSelectionState()
+    await afterAuth()
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   }
@@ -64,18 +66,7 @@ function toggleDark() {
 
         <q-btn flat round dense icon="dark_mode" @click="toggleDark" />
 
-        <q-select
-          :model-value="session.user?.name || null"
-          :options="session.users.map((u) => u.name)"
-          dense
-          borderless
-          dark
-          options-dark
-          label="Менеджер"
-          class="q-ml-md"
-          style="min-width: 170px"
-          @update:model-value="openLogin"
-        />
+        <div v-if="session.user" class="q-ml-md">{{ session.user.name }}</div>
 
         <q-btn
           v-if="session.user"
@@ -86,7 +77,7 @@ function toggleDark() {
           @click="doLogout"
         />
 
-        <q-tabs align="right" shrink>
+        <q-tabs v-if="session.user" align="right" shrink>
           <q-route-tab to="/" label="Фото" exact />
           <q-route-tab to="/technical" label="Технический" exact />
         </q-tabs>
@@ -94,33 +85,42 @@ function toggleDark() {
     </q-header>
 
     <q-page-container>
-      <router-view />
-    </q-page-container>
+      <div
+        v-if="needsLogin()"
+        class="flex flex-center"
+        style="min-height: 70vh"
+      >
+        <q-card style="width: 360px">
+          <q-card-section class="text-subtitle1">Вход</q-card-section>
+          <q-separator />
+          <q-card-section class="q-gutter-md">
+            <q-input
+              v-model="loginName"
+              dense
+              outlined
+              label="Имя пользователя"
+              @keyup.enter="doLogin"
+            />
+            <q-input
+              v-model="password"
+              type="password"
+              dense
+              outlined
+              label="Пароль"
+              @keyup.enter="doLogin"
+            />
+            <div class="text-caption text-grey">
+              Пароль задаёт администратор. Если вход не срабатывает — обратитесь
+              к администратору сервера.
+            </div>
+          </q-card-section>
+          <q-card-actions align="right">
+            <q-btn color="primary" label="Войти" @click="doLogin" />
+          </q-card-actions>
+        </q-card>
+      </div>
 
-    <q-dialog v-model="loginOpen">
-      <q-card style="min-width: 320px">
-        <q-card-section class="text-subtitle1">
-          Вход: {{ selectedName }}
-        </q-card-section>
-        <q-separator />
-        <q-card-section>
-          <q-input
-            v-model="password"
-            type="password"
-            dense
-            outlined
-            label="Пароль"
-            @keyup.enter="doLogin"
-          />
-          <div class="text-caption text-grey q-mt-xs">
-            Если пароль не задан — оставьте пустым.
-          </div>
-        </q-card-section>
-        <q-card-actions align="right">
-          <q-btn flat label="Отмена" v-close-popup />
-          <q-btn color="primary" label="Войти" @click="doLogin" />
-        </q-card-actions>
-      </q-card>
-    </q-dialog>
+      <router-view v-else />
+    </q-page-container>
   </q-layout>
 </template>

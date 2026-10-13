@@ -47,6 +47,23 @@ journalctl -u scene-worker -f
 curl -fsS http://127.0.0.1:8010/api/health
 ```
 
+## First login
+
+Authentication is **fail-closed** (`SCENE_AUTH_REQUIRED=1`): every `/api/v1/*`
+route needs a credential, and seeded users have **no password**, so login is
+refused until one is set. Set the first password once, on the server:
+
+```bash
+cd /opt/scene-fingerprint
+sudo -u scene INGEST_DB_PASSWORD=... \
+    .venv/bin/python scripts/set_password.py Администратор
+```
+
+Then log in through the web UI. Changing a password invalidates its sessions.
+
+`SCENE_ORIGINALS_ROOTS` must point at the mounted photo volume (comma-separated
+roots); with it empty the original-file endpoint is refused entirely.
+
 ## Operating notes
 
 - **Secrets**: `SCENE_API_TOKENS` and `INGEST_DB_PASSWORD` live only in

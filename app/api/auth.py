@@ -5,9 +5,9 @@ Two credential kinds are accepted as `Authorization: Bearer <token>`:
   * a service token from SCENE_API_TOKENS (scope list, "*" = all);
   * a user session token (app.users.database) — scope comes from the role.
 
-Enforcement is ON when SCENE_API_TOKENS is non-empty or SCENE_AUTH_REQUIRED
-is truthy; otherwise the API is open for local development (a valid session
-token is still honoured, and /auth endpoints still work).
+Enforcement is ON by default (fail-closed). Set SCENE_AUTH_REQUIRED=0 to open
+the API for local development; a valid session token is still honoured, and
+/auth endpoints still work either way.
 
 Scope format of SCENE_API_TOKENS: `token:scope1|scope2`, comma separated.
 """
@@ -60,7 +60,14 @@ def _token_scopes() -> dict[str, set[str]]:
 
 
 def _forced() -> bool:
-    return os.getenv("SCENE_AUTH_REQUIRED", "").strip().lower() in {
+    """
+    Fail-closed: authentication is required unless explicitly disabled.
+
+    SCENE_AUTH_REQUIRED defaults to "1" (enforced). Set it to "0"/"false"/
+    "no" only for trusted local development.
+    """
+
+    return os.getenv("SCENE_AUTH_REQUIRED", "1").strip().lower() in {
         "1",
         "true",
         "yes",

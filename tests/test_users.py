@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from app.api.main import app
 from app.users import database as users_db
-from app.users.security import hash_password, verify_password
+from app.users.security import has_password, hash_password, verify_password
 
 client = TestClient(app, raise_server_exceptions=False)
 
@@ -26,9 +26,12 @@ def test_hash_and_verify_roundtrip():
     assert verify_password("wrong", stored) is False
 
 
-def test_no_password_means_open():
-    assert verify_password("anything", None) is True
-    assert verify_password("anything", "") is True
+def test_no_password_is_fail_closed():
+    # An account without a password hash can never authenticate.
+    assert verify_password("anything", None) is False
+    assert verify_password("anything", "") is False
+    assert has_password(None) is False
+    assert has_password("scrypt$a$b") is True
 
 
 def test_garbage_hash_is_rejected():

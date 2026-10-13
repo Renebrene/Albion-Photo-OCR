@@ -27,8 +27,8 @@ from app.api import repository
 from app.api import data as data_mod
 from app.api import system as sysinfo
 from app.api import upload as upload_mod
-from app.api.auth import auth_enabled, require_scope
-from app.api.config import PREVIEW_ROOT
+from app.api.auth import auth_enabled, require_scope, resolve_principal
+from app.api.config import ORIGINALS_ROOTS, PREVIEW_ROOT
 from app.core.errors import redact_paths
 from app.api.schemas import (
     AutomationUpdate,
@@ -50,7 +50,7 @@ from app.api.schemas import (
 from app.qwen import processor as qwen
 from app.qwen import database as qwen_db
 from app.users import database as users_db
-from app.users.security import verify_password
+from app.users.security import has_password, verify_password
 from app.dino import database as dino_db
 from app.hybrid import database as hybrid_db
 from app.jobs import automation
@@ -226,20 +226,48 @@ def get_preview(photo_id: str, size: str) -> Response:
 def get_original(photo_id: str) -> Response:
     photo_id = _validate_photo_id(photo_id)
 
+    # Path comes from the database registration, never from the client.
+    # It must resolve inside a configured allowed root (fail-closed when none
+    # is configured), which also blocks symlinks pointing outside the volume.
+    if not ORIGINALS_ROOTS:
+        raise HTTPException(
+            status_code=503,
+            detail="originals are not configured (SCENE_ORIGINALS_ROOTS)",
+        )
+
     source = repository.get_photo_source(photo_id)
 
     if source is None:
         raise HTTPException(status_code=404, detail="photo not found")
 
-    # Path comes from the database registration, never from the client.
-    path = Path(source["source_path"])
+    try:
+        resolved = Path(source["source_path"]).resolve(strict=True)
+    except OSError:
+        raise HTTPException(status_code=404, detail="original not found")
 
-    if not path.is_file():
+    allowed = False
+
+    for root in ORIGINALS_ROOTS:
+        try:
+            root_resolved = root.resolve(strict=True)
+        except OSError:
+            continue
+
+        if resolved == root_resolved or root_resolved in resolved.parents:
+            allowed = True
+            break
+
+    if not allowed:
+        # 404 (not 403) so we do not confirm a file exists outside the volume.
+        raise HTTPException(status_code=404, detail="original not found")
+
+    if not resolved.is_file():
         raise HTTPException(status_code=404, detail="original not found")
 
     return Response(
-        content=path.read_bytes(),
+        content=resolved.read_bytes(),
         media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=300"},
     )
 
 
@@ -732,11 +760,20 @@ def _public_user(user: dict) -> dict:
 def login(request: LoginRequest):
     user = users_db.get_user_by_name(request.name)
 
-    if (
-        user is None
-        or not user["active"]
-        or not verify_password(request.password, user.get("password_hash"))
-    ):
+    if user is None or not user["active"]:
+        raise HTTPException(status_code=401, detail="invalid credentials")
+
+    # Fail-closed: an account with no password set cannot log in.
+    if not has_password(user.get("password_hash")):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "no password set for this account; set one with "
+                "scripts/set_password.py"
+            ),
+        )
+
+    if not verify_password(request.password, user.get("password_hash")):
         raise HTTPException(status_code=401, detail="invalid credentials")
 
     token = users_db.create_session(user["user_id"])
@@ -755,7 +792,15 @@ def logout(authorization: str | None = Header(default=None)):
 
 
 @auth_router.get("/v1/auth/me", response_model=None)
-def me(principal=Depends(require_scope("read"))):
+def me(authorization: str | None = Header(default=None)):
+    """
+    Public: tells the SPA whether login is required and who is logged in.
+
+    Must stay reachable without a token, otherwise an unauthenticated client
+    cannot learn that it needs to authenticate.
+    """
+
+    principal = resolve_principal(authorization)
     user = principal.get("user") if principal else None
     return {"user": user, "auth_enabled": auth_enabled()}
 

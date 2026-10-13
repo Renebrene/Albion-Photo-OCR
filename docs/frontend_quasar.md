@@ -293,6 +293,15 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - **UI** (`Настройки → QWEN`): выбор провайдера, base URL/ключ для облака с предупреждением о передаче изображений наружу, модель, keep-alive, «выгружать при простое».
 - **Измерено**: cold 9,35 с → warm 2,60 с (**3,59×**) на `qwen3-vl:4b-instruct`; см. `docs/qwen_process.md` §6.1.
 
+### Срез 23 — обязательная авторизация, логин-гейт и авторизованные изображения
+
+- **Fail-closed auth**: `SCENE_AUTH_REQUIRED` теперь по умолчанию **1** (`app/api/auth.py`); открытый режим — только явный `SCENE_AUTH_REQUIRED=0`. Без токена все `/api/v1/*` (кроме публичных `health`, `auth/login`, `auth/me`) отдают 401.
+- **`/v1/auth/me`** сделан публичным (без scope): SPA узнаёт, нужна ли авторизация.
+- **Логин-гейт** (`App.vue`): при `auth_enabled` и отсутствии пользователя показывается форма входа (имя + пароль), контент не рендерится.
+- **Пароль обязателен**: аккаунт без `password_hash` не может войти (403 с подсказкой). Первый пароль задаётся CLI: `python scripts/set_password.py <user>` (смена пароля инвалидирует сессии).
+- **Оригиналы**: `GET /v1/photos/{id}/original` остаётся, но путь обязан резолвиться внутри `SCENE_ORIGINALS_ROOTS` (fail-closed: пустой список → 503; выход за корень/симлинк → 404).
+- **Изображения в UI**: preview и оригиналы грузятся через fetch с Bearer и отдаются как blob-URL (`AuthImage.vue`, `authImageUrl`, `downloadAuthenticated`); кэш blob-URL сбрасывается при входе/выходе. Прямые `<img src>` больше не используются.
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.
