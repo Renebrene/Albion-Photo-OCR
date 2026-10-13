@@ -147,6 +147,59 @@ describe('photos store', () => {
     })
   })
 
+  it('loads and persists the per-manager selection', async () => {
+    let saved = null
+    routes.push({
+      method: 'GET',
+      match: (p) => p === '/api/v1/selection',
+      respond: () => jsonResponse({ state: { selected: ['PH_a'] } }),
+    })
+    routes.push({
+      method: 'PUT',
+      match: (p) => p === '/api/v1/selection',
+      respond: (url, opts) => {
+        saved = JSON.parse(opts.body)
+        return jsonResponse({ state: saved.state })
+      },
+    })
+
+    const store = usePhotosStore()
+    await store.loadSelectionState()
+
+    expect(store.selected).toEqual(['PH_a'])
+    expect(store.selectionPersist).toBe(true)
+
+    vi.useFakeTimers()
+    store.toggleSelected('PH_b')
+    await vi.advanceTimersByTimeAsync(900)
+    vi.useRealTimers()
+
+    expect(saved).toEqual({ state: { selected: ['PH_a', 'PH_b'] } })
+  })
+
+  it('does not persist selection when not authenticated', async () => {
+    routes.push({
+      method: 'GET',
+      match: (p) => p === '/api/v1/selection',
+      respond: () => jsonResponse({ detail: 'authentication required' }, 401),
+    })
+
+    const store = usePhotosStore()
+    await store.loadSelectionState()
+    expect(store.selectionPersist).toBe(false)
+
+    vi.useFakeTimers()
+    store.toggleSelected('PH_x')
+    await vi.advanceTimersByTimeAsync(900)
+    vi.useRealTimers()
+
+    expect(
+      global.fetch.mock.calls.some(([url, opts]) =>
+        String(url).includes('/v1/selection') && (opts?.method || '') === 'PUT',
+      ),
+    ).toBe(false)
+  })
+
   it('addSelectedToCollection is a no-op without a selection', async () => {
     const store = usePhotosStore()
     const added = await store.addSelectedToCollection(7)

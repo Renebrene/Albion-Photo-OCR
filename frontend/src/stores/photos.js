@@ -11,7 +11,13 @@ import {
   fetchCollections,
   fetchPhotos,
   fetchSavedSearches,
+  fetchSelection,
+  saveSelection,
 } from '../api/client'
+
+// Debounce timer for persisting the per-manager selection (module-scoped so
+// it never lands in the reactive store state).
+let persistTimer = null
 
 export const usePhotosStore = defineStore('photos', {
   state: () => ({
@@ -38,6 +44,8 @@ export const usePhotosStore = defineStore('photos', {
 
     // selection
     selected: [],
+    // true once a per-manager state has been loaded (auth present)
+    selectionPersist: false,
   }),
 
   getters: {
@@ -194,14 +202,38 @@ export const usePhotosStore = defineStore('photos', {
       const index = this.selected.indexOf(photoId)
       if (index === -1) this.selected.push(photoId)
       else this.selected.splice(index, 1)
+      this.scheduleSelectionPersist()
     },
 
     selectAllCurrent() {
       this.selected = this.items.map((item) => item.photo_id)
+      this.scheduleSelectionPersist()
     },
 
     clearSelection() {
       this.selected = []
+      this.scheduleSelectionPersist()
+    },
+
+    // ---- per-manager state ----
+
+    async loadSelectionState() {
+      try {
+        const data = await fetchSelection()
+        this.selected = (data.state && data.state.selected) || []
+        this.selectionPersist = true
+      } catch {
+        // Not authenticated (401) or endpoint unavailable: stay local-only.
+        this.selectionPersist = false
+      }
+    },
+
+    scheduleSelectionPersist() {
+      if (!this.selectionPersist) return
+      clearTimeout(persistTimer)
+      persistTimer = setTimeout(() => {
+        saveSelection({ selected: [...this.selected] }).catch(() => {})
+      }, 800)
     },
 
     // ---- collections ----

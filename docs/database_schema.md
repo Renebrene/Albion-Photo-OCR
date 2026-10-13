@@ -36,6 +36,7 @@ PostgreSQL — источник истины для переходов межд�
 012_automation.sql → automation_settings (сид: одна строка, enabled=FALSE)
 013_nl_search.sql → ALTER job_queue: + job_type NL_SEARCH
 014_search_indexes.sql → pg_trgm + GIN-индексы (filename, client/brand/category/description)
+015_manager_selections.sql → manager_selections
 ```
 
 **`004` теперь backfill-safe и идемпотентен (2026-10-12):** создаёт `dino_batches` при отсутствии, добавляет `dino_runs.batch_id` (nullable) при отсутствии, бэкфиллит существующие runs без batch (по одному legacy-batch на run, со статусом и счётчиками из run), затем ставит `NOT NULL` и создаёт индекс. Повторный прогон — no-op. Ранее файл делал `ADD COLUMN` и сразу `SET NOT NULL`, что падало на непустой `dino_runs`.
@@ -288,6 +289,10 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 `schema/014_search_indexes.sql` (идемпотентно) создаёт триграммные GIN-индексы (`gin_trgm_ops`) по `photos.filename` и `photo_qwen.client/brand/category/description`. Расширение `pg_trgm` ставится в `000_bootstrap.sql` (trusted-расширение — владелец БД может создать сам; в минимальных сборках отсутствие расширения не ломает bootstrap — 014 лишь пишет NOTICE).
 
 `repository.list_photos` для `q` переписан как `photo_id IN (SELECT filename ... UNION SELECT client/brand/category/description ...) OR address ILIKE`, чтобы OR по одной таблице превращался в `BitmapOr` по индексам (OR по двум таблицам планировщик в индексы не пускает). На малых объёмах планировщик по-прежнему может выбрать seq scan — это корректно; индексы дают эффект при росте данных.
+
+### 4.17 `manager_selections` — персональное состояние менеджера
+
+`schema/015_manager_selections.sql` (идемпотентно): `user_id` TEXT PK, `state` JSONB, `updated_at`. Аналог легаси `manager_selections`: хранит снимок состояния GRID на пользователя (выбранные `photo_id`). API `GET/PUT /v1/selection` требует аутентифицированного пользователя (`_require_user`), запись идёт только в строку текущего `user_id` (scope `collections:write`). В открытом режиме без сессии — 401.
 
 ## 5. Локальная SQLite-очередь (не PostgreSQL)
 

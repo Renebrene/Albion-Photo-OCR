@@ -41,6 +41,7 @@ from app.api.schemas import (
     QwenJobRequest,
     QwenModelRequest,
     SavedSearchCreate,
+    SelectionState,
     UserCreate,
     UserUpdate,
 )
@@ -654,6 +655,37 @@ def delete_saved_search(search_id: int):
         raise HTTPException(status_code=404, detail="saved search not found")
 
     return {"deleted": search_id}
+
+
+# ---------------------------------------------------------------------------
+# Per-manager UI state
+# ---------------------------------------------------------------------------
+
+
+def _require_user(principal) -> dict:
+    user = principal.get("user") if principal else None
+
+    if not user:
+        raise HTTPException(status_code=401, detail="authentication required")
+
+    return user
+
+
+@read_router.get("/v1/selection", response_model=None)
+def get_selection(principal=Depends(require_scope("read"))):
+    user = _require_user(principal)
+    state = repository.get_manager_selection(str(user["user_id"]))
+    return {"state": state or {}}
+
+
+@searches_router.put("/v1/selection")
+def put_selection(
+    request: SelectionState,
+    principal=Depends(require_scope("collections:write")),
+):
+    user = _require_user(principal)
+    repository.save_manager_selection(str(user["user_id"]), request.state)
+    return {"state": request.state}
 
 
 # ---------------------------------------------------------------------------

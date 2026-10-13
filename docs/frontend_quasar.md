@@ -271,6 +271,13 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - Тесты не требуют бэкенда: сеть подменяется моком `global.fetch`; `Notify.create` шунтируется заглушкой.
 - Итог: **16 passed** (3 файла).
 
+### Срез 20 — персональное состояние менеджера
+
+- **Схема `015_manager_selections.sql`**: `manager_selections(user_id PK, state JSONB, updated_at)`.
+- **API**: `GET /v1/selection` (read), `PUT /v1/selection` (scope `collections:write`) — требуют аутентифицированного пользователя; пишут только в свою строку.
+- **UI**: состояние выбора фото (`selected`) сохраняется на менеджера (debounce ~0.8 c) и восстанавливается при входе; если сессии нет — режим остаётся локальным (401 игнорируется).
+- **Цвет менеджера**: `session.applyColor()` уже темизирует приложение (`setCssVar('primary', user.color)`); в шапку добавлен аватар с цветом менеджера.
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.

@@ -686,3 +686,39 @@ def delete_saved_search(search_id: int) -> bool:
                 (search_id,),
             )
             return cur.rowcount == 1
+
+
+# ---------------------------------------------------------------------------
+# Per-manager UI state
+# ---------------------------------------------------------------------------
+
+
+def get_manager_selection(user_id: str) -> dict | None:
+    """Return the stored state blob for one user, or None when absent."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT state FROM public.manager_selections WHERE user_id = %s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+
+    return row[0] if row is not None else None
+
+
+def save_manager_selection(user_id: str, state: dict) -> None:
+    """Upsert the state blob for one user."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO public.manager_selections (user_id, state)
+                VALUES (%s, %s)
+                ON CONFLICT (user_id) DO UPDATE
+                    SET state = EXCLUDED.state,
+                        updated_at = CURRENT_TIMESTAMP
+                """,
+                (user_id, Json(state or {})),
+            )

@@ -2,9 +2,11 @@
 import { onMounted, ref } from 'vue'
 import { Dark, Notify } from 'quasar'
 
+import { usePhotosStore } from './stores/photos'
 import { useSessionStore } from './stores/session'
 
 const session = useSessionStore()
+const photos = usePhotosStore()
 
 const loginOpen = ref(false)
 const selectedName = ref(null)
@@ -13,6 +15,7 @@ const password = ref('')
 onMounted(async () => {
   await session.load()
   await session.loadUsers()
+  if (session.user) await photos.loadSelectionState()
 })
 
 function openLogin(name) {
@@ -27,6 +30,7 @@ async function doLogin() {
     const user = await session.login(selectedName.value, password.value)
     Notify.create({ type: 'positive', message: `Вы вошли как ${user.name}` })
     loginOpen.value = false
+    await photos.loadSelectionState()
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   }
@@ -47,6 +51,16 @@ function toggleDark() {
     <q-header elevated class="bg-primary text-white">
       <q-toolbar>
         <q-toolbar-title>АЛЬБИОН: Фотобаза</q-toolbar-title>
+
+        <q-avatar
+          v-if="session.user"
+          :style="{ background: session.user.color || '#1976d2' }"
+          size="28px"
+          text-color="white"
+          class="q-mr-sm"
+        >
+          {{ (session.user.name || '?').slice(0, 1) }}
+        </q-avatar>
 
         <q-btn flat round dense icon="dark_mode" @click="toggleDark" />
 

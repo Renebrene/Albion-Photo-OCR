@@ -21,7 +21,7 @@
 ### A. Пользователи, доступ, персонализация
 - **`users_db.py`**: пользователи `Гость`/`Администратор`, `users`/`user_settings` (password_required, persist_state, active), вход по паролю, добавить/переименовать/архивировать/восстановить, палитра цветов. `session.py` — cookie-сессия (user_id), `get_current_user`.
 - **Manager switcher** в шапке + **пер-менеджерский цвет** (`manager_colors`, `apply_user_color`).
-- Сейчас: **Реализовано (2026-10-13)**: `schema/010_users.sql` (`users`, `user_sessions`), `app/users/` (scrypt-хэш пароля, CRUD), `app/api/auth.py` (login/logout/me, роли `Администратор/Менеджер/Гость` → scopes), UI-селектор менеджера + вход + вкладка «Пользователи». Остаётся bearer-режим как альтернатива. Пер-менеджерский цвет и `manager_selections` — нет.
+- Сейчас: **Реализовано (2026-10-13)**: `schema/010_users.sql` (`users`, `user_sessions`), `app/users/` (scrypt-хэш пароля, CRUD), `app/api/auth.py` (login/logout/me, роли `Администратор/Менеджер/Гость` → scopes), UI-селектор менеджера + вход + вкладка «Пользователи»; пер-менеджерский цвет (`setCssVar('primary')` + аватар) и `manager_selections` (`/v1/selection`).
 - ⚠️ В легаси **пароль сравнивался в открытом виде** — копировать нельзя; делать нормально (хэш) или уходить в OIDC.
 
 ### B. Справочники адресов/клиентов
@@ -30,7 +30,7 @@
 - Сейчас: адреса — **сырые fingerprint-id** (`78_v33`, `83_v33`); человекочитаемых адресов и справочника/алиасов клиентов нет.
 
 ### C. Подборки/закладки и сохранённые поиски (то, о чём вы спрашивали)
-- **`collections.py` + БД**: таблицы **`collections`** (`user_id`, `name`, `kind ∈ {Моя, Клиентская}`, `scope ∈ {addresses, clients, photos}`), **`collection_members`** (`member_type ∈ {address, client, photo}`, unique), **`manager_selections`** (состояние чекбоксов менеджера). UI: `build_collections(scope)`, `add_collection()` (диалог Название/Тип/Клиент), синк с панелями адресов/клиентов. `chunk_207.md:708-786`, `chunk_176.md:269-462`.
+- **`collections.py` + БД**: таблицы **`collections`** (`user_id`, `name`, `kind ∈ {Моя, Клиентская}`, `scope ∈ {addresses, clients, photos}`), **`collection_members`** (`member_type ∈ {address, client, photo}`, unique), **`manager_selections`** (состояние чекбоксов менеджера). UI: `build_collections(scope)`, `add_collection()` (диалог Название/Тип/Клиент), синк с панелями адресов/клиентов. `chunk_207.md:708-786`, `chunk_176.md:269-462`. — **Реализовано (2026-10-13)**: подборки (009) и `manager_selections` (015 + `/v1/selection`).
 - **Saved search / История поиска**: кнопка «Сохранить поиск» (bookmark), панель «История поиска» (в части ревизий — визуальные заглушки). `chunk_077.md:724`, `chunk_081.md:1994,2024`. — **Реализовано (2026-10-13)**: `schema/011_saved_searches.sql` + `/v1/searches` + карточка «История поиска» (сохранить/применить/удалить).
 - Сейчас: подборки ✅ (кроме `manager_selections`), сохранённые поиски ✅.
 

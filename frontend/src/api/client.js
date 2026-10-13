@@ -166,6 +166,14 @@ export async function fetchDataExport(format = 'json') {
   return response
 }
 
+export function fetchSelection() {
+  return getJson(`${BASE}/v1/selection`)
+}
+
+export function saveSelection(state) {
+  return putJson(`${BASE}/v1/selection`, { state })
+}
+
 export function fetchSavedSearches() {
   return getJson(`${BASE}/v1/searches`)
 }

@@ -134,6 +134,12 @@ class CollectionMembersRequest(BaseModel):
     values: list[str] = Field(min_length=1)
 
 
+class SelectionState(BaseModel):
+    """Free-form per-manager GRID state blob."""
+
+    state: dict = Field(default_factory=dict)
+
+
 class NlSearchRequest(BaseModel):
     """Natural-language query, translated to filters by the worker."""
 
