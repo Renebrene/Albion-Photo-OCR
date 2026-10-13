@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import time
 
+from app.core.errors import redact_absolute_paths
 from app.jobs import automation
 from app.jobs import database as jobs
 
@@ -92,7 +93,8 @@ def run_once() -> str | None:
     try:
         result = _execute(job)
     except Exception as exc:  # noqa: BLE001 - reported to the queue
-        jobs.mark_failed(job["id"], repr(exc))
+        # Store the message without absolute server paths.
+        jobs.mark_failed(job["id"], redact_absolute_paths(repr(exc)))
         print(f"[worker] job {job['id']} FAILED: {exc}", flush=True)
         return str(job["job_type"])
 

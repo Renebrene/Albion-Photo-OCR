@@ -8,6 +8,7 @@ unset, everything is open for local development. Read endpoints require the
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -411,6 +412,22 @@ def enqueue_qwen(request: QwenJobRequest):
     else:
         photo_ids = request.photo_ids or repository.all_photo_ids()
 
+    if request.photo_ids:
+        invalid = [
+            value
+            for value in request.photo_ids
+            if not PHOTO_ID_RE.fullmatch(value)
+        ]
+
+        if invalid:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "invalid photo_id(s): "
+                    + ", ".join(invalid[:5])
+                ),
+            )
+
     if not photo_ids:
         raise HTTPException(
             status_code=422,
@@ -767,6 +784,14 @@ def put_selection(
     principal=Depends(require_scope("collections:write")),
 ):
     user = _require_user(principal)
+
+    # Bound the stored blob so a client cannot write arbitrarily large state.
+    if len(json.dumps(request.state, ensure_ascii=False)) > 65536:
+        raise HTTPException(
+            status_code=413,
+            detail="selection state is too large",
+        )
+
     repository.save_manager_selection(str(user["user_id"]), request.state)
     return {"state": request.state}
 
@@ -829,8 +854,14 @@ def me(authorization: str | None = Header(default=None)):
     return {"user": user, "auth_enabled": auth_enabled()}
 
 
-@read_router.get("/v1/users", response_model=None)
+@read_router.get(
+    "/v1/users",
+    response_model=None,
+    dependencies=[Depends(require_scope("users:manage"))],
+)
 def list_users(active_only: bool = Query(False)):
+    """User directory is administrator-only (names, roles, activity)."""
+
     return {"items": users_db.list_users(active_only=active_only)}
 
 
@@ -850,9 +881,10 @@ def create_user(request: UserCreate):
             )
         )
     except Exception as exc:  # unique violation etc.
+        # Do not leak driver/DB details to the client.
         raise HTTPException(
             status_code=409,
-            detail=f"cannot create user: {exc}",
+            detail="cannot create user (name already taken?)",
         ) from exc
 
 

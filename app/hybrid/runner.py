@@ -4,6 +4,7 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from app.core.errors import redact_absolute_paths
 from app.hybrid.database import (
     HybridWorkItem,
     completed_photo_ids,
@@ -149,7 +150,7 @@ def _process_item(
                 hybrid_run_id=hybrid_run_id,
                 photo_id=item.photo_id,
                 dino_run_id=item.dino_run_id,
-                error_message=str(exc),
+                error_message=redact_absolute_paths(str(exc)),
                 hybrid_time_sec=elapsed,
             )
         except Exception:

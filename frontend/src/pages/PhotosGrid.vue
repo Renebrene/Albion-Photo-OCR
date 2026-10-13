@@ -349,7 +349,14 @@ async function runNlSearch() {
     }
 
     const ids = (job.result && job.result.photo_ids) || []
-    Notify.create({ type: 'info', message: `NL-поиск: найдено ${ids.length}` })
+    const truncated = job.result && job.result.truncated
+
+    Notify.create({
+      type: truncated ? 'warning' : 'info',
+      message: truncated
+        ? `NL-поиск: показаны первые ${ids.length} (есть ещё совпадения)`
+        : `NL-поиск: найдено ${ids.length}`,
+    })
     await store.applyNlResults(ids)
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })

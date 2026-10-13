@@ -9,6 +9,7 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.core.embedder import SceneEmbedder
+from app.core.errors import redact_absolute_paths
 from app.core.fingerprint import FingerprintManager
 from app.core.scene_analyzer import CompactDescriptor
 from app.dino.database import (
@@ -289,7 +290,7 @@ def _process_item(runner: DinoRunner, item: DinoWorkItem) -> tuple[DinoWorkItem,
     except Exception as exc:
         save_failure(
             run_item.run_id,
-            error_message=repr(exc),
+            error_message=redact_absolute_paths(repr(exc)),
             dino_time_sec=time.perf_counter() - started,
         )
         raise

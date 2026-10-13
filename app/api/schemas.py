@@ -100,7 +100,7 @@ class HybridRequest(BaseModel):
 class QwenJobRequest(BaseModel):
     """Request to enqueue QWEN metadata for specific or all photos."""
 
-    photo_ids: list[str] | None = None
+    photo_ids: list[str] | None = Field(default=None, max_length=5000)
     # When true, re-enqueue only photos whose QWEN row is FAILED
     # (takes precedence over photo_ids).
     only_failed: bool = False
@@ -145,7 +145,7 @@ class CollectionCreate(BaseModel):
 
 class CollectionMembersRequest(BaseModel):
     member_type: str = Field(default="photo", pattern=r"^(address|client|photo)$")
-    values: list[str] = Field(min_length=1)
+    values: list[str] = Field(min_length=1, max_length=5000)
 
 
 class ClientAliasRequest(BaseModel):

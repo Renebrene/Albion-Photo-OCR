@@ -25,6 +25,7 @@ import urllib.request
 from PIL import Image
 
 from app import settings_store
+from app.core.errors import redact_absolute_paths
 from app.qwen import database as db
 from app.qwen.config import (
     OLLAMA_URL,
@@ -535,10 +536,13 @@ def run_photo(photo_id: str) -> dict:
     try:
         fields, raw, elapsed = analyze_image(source_path, config=config)
     except urllib.error.URLError as exc:
-        db.save_failure(photo_id, f"provider unavailable: {exc.reason}")
+        db.save_failure(
+            photo_id,
+            redact_absolute_paths(f"provider unavailable: {exc.reason}"),
+        )
         raise
     except Exception as exc:
-        db.save_failure(photo_id, str(exc))
+        db.save_failure(photo_id, redact_absolute_paths(str(exc)))
         raise
 
     db.save_success(

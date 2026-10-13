@@ -302,6 +302,13 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - **Оригиналы**: `GET /v1/photos/{id}/original` остаётся, но путь обязан резолвиться внутри `SCENE_ORIGINALS_ROOTS` (fail-closed: пустой список → 503; выход за корень/симлинк → 404).
 - **Изображения в UI**: preview и оригиналы грузятся через fetch с Bearer и отдаются как blob-URL (`AuthImage.vue`, `authImageUrl`, `downloadAuthenticated`); кэш blob-URL сбрасывается при входе/выходе. Прямые `<img src>` больше не используются.
 
+### Срез 24 — лимиты ввода, NL truncated, доступ к пользователям
+
+- **Лимиты API**: `photo_ids` и `values` подборки ограничены по числу элементов (`max_length`), формат `photo_id` валидируется (422 на мусор), `PUT /v1/selection` отклоняет слишком большой blob (413).
+- **NL-поиск**: `run()` возвращает `truncated` (уперся в страницу на термин или общий лимит `MAX_TOTAL`); UI показывает предупреждение «показаны первые N».
+- **`/v1/users`**: доступ только с `users:manage` (администратор); вкладка «Пользователи» скрыта для не-админов.
+- **Ошибки без путей**: `redact_absolute_paths()` применён к job/DINO/HYBRID/QWEN `error_message`; создание пользователя больше не отдаёт текст исключения.
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.

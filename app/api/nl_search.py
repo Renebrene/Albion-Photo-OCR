@@ -17,6 +17,11 @@ from app.qwen.processor import chat_text
 
 _OUTPUT_KEYS = ("q", "client", "brand", "category", "address")
 
+# Result bounds: page size fetched per extracted term and the overall cap on
+# unioned photo_ids. Exceeding either sets `truncated` in the result.
+MAX_PER_TERM = 200
+MAX_TOTAL = 500
+
 PROMPT = (
     "Ты помощник поиска по базе фотографий вывесок. "
     "Преобразуй запрос пользователя в СТРОГО JSON без пояснений со ключами: "
@@ -72,12 +77,14 @@ def build_filters(query: str) -> dict:
     return filters
 
 
-def run(query: str, *, limit: int = 100) -> dict:
+def run(query: str, *, limit: int = MAX_PER_TERM) -> dict:
     """
     Translate *query* and run the corresponding photo search.
 
-    Returns {"filters": ..., "photo_ids": [...], "count": n}. Importing the
-    repository here keeps this module light at worker startup.
+    Returns {"filters", "photo_ids", "count", "truncated"}. `truncated` is set
+    when the result hit the per-term page size or the overall cap, so callers
+    know the list is not exhaustive. Importing the repository here keeps this
+    module light at worker startup.
     """
 
     from app.api import repository
@@ -99,19 +106,31 @@ def run(query: str, *, limit: int = 100) -> dict:
     addresses = [filters["address"]] if filters.get("address") else None
 
     seen: dict[str, None] = {}
+    truncated = False
 
     for term in terms or [query]:
-        items, _ = repository.list_photos(
+        items, next_cursor = repository.list_photos(
             limit=limit,
             query=term,
             addresses=addresses,
         )
 
+        if next_cursor is not None:
+            truncated = True
+
         for item in items:
             seen.setdefault(item.photo_id, None)
+
+            if len(seen) >= MAX_TOTAL:
+                truncated = True
+                break
+
+        if len(seen) >= MAX_TOTAL:
+            break
 
     return {
         "filters": filters,
         "photo_ids": list(seen),
         "count": len(seen),
+        "truncated": truncated,
     }

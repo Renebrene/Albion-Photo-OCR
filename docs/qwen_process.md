@@ -2,7 +2,8 @@
 
 **Статус:** заметки по историческим материалам `111/` (легаси-проект `scene_fingerprint_mvp_v02`).
 **Реализовано (2026-10-13) в минимальном виде:** `app/qwen/` + `schema/007_qwen.sql` (`photo_qwen`) + `job_type = QWEN_PHOTO`
-в очереди; модель по умолчанию `qwen3-vl:8b` через Ollama; поля `description/address/client/brand/category/tags`.
+в очереди. Default модели из env — `qwen3-vl:8b` (`app/qwen/config.py`), но рабочая модель выбирается в рантайме через настройки
+(в текущем стенде выбрана `qwen3-vl:4b-instruct`). Поля `description/address/client/brand/category/tags`.
 Детали реализации — в [`frontend_quasar.md`](frontend_quasar.md) §6, «Срез 5». Ниже — исторический контекст.
 
 **Коротко:** QWEN — отдельный процесс, который независимо от DINO обогащает фотографии текстовыми метаданными (описание, адрес, клиент, бренд, категория и структурные JSON-поля) через локальную VLM-модель в Ollama. Работает параллельно DINO по одним и тем же `photo_id`.
