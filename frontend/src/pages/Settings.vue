@@ -2,7 +2,13 @@
 import { onMounted, ref } from 'vue'
 import { Notify } from 'quasar'
 
-import { fetchQwenModels, setQwenModel, unloadQwen } from '../api/client'
+import {
+  enqueueQwen,
+  fetchQwenModels,
+  fetchQwenStats,
+  setQwenModel,
+  unloadQwen,
+} from '../api/client'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -11,6 +17,8 @@ const error = ref(null)
 const model = ref(null)
 const available = ref([])
 const current = ref(null)
+
+const stats = ref(null)
 
 function sizeLabel(size) {
   if (!size) return ''
@@ -34,6 +42,27 @@ async function load() {
     error.value = err.message
   } finally {
     loading.value = false
+  }
+}
+
+async function loadStats() {
+  try {
+    stats.value = await fetchQwenStats()
+  } catch {
+    stats.value = null
+  }
+}
+
+async function retryFailed() {
+  try {
+    const result = await enqueueQwen(null, true)
+    Notify.create({
+      type: 'positive',
+      message: `В очередь: ${result.jobs} фото`,
+    })
+    await loadStats()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
   }
 }
 
@@ -61,7 +90,10 @@ async function unload() {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  loadStats()
+})
 </script>
 
 <template>
@@ -100,6 +132,33 @@ onMounted(load)
           <q-btn flat icon="refresh" label="Обновить список" :loading="loading" @click="load" />
           <q-btn flat color="orange" icon="memory" label="Выгрузить из памяти" @click="unload" />
         </div>
+      </q-card-section>
+    </q-card>
+
+    <q-card v-if="stats" flat bordered class="q-mt-md">
+      <q-card-section>
+        <div class="text-subtitle1 q-mb-sm">Метаданные QWEN</div>
+
+        <div class="row q-gutter-sm q-mb-md">
+          <q-chip
+            v-for="(count, status) in stats.counts"
+            :key="status"
+            :color="status === 'FAILED' && count ? 'negative' : 'grey-4'"
+            :text-color="status === 'FAILED' && count ? 'white' : 'black'"
+            dense
+          >
+            {{ status }}: {{ count }}
+          </q-chip>
+        </div>
+
+        <q-btn
+          flat
+          color="teal"
+          icon="replay"
+          :label="`Повторить для упавших (${stats.failed_photo_ids.length})`"
+          :disable="!stats.failed_photo_ids.length"
+          @click="retryFailed"
+        />
       </q-card-section>
     </q-card>
   </div>

@@ -375,7 +375,10 @@ def enqueue_hybrid(request: HybridRequest):
     dependencies=[Depends(require_scope("jobs:write"))],
 )
 def enqueue_qwen(request: QwenJobRequest):
-    photo_ids = request.photo_ids or repository.all_photo_ids()
+    if request.only_failed:
+        photo_ids = repository.photo_ids_with_qwen_status("FAILED")
+    else:
+        photo_ids = request.photo_ids or repository.all_photo_ids()
 
     if not photo_ids:
         raise HTTPException(
@@ -746,6 +749,14 @@ def update_user(user_id: int, request: UserUpdate):
 # ---------------------------------------------------------------------------
 # QWEN model selection (runtime setting)
 # ---------------------------------------------------------------------------
+
+
+@read_router.get("/v1/qwen/stats", response_model=None)
+def qwen_stats():
+    return {
+        "counts": repository.qwen_status_counts(),
+        "failed_photo_ids": repository.photo_ids_with_qwen_status("FAILED"),
+    }
 
 
 @read_router.get("/v1/qwen/models", response_model=None)

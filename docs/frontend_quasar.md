@@ -256,6 +256,13 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - UI: поле «Спросить: …» + кнопка «NL-поиск» на GRID (enqueue → опрос задания → фильтр по полученным id), чип «NL: N» и сброс.
 - Аналог легаси `search.py` («Qwen — языковой интерфейс к БД»).
 
+### Срез 18 — устойчивость и диагностика QWEN
+
+- Причина упавших фото: ответ Ollama обрывался по лимиту токенов (`done_reason: "length"`) → незакрытый JSON. Исправлено: `options.num_predict = 512` + ограничение «tags не более 10» (`app/qwen/processor.py`).
+- `GET /v1/qwen/stats` — counts по статусам + `failed_photo_ids`; `POST /v1/jobs/qwen {"only_failed": true}` — повторный прогон упавших.
+- UI (вкладка «Настройки → Метаданные QWEN»): чипы статусов и кнопка «Повторить для упавших (N)».
+- Итог прогона: **256/256 DONE**, фото без QWEN-строки нет.
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.

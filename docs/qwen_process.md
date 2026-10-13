@@ -80,12 +80,23 @@ daily ─> photo_id ──┤
 
 ## 5. Что важно помнить при возврате
 
+> Историческая заметка на момент анализа (см. §6 — статус изменился).
+
 - В **текущем** репозитории QWEN-процесса нет: есть INGEST/PREVIEW/DINO/HYBRID и схема `001–005`. Колонок `qwen_*`/`*_json` в текущей схеме `photos` тоже нет — это легаси-модель.
 - OCR в исторических обсуждениях **исключён** из обязательного roadmap; Qwen — опционален и не должен блокировать базовый цикл.
 - Если интегрировать: отдельный процесс + свои статусные колонки/таблица, независимый от DINO, без влияния на `photo_id` и физическую идентичность.
 - Нужно решить: где хранить (отдельная таблица `photo_qwen` vs колонки), как версионировать модель/промпт, как обрабатывать динамических клиентов и нормализацию.
 
-## 6. Источники
+## 6. Реализовано в текущем репозитории (2026-10-13)
+
+- Отдельная таблица `photo_qwen` (`schema/007_qwen.sql`), независима от DINO/INGEST; job `QWEN_PHOTO` в `job_queue`.
+- Транспорт — Ollama `/api/chat`, модель `qwen3-vl:4b-instruct` (`app/qwen/processor.py`); `think: false`, `keep_alive: 0`, `format: json`.
+- Поля: `description, address, client, brand, category, tags[]` (как в `app/qwen/processor.py`). Легаси-JSON-поля (colors/objects/environment/quality) **не переносились** — в промпте их нет.
+- **Стабильность парсинга (2026-10-13)**: ответ иногда обрывался по лимиту токенов (`done_reason: "length"`) → JSON не закрывался → `"no JSON object"`. Добавлены `options.num_predict = 512` и ограничение «tags не более 10»; ранее упавшие 2 фото + 1 без строки (MPO) обработаны. Итог: **256/256 DONE**.
+- Диагностика/повтор: `GET /v1/qwen/stats` (counts + `failed_photo_ids`); `POST /v1/jobs/qwen {"only_failed": true}` — повторный прогон упавших; кнопка в UI «Настройки → Метаданные QWEN».
+- NL-поиск: job `NL_SEARCH` (см. `docs/frontend_quasar.md`, Срез 17).
+
+## 7. Источники
 
 - `111/chat_chunks/chunk_131.md` (~520–700: схема DINO/QWEN WORKER, `qwen3-vl:4b-instruct`, `localhost:11434`).
 - `111/chat_chunks/chunk_234.md` (supervisor `run_pipeline`, Parallel Hybrid+Qwen).

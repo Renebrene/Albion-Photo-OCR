@@ -171,6 +171,30 @@ def list_photos(
     return items, next_cursor
 
 
+def qwen_status_counts() -> dict:
+    """photo_qwen row counts grouped by status."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT status, count(*) FROM public.photo_qwen GROUP BY status"
+            )
+            return {row[0]: int(row[1]) for row in cur.fetchall()}
+
+
+def photo_ids_with_qwen_status(status: str) -> list[str]:
+    """photo_ids whose QWEN row has the given status (ordered)."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT photo_id FROM public.photo_qwen "
+                "WHERE status = %s ORDER BY photo_id",
+                (status,),
+            )
+            return [row[0] for row in cur.fetchall()]
+
+
 def get_photo(photo_id: str) -> PhotoSummary | None:
     """Return one registered photo, or None when it does not exist."""
 

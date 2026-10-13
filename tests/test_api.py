@@ -271,6 +271,26 @@ def test_data_export_rejects_unknown_format():
 
 
 @requires_db
+def test_qwen_stats_shape():
+    data = client.get("/api/v1/qwen/stats").json()
+    assert "counts" in data and "failed_photo_ids" in data
+    assert isinstance(data["failed_photo_ids"], list)
+    for status, count in data["counts"].items():
+        assert status in {"PENDING", "RUNNING", "DONE", "FAILED"}
+        assert count >= 0
+
+
+def test_qwen_only_failed_with_none_enqueues_nothing(monkeypatch):
+    from app.api import repository
+
+    monkeypatch.setattr(
+        repository, "photo_ids_with_qwen_status", lambda status: []
+    )
+    response = client.post("/api/v1/jobs/qwen", json={"only_failed": True})
+    assert response.status_code == 422
+
+
+@requires_db
 def test_last_run():
     data = client.get("/api/v1/runs/last").json()
     assert "jobs" in data

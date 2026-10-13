@@ -80,9 +80,14 @@ PROMPT = (
     "client (компания/клиент с вывески, строка или null), "
     "brand (бренд, строка или null), "
     "category (категория объекта, строка или null), "
-    "tags (массив коротких строк). "
+    "tags (массив не более 10 коротких строк). "
+    "Ответ должен быть коротким и полностью закрытым JSON. "
     "Если данных нет — используй null, не выдумывай."
 )
+
+# Output cap: without it the model occasionally truncates the JSON mid-array
+# (done_reason "length"), which then fails to parse.
+MAX_OUTPUT_TOKENS = 512
 
 
 def encode_image(path: str) -> str:
@@ -190,7 +195,7 @@ def analyze_image(
             "think": False,
             # Unload the model from memory right after this request (free VRAM).
             "keep_alive": 0,
-            "options": {"temperature": 0},
+            "options": {"temperature": 0, "num_predict": MAX_OUTPUT_TOKENS},
         }
     ).encode("utf-8")
 

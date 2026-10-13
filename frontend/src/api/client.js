@@ -264,8 +264,15 @@ export function fetchJobs({ limit = 50, cursor = null } = {}) {
   return getJson(withCursor(`${BASE}/v1/jobs`, { limit, cursor }))
 }
 
-export function enqueueQwen(photoIds = null) {
-  return postJson(`${BASE}/v1/jobs/qwen`, { photo_ids: photoIds })
+export function enqueueQwen(photoIds = null, onlyFailed = false) {
+  return postJson(`${BASE}/v1/jobs/qwen`, {
+    photo_ids: photoIds,
+    only_failed: onlyFailed,
+  })
+}
+
+export function fetchQwenStats() {
+  return getJson(`${BASE}/v1/qwen/stats`)
 }
 
 async function putJson(url, body) {

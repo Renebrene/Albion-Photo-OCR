@@ -101,6 +101,9 @@ class QwenJobRequest(BaseModel):
     """Request to enqueue QWEN metadata for specific or all photos."""
 
     photo_ids: list[str] | None = None
+    # When true, re-enqueue only photos whose QWEN row is FAILED
+    # (takes precedence over photo_ids).
+    only_failed: bool = False
 
 
 class QwenModelRequest(BaseModel):
