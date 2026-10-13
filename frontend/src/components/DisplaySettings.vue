@@ -1,9 +1,15 @@
 <script setup>
-// Display settings for the photo grid (item 10 of the UI backlog).
+// Display settings for the photo grid (item 10 of the UI backlog) plus the
+// download file-name mode (item 11b).
 //
 // Rendered both in the gear dialog next to the tiles/list toggle and in the
 // technical section, so the same controls live in exactly one place.
-import { LIST_FIELDS, TILE_COUNTS, useDisplayStore } from '../stores/display'
+import {
+  DOWNLOAD_NAME_MODES,
+  LIST_FIELDS,
+  TILE_COUNTS,
+  useDisplayStore,
+} from '../stores/display'
 
 const display = useDisplayStore()
 </script>
@@ -34,6 +40,27 @@ const display = useDisplayStore()
       />
       <div v-if="!display.listFields.length" class="text-caption text-orange">
         Ни одно поле не выбрано — в списке будут только миниатюры.
+      </div>
+    </div>
+
+    <div>
+      <div class="text-subtitle2">Имена файлов при скачивании</div>
+      <q-select
+        v-model="display.downloadNameMode"
+        :options="DOWNLOAD_NAME_MODES"
+        dense
+        outlined
+        emit-value
+        map-options
+        option-label="label"
+        option-value="value"
+        class="q-mt-xs"
+        style="max-width: 340px"
+      />
+      <div class="text-caption text-grey">
+        Режим с адресом даёт имена вида «Адрес__исходное_имя.JPG»; у фото без
+        сопоставленного адреса имя остаётся исходным. Справочник адресов —
+        раздел «Адреса» в техническом разделе.
       </div>
     </div>
 

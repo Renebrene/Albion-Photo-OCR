@@ -15,7 +15,12 @@ import {
 } from '../api/client'
 import AuthImage from '../components/AuthImage.vue'
 import DisplaySettings from '../components/DisplaySettings.vue'
-import { LIST_FIELDS, fieldText, useDisplayStore } from '../stores/display'
+import {
+  LIST_FIELDS,
+  downloadFileName,
+  fieldText,
+  useDisplayStore,
+} from '../stores/display'
 import { usePhotosStore } from '../stores/photos'
 
 const store = usePhotosStore()
@@ -422,12 +427,13 @@ async function downloadSelected() {
   }
 
   for (const photoId of [...store.selected]) {
-    // Use the real file name, not the PH_… id (item 11 of the UI backlog).
+    // Use the real file name, not the PH_… id (item 11 of the UI backlog);
+    // the address prefix follows the display settings (item 11b).
     const photo = items.value.find((item) => item.photo_id === photoId)
     try {
       await downloadAuthenticated(
         originalUrl(photoId),
-        photo ? photo.filename : photoId,
+        downloadFileName(photo || { photo_id: photoId }, display.downloadNameMode),
       )
     } catch (err) {
       Notify.create({ type: 'negative', message: err.message })
@@ -503,7 +509,10 @@ async function openOriginal(photo) {
 
 async function saveOriginal(photo) {
   try {
-    await downloadAuthenticated(originalUrl(photo.photo_id), photo.filename)
+    await downloadAuthenticated(
+      originalUrl(photo.photo_id),
+      downloadFileName(photo, display.downloadNameMode),
+    )
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   }

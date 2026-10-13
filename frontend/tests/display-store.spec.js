@@ -3,9 +3,12 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import {
+  DOWNLOAD_NAME_MODES,
   LIST_FIELDS,
   TILE_COUNTS,
+  downloadFileName,
   fieldText,
+  safeFilePart,
   useDisplayStore,
 } from '../src/stores/display'
 
@@ -50,12 +53,14 @@ describe('display store', () => {
     expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY))).toEqual({
       tileColumns: 6,
       listFields: ['filename', 'brand'],
+      downloadNameMode: 'filename',
     })
 
     display.reset()
 
     expect(display.tileColumns).toBe(4)
     expect(display.listFields).toEqual(['filename', 'address', 'client'])
+    expect(display.downloadNameMode).toBe('filename')
   })
 })
 
@@ -86,5 +91,82 @@ describe('fieldText', () => {
     for (const field of LIST_FIELDS) {
       expect(field.label).toBeTruthy()
     }
+  })
+})
+
+
+describe('download file names (item 11b)', () => {
+  const photo = {
+    filename: 'Комарова13_11.JPG',
+    address: '78_v33',
+    simple_address: 'Мира 1',
+    legal_address: 'ООО «Ромашка», ул. Мира, 1',
+  }
+
+  it('keeps the original name by default', () => {
+    expect(downloadFileName(photo)).toBe('Комарова13_11.JPG')
+    expect(downloadFileName(photo, 'filename')).toBe('Комарова13_11.JPG')
+    expect(DOWNLOAD_NAME_MODES.map((mode) => mode.value)).toContain('filename')
+  })
+
+  it('prefixes the simplified address so names stay unique', () => {
+    expect(downloadFileName(photo, 'simple')).toBe(
+      'Мира 1__Комарова13_11.JPG',
+    )
+  })
+
+  it('normalises the legal address and strips unsafe characters', () => {
+    expect(downloadFileName(photo, 'legal')).toBe(
+      'ООО «Ромашка», ул. Мира, 1__Комарова13_11.JPG',
+    )
+
+    // Unsafe file-name characters become underscores, whitespace collapses.
+    expect(
+      downloadFileName(
+        { filename: 'a.jpg', legal_address: 'ООО "Р/С" * тест' },
+        'legal',
+      ),
+    ).toBe('ООО _Р_С_ _ тест__a.jpg')
+  })
+
+  it('falls back to the recognised id, then to the original name', () => {
+    expect(
+      downloadFileName({ filename: 'a.jpg', address: '83_v33' }, 'simple'),
+    ).toBe('83_v33__a.jpg')
+
+    expect(downloadFileName({ filename: 'a.jpg' }, 'legal')).toBe('a.jpg')
+    expect(downloadFileName({}, 'simple')).toBe('photo.jpg')
+    expect(downloadFileName(null, 'legal')).toBe('photo.jpg')
+  })
+
+  it('safeFilePart collapses whitespace and handles empty values', () => {
+    expect(safeFilePart('  ул.   Мира,  1 ')).toBe('ул. Мира, 1')
+    expect(safeFilePart(null)).toBe('')
+    expect(safeFilePart(42)).toBe('42')
+  })
+
+  it('persists the chosen mode', async () => {
+    const display = useDisplayStore()
+
+    expect(display.downloadNameMode).toBe('filename')
+
+    display.downloadNameMode = 'legal'
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY)).downloadNameMode).toBe(
+      'legal',
+    )
+
+    display.reset()
+    expect(display.downloadNameMode).toBe('filename')
+  })
+
+  it('ignores an unknown stored mode', () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ downloadNameMode: 'nonsense' }),
+    )
+
+    expect(useDisplayStore().downloadNameMode).toBe('filename')
   })
 })

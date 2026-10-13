@@ -275,6 +275,33 @@ export function deleteClientAlias(alias) {
   )
 }
 
+// Address directory (schema/022): legal/simple names for fingerprint ids.
+export function fetchAddressDirectory() {
+  return getJson(`${BASE}/v1/addresses/directory`)
+}
+
+export function fetchUnassignedFingerprints() {
+  return getJson(`${BASE}/v1/addresses/unassigned`)
+}
+
+export function createAddress(payload) {
+  return postJson(`${BASE}/v1/addresses/directory`, payload)
+}
+
+export function updateAddress(addressId, payload) {
+  return putJson(`${BASE}/v1/addresses/directory/${addressId}`, payload)
+}
+
+export function deleteAddress(addressId) {
+  return deleteJson(`${BASE}/v1/addresses/directory/${addressId}`)
+}
+
+export function setAddressFingerprints(addressId, fingerprints) {
+  return putJson(`${BASE}/v1/addresses/directory/${addressId}/fingerprints`, {
+    fingerprints,
+  })
+}
+
 export function fetchSelection() {
   return getJson(`${BASE}/v1/selection`)
 }

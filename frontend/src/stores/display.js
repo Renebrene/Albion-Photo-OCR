@@ -19,8 +19,18 @@ export const LIST_FIELDS = [
   { value: 'taken_at', label: 'Дата съёмки' },
 ]
 
+// How a downloaded file is named (item 11b): the original name, or the
+// address it belongs to (simplified alias / normalised legal name) prefixed
+// to the original name so two photos of one address cannot overwrite itself.
+export const DOWNLOAD_NAME_MODES = [
+  { value: 'filename', label: 'Имя файла (как сейчас)' },
+  { value: 'simple', label: 'Адрес (упрощённый / alias)' },
+  { value: 'legal', label: 'Адрес (юридический)' },
+]
+
 const DEFAULT_TILE_COLUMNS = 4
 const DEFAULT_LIST_FIELDS = ['filename', 'address', 'client']
+const DEFAULT_DOWNLOAD_NAME_MODE = 'filename'
 const STORAGE_KEY = 'scene.display.v1'
 
 function loadState() {
@@ -51,6 +61,12 @@ export const useDisplayStore = defineStore('display', () => {
       : [...DEFAULT_LIST_FIELDS],
   )
 
+  const downloadNameMode = ref(
+    DOWNLOAD_NAME_MODES.some((option) => option.value === saved.downloadNameMode)
+      ? saved.downloadNameMode
+      : DEFAULT_DOWNLOAD_NAME_MODE,
+  )
+
   function persist() {
     try {
       window.localStorage.setItem(
@@ -58,6 +74,7 @@ export const useDisplayStore = defineStore('display', () => {
         JSON.stringify({
           tileColumns: tileColumns.value,
           listFields: listFields.value,
+          downloadNameMode: downloadNameMode.value,
         }),
       )
     } catch {
@@ -65,15 +82,49 @@ export const useDisplayStore = defineStore('display', () => {
     }
   }
 
-  watch([tileColumns, listFields], persist, { deep: true })
+  watch([tileColumns, listFields, downloadNameMode], persist, { deep: true })
 
   function reset() {
     tileColumns.value = DEFAULT_TILE_COLUMNS
     listFields.value = [...DEFAULT_LIST_FIELDS]
+    downloadNameMode.value = DEFAULT_DOWNLOAD_NAME_MODE
   }
 
-  return { tileColumns, listFields, reset }
+  return { tileColumns, listFields, downloadNameMode, reset }
 })
+
+// Characters a file name may not contain on the common platforms.
+const UNSAFE_NAME_CHARS = /[\\/:*?"<>|\u0000-\u001f]/g
+
+/** Make one address name safe to use as part of a file name. */
+export function safeFilePart(value) {
+  if (value === null || value === undefined) return ''
+
+  return String(value).replace(UNSAFE_NAME_CHARS, '_').replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * File name for a download (item 11b).
+ *
+ * With mode 'filename' the original name is returned untouched. Otherwise the
+ * address name is prefixed ("<address>__<original name>") so photos of the
+ * same address stay unique instead of overwriting each other; a photo whose
+ * address is not mapped yet keeps its original name.
+ */
+export function downloadFileName(photo, mode = DEFAULT_DOWNLOAD_NAME_MODE) {
+  const original = (photo && photo.filename) || 'photo.jpg'
+
+  if (mode === 'filename') return original
+
+  const address =
+    mode === 'simple'
+      ? safeFilePart(photo && photo.simple_address)
+      : safeFilePart(photo && photo.legal_address)
+
+  const prefix = address || safeFilePart(photo && photo.address)
+
+  return prefix ? `${prefix}__${original}` : original
+}
 
 /** Human-readable value of one list field for a photo row. */
 export function fieldText(photo, key) {

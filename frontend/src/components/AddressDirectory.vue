@@ -1,0 +1,310 @@
+<script setup>
+// Address directory (schema/022): the human-readable names behind a
+// recognition id. The grid shows the same names as soon as an id is mapped
+// here, and downloads can use them as file names (see the display settings).
+import { computed, onMounted, ref } from 'vue'
+import { Notify } from 'quasar'
+
+import {
+  createAddress,
+  deleteAddress,
+  fetchAddressDirectory,
+  fetchUnassignedFingerprints,
+  setAddressFingerprints,
+  updateAddress,
+} from '../api/client'
+
+const items = ref([])
+const unassigned = ref([])
+const loading = ref(false)
+
+// "new address" form
+const newLegal = ref('')
+const newSimple = ref('')
+
+// edit dialog
+const editOpen = ref(false)
+const editTarget = ref(null)
+
+// fingerprint mapping dialog
+const mapOpen = ref(false)
+const mapTarget = ref(null)
+const mapSelected = ref([])
+
+const busy = computed(() => loading.value)
+
+async function load() {
+  loading.value = true
+  try {
+    const [directory, free] = await Promise.all([
+      fetchAddressDirectory(),
+      fetchUnassignedFingerprints(),
+    ])
+    items.value = directory.items || []
+    unassigned.value = free.items || []
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(load)
+
+async function addAddress() {
+  const legal = newLegal.value.trim()
+  const simple = newSimple.value.trim()
+
+  if (!legal && !simple) {
+    Notify.create({
+      type: 'warning',
+      message: 'Заполните юридическое или упрощённое название',
+    })
+    return
+  }
+
+  try {
+    await createAddress({
+      legal_address: legal || null,
+      simple_address: simple || null,
+    })
+    newLegal.value = ''
+    newSimple.value = ''
+    Notify.create({ type: 'positive', message: 'Адрес добавлен' })
+    await load()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
+function openEdit(item) {
+  editTarget.value = { ...item }
+  editOpen.value = true
+}
+
+async function saveEdit() {
+  const target = editTarget.value
+
+  try {
+    await updateAddress(target.address_id, {
+      legal_address: target.legal_address,
+      simple_address: target.simple_address,
+      active: target.active,
+    })
+    editOpen.value = false
+    Notify.create({ type: 'positive', message: 'Адрес сохранён' })
+    await load()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
+async function toggleActive(item, value) {
+  try {
+    await updateAddress(item.address_id, { active: value })
+    await load()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+    await load()
+  }
+}
+
+async function removeAddress(item) {
+  try {
+    await deleteAddress(item.address_id)
+    Notify.create({ type: 'positive', message: 'Адрес удалён' })
+    await load()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
+function openMap(item) {
+  mapTarget.value = item
+  mapSelected.value = [...item.fingerprints]
+  mapOpen.value = true
+}
+
+// Every id that can be assigned: the ones already here plus the free ones.
+const mapOptions = computed(() => {
+  const options = new Set([...(mapTarget.value?.fingerprints || []), ...unassigned.value])
+  return [...options].sort()
+})
+
+async function saveMap() {
+  try {
+    await setAddressFingerprints(mapTarget.value.address_id, mapSelected.value)
+    mapOpen.value = false
+    Notify.create({ type: 'positive', message: 'Идентификаторы сохранены' })
+    await load()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+</script>
+
+<template>
+  <div class="column q-gutter-md" style="max-width: 900px">
+    <q-card flat bordered>
+      <q-card-section>
+        <div class="text-subtitle2 q-mb-sm">Новый адрес</div>
+        <div class="row q-col-gutter-sm">
+          <div class="col-12 col-sm-5">
+            <q-input
+              v-model="newLegal"
+              dense
+              outlined
+              label="Юридическое название"
+              @keyup.enter="addAddress"
+            />
+          </div>
+          <div class="col-12 col-sm-4">
+            <q-input
+              v-model="newSimple"
+              dense
+              outlined
+              label="Упрощённое (alias)"
+              @keyup.enter="addAddress"
+            />
+          </div>
+          <div class="col-12 col-sm-3">
+            <q-btn
+              color="primary"
+              icon="add"
+              label="Добавить"
+              :disable="busy"
+              @click="addAddress"
+            />
+          </div>
+        </div>
+        <div class="text-caption text-grey q-mt-sm">
+          Хотя бы одно из двух названий обязательно; юридическое — уникально.
+        </div>
+      </q-card-section>
+    </q-card>
+
+    <q-card flat bordered>
+      <q-card-section class="row items-center q-pb-xs">
+        <div class="text-subtitle2 col">Адреса ({{ items.length }})</div>
+        <q-btn dense flat icon="refresh" :loading="busy" @click="load">
+          <q-tooltip>Обновить</q-tooltip>
+        </q-btn>
+      </q-card-section>
+      <q-separator />
+
+      <q-table
+        :rows="items"
+        :columns="[
+          { name: 'legal', label: 'Юридическое название', field: 'legal_address', align: 'left' },
+          { name: 'simple', label: 'Упрощённое', field: 'simple_address', align: 'left' },
+          { name: 'fp', label: 'Идентификаторы', field: 'fingerprints', align: 'left' },
+          { name: 'active', label: 'Активен', field: 'active', align: 'center' },
+          { name: 'actions', label: '', field: 'address_id', align: 'right' },
+        ]"
+        row-key="address_id"
+        dense
+        flat
+        :pagination="{ rowsPerPage: 0 }"
+        :loading="busy"
+        no-data-label="Справочник пуст"
+      >
+        <template #body-cell-fp="props">
+          <q-td :props="props">
+            <q-chip
+              v-for="id in props.row.fingerprints"
+              :key="id"
+              dense
+              size="sm"
+              color="primary"
+              text-color="white"
+            >
+              {{ id }}
+            </q-chip>
+            <span v-if="!props.row.fingerprints.length" class="text-caption text-grey">
+              не сопоставлено
+            </span>
+          </q-td>
+        </template>
+
+        <template #body-cell-active="props">
+          <q-td :props="props">
+            <q-toggle
+              :model-value="props.row.active"
+              dense
+              @update:model-value="(value) => toggleActive(props.row, value)"
+            />
+          </q-td>
+        </template>
+
+        <template #body-cell-actions="props">
+          <q-td :props="props">
+            <q-btn dense flat icon="link" @click="openMap(props.row)">
+              <q-tooltip>Идентификаторы распознавания</q-tooltip>
+            </q-btn>
+            <q-btn dense flat icon="edit" @click="openEdit(props.row)">
+              <q-tooltip>Изменить названия</q-tooltip>
+            </q-btn>
+            <q-btn dense flat icon="delete" @click="removeAddress(props.row)">
+              <q-tooltip>Удалить адрес</q-tooltip>
+            </q-btn>
+          </q-td>
+        </template>
+      </q-table>
+    </q-card>
+
+    <!-- edit names -->
+    <q-dialog v-model="editOpen">
+      <q-card style="min-width: 380px">
+        <q-card-section class="text-subtitle1">Адрес</q-card-section>
+        <q-separator />
+        <q-card-section class="q-gutter-sm">
+          <q-input
+            v-model="editTarget.legal_address"
+            dense
+            outlined
+            label="Юридическое название"
+          />
+          <q-input
+            v-model="editTarget.simple_address"
+            dense
+            outlined
+            label="Упрощённое (alias)"
+          />
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Отмена" v-close-popup />
+          <q-btn color="primary" label="Сохранить" @click="saveEdit" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- fingerprint mapping -->
+    <q-dialog v-model="mapOpen">
+      <q-card style="min-width: 420px; max-width: 90vw">
+        <q-card-section class="text-subtitle1">
+          Идентификаторы: {{ mapTarget?.simple_address || mapTarget?.legal_address }}
+        </q-card-section>
+        <q-separator />
+        <q-card-section style="max-height: 55vh; overflow: auto">
+          <q-option-group
+            v-model="mapSelected"
+            :options="mapOptions.map((id) => ({ label: id, value: id }))"
+            type="checkbox"
+            dense
+          />
+          <div v-if="!mapOptions.length" class="text-caption text-grey">
+            Свободных идентификаторов нет — все уже сопоставлены.
+          </div>
+          <div class="text-caption text-grey q-mt-sm">
+            Идентификатор принадлежит одному адресу: отмеченный здесь будет
+            перенесён с прежнего.
+          </div>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Отмена" v-close-popup />
+          <q-btn color="primary" label="Сохранить" @click="saveMap" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+  </div>
+</template>
