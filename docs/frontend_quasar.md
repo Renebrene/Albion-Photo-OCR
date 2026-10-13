@@ -263,6 +263,14 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - UI (вкладка «Настройки → Метаданные QWEN»): чипы статусов и кнопка «Повторить для упавших (N)».
 - Итог прогона: **256/256 DONE**, фото без QWEN-строки нет.
 
+### Срез 19 — модульные тесты фронтенда (Vitest)
+
+- Стек: **Vitest 2** + **@vue/test-utils** + **happy-dom**; конфиг `frontend/vitest.config.js` (плагины `@vitejs/plugin-vue` + `@quasar/vite-plugin`, `environment: node` по умолчанию, DOM-тесты помечают файл `// @vitest-environment happy-dom`).
+- Запуск: `bun run test` (одноразово), `bun run test:watch`.
+- Покрытие: `tests/client.spec.js` (сборка URL с повторяющимися `address`/`client`/`ids`, заголовок Authorization, ошибки, multipart-загрузка), `tests/photos-store.spec.js` (пагинация, мультивыбор-фильтры, выделение, NL-id фильтр, подборки — через `global.fetch`), `tests/settings.spec.js` (компонент Settings: чипы статусов QWEN, блокировка/повтор упавших).
+- Тесты не требуют бэкенда: сеть подменяется моком `global.fetch`; `Notify.create` шунтируется заглушкой.
+- Итог: **16 passed** (3 файла).
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.
