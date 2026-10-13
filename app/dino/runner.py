@@ -37,6 +37,18 @@ def default_workers() -> int:
     return max(1, (os.cpu_count() or 1) // 2)
 
 
+def resolve_batch(batch: int | None = None) -> int:
+    """Resolve the DINO embedding batch size (images per forward pass)."""
+
+    if batch is None:
+        batch = settings.dino_batch
+
+    if batch < 1:
+        raise ValueError("batch must be >= 1")
+
+    return batch
+
+
 def resolve_workers(workers: int | None = None) -> int:
     """
     Resolve the DINO worker count.
@@ -207,19 +219,15 @@ class DinoRunner:
 
         return loaded
 
-    def recognize_one(self, item: DinoWorkItem) -> dict:
-        started = time.perf_counter()
-        path = Path(item.source_path)
-
-        query_global = self.embedder.embed_paths([path])[0]
-
-        image = CompactDescriptor._load(path)
-
-        (
-            query_environment,
-            query_color,
-            query_spatial,
-        ) = CompactDescriptor.all_from_image(image)
+    def _rank(
+        self,
+        query_global,
+        query_environment,
+        query_color,
+        query_spatial,
+        photo_id: str,
+    ) -> dict:
+        """Score, rank and finalize one query against all fingerprints."""
 
         ranked = []
 
@@ -253,7 +261,7 @@ class DinoRunner:
 
         if not ranked:
             raise ValueError(
-                f"No DINO candidates for {item.photo_id}"
+                f"No DINO candidates for {photo_id}"
             )
 
         best_score = float(ranked[0]["score"])
@@ -283,8 +291,84 @@ class DinoRunner:
             "confidence": confidence,
             "status": status,
             "candidates": ranked,
-            "time_sec": time.perf_counter() - started,
         }
+
+    def _query_descriptors(self, path: Path):
+        image = CompactDescriptor._load(path)
+
+        return CompactDescriptor.all_from_image(image)
+
+    def recognize_one(self, item: DinoWorkItem) -> dict:
+        started = time.perf_counter()
+        path = Path(item.source_path)
+
+        query_global = self.embedder.embed_paths([path])[0]
+        query_environment, query_color, query_spatial = (
+            self._query_descriptors(path)
+        )
+
+        result = self._rank(
+            query_global,
+            query_environment,
+            query_color,
+            query_spatial,
+            item.photo_id,
+        )
+        result["time_sec"] = time.perf_counter() - started
+
+        return result
+
+    def recognize_many(self, items: list[DinoWorkItem]) -> list[dict]:
+        """
+        Recognize several photos, embedding them in one batched DINO forward.
+
+        The image batches are independent, so results must match recognize_one
+        (verified by tests); batching mainly amortizes per-call overhead.
+        """
+
+        if not items:
+            return []
+
+        paths = [Path(item.source_path) for item in items]
+        query_globals = self.embedder.embed_paths(paths)
+
+        results = []
+
+        for item, query_global, path in zip(items, query_globals, paths):
+            item_started = time.perf_counter()
+
+            query_environment, query_color, query_spatial = (
+                self._query_descriptors(path)
+            )
+
+            result = self._rank(
+                query_global,
+                query_environment,
+                query_color,
+                query_spatial,
+                item.photo_id,
+            )
+            result["time_sec"] = time.perf_counter() - item_started
+
+            results.append(result)
+
+        return results
+
+
+def _save_result(run_id: int, result: dict) -> None:
+    """Persist one successful DINO result (shared by both run modes)."""
+
+    save_success(
+        run_id,
+        best_id=result["best_id"],
+        score=result["score"],
+        second_score=result["second_score"],
+        margin=result["margin"],
+        confidence=result["confidence"],
+        status=result["status"],
+        dino_time_sec=result["time_sec"],
+        candidates=result["candidates"],
+    )
 
 
 def _process_item(runner: DinoRunner, item: DinoWorkItem) -> tuple[DinoWorkItem, dict]:
@@ -295,17 +379,7 @@ def _process_item(runner: DinoRunner, item: DinoWorkItem) -> tuple[DinoWorkItem,
     try:
         result = runner.recognize_one(run_item)
 
-        save_success(
-            run_item.run_id,
-            best_id=result["best_id"],
-            score=result["score"],
-            second_score=result["second_score"],
-            margin=result["margin"],
-            confidence=result["confidence"],
-            status=result["status"],
-            dino_time_sec=result["time_sec"],
-            candidates=result["candidates"],
-        )
+        _save_result(run_item.run_id, result)
 
         return run_item, result
 
@@ -318,12 +392,90 @@ def _process_item(runner: DinoRunner, item: DinoWorkItem) -> tuple[DinoWorkItem,
         raise
 
 
+def _run_batched(
+    runner: DinoRunner,
+    items: list[DinoWorkItem],
+    batch_size: int,
+) -> tuple[int, int]:
+    """
+    Process items in batched embedding chunks, single-threaded.
+
+    If a whole chunk fails, it falls back to per-item processing so one bad
+    image cannot lose the rest of the chunk.
+    """
+
+    processed = 0
+    failed = 0
+    total = len(items)
+
+    for start in range(0, total, batch_size):
+        chunk = items[start:start + batch_size]
+
+        started_runs: list[DinoWorkItem] = []
+
+        for item in chunk:
+            try:
+                started_runs.append(start_run(item.run_id))
+            except Exception as exc:
+                failed += 1
+                print(f"[DINO Runner] FAILED {item.photo_id}: {exc}")
+
+        if not started_runs:
+            continue
+
+        try:
+            results = runner.recognize_many(started_runs)
+        except Exception as exc:
+            print(
+                f"[DINO Runner] batch of {len(started_runs)} failed "
+                f"({exc}); falling back per item"
+            )
+
+            for item in started_runs:
+                try:
+                    result = runner.recognize_one(item)
+                    _save_result(item.run_id, result)
+                    processed += 1
+                    print(
+                        f"[DINO Runner] DONE {processed}/{total} "
+                        f"{item.photo_id} score={result['score']:.4f} "
+                        f"time={result['time_sec']:.2f}s"
+                    )
+                except Exception as item_exc:
+                    failed += 1
+                    save_failure(
+                        item.run_id,
+                        error_message=redact_absolute_paths(repr(item_exc)),
+                        dino_time_sec=0.0,
+                    )
+                    print(f"[DINO Runner] FAILED {item.photo_id}: {item_exc}")
+
+            continue
+
+        for item, result in zip(started_runs, results):
+            try:
+                _save_result(item.run_id, result)
+                processed += 1
+                print(
+                    f"[DINO Runner] DONE {processed}/{total} "
+                    f"{item.photo_id} score={result['score']:.4f} "
+                    f"time={result['time_sec']:.2f}s"
+                )
+            except Exception as exc:
+                failed += 1
+                print(f"[DINO Runner] FAILED {item.photo_id}: {exc}")
+
+    return processed, failed
+
+
 def run_batch(
     batch_id: int,
     workers: int | None = None,
     limit: int | None = None,
+    batch_size: int | None = None,
 ):
     workers = resolve_workers(workers)
+    batch_size = resolve_batch(batch_size)
 
     batch = get_batch(batch_id)
 
@@ -358,6 +510,7 @@ def run_batch(
     print(f"[DINO Runner] status={batch.status}")
     print(f"[DINO Runner] pending_selected={len(items)}")
     print(f"[DINO Runner] workers={max(1, int(workers))}")
+    print(f"[DINO Runner] batch={batch_size}")
     if limit is not None:
         print(f"[DINO Runner] limit={limit}")
     print("=" * 70)
@@ -371,7 +524,9 @@ def run_batch(
     processed = 0
     failed = 0
 
-    if runner.workers == 1:
+    if runner.workers == 1 and batch_size > 1:
+        processed, failed = _run_batched(runner, items, batch_size)
+    elif runner.workers == 1:
         for item in items:
             try:
                 run_item, result = _process_item(runner, item)
@@ -465,12 +620,20 @@ def main():
         default=None,
     )
 
+    parser.add_argument(
+        "--batch",
+        type=int,
+        default=None,
+        help="images per DINO forward pass; default SCENE_DINO_BATCH (1)",
+    )
+
     args = parser.parse_args()
 
     run_batch(
         batch_id=args.batch_id,
         workers=args.workers,
         limit=args.limit,
+        batch_size=args.batch,
     )
 
 

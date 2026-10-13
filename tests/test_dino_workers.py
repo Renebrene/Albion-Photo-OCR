@@ -35,3 +35,17 @@ def test_invalid_workers_rejected():
 
 def test_default_workers_at_least_one():
     assert runner.default_workers() >= 1
+
+
+def test_explicit_batch_wins():
+    assert runner.resolve_batch(8) == 8
+
+
+def test_settings_batch_used(monkeypatch):
+    monkeypatch.setattr(runner, "settings", replace(settings, dino_batch=4))
+    assert runner.resolve_batch() == 4
+
+
+def test_invalid_batch_rejected():
+    with pytest.raises(ValueError):
+        runner.resolve_batch(0)

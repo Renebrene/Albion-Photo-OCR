@@ -32,6 +32,11 @@ class Settings:
         os.getenv("SCENE_DINO_WORKERS", "1")
     )
 
+    # Images per DINO forward pass in the batched path (1 = one image per call).
+    dino_batch: int = int(
+        os.getenv("SCENE_DINO_BATCH", "1")
+    )
+
     @property
     def fingerprints_dir(self):
         return self.data_dir / "fingerprints"
