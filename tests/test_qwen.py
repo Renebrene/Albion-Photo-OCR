@@ -7,6 +7,7 @@ model test runs only when QWEN_LIVE_TEST=1 (it calls Ollama).
 
 from __future__ import annotations
 
+import hashlib
 import os
 
 import pytest
@@ -95,20 +96,56 @@ requires_db = pytest.mark.skipif(
 )
 
 
-def _first_photo_id() -> str | None:
+# A throwaway photo owned by the tests. Never use a real corpus photo here:
+# these tests write and then DELETE the photo_qwen row, which would destroy
+# the real metadata of an existing photo.
+PROBE_PHOTO_ID = "PH_" + "8" * 24
+
+
+def _make_probe_photo(source_path: str | None = None) -> str:
+    path = source_path or f"/tmp/{PROBE_PHOTO_ID}.jpg"
+
     with qwen_db.get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("select photo_id from public.photos order by photo_id limit 1")
-            row = cur.fetchone()
-    return row[0] if row else None
+            cur.execute(
+                """
+                INSERT INTO public.photos (
+                    photo_id, source_path, filename, sha256,
+                    container_format, frame_count, width, height
+                )
+                VALUES (%s, %s, %s, %s, 'JPEG', 1, 10, 10)
+                ON CONFLICT (photo_id) DO UPDATE SET
+                    source_path = EXCLUDED.source_path,
+                    filename = EXCLUDED.filename,
+                    sha256 = EXCLUDED.sha256
+                """,
+                (
+                    PROBE_PHOTO_ID,
+                    path,
+                    os.path.basename(path),
+                    hashlib.sha256(PROBE_PHOTO_ID.encode()).hexdigest(),
+                ),
+            )
+
+    return PROBE_PHOTO_ID
+
+
+def _cleanup_probe_photo() -> None:
+    with qwen_db.get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM public.photo_qwen WHERE photo_id = %s",
+                (PROBE_PHOTO_ID,),
+            )
+            cur.execute(
+                "DELETE FROM public.photos WHERE photo_id = %s",
+                (PROBE_PHOTO_ID,),
+            )
 
 
 @requires_db
 def test_qwen_upsert_roundtrip():
-    photo_id = _first_photo_id()
-
-    if photo_id is None:
-        pytest.skip("no photos registered")
+    photo_id = _make_probe_photo()
 
     try:
         qwen_db.mark_running(photo_id)
@@ -139,12 +176,7 @@ def test_qwen_upsert_roundtrip():
         qwen_db.save_failure(photo_id, "boom")
         assert qwen_db.get(photo_id)["status"] == "FAILED"
     finally:
-        with qwen_db.get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "DELETE FROM public.photo_qwen WHERE photo_id = %s",
-                    (photo_id,),
-                )
+        _cleanup_probe_photo()
 
 
 @pytest.mark.skipif(
@@ -152,22 +184,20 @@ def test_qwen_upsert_roundtrip():
     reason="set QWEN_LIVE_TEST=1 to run the live Ollama smoke test",
 )
 @requires_db
-def test_qwen_live_smoke():
+def test_qwen_live_smoke(tmp_path):
+    from PIL import Image
+
     from app.qwen.processor import run_photo
 
-    photo_id = _first_photo_id()
+    # Use a throwaway photo with a real (temporary) image file.
+    image_path = tmp_path / "probe.jpg"
+    Image.new("RGB", (32, 24), color=(30, 90, 30)).save(image_path, format="JPEG")
 
-    if photo_id is None:
-        pytest.skip("no photos registered")
+    photo_id = _make_probe_photo(str(image_path))
 
     try:
         result = run_photo(photo_id)
         assert result["photo_id"] == photo_id
         assert qwen_db.get(photo_id)["status"] == "DONE"
     finally:
-        with qwen_db.get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "DELETE FROM public.photo_qwen WHERE photo_id = %s",
-                    (photo_id,),
-                )
+        _cleanup_probe_photo()
