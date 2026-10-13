@@ -1,28 +1,26 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Notify } from 'quasar'
 
 import {
   authImageUrl,
   downloadAuthenticated,
-  enqueueNlSearch,
-  fetchNlSearchJob,
   fetchPhotoDetails,
   originalUrl,
   previewUrl,
-  uploadPhotos,
 } from '../api/client'
 import AuthImage from '../components/AuthImage.vue'
+import DisplaySettings from '../components/DisplaySettings.vue'
+import { LIST_FIELDS, fieldText, useDisplayStore } from '../stores/display'
 import { usePhotosStore } from '../stores/photos'
 
 const store = usePhotosStore()
+const display = useDisplayStore()
 const { items, error, loading, addresses, clients, collections, savedSearches } =
   storeToRefs(store)
 
 const q = ref('')
-const nlQuery = ref('')
-const nlBusy = ref(false)
 const dateMode = ref('upload')
 const period = ref('month')
 const customFrom = ref(null)
@@ -51,10 +49,18 @@ const current = ref(null)
 const details = ref(null)
 const detailsLoading = ref(false)
 
-// upload (button + drag-and-drop)
-const fileInput = ref(null)
-const uploading = ref(false)
-const dragging = ref(false)
+// Display settings (tile count / list fields); the same panel also lives in
+// the technical section (component DisplaySettings).
+const settingsOpen = ref(false)
+const gridScrollEl = ref(null)
+
+const gridStyle = computed(() => ({
+  gridTemplateColumns: `repeat(${display.tileColumns}, minmax(0, 1fr))`,
+}))
+
+function scrollToTop() {
+  if (gridScrollEl.value) gridScrollEl.value.scrollTop = 0
+}
 
 // "В подборку" dialog
 const bucketOpen = ref(false)
@@ -100,9 +106,27 @@ function currentDates() {
 }
 
 onMounted(async () => {
+  window.addEventListener('keydown', onKeydown)
   await store.loadFacets()
   apply()
 })
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+})
+
+// Arrow keys page through the gallery in the order it is displayed.
+function onKeydown(event) {
+  if (!viewerOpen.value) return
+
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    stepPhoto(-1)
+  } else if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    stepPhoto(1)
+  }
+}
 
 async function apply() {
   const [dateFrom, dateTo] = currentDates()
@@ -281,93 +305,18 @@ async function downloadSelected() {
   }
 
   for (const photoId of [...store.selected]) {
+    // Use the real file name, not the PH_… id (item 11 of the UI backlog).
+    const photo = items.value.find((item) => item.photo_id === photoId)
     try {
-      await downloadAuthenticated(originalUrl(photoId), photoId)
+      await downloadAuthenticated(
+        originalUrl(photoId),
+        photo ? photo.filename : photoId,
+      )
     } catch (err) {
       Notify.create({ type: 'negative', message: err.message })
       break
     }
   }
-}
-
-function pickFiles() {
-  fileInput.value?.click()
-}
-
-async function onFilesChosen(event) {
-  const files = Array.from(event.target.files || [])
-  event.target.value = '' // allow re-picking the same file
-  await doUpload(files)
-}
-
-async function onDrop(event) {
-  dragging.value = false
-  await doUpload(Array.from(event.dataTransfer?.files || []))
-}
-
-async function doUpload(files) {
-  if (!files.length) return
-  uploading.value = true
-  try {
-    const result = await uploadPhotos(files)
-    const accepted = result.accepted ?? 0
-    const failed = (result.items || []).filter((item) => item.error).length
-    Notify.create({
-      type: accepted ? 'positive' : 'warning',
-      message: `Загружено: ${accepted}, ошибок: ${failed}`,
-    })
-    await store.refresh()
-    await store.loadFacets()
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  } finally {
-    uploading.value = false
-  }
-}
-
-async function runNlSearch() {
-  const query = nlQuery.value.trim()
-  if (!query) return
-
-  nlBusy.value = true
-  try {
-    const { job_id: jobId } = await enqueueNlSearch(query)
-
-    let job = null
-    for (let i = 0; i < 40; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 1500))
-      job = await fetchNlSearchJob(jobId)
-      if (job.status === 'DONE' || job.status === 'FAILED') break
-    }
-
-    if (!job || job.status !== 'DONE') {
-      Notify.create({
-        type: 'negative',
-        message: `NL-поиск: ${job ? job.status : 'таймаут'}`,
-      })
-      return
-    }
-
-    const ids = (job.result && job.result.photo_ids) || []
-    const truncated = job.result && job.result.truncated
-
-    Notify.create({
-      type: truncated ? 'warning' : 'info',
-      message: truncated
-        ? `NL-поиск: показаны первые ${ids.length} (есть ещё совпадения)`
-        : `NL-поиск: найдено ${ids.length}`,
-    })
-    await store.applyNlResults(ids)
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  } finally {
-    nlBusy.value = false
-  }
-}
-
-async function clearNlSearch() {
-  nlQuery.value = ''
-  await store.applyNlResults([])
 }
 
 async function onLoad(index, done) {
@@ -398,6 +347,33 @@ async function open(photo) {
 function viewerUrl() {
   return current.value ? previewUrl(current.value.photo_id, 'middle') : ''
 }
+
+// ---- viewer gallery navigation (arrows + left/right keys) ----
+
+const viewerIndex = computed(() =>
+  current.value
+    ? sortedItems.value.findIndex(
+        (photo) => photo.photo_id === current.value.photo_id,
+      )
+    : -1,
+)
+
+const canPrev = computed(() => viewerIndex.value > 0)
+const canNext = computed(
+  () => viewerIndex.value >= 0 && viewerIndex.value < sortedItems.value.length - 1,
+)
+
+async function stepPhoto(delta) {
+  const target = sortedItems.value[viewerIndex.value + delta]
+
+  if (target) await open(target)
+}
+
+function fieldLabel(key) {
+  const option = LIST_FIELDS.find((item) => item.value === key)
+  return option ? option.label : key
+}
+
 
 async function openOriginal(photo) {
   try {
@@ -433,10 +409,10 @@ function tagList(meta) {
 </script>
 
 <template>
-  <q-page class="q-pa-md">
-    <div class="row no-wrap q-col-gutter-md">
-      <!-- LEFT: period + addresses + clients + collections -->
-      <div class="col-auto" style="width: 360px; min-width: 320px">
+  <q-page class="photos-page q-pa-md">
+    <div class="row no-wrap q-col-gutter-md full-height">
+      <!-- LEFT: period + addresses + clients + collections (sticky, own scroll) -->
+      <div class="col-auto left-panel" style="width: 360px; min-width: 320px">
         <q-card flat bordered class="q-mb-sm">
           <q-card-section class="q-pb-sm">
             <div class="text-subtitle2 q-mb-sm">Период</div>
@@ -468,8 +444,8 @@ function tagList(meta) {
               </div>
             </div>
 
-            <div class="text-caption text-orange q-mt-xs">
-              «Дата съёмки» не сохраняется — фильтр по дате загрузки.
+            <div class="text-caption text-grey-7 q-mt-xs">
+              Пока фильтр по дате загрузки.
             </div>
           </q-card-section>
         </q-card>
@@ -488,19 +464,17 @@ function tagList(meta) {
                   v-for="item in addresses"
                   :key="item.address"
                   clickable
+                  :active="store.selectedAddresses.includes(item.address)"
+                  active-class="bg-primary text-white"
                   @click="pickAddress(item.address)"
                 >
-                  <q-item-section side>
-                    <q-checkbox
-                      :model-value="store.selectedAddresses.includes(item.address)"
-                      dense
-                      color="primary"
-                      @click.stop
-                      @update:model-value="pickAddress(item.address)"
-                    />
-                  </q-item-section>
                   <q-item-section>{{ item.address }}</q-item-section>
                   <q-item-section side>{{ item.count }}</q-item-section>
+                </q-item>
+                <q-item v-if="!addresses.length">
+                  <q-item-section class="text-caption text-grey">
+                    Нет адресов
+                  </q-item-section>
                 </q-item>
               </q-list>
             </q-scroll-area>
@@ -519,19 +493,17 @@ function tagList(meta) {
                   v-for="item in clients"
                   :key="item.client"
                   clickable
+                  :active="store.selectedClients.includes(item.client)"
+                  active-class="bg-secondary text-white"
                   @click="pickClient(item.client)"
                 >
-                  <q-item-section side>
-                    <q-checkbox
-                      :model-value="store.selectedClients.includes(item.client)"
-                      dense
-                      color="primary"
-                      @click.stop
-                      @update:model-value="pickClient(item.client)"
-                    />
-                  </q-item-section>
                   <q-item-section>{{ item.client }}</q-item-section>
                   <q-item-section side>{{ item.count }}</q-item-section>
+                </q-item>
+                <q-item v-if="!clients.length">
+                  <q-item-section class="text-caption text-grey">
+                    Нет клиентов
+                  </q-item-section>
                 </q-item>
               </q-list>
             </q-scroll-area>
@@ -623,31 +595,39 @@ function tagList(meta) {
         </q-card>
       </div>
 
-      <!-- RIGHT: toolbar + grid -->
-      <div class="col">
+      <!-- RIGHT: toolbar + grid with its own vertical scroll -->
+      <div class="col column full-height">
+        <!-- unified search bar: Enter = Поиск, icon button = Поиск -->
         <div class="row items-center q-gutter-sm q-mb-sm">
           <q-input
             v-model="q"
             dense
             outlined
             clearable
-            placeholder="Файл, клиент, бренд, категория…"
-            class="col-12 col-sm-3"
+            placeholder="Название файла, клиент, бренд, адрес"
+            class="col"
             @keyup.enter="apply"
-          />
-          <q-btn
-            color="primary"
-            icon="photo_library"
-            label="Показать фотографии"
-            @click="apply"
-          />
-          <q-btn flat icon="refresh" dense @click="store.refresh()" />
-          <q-btn flat icon="restart_alt" dense label="Сброс" @click="reset" />
+          >
+            <template #prepend>
+              <q-icon name="search" />
+            </template>
+          </q-input>
+          <q-btn dense color="primary" icon="search" label="ПОИСК" @click="apply" />
+          <q-btn dense flat icon="refresh" @click="store.refresh()">
+            <q-tooltip>Обновить</q-tooltip>
+          </q-btn>
+          <q-btn dense flat icon="restart_alt" @click="reset">
+            <q-tooltip>Сбросить фильтры и результаты поиска</q-tooltip>
+          </q-btn>
+        </div>
 
+        <!-- active filters, sorting, view mode and display settings in one row -->
+        <div class="row items-center q-gutter-xs q-mb-sm">
           <q-chip
             v-for="value in store.selectedAddresses"
             :key="`a-${value}`"
             removable
+            dense
             color="primary"
             text-color="white"
             @remove="pickAddress(value)"
@@ -658,6 +638,7 @@ function tagList(meta) {
             v-for="value in store.selectedClients"
             :key="`c-${value}`"
             removable
+            dense
             color="secondary"
             text-color="white"
             @remove="pickClient(value)"
@@ -693,39 +674,11 @@ function tagList(meta) {
             <template #list><q-icon name="view_list" /></template>
           </q-btn-toggle>
 
-          <div class="text-caption text-grey">{{ items.length }} фото</div>
-        </div>
+          <q-btn dense flat icon="settings" @click="settingsOpen = true">
+            <q-tooltip>Настройки отображения</q-tooltip>
+          </q-btn>
 
-        <div class="row items-center q-gutter-sm q-mb-sm">
-          <q-input
-            v-model="nlQuery"
-            dense
-            outlined
-            clearable
-            placeholder="Спросить: «вывески бренда Luvio»"
-            class="col-12 col-sm-6"
-            :disable="nlBusy"
-            @keyup.enter="runNlSearch"
-          />
-          <q-btn
-            dense
-            color="teal"
-            icon="auto_awesome"
-            label="NL-поиск"
-            :loading="nlBusy"
-            @click="runNlSearch"
-          />
-          <q-btn
-            v-if="store.nlIds.length"
-            dense
-            flat
-            icon="close"
-            label="Сбросить NL"
-            @click="clearNlSearch"
-          />
-          <q-badge v-if="store.nlIds.length" color="teal">
-            NL: {{ store.nlIds.length }}
-          </q-badge>
+          <div class="text-caption text-grey">{{ items.length }} фото</div>
         </div>
 
         <div class="row items-center q-gutter-sm q-mb-sm">
@@ -760,159 +713,176 @@ function tagList(meta) {
             label="Скачать выбранные"
             @click="downloadSelected"
           />
-          <q-btn
-            dense
-            color="primary"
-            icon="upload"
-            label="Загрузить"
-            :loading="uploading"
-            @click="pickFiles"
-          />
-          <input
-            ref="fileInput"
-            type="file"
-            accept="image/jpeg,.jpg,.jpeg"
-            multiple
-            class="hidden-input"
-            @change="onFilesChosen"
-          />
         </div>
 
         <div v-if="error" class="q-mb-md">
           <q-banner class="bg-red-1 text-negative">Ошибка: {{ error }}</q-banner>
         </div>
 
-        <q-infinite-scroll
-          @load="onLoad"
-          :offset="300"
-          class="drop-zone"
-          :class="{ 'drop-zone--active': dragging }"
-          @dragover.prevent="dragging = true"
-          @dragleave="dragging = false"
-          @drop.prevent="onDrop"
-        >
-          <div v-if="viewMode === 'tiles'" class="photo-grid">
-            <q-card
-              v-for="photo in sortedItems"
-              :key="photo.photo_id"
-              class="photo-card"
-            >
-              <q-checkbox
-                :model-value="store.isSelected(photo.photo_id)"
-                class="photo-check"
-                dense
-                color="primary"
-                @update:model-value="store.toggleSelected(photo.photo_id)"
-              />
-              <AuthImage
-                :url="previewUrl(photo.photo_id, 'small')"
-                :ratio="4 / 3"
-                class="cursor-pointer"
-                @click="open(photo)"
-              />
-              <q-card-section class="q-pa-xs">
-                <div class="ellipsis text-caption">{{ photo.filename }}</div>
-                <div v-if="photo.address" class="ellipsis text-caption text-grey-8">
-                  {{ photo.address }}
-                </div>
-                <div v-if="photo.client" class="ellipsis text-caption text-grey-8">
-                  {{ photo.client }}
-                </div>
-              </q-card-section>
-
-              <!-- right-click context menu -->
-              <q-menu context-menu touch-position>
-                <q-list dense style="min-width: 180px">
-                  <q-item clickable v-close-popup @click="open(photo)">
-                    <q-item-section avatar><q-icon name="visibility" /></q-item-section>
-                    <q-item-section>Открыть</q-item-section>
-                  </q-item>
-                  <q-item clickable v-close-popup @click="openOriginal(photo)">
-                    <q-item-section avatar><q-icon name="open_in_new" /></q-item-section>
-                    <q-item-section>Оригинал</q-item-section>
-                  </q-item>
-                  <q-item clickable v-close-popup @click="saveOriginal(photo)">
-                    <q-item-section avatar><q-icon name="download" /></q-item-section>
-                    <q-item-section>Сохранить</q-item-section>
-                  </q-item>
-                  <q-item clickable v-close-popup @click="addOneToBucket(photo)">
-                    <q-item-section avatar><q-icon name="bookmark_add" /></q-item-section>
-                    <q-item-section>В подборку</q-item-section>
-                  </q-item>
-                </q-list>
-              </q-menu>
-            </q-card>
-          </div>
-
-          <q-list v-else separator bordered class="rounded-borders">
-            <q-item
-              v-for="photo in sortedItems"
-              :key="photo.photo_id"
-              clickable
-              @click="open(photo)"
-            >
-              <q-item-section side>
+        <div ref="gridScrollEl" class="col grid-scroll">
+          <q-infinite-scroll @load="onLoad" :offset="300">
+            <div v-if="viewMode === 'tiles'" class="photo-grid" :style="gridStyle">
+              <q-card
+                v-for="photo in sortedItems"
+                :key="photo.photo_id"
+                class="photo-card"
+              >
                 <q-checkbox
                   :model-value="store.isSelected(photo.photo_id)"
+                  class="photo-check"
                   dense
                   color="primary"
-                  @click.stop
                   @update:model-value="store.toggleSelected(photo.photo_id)"
                 />
-              </q-item-section>
-              <q-item-section side>
                 <AuthImage
                   :url="previewUrl(photo.photo_id, 'small')"
-                  style="width: 64px; height: 48px"
-                  class="rounded-borders"
+                  :ratio="4 / 3"
+                  class="cursor-pointer"
+                  @click="open(photo)"
                 />
-              </q-item-section>
-              <q-item-section>
-                <q-item-label>{{ photo.filename }}</q-item-label>
-                <q-item-label caption>
-                  {{ photo.address || '—' }} · {{ photo.client || '—' }}
-                </q-item-label>
-              </q-item-section>
-              <q-item-section side>
-                <q-btn dense flat icon="more_vert" @click.stop>
-                  <q-menu>
-                    <q-list dense style="min-width: 180px">
-                      <q-item clickable v-close-popup @click="openOriginal(photo)">
-                        <q-item-section avatar><q-icon name="open_in_new" /></q-item-section>
-                        <q-item-section>Оригинал</q-item-section>
-                      </q-item>
-                      <q-item clickable v-close-popup @click="saveOriginal(photo)">
-                        <q-item-section avatar><q-icon name="download" /></q-item-section>
-                        <q-item-section>Сохранить</q-item-section>
-                      </q-item>
-                      <q-item clickable v-close-popup @click="addOneToBucket(photo)">
-                        <q-item-section avatar><q-icon name="bookmark_add" /></q-item-section>
-                        <q-item-section>В подборку</q-item-section>
-                      </q-item>
-                    </q-list>
-                  </q-menu>
-                </q-btn>
-              </q-item-section>
-            </q-item>
-          </q-list>
+                <q-card-section class="q-pa-xs">
+                  <div class="ellipsis text-caption">{{ photo.filename }}</div>
+                  <div
+                    v-if="photo.address"
+                    class="ellipsis text-caption text-grey-8"
+                  >
+                    {{ photo.address }}
+                  </div>
+                  <div
+                    v-if="photo.client"
+                    class="ellipsis text-caption text-grey-8"
+                  >
+                    {{ photo.client }}
+                  </div>
+                </q-card-section>
 
-          <template #loading>
-            <div class="row justify-center q-my-md">
-              <q-spinner-dots color="primary" size="40px" />
+                <!-- right-click context menu -->
+                <q-menu context-menu touch-position>
+                  <q-list dense style="min-width: 180px">
+                    <q-item clickable v-close-popup @click="open(photo)">
+                      <q-item-section avatar>
+                        <q-icon name="visibility" />
+                      </q-item-section>
+                      <q-item-section>Открыть</q-item-section>
+                    </q-item>
+                    <q-item clickable v-close-popup @click="openOriginal(photo)">
+                      <q-item-section avatar>
+                        <q-icon name="open_in_new" />
+                      </q-item-section>
+                      <q-item-section>Оригинал</q-item-section>
+                    </q-item>
+                    <q-item clickable v-close-popup @click="saveOriginal(photo)">
+                      <q-item-section avatar>
+                        <q-icon name="download" />
+                      </q-item-section>
+                      <q-item-section>Сохранить</q-item-section>
+                    </q-item>
+                    <q-item clickable v-close-popup @click="addOneToBucket(photo)">
+                      <q-item-section avatar>
+                        <q-icon name="bookmark_add" />
+                      </q-item-section>
+                      <q-item-section>В подборку</q-item-section>
+                    </q-item>
+                  </q-list>
+                </q-menu>
+              </q-card>
             </div>
-          </template>
-        </q-infinite-scroll>
 
-        <div v-if="!loading && !error && items.length === 0" class="text-grey q-mt-lg">
-          Ничего не найдено.
+              <q-list v-else separator bordered class="rounded-borders">
+              <q-item
+                v-for="photo in sortedItems"
+                :key="photo.photo_id"
+                clickable
+                @click="open(photo)"
+              >
+                <q-item-section side>
+                  <q-checkbox
+                    :model-value="store.isSelected(photo.photo_id)"
+                    dense
+                    color="primary"
+                    @click.stop
+                    @update:model-value="store.toggleSelected(photo.photo_id)"
+                  />
+                </q-item-section>
+                <q-item-section side>
+                  <AuthImage
+                    :url="previewUrl(photo.photo_id, 'small')"
+                    style="width: 64px; height: 48px"
+                    class="rounded-borders"
+                  />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label v-if="display.listFields.includes('filename')">
+                    {{ photo.filename }}
+                  </q-item-label>
+                  <q-item-label
+                    v-if="display.listFields.some((value) => value !== 'filename')"
+                    caption
+                  >
+                    <span
+                      v-for="(field, index) in display.listFields.filter(
+                        (value) => value !== 'filename',
+                      )"
+                      :key="field"
+                    >
+                      <template v-if="index"> · </template>
+                      {{ fieldLabel(field) }}: {{ fieldText(photo, field) }}
+                    </span>
+                  </q-item-label>
+                </q-item-section>
+                <q-item-section side>
+                  <q-btn dense flat icon="more_vert" @click.stop>
+                    <q-menu>
+                      <q-list dense style="min-width: 180px">
+                        <q-item clickable v-close-popup @click="openOriginal(photo)">
+                          <q-item-section avatar><q-icon name="open_in_new" /></q-item-section>
+                          <q-item-section>Оригинал</q-item-section>
+                        </q-item>
+                        <q-item clickable v-close-popup @click="saveOriginal(photo)">
+                          <q-item-section avatar><q-icon name="download" /></q-item-section>
+                          <q-item-section>Сохранить</q-item-section>
+                        </q-item>
+                        <q-item clickable v-close-popup @click="addOneToBucket(photo)">
+                          <q-item-section avatar><q-icon name="bookmark_add" /></q-item-section>
+                          <q-item-section>В подборку</q-item-section>
+                        </q-item>
+                      </q-list>
+                    </q-menu>
+                  </q-btn>
+                </q-item-section>
+              </q-item>
+            </q-list>
+
+            <template #loading>
+              <div class="row justify-center q-my-md">
+                <q-spinner-dots color="primary" size="40px" />
+              </div>
+            </template>
+          </q-infinite-scroll>
+
+          <div
+            v-if="!loading && !error && items.length === 0"
+            class="text-grey q-mt-lg"
+          >
+            Ничего не найдено.
+          </div>
         </div>
       </div>
     </div>
+
+    <q-page-sticky position="bottom-right" :offset="[18, 18]">
+      <q-btn fab-mini color="primary" icon="arrow_upward" @click="scrollToTop">
+        <q-tooltip>Наверх</q-tooltip>
+      </q-btn>
+    </q-page-sticky>
 
     <q-dialog v-model="viewerOpen">
       <q-card style="width: 1100px; max-width: 95vw; max-height: 92vh">
         <q-card-section class="row items-center q-pb-sm">
           <div class="text-subtitle1 col ellipsis">{{ current?.filename }}</div>
+          <div v-if="viewerIndex >= 0" class="text-caption text-grey q-mr-sm">
+            {{ viewerIndex + 1 }} / {{ sortedItems.length }}
+          </div>
           <q-btn dense flat icon="open_in_new" @click="openOriginal(current)">
             <q-tooltip>Открыть оригинал</q-tooltip>
           </q-btn>
@@ -924,13 +894,35 @@ function tagList(meta) {
         <q-separator />
 
         <div class="row no-wrap" style="max-height: 80vh">
-          <div class="col-7 column items-center bg-grey-3 q-pa-sm">
+          <div class="col-7 column items-center bg-grey-3 q-pa-sm relative-position">
+            <q-btn
+              class="viewer-nav viewer-nav--left"
+              round
+              dense
+              icon="chevron_left"
+              :disable="!canPrev"
+              @click="stepPhoto(-1)"
+            >
+              <q-tooltip>Предыдущее фото (←)</q-tooltip>
+            </q-btn>
+
             <AuthImage
               :url="viewerUrl()"
               :ratio="4 / 3"
               class="rounded-borders"
               style="max-width: 100%"
             />
+
+            <q-btn
+              class="viewer-nav viewer-nav--right"
+              round
+              dense
+              icon="chevron_right"
+              :disable="!canNext"
+              @click="stepPhoto(1)"
+            >
+              <q-tooltip>Следующее фото (→)</q-tooltip>
+            </q-btn>
           </div>
 
           <div class="col-5 column" style="overflow: auto">
@@ -1074,13 +1066,46 @@ function tagList(meta) {
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <!-- Display settings; the same panel is duplicated in the technical section -->
+    <q-dialog v-model="settingsOpen">
+      <q-card style="min-width: 380px; max-width: 90vw">
+        <q-card-section class="text-subtitle1">
+          Настройки отображения
+        </q-card-section>
+        <q-separator />
+        <q-card-section>
+          <DisplaySettings />
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Закрыть" v-close-popup />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
 <style scoped>
+/* The page itself does not scroll: the filter column is sticky and the grid
+   scrolls inside its own container, so the toolbars stay in place. */
+.photos-page {
+  height: calc(100vh - 50px);
+  overflow: hidden;
+}
+
+.left-panel {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.grid-scroll {
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .photo-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -1098,14 +1123,21 @@ function tagList(meta) {
   border-radius: 4px;
 }
 
-.hidden-input {
-  display: none;
+/* Transparent arrows over the preview image. */
+.viewer-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+  background: rgba(255, 255, 255, 0.25);
+  color: #212121;
 }
 
-.drop-zone--active {
-  outline: 2px dashed var(--q-primary);
-  outline-offset: 4px;
-  border-radius: 6px;
-  background: rgba(33, 150, 243, 0.06);
+.viewer-nav--left {
+  left: 6px;
+}
+
+.viewer-nav--right {
+  right: 6px;
 }
 </style>

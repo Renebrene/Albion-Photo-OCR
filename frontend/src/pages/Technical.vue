@@ -10,6 +10,7 @@ import FingerprintsList from '../components/FingerprintsList.vue'
 import LastRun from '../components/LastRun.vue'
 import DataModule from '../components/DataModule.vue'
 import Automation from '../components/Automation.vue'
+import DisplaySettings from '../components/DisplaySettings.vue'
 
 // Mirrors the legacy NiceGUI "технический раздел" (components/technical.py)
 // with its modules: photo_processing, qwen, automation, users, data.
@@ -32,6 +33,7 @@ const isAdmin = computed(() => session.user?.role === 'Администрато�
       <q-tab name="automation" icon="schedule" label="Автоматизация" />
       <q-tab name="system" icon="monitor_heart" label="Система" />
       <q-tab name="fingerprints" icon="fingerprint" label="Слепки" />
+      <q-tab name="display" icon="grid_view" label="Отображение" />
       <q-tab v-if="isAdmin" name="users" icon="group" label="Пользователи" />
       <q-tab name="data" icon="storage" label="Данные" />
     </q-tabs>
@@ -59,6 +61,21 @@ const isAdmin = computed(() => session.user?.role === 'Администрато�
 
       <q-tab-panel name="automation">
         <Automation />
+      </q-tab-panel>
+
+      <q-tab-panel name="display">
+        <q-card flat bordered style="max-width: 640px">
+          <q-card-section>
+            <div class="text-subtitle2 q-mb-sm">
+              Настройки отображения грида
+            </div>
+            <DisplaySettings />
+            <div class="text-caption text-grey q-mt-sm">
+              То же окно открывается шестерёнкой рядом с переключателем
+              «Плитка/Список» на странице фото.
+            </div>
+          </q-card-section>
+        </q-card>
       </q-tab-panel>
 
       <q-tab-panel v-if="isAdmin" name="users">
