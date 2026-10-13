@@ -10,8 +10,10 @@ SUPPORTED_EXTENSIONS = {".jpg", ".jpeg"}
 SUPPORTED_FORMATS = {"JPEG", "MPO"}
 
 # EXIF tags carrying the capture date, in order of preference.
-EXIF_DATETIME_ORIGINAL = 0x9003  # DateTimeOriginal
-EXIF_DATETIME_DIGITIZED = 0x9004  # DateTimeDigitized
+EXIF_DATETIME = 0x0132  # DateTime (0th IFD, usually write time)
+EXIF_DATETIME_ORIGINAL = 0x9003  # DateTimeOriginal (Exif sub-IFD)
+EXIF_DATETIME_DIGITIZED = 0x9004  # DateTimeDigitized (Exif sub-IFD)
+EXIF_SUB_IFD = 0x8769  # ExifOffset, pointer to the Exif sub-IFD
 EXIF_DATETIME_FORMAT = "%Y:%m:%d %H:%M:%S"
 
 
@@ -51,6 +53,10 @@ def read_taken_at(image: Image.Image) -> str | None:
     """
     Capture date of the currently selected frame, or None when unavailable.
 
+    DateTimeOriginal/DateTimeDigitized live in the Exif sub-IFD (ExifOffset),
+    which is where camera JPEGs put them; the 0th IFD usually only carries the
+    coarser "DateTime" tag, so it is the last resort.
+
     EXIF is best-effort metadata: an unreadable or absent block is not an
     error and must not fail the integrity check.
     """
@@ -63,8 +69,24 @@ def read_taken_at(image: Image.Image) -> str | None:
     if not exif:
         return None
 
-    for tag in (EXIF_DATETIME_ORIGINAL, EXIF_DATETIME_DIGITIZED):
-        taken_at = parse_exif_datetime(exif.get(tag))
+    values: list[object] = []
+
+    try:
+        sub_ifd = exif.get_ifd(EXIF_SUB_IFD)
+    except Exception:
+        sub_ifd = {}
+
+    if sub_ifd:
+        values.append(sub_ifd.get(EXIF_DATETIME_ORIGINAL))
+        values.append(sub_ifd.get(EXIF_DATETIME_DIGITIZED))
+
+    # Some writers (and Pillow's own test files) put the tags in the 0th IFD.
+    values.append(exif.get(EXIF_DATETIME_ORIGINAL))
+    values.append(exif.get(EXIF_DATETIME_DIGITIZED))
+    values.append(exif.get(EXIF_DATETIME))
+
+    for value in values:
+        taken_at = parse_exif_datetime(value)
 
         if taken_at:
             return taken_at

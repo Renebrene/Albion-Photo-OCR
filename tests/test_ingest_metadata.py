@@ -91,6 +91,30 @@ def test_read_taken_at_on_a_broken_exif_block_is_not_an_error(tmp_path):
     assert read_taken_at(Exploding()) is None
 
 
+def test_read_taken_at_prefers_the_exif_sub_ifd(tmp_path):
+    """Camera JPEGs keep DateTimeOriginal in the Exif sub-IFD, not the 0th IFD."""
+
+    path = tmp_path / "camera.jpg"
+    exif = Image.Exif()
+    exif.get_ifd(0x8769)[0x9003] = "2026:05:01 10:20:30"
+    Image.new("RGB", (16, 12), color=(9, 9, 9)).save(path, exif=exif)
+
+    with Image.open(path) as image:
+        assert read_taken_at(image) == "2026-05-01 10:20:30"
+
+
+def test_read_taken_at_falls_back_to_the_0th_ifd_datetime(tmp_path):
+    """Many cameras only fill the coarser DateTime (0x0132) tag."""
+
+    path = tmp_path / "datetime-only.jpg"
+    exif = Image.Exif()
+    exif[0x0132] = "2026:06:02 09:30:00"
+    Image.new("RGB", (16, 12), color=(7, 7, 7)).save(path, exif=exif)
+
+    with Image.open(path) as image:
+        assert read_taken_at(image) == "2026-06-02 09:30:00"
+
+
 # ---- scan (folder picker, no reads, no DB) ----
 
 

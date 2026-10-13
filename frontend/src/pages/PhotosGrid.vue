@@ -405,6 +405,39 @@ async function addOneToBucket(photo) {
 // QWEN metadata for the open photo (may be null when it has not run).
 const qwen = computed(() => (details.value ? details.value.qwen : null))
 
+// The open photo: the freshly fetched copy, falling back to the grid row
+// (which already carries the same fields, minus the QWEN metadata).
+const info = computed(
+  () => (details.value && details.value.photo) || current.value || null,
+)
+
+// QWEN status shown in the viewer: grey "НЕТ" (no result), red "!!!" (error),
+// orange "..." (queued or running) and green "ЕСТЬ" (done).
+const QWEN_STATUS = {
+  DONE: { label: 'ЕСТЬ', color: 'positive' },
+  FAILED: { label: '!!!', color: 'negative' },
+  PENDING: { label: '...', color: 'orange' },
+  RUNNING: { label: '...', color: 'orange' },
+}
+
+function qwenStatus(meta) {
+  if (!meta || !meta.status) return { label: 'НЕТ', color: 'grey' }
+  return QWEN_STATUS[meta.status] || { label: '...', color: 'orange' }
+}
+
+function day(value) {
+  return value ? String(value).slice(0, 10) : '—'
+}
+
+function pixels(photo) {
+  return photo?.width && photo?.height ? `${photo.width}×${photo.height}` : '—'
+}
+
+function megabytes(bytes) {
+  if (bytes === null || bytes === undefined) return '—'
+  return `${(bytes / 1024 / 1024).toFixed(1)} МБ`
+}
+
 function tagList(meta) {
   const tags = meta?.tags
   return Array.isArray(tags) ? tags : []
@@ -883,9 +916,17 @@ function tagList(meta) {
     <q-dialog v-model="viewerOpen">
       <q-card style="width: 1100px; max-width: 95vw; max-height: 92vh">
         <q-card-section class="row items-center q-pb-sm">
-          <div class="text-subtitle1 col ellipsis">{{ current?.filename }}</div>
-          <div v-if="viewerIndex >= 0" class="text-caption text-grey q-mr-sm">
-            {{ viewerIndex + 1 }} / {{ sortedItems.length }}
+          <!-- Simplified recognition address, with the position in the gallery. -->
+          <div class="col ellipsis">
+            <div class="text-subtitle1 ellipsis">
+              {{ current?.address || 'адрес не определён' }}
+              <span v-if="viewerIndex >= 0" class="text-grey-7">
+                ({{ viewerIndex + 1 }})
+              </span>
+            </div>
+            <div class="text-caption text-grey-7 ellipsis">
+              {{ current?.filename }}
+            </div>
           </div>
           <q-btn dense flat icon="open_in_new" @click="openOriginal(current)">
             <q-tooltip>Открыть оригинал</q-tooltip>
@@ -931,72 +972,100 @@ function tagList(meta) {
 
           <div class="col-5 column" style="overflow: auto">
             <q-card-section class="q-gutter-xs">
-              <div class="text-caption text-grey">ID: {{ current?.photo_id }}</div>
+              <div class="text-caption text-grey">ID</div>
+              <div class="ellipsis">{{ current?.photo_id }}</div>
 
               <div v-if="detailsLoading">
                 <q-spinner-dots color="primary" size="28px" />
               </div>
 
               <template v-else>
-                <div class="row q-col-gutter-xs">
-                  <div class="col-6">
-                    <div class="text-caption text-grey">Адрес (распознавание)</div>
-                    <div>{{ current?.address || '—' }}</div>
+                <div class="q-mt-sm">
+                  <div class="text-caption text-grey">Юридический адрес</div>
+                  <div>{{ info?.legal_address || '—' }}</div>
+                  <div
+                    v-if="!info?.legal_address"
+                    class="text-caption text-grey-6"
+                  >
+                    Справочник адресов ещё не подключён.
                   </div>
+                </div>
+
+                <div class="row q-col-gutter-xs q-mt-sm">
+                  <div class="col-6">
+                    <div class="text-caption text-grey">Дата съёмки</div>
+                    <div>{{ day(info?.taken_at) }}</div>
+                  </div>
+                  <div class="col-6">
+                    <div class="text-caption text-grey">Дата загрузки</div>
+                    <div>{{ day(info?.created_at) }}</div>
+                  </div>
+                </div>
+
+                <div class="row q-col-gutter-xs q-mt-sm">
+                  <div class="col-6">
+                    <div class="text-caption text-grey">Размер</div>
+                    <div>{{ pixels(info) }}</div>
+                  </div>
+                  <div class="col-6">
+                    <div class="text-caption text-grey">Вес</div>
+                    <div>{{ megabytes(info?.size_bytes) }}</div>
+                  </div>
+                </div>
+
+                <div class="row q-col-gutter-xs q-mt-sm">
                   <div class="col-6">
                     <div class="text-caption text-grey">Клиент</div>
                     <div>{{ current?.client || '—' }}</div>
                   </div>
+                  <div class="col-6">
+                    <div class="text-caption text-grey">Бренд</div>
+                    <div>{{ current?.brand || '—' }}</div>
+                  </div>
                 </div>
 
-                <template v-if="qwen">
-                  <div class="row q-col-gutter-xs q-mt-sm">
-                    <div class="col-6">
-                      <div class="text-caption text-grey">Бренд</div>
-                      <div>{{ qwen.brand || '—' }}</div>
-                    </div>
-                    <div class="col-6">
-                      <div class="text-caption text-grey">Категория</div>
-                      <div>{{ qwen.category || '—' }}</div>
-                    </div>
-                  </div>
+                <!-- QWEN status: grey НЕТ, red !!!, orange ..., green ЕСТЬ -->
+                <div class="row items-center q-gutter-xs q-mt-sm">
+                  <div class="text-caption text-grey">QWEN</div>
+                  <q-badge
+                    :color="qwenStatus(qwen).color"
+                    :label="qwenStatus(qwen).label"
+                  />
+                  <span v-if="qwen?.qwen_model" class="text-caption text-grey">
+                    {{ qwen.qwen_model }}
+                    <template v-if="qwen.qwen_time_sec">
+                      · {{ qwen.qwen_time_sec.toFixed(1) }} c
+                    </template>
+                  </span>
+                </div>
 
-                  <div class="row items-center q-gutter-xs q-mt-sm">
-                    <q-badge
-                      :color="qwen.status === 'DONE' ? 'positive' : (qwen.status === 'FAILED' ? 'negative' : 'grey')"
-                      :label="qwen.status"
-                    />
-                    <span class="text-caption text-grey">
-                      {{ qwen.qwen_model }}
-                      <template v-if="qwen.qwen_time_sec">
-                        · {{ qwen.qwen_time_sec.toFixed(1) }} c
-                      </template>
-                    </span>
-                  </div>
+                <div v-if="qwen?.category" class="q-mt-sm">
+                  <div class="text-caption text-grey">Категория</div>
+                  <div>{{ qwen.category }}</div>
+                </div>
 
-                  <div v-if="qwen.description" class="q-mt-sm">
-                    <div class="text-caption text-grey">Описание</div>
-                    <div class="text-body2">{{ qwen.description }}</div>
-                  </div>
+                <div v-if="qwen?.description" class="q-mt-sm">
+                  <div class="text-caption text-grey">Описание</div>
+                  <div class="text-body2">{{ qwen.description }}</div>
+                </div>
 
-                  <div v-if="qwen.error_message" class="q-mt-sm">
-                    <q-banner class="bg-red-1 text-negative text-caption">
-                      {{ qwen.error_message }}
-                    </q-banner>
-                  </div>
+                <div v-if="qwen?.error_message" class="q-mt-sm">
+                  <q-banner class="bg-red-1 text-negative text-caption">
+                    {{ qwen.error_message }}
+                  </q-banner>
+                </div>
 
-                  <div v-if="tagList(qwen).length" class="q-mt-sm">
-                    <div class="text-caption text-grey">Теги</div>
-                    <div class="row q-gutter-xs q-mt-xs">
-                      <q-chip v-for="tag in tagList(qwen)" :key="tag" dense>
-                        {{ tag }}
-                      </q-chip>
-                    </div>
+                <div v-if="tagList(qwen).length" class="q-mt-sm">
+                  <div class="text-caption text-grey">Теги</div>
+                  <div class="row q-gutter-xs q-mt-xs">
+                    <q-chip v-for="tag in tagList(qwen)" :key="tag" dense>
+                      {{ tag }}
+                    </q-chip>
                   </div>
-                </template>
+                </div>
 
-                <div v-else class="text-caption text-grey q-mt-md">
-                  QWEN-метаданных для этого фото нет.
+                <div v-if="!qwen" class="text-caption text-grey q-mt-md">
+                  QWEN-метаданных нет.
                 </div>
               </template>
             </q-card-section>

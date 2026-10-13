@@ -96,7 +96,7 @@ PhotoRecord → DATABASE IDENTITY CHECK → NEW / EXISTING / CONFLICT → INSERT
 7. определение контейнерного формата;
 8. определение ширины и высоты;
 9. определение количества кадров;
-9a. чтение даты съёмки из EXIF (`DateTimeOriginal`, fallback `DateTimeDigitized`, кадр 0) — best-effort: отсутствие или поломка EXIF не влияет на `integrity_status`;
+9a. чтение даты съёмки из EXIF (кадр 0): `DateTimeOriginal` из Exif sub-IFD (`ExifOffset 0x8769`), fallback `DateTimeDigitized` из того же IFD, затем `DateTime` (`0x0132`) из 0-го IFD — порядок важен, потому что камерные JPEG обычно держат `DateTimeOriginal` именно в под-IFD, а не в 0-м; best-effort: отсутствие или поломка EXIF не влияет на `integrity_status`;
 10. выполнение `Image.verify()`;
 11. повторное открытие файла;
 12. переход на frame 0 через `seek(0)`;

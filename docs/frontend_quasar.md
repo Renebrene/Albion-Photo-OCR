@@ -330,6 +330,13 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - **Пропуск уже обработанных**: файлы с совпадающей парой (имя, размер) помечаются `SKIPPED` без хеширования; решение о записи по-прежнему за `sha256` (NEW/EXISTING/CONFLICT). Такие строки остаются `NULL` до `scripts/backfill_photo_metadata.py` или повторной загрузки.
 - **Дата съёмки**: EXIF `DateTimeOriginal` сохраняется в `photos.taken_at` (`schema/018`), радио «Дата съёмки» в фильтре включено (`date_mode=capture` → фильтр по `taken_at`), поля даты/размера доступны в режиме «Список».
 
+### Срез 28 — карточка фото в просмотрщике
+
+- **Заголовок**: упрощённый адрес распознавания (`address`, например `83_v33`) и в скобках позиция фото в текущей выдаче; ниже — имя файла.
+- **Справа от превью**: ID; юридический адрес (пока «—» — справочник `address_directory` из legacy ещё не подключён, см. `legacy_gap_analysis.md`); дата съёмки / дата загрузки; размер в пикселях / вес в МБ; клиент / бренд; статус QWEN цветом и подписью — серый «НЕТ» (записи нет), красный «!!!» (`FAILED`), оранжевый «...» (`PENDING`/`RUNNING`), зелёный «ЕСТЬ» (`DONE`); описание; теги; текст ошибки.
+- **Данные**: `GET /v1/photos/{id}/details` → `{photo, qwen}`; `photo` теперь отдаёт `created_at`/`taken_at`/`size_bytes` (`_PHOTO_SELECT`).
+- **Исправления по ходу**: чтение `DateTimeOriginal` из Exif sub-IFD (`app/ingest/integrity.py`, иначе дата не находилась у камерных JPEG — бэкфилл дал 0 совпадений из 256); в `_PHOTO_DERIVED` убран дублирующийся `p.created_at AS created_at` (давал `AmbiguousColumn` в `GET /v1/photos`).
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.

@@ -26,7 +26,6 @@ _PHOTO_DERIVED = """
         p.width           AS width,
         p.height          AS height,
         p.container_format AS container_format,
-        p.created_at      AS created_at,
         COALESCE(
             (
                 SELECT h.hybrid_final_id
