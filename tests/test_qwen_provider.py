@@ -160,3 +160,33 @@ def test_openai_analyze_builds_request_and_parses(fake_settings, monkeypatch):
 def test_unload_is_noop_for_cloud(fake_settings):
     processor.update_settings(provider="openai", base_url="https://x/v1")
     assert processor.unload_model() is False
+
+
+# ---- analysis input: the local MIDDLE preview beats re-reading the original ----
+
+
+def test_analysis_input_prefers_the_middle_preview(tmp_path, monkeypatch):
+    photo_id = "PH_0123456789abcdef01234567"
+    middle = tmp_path / "middle" / f"{photo_id}.jpg"
+    middle.parent.mkdir(parents=True)
+    middle.write_bytes(b"preview")
+
+    monkeypatch.setattr(processor, "_PREVIEW_ROOT", tmp_path)
+
+    assert (
+        processor.analysis_input(photo_id, "/mnt/photos/a.jpg") == str(middle)
+    )
+
+
+def test_analysis_input_falls_back_to_the_original(tmp_path, monkeypatch):
+    monkeypatch.setattr(processor, "_PREVIEW_ROOT", tmp_path / "empty")
+
+    assert (
+        processor.analysis_input("PH_x", "/mnt/photos/a.jpg") == "/mnt/photos/a.jpg"
+    )
+
+
+def test_analysis_input_without_a_preview_root_uses_the_original(monkeypatch):
+    monkeypatch.setattr(processor, "_PREVIEW_ROOT", None)
+
+    assert processor.analysis_input("PH_x", "/mnt/photos/a.jpg") == "/mnt/photos/a.jpg"

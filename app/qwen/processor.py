@@ -17,10 +17,12 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
 import re
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 from PIL import Image
 
@@ -42,6 +44,11 @@ from app.qwen.config import (
 )
 
 MAX_IMAGE_SIDE = 1280
+
+# Where PREVIEW writes SMALL/MIDDLE JPEGs. Read straight from the environment
+# (same convention as app/api/config.py): importing app.core.config here would
+# pull torch into the API process, which imports this module for settings.
+_PREVIEW_ROOT = Path(os.getenv("SCENE_PREVIEW_ROOT", "data/preview"))
 
 PROMPT = (
     "Ты анализируешь фотографию городской застройки/вывески. "
@@ -548,6 +555,36 @@ def chat_text(prompt: str, config: dict | None = None) -> str:
     return message.get("content") or message.get("thinking") or ""
 
 
+def analysis_input(photo_id: str, source_path: str) -> str:
+    """
+    Pick the file to analyse: the local MIDDLE preview when it exists.
+
+    The preview is already the ≤1280 px JPEG that encode_image() would build
+    from the original, so the model sees the same input - but the original does
+    not have to be read again. That matters when the originals live on a
+    network share (INGEST/DINO also read them) and it removes a decode+resize
+    per photo. Falls back to the original when the preview is missing.
+    """
+
+    if not _PREVIEW_ROOT:
+        return source_path
+
+    try:
+        from app.preview.generator import build_preview_paths
+
+        middle = build_preview_paths(
+            preview_root=_PREVIEW_ROOT,
+            photo_id=photo_id,
+        ).middle
+
+        if Path(middle).is_file():
+            return str(middle)
+    except Exception:  # noqa: BLE001 - a missing preview must not fail QWEN
+        pass
+
+    return source_path
+
+
 def run_photo(photo_id: str) -> dict:
     """Full pipeline for one photo: load source, analyze, persist."""
 
@@ -562,7 +599,10 @@ def run_photo(photo_id: str) -> dict:
     db.mark_running(photo_id)
 
     try:
-        fields, raw, elapsed = analyze_image(source_path, config=config)
+        fields, raw, elapsed = analyze_image(
+            analysis_input(photo_id, source_path),
+            config=config,
+        )
     except urllib.error.URLError as exc:
         db.save_failure(
             photo_id,
