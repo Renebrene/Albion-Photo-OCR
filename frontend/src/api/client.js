@@ -367,6 +367,14 @@ export function setQwenModel(model) {
   return putJson(`${BASE}/v1/qwen/model`, { model })
 }
 
+export function fetchQwenSettings() {
+  return getJson(`${BASE}/v1/qwen/settings`)
+}
+
+export function updateQwenSettings(payload) {
+  return putJson(`${BASE}/v1/qwen/settings`, payload)
+}
+
 export function unloadQwen() {
   return postJson(`${BASE}/v1/qwen/unload`, {})
 }

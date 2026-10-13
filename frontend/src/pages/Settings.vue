@@ -7,15 +7,25 @@ import {
   enqueueQwen,
   fetchClientAliases,
   fetchQwenModels,
+  fetchQwenSettings,
   fetchQwenStats,
   saveClientAlias,
-  setQwenModel,
   unloadQwen,
+  updateQwenSettings,
 } from '../api/client'
 
 const loading = ref(false)
 const saving = ref(false)
 const error = ref(null)
+
+// provider settings
+const provider = ref('ollama')
+const baseUrl = ref('')
+const apiKey = ref('')
+const apiKeyHint = ref(null)
+const apiKeySet = ref(false)
+const keepAlive = ref('10m')
+const unloadOnIdle = ref(true)
 
 const model = ref(null)
 const available = ref([])
@@ -33,18 +43,33 @@ function sizeLabel(size) {
   return `${gb.toFixed(1)} GB`
 }
 
-async function load() {
+async function loadSettings() {
+  try {
+    const data = await fetchQwenSettings()
+    provider.value = data.provider || 'ollama'
+    baseUrl.value = data.base_url || ''
+    apiKeyHint.value = data.api_key_hint
+    apiKeySet.value = !!data.api_key_set
+    keepAlive.value = data.keep_alive || ''
+    unloadOnIdle.value = data.unload_on_idle !== false
+    apiKey.value = ''
+  } catch (err) {
+    error.value = err.message
+  }
+}
+
+async function loadModels() {
   loading.value = true
   error.value = null
 
   try {
     const data = await fetchQwenModels()
     available.value = (data.available || []).map((m) => ({
-      label: `${m.name} (${sizeLabel(m.size)})`,
+      label: `${m.name} ${m.size ? `(${sizeLabel(m.size)})` : ''}`.trim(),
       value: m.name,
     }))
     current.value = data.current
-    model.value = data.current
+    if (!model.value) model.value = data.current
   } catch (err) {
     error.value = err.message
   } finally {
@@ -74,13 +99,24 @@ async function retryFailed() {
 }
 
 async function save() {
-  if (!model.value) return
   saving.value = true
 
   try {
-    const data = await setQwenModel(model.value)
-    current.value = data.model
-    Notify.create({ type: 'positive', message: `Модель: ${data.model}` })
+    const payload = {
+      provider: provider.value,
+      model: model.value || undefined,
+      base_url: baseUrl.value,
+      keep_alive: keepAlive.value,
+      unload_on_idle: unloadOnIdle.value,
+    }
+
+    // Only send the key when the user typed a new one (blank = keep as is).
+    if (apiKey.value) payload.api_key = apiKey.value
+
+    await updateQwenSettings(payload)
+    await loadSettings()
+    await loadModels()
+    Notify.create({ type: 'positive', message: 'Настройки QWEN сохранены' })
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   } finally {
@@ -88,10 +124,26 @@ async function save() {
   }
 }
 
+async function clearKey() {
+  try {
+    await updateQwenSettings({ api_key: '' })
+    await loadSettings()
+    Notify.create({ type: 'info', message: 'API-ключ очищен' })
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
 async function unload() {
   try {
-    await unloadQwen()
-    Notify.create({ type: 'positive', message: 'Модель выгружена из памяти' })
+    const result = await unloadQwen()
+    Notify.create({
+      type: 'positive',
+      message:
+        result.status === 'unloaded'
+          ? 'Модель выгружена из памяти'
+          : 'Для облачного провайдера выгрузка не требуется',
+    })
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   }
@@ -131,26 +183,78 @@ async function removeAlias(alias) {
   }
 }
 
-onMounted(() => {
-  load()
+onMounted(async () => {
+  await loadSettings()
+  await loadModels()
   loadStats()
   loadAliases()
 })
 </script>
 
 <template>
-  <div style="max-width: 720px">
+  <div style="max-width: 760px">
     <div class="text-h6 q-mb-md">Модель QWEN</div>
 
     <div v-if="error" class="q-mb-md">
-      <q-banner class="bg-red-1 text-negative">
-        {{ error }}
-      </q-banner>
+      <q-banner class="bg-red-1 text-negative">{{ error }}</q-banner>
     </div>
 
     <q-card flat bordered>
       <q-card-section>
-        <div class="text-subtitle1 q-mb-sm">Модель QWEN (Ollama)</div>
+        <div class="text-subtitle1 q-mb-sm">Провайдер QWEN</div>
+
+        <q-select
+          v-model="provider"
+          :options="[
+            { label: 'Локально (Ollama)', value: 'ollama' },
+            { label: 'Облако (OpenAI-совместимый)', value: 'openai' },
+          ]"
+          dense
+          outlined
+          emit-value
+          map-options
+          label="Провайдер"
+          class="q-mb-md"
+        />
+
+        <q-banner
+          v-if="provider === 'openai'"
+          class="bg-orange-1 text-orange-10 q-mb-md"
+        >
+          Облачный провайдер отправляет изображения на внешний сервис.
+          Включайте только по согласованию и без персональных данных.
+        </q-banner>
+
+        <template v-if="provider === 'openai'">
+          <q-input
+            v-model="baseUrl"
+            dense
+            outlined
+            label="Base URL (например, https://api.openai.com/v1)"
+            class="q-mb-md"
+          />
+          <q-input
+            v-model="apiKey"
+            type="password"
+            dense
+            outlined
+            :label="
+              apiKeySet
+                ? `API-ключ (сохранён ${apiKeyHint || ''}) — пусто = не менять`
+                : 'API-ключ'
+            "
+            class="q-mb-md"
+          />
+          <q-btn
+            v-if="apiKeySet"
+            flat
+            dense
+            color="negative"
+            label="Очистить ключ"
+            class="q-mb-md"
+            @click="clearKey"
+          />
+        </template>
 
         <q-select
           v-model="model"
@@ -160,18 +264,35 @@ onMounted(() => {
           outlined
           emit-value
           map-options
+          use-input
+          input-debounce="0"
+          new-value-mode="add-unique"
           label="Модель"
           class="q-mb-md"
         />
 
+        <div class="row q-gutter-sm items-center q-mb-md">
+          <q-input
+            v-model="keepAlive"
+            dense
+            outlined
+            label="Keep-alive (0 = выгружать сразу)"
+            style="max-width: 220px"
+          />
+          <q-toggle
+            v-model="unloadOnIdle"
+            label="Выгружать при простое очереди"
+          />
+        </div>
+
         <div class="text-caption text-grey q-mb-md">
-          Текущая: <b>{{ current || '—' }}</b>. Модель выгружается из памяти
-          сразу после обработки каждого фото.
+          Текущая: <b>{{ current || '—' }}</b>. Keep-alive держит модель в
+          памяти между заданиями; при простое очереди воркер выгружает её.
         </div>
 
         <div class="q-gutter-sm">
           <q-btn color="primary" label="Сохранить" :loading="saving" @click="save" />
-          <q-btn flat icon="refresh" label="Обновить список" :loading="loading" @click="load" />
+          <q-btn flat icon="refresh" label="Обновить список" :loading="loading" @click="loadModels" />
           <q-btn flat color="orange" icon="memory" label="Выгрузить из памяти" @click="unload" />
         </div>
       </q-card-section>

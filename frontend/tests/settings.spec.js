@@ -14,6 +14,8 @@ Notify.create = vi.fn()
 
 let stats
 let enqueued
+let qwenSettings
+let updated
 
 function jsonResponse(body, status = 200) {
   return { ok: status < 400, status, json: async () => body }
@@ -24,15 +26,29 @@ function installFetch() {
     const method = (options.method || 'GET').toUpperCase()
     const path = String(url).split('?')[0]
 
+    if (method === 'GET' && path === '/api/v1/qwen/settings') {
+      return jsonResponse(qwenSettings)
+    }
+
+    if (method === 'PUT' && path === '/api/v1/qwen/settings') {
+      updated.push(JSON.parse(options.body))
+      return jsonResponse(qwenSettings)
+    }
+
     if (method === 'GET' && path === '/api/v1/qwen/models') {
       return jsonResponse({
         current: 'qwen3-vl:4b-instruct',
+        provider: 'ollama',
         available: [{ name: 'qwen3-vl:4b-instruct', size: 3_000_000_000 }],
       })
     }
 
     if (method === 'GET' && path === '/api/v1/qwen/stats') {
       return jsonResponse(stats)
+    }
+
+    if (method === 'GET' && path === '/api/v1/client-aliases') {
+      return jsonResponse({ items: [] })
     }
 
     if (method === 'POST' && path === '/api/v1/jobs/qwen') {
@@ -50,7 +66,17 @@ function mountSettings() {
 
 beforeEach(() => {
   enqueued = []
+  updated = []
   stats = { counts: { DONE: 256 }, failed_photo_ids: [] }
+  qwenSettings = {
+    provider: 'ollama',
+    model: 'qwen3-vl:4b-instruct',
+    base_url: '',
+    api_key_set: false,
+    api_key_hint: null,
+    keep_alive: '10m',
+    unload_on_idle: true,
+  }
   installFetch()
 })
 
@@ -79,6 +105,43 @@ describe('Settings.vue', () => {
 
     expect(retry).toBeTruthy()
     expect(retry.attributes('disabled')).toBeDefined()
+  })
+
+  it('warns when the cloud provider is selected', async () => {
+    qwenSettings = {
+      ...qwenSettings,
+      provider: 'openai',
+      base_url: 'https://api.example.com/v1',
+      api_key_set: true,
+      api_key_hint: '…1234',
+    }
+
+    const wrapper = mountSettings()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Облачный провайдер')
+  })
+
+  it('saves provider, keep-alive and idle-unload settings', async () => {
+    const wrapper = mountSettings()
+    await flushPromises()
+
+    const saveBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text() === 'Сохранить')
+    expect(saveBtn).toBeTruthy()
+
+    await saveBtn.trigger('click')
+    await flushPromises()
+
+    expect(updated).toHaveLength(1)
+    expect(updated[0]).toMatchObject({
+      provider: 'ollama',
+      keep_alive: '10m',
+      unload_on_idle: true,
+    })
+    // api_key is not sent when untouched.
+    expect(updated[0].api_key).toBeUndefined()
   })
 
   it('enqueues failed photos when retry is clicked', async () => {

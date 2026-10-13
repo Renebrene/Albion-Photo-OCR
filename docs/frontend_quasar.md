@@ -285,6 +285,14 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - `list_clients` группирует по каноническому имени; фильтр `client=` учитывает алиасы. Исходные `photo_qwen.client` не меняются.
 - **UI**: карточка «Нормализация клиентов» в «Настройки → QWEN» (список + добавить/удалить).
 
+### Срез 22 — провайдеры QWEN и keep-alive
+
+- **Провайдеры**: `ollama` (локальный, по умолчанию) и `openai` (OpenAI-совместимый облачный endpoint). Выбор, `base_url`, `api_key` (маскируется) и модель хранятся в `app_settings`; API `GET/PUT /v1/qwen/settings`.
+- **Keep-alive**: `keep_alive` держит локальную модель резидентной между заданиями; `unload_on_idle` выгружает её, когда очередь опустела (воркер, `_unload_on_idle`). Ручная выгрузка сохранена; для облака — no-op.
+- **NL-поиск** переведён на общий `chat_text()` активного провайдера.
+- **UI** (`Настройки → QWEN`): выбор провайдера, base URL/ключ для облака с предупреждением о передаче изображений наружу, модель, keep-alive, «выгружать при простое».
+- **Измерено**: cold 9,35 с → warm 2,60 с (**3,59×**) на `qwen3-vl:4b-instruct`; см. `docs/qwen_process.md` §6.1.
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.

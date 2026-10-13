@@ -107,9 +107,23 @@ class QwenJobRequest(BaseModel):
 
 
 class QwenModelRequest(BaseModel):
-    """Select the QWEN (Ollama) model used for metadata extraction."""
+    """Select the QWEN model used for metadata extraction."""
 
     model: str = Field(min_length=1, max_length=128)
+
+
+class QwenSettingsUpdate(BaseModel):
+    """Update QWEN provider/model/transport settings (partial)."""
+
+    provider: str | None = Field(
+        default=None, pattern=r"^(ollama|openai)$"
+    )
+    model: str | None = Field(default=None, min_length=1, max_length=128)
+    base_url: str | None = Field(default=None, max_length=512)
+    # None leaves the stored key unchanged; "" clears it.
+    api_key: str | None = Field(default=None, max_length=512)
+    keep_alive: str | None = Field(default=None, max_length=32)
+    unload_on_idle: bool | None = None
 
 
 class CollectionSummary(BaseModel):

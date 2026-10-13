@@ -12,10 +12,8 @@ from __future__ import annotations
 
 import json
 import re
-import urllib.request
 
-from app.qwen.config import OLLAMA_URL, QWEN_TIMEOUT
-from app.qwen.processor import resolve_model
+from app.qwen.processor import chat_text
 
 _OUTPUT_KEYS = ("q", "client", "brand", "category", "address")
 
@@ -52,35 +50,9 @@ def _extract_json(content) -> dict:
 
 
 def build_filters(query: str) -> dict:
-    """Ask QWEN to translate a NL query into structured filters."""
+    """Ask the active QWEN provider to translate a NL query into filters."""
 
-    body = json.dumps(
-        {
-            "model": resolve_model(),
-            "messages": [
-                {"role": "user", "content": f"{PROMPT}\n\nЗапрос: {query}"}
-            ],
-            "stream": False,
-            "format": "json",
-            "think": False,
-            "keep_alive": 0,
-            "options": {"temperature": 0},
-        }
-    ).encode("utf-8")
-
-    request = urllib.request.Request(
-        f"{OLLAMA_URL}/api/chat",
-        data=body,
-        headers={"Content-Type": "application/json"},
-    )
-
-    with urllib.request.urlopen(request, timeout=QWEN_TIMEOUT) as response:
-        payload = json.loads(response.read())
-
-    content = (payload.get("message") or {}).get("content")
-
-    if not content:
-        content = payload.get("response")
+    content = chat_text(f"{PROMPT}\n\nЗапрос: {query}")
 
     data = _extract_json(content)
 

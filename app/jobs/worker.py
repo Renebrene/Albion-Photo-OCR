@@ -51,13 +51,37 @@ def _execute(job: dict) -> dict:
     raise ValueError(f"Unsupported job type: {job_type}")
 
 
-def run_once() -> bool:
-    """Claim and execute one job. Returns False when the queue is empty."""
+# Jobs that may load the local QWEN model; used to decide idle unload.
+_MODEL_JOB_TYPES = {"QWEN_PHOTO", "NL_SEARCH"}
+
+
+def _unload_on_idle() -> bool:
+    """Unload the local model after the queue drains (if configured)."""
+
+    try:
+        from app.qwen import processor as qwen
+
+        if not qwen.resolve_settings()["unload_on_idle"]:
+            return False
+
+        return qwen.unload_model()
+    except Exception as exc:  # noqa: BLE001 - never break the loop
+        print(f"[worker] idle unload failed: {exc}", flush=True)
+        return False
+
+
+def run_once() -> str | None:
+    """
+    Claim and execute one job.
+
+    Returns the executed job_type, or None when the queue is empty (so a
+    `while run_once():` loop still works and callers can inspect the type).
+    """
 
     job = jobs.claim_next()
 
     if job is None:
-        return False
+        return None
 
     print(
         f"[worker] job {job['id']} {job['job_type']} "
@@ -70,11 +94,11 @@ def run_once() -> bool:
     except Exception as exc:  # noqa: BLE001 - reported to the queue
         jobs.mark_failed(job["id"], repr(exc))
         print(f"[worker] job {job['id']} FAILED: {exc}", flush=True)
-        return True
+        return str(job["job_type"])
 
     jobs.mark_done(job["id"], result)
     print(f"[worker] job {job['id']} DONE {result}", flush=True)
-    return True
+    return str(job["job_type"])
 
 
 def main() -> None:
@@ -119,12 +143,26 @@ def main() -> None:
 
     if not args.watch:
         processed = 0
-        while run_once():
+        model_used = False
+
+        while True:
+            job_type = run_once()
+
+            if job_type is None:
+                break
+
             processed += 1
+            model_used = model_used or job_type in _MODEL_JOB_TYPES
+
+        if model_used and _unload_on_idle():
+            print("[worker] QWEN model unloaded (queue drained)", flush=True)
+
         print(f"[worker] processed {processed} job(s)", flush=True)
         return
 
     print("[worker] watching for jobs (Ctrl+C to stop)", flush=True)
+    model_used = False
+
     while True:
         if args.automation:
             try:
@@ -134,8 +172,18 @@ def main() -> None:
             except Exception as exc:  # noqa: BLE001 - keep the loop alive
                 print(f"[worker] automation tick failed: {exc}", flush=True)
 
-        if not run_once():
+        job_type = run_once()
+
+        if job_type is None:
+            # Queue is empty: free the local model if it was used.
+            if model_used:
+                model_used = False
+                if _unload_on_idle():
+                    print("[worker] QWEN model unloaded (idle)", flush=True)
+
             time.sleep(args.interval)
+        elif job_type in _MODEL_JOB_TYPES:
+            model_used = True
 
 
 if __name__ == "__main__":

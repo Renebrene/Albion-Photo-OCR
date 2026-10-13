@@ -41,6 +41,7 @@ from app.api.schemas import (
     NlSearchRequest,
     QwenJobRequest,
     QwenModelRequest,
+    QwenSettingsUpdate,
     SavedSearchCreate,
     SelectionState,
     UserCreate,
@@ -821,17 +822,48 @@ def qwen_stats():
     }
 
 
+@read_router.get("/v1/qwen/settings", response_model=None)
+def qwen_settings():
+    """Active QWEN provider settings (api key masked)."""
+
+    return qwen.public_settings()
+
+
+@jobs_router.put(
+    "/v1/qwen/settings",
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def update_qwen_settings(request: QwenSettingsUpdate):
+    try:
+        return qwen.update_settings(
+            provider=request.provider,
+            model=request.model,
+            base_url=request.base_url,
+            api_key=request.api_key,
+            keep_alive=request.keep_alive,
+            unload_on_idle=request.unload_on_idle,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @read_router.get("/v1/qwen/models", response_model=None)
 def qwen_models():
+    config = qwen.resolve_settings()
+
     try:
-        available = qwen.list_models()
+        available = qwen.list_models(config)
     except Exception as exc:
         raise HTTPException(
             status_code=503,
-            detail=f"ollama unavailable: {exc}",
+            detail=f"provider '{config['provider']}' unavailable: {exc}",
         ) from exc
 
-    return {"current": qwen.resolve_model(), "available": available}
+    return {
+        "current": config["model"],
+        "provider": config["provider"],
+        "available": available,
+    }
 
 
 @jobs_router.put(
@@ -849,11 +881,17 @@ def set_qwen_model(request: QwenModelRequest):
 )
 def unload_qwen():
     try:
-        qwen.unload_model()
+        unloaded = qwen.unload_model()
     except Exception as exc:
         raise HTTPException(
             status_code=503,
             detail=f"ollama unavailable: {exc}",
         ) from exc
+
+    if not unloaded:
+        return {
+            "status": "not_applicable",
+            "provider": qwen.resolve_settings()["provider"],
+        }
 
     return {"status": "unloaded", "model": qwen.resolve_model()}

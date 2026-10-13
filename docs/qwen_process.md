@@ -90,11 +90,17 @@ daily ─> photo_id ──┤
 ## 6. Реализовано в текущем репозитории (2026-10-13)
 
 - Отдельная таблица `photo_qwen` (`schema/007_qwen.sql`), независима от DINO/INGEST; job `QWEN_PHOTO` в `job_queue`.
-- Транспорт — Ollama `/api/chat`, модель `qwen3-vl:4b-instruct` (`app/qwen/processor.py`); `think: false`, `keep_alive: 0`, `format: json`.
-- Поля: `description, address, client, brand, category, tags[]` (как в `app/qwen/processor.py`). Легаси-JSON-поля (colors/objects/environment/quality) **не переносились** — в промпте их нет.
+- Поля: `description, address, client, brand, category, tags[]`. Легаси-JSON-поля (colors/objects/environment/quality) **не переносились** — в промпте их нет.
 - **Стабильность парсинга (2026-10-13)**: ответ иногда обрывался по лимиту токенов (`done_reason: "length"`) → JSON не закрывался → `"no JSON object"`. Добавлены `options.num_predict = 512` и ограничение «tags не более 10»; ранее упавшие 2 фото + 1 без строки (MPO) обработаны. Итог: **256/256 DONE**.
 - Диагностика/повтор: `GET /v1/qwen/stats` (counts + `failed_photo_ids`); `POST /v1/jobs/qwen {"only_failed": true}` — повторный прогон упавших; кнопка в UI «Настройки → Метаданные QWEN».
 - NL-поиск: job `NL_SEARCH` (см. `docs/frontend_quasar.md`, Срез 17).
+
+### 6.1 Провайдеры и keep-alive (2026-10-13)
+
+- **Провайдер** выбирается на рантайме (таблица `app_settings`, поля в UI): `ollama` (локально, по умолчанию) или `openai` — OpenAI-совместимый облачный endpoint (`base_url` + `model` + `api_key`). Ключ хранится в настройках и **маскируется** в ответах (`public_settings`), наружу не отдаётся. Облако — осознанный opt-in: изображения уходят на внешний сервис (в UI есть предупреждение).
+- API: `GET /v1/qwen/settings` (маскированный вид), `PUT /v1/qwen/settings` (provider/model/base_url/api_key/keep_alive/unload_on_idle), `GET /v1/qwen/models` (модели активного провайдера), `POST /v1/qwen/unload` (для облака — no-op).
+- **Keep-alive**: `QWEN_KEEP_ALIVE` (по умолчанию `10m`) держит локальную модель резидентной между заданиями; `QWEN_UNLOAD_ON_IDLE` заставляет воркер выгружать её, когда очередь опустела. Ручная выгрузка остаётся.
+- **Замер (2026-10-13, qwen3-vl:4b-instruct, RTX 3060)**: одно фото cold **9,35 с** vs warm **2,60 с** — ускорение **3,59×**; `ollama ps` подтверждает резидентность. Ожидаемый эффект на очередь ≈ вдвое меньше суммарного времени относительно прежнего `keep_alive: 0` (сохранённое среднее 5,3 с/фото).
 
 ## 7. Источники
 
