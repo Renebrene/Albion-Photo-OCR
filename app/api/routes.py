@@ -557,15 +557,30 @@ def cancel_job(job_id: int):
 
     A job that is still PENDING is never claimed by the worker. One that is
     already RUNNING cannot be interrupted mid-step, but its result is
-    discarded: mark_done() refuses to publish into a cancelled row. Finished
-    jobs cannot be cancelled (409).
+    discarded: mark_done() refuses to publish into a cancelled row. A queued
+    media search drops its uploaded image here, because the worker that would
+    normally delete it never runs.
+
+    Unknown job -> 404; a job that already finished -> 409.
     """
+
+    job = jobs_db.get_job(job_id)
+
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+
+    was_queued = job.get("status") == "PENDING"
 
     if not jobs_db.mark_cancelled(job_id):
         raise HTTPException(
             status_code=409,
             detail="job is not pending or running",
         )
+
+    # A media search cancelled while it was still queued never reaches the
+    # worker, so the worker cannot delete the uploaded image: do it here.
+    if was_queued and job.get("job_type") == "MEDIA_SEARCH":
+        media_search.discard_query_file((job.get("payload") or {}).get("path"))
 
     return {"job_id": job_id, "status": "CANCELLED"}
 

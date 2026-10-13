@@ -167,6 +167,28 @@ def delete_query(path: str | Path) -> bool:
         return False
 
 
+def discard_query_file(path: object) -> bool:
+    """
+    Delete a job's query image, but only if it really lives in QUERY_DIR.
+
+    Used when a queued job is cancelled: the worker never runs it, so nothing
+    else would remove the uploaded file. The containment check keeps a crafted
+    job payload from turning this into "delete any file on the server".
+    """
+
+    if not isinstance(path, str) or not path:
+        return False
+
+    try:
+        candidate = Path(path).resolve(strict=True)
+        root = QUERY_DIR.resolve(strict=True)
+        candidate.relative_to(root)
+    except (OSError, ValueError):
+        return False
+
+    return delete_query(candidate)
+
+
 def description_filters(fields: dict) -> dict:
     """
     Turn the QWEN fields of the query image into search filters.

@@ -418,7 +418,23 @@ def test_media_search_job_lookup_rejects_other_job_types():
     assert response.status_code == 404
 
 
-def test_cancel_unknown_job_returns_409():
+def test_cancel_unknown_job_returns_404():
     response = client.post("/api/v1/jobs/999999999/cancel")
 
-    assert response.status_code == 409
+    assert response.status_code == 404
+
+
+def test_discard_query_file_only_touches_query_dir(query_dir, tmp_path):
+    """A crafted job payload must not turn cancel into "delete any file"."""
+
+    inside = media_search.store_query("inside.jpg", io.BytesIO(b"a" * 4))
+    outside = tmp_path / "outside.jpg"
+    outside.write_bytes(b"b" * 4)
+
+    assert media_search.discard_query_file(str(inside)) is True
+    assert media_search.discard_query_file(str(outside)) is False
+    assert media_search.discard_query_file("relative/path.jpg") is False
+    assert media_search.discard_query_file(None) is False
+
+    assert outside.exists()
+    assert not inside.exists()
