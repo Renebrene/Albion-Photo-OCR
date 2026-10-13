@@ -225,7 +225,14 @@ def _ollama_analyze(config: dict, path: str) -> tuple[dict, dict, float]:
             # Keep the model warm between consecutive jobs; settings control
             # the window (0 unloads immediately after each request).
             "keep_alive": config["keep_alive"],
-            "options": {"temperature": 0, "num_predict": MAX_OUTPUT_TOKENS},
+            "options": {
+            "temperature": 0,
+            # A caller may need a longer answer (the query-image description
+            # gets more room); the batch default is unchanged.
+            "num_predict": int(
+                config.get("max_output_tokens", MAX_OUTPUT_TOKENS)
+            ),
+        },
         }
     ).encode("utf-8")
 
@@ -361,6 +368,21 @@ _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
 
+class QwenParseError(ValueError):
+    """
+    The model answered, but not with the expected JSON object.
+
+    `raw` keeps the plain text of the answer so a caller that can live with
+    unstructured output (a search query, for instance) may still use it. Some
+    models ignore `think: false`, so the reasoning channel can hold prose and
+    the truncated answer never reaches the JSON.
+    """
+
+    def __init__(self, message: str, raw: str = ""):
+        super().__init__(message)
+        self.raw = raw
+
+
 def parse_result(content) -> dict:
     """Normalize the model's JSON into the expected field set."""
 
@@ -374,7 +396,7 @@ def parse_result(content) -> dict:
         text = _THINK_RE.sub("", text).strip()
 
         if not text:
-            raise ValueError("QWEN response is empty")
+            raise QwenParseError("QWEN response is empty")
 
         try:
             data = json.loads(text)
@@ -384,12 +406,18 @@ def parse_result(content) -> dict:
             match = _JSON_OBJECT_RE.search(text)
 
             if match is None:
-                raise ValueError("QWEN response has no JSON object")
+                raise QwenParseError(
+                    "QWEN response has no JSON object",
+                    raw=text,
+                )
 
             data = json.loads(match.group(0))
 
     if not isinstance(data, dict):
-        raise ValueError("QWEN response is not a JSON object")
+        raise QwenParseError(
+            "QWEN response is not a JSON object",
+            raw=str(content),
+        )
 
     result: dict = {}
 

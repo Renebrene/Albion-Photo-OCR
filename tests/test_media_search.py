@@ -235,6 +235,84 @@ def test_search_without_terms_makes_no_query(monkeypatch):
     assert media_search.search({"q": None, "brand": None})["count"] == 0
 
 
+def test_describe_falls_back_to_the_raw_answer(monkeypatch):
+    """A model that answers with prose must not fail the search job."""
+
+    from app.qwen.processor import QwenParseError
+
+    def prose(*_args, **_kwargs):
+        raise QwenParseError(
+            "QWEN response has no JSON object",
+            raw="<think>рассуждение</think> Городская улица, щит с врачом",
+        )
+
+    monkeypatch.setattr("app.qwen.processor.analyze_image", prose)
+
+    described = media_search.describe("query.jpg")
+
+    assert described["fallback"] is True
+    assert described["fields"]["description"] == "Городская улица, щит с врачом"
+    assert described["fields"]["brand"] is None
+
+
+def test_describe_reraises_an_empty_answer(monkeypatch):
+    from app.qwen.processor import QwenParseError
+
+    def empty(*_args, **_kwargs):
+        raise QwenParseError("QWEN response is empty", raw="   ")
+
+    monkeypatch.setattr("app.qwen.processor.analyze_image", empty)
+
+    with pytest.raises(QwenParseError):
+        media_search.describe("query.jpg")
+
+
+def test_describe_asks_the_model_for_a_longer_answer(monkeypatch):
+    seen: dict = {}
+
+    def capture(path, *, model=None, config=None):
+        seen["config"] = config
+        return ({"description": "щит"}, {}, 1.5)
+
+    monkeypatch.setattr("app.qwen.processor.analyze_image", capture)
+
+    described = media_search.describe("query.jpg")
+
+    assert described["fallback"] is False
+    assert described["seconds"] == 1.5
+    assert seen["config"]["max_output_tokens"] == media_search.QUERY_MAX_OUTPUT_TOKENS
+
+
+def test_run_reports_the_fallback_flag(monkeypatch):
+    monkeypatch.setattr(
+        media_search,
+        "describe",
+        lambda path: {
+            "fields": {"description": "улица", "tags": []},
+            "seconds": 0.0,
+            "fallback": True,
+        },
+    )
+    monkeypatch.setattr(
+        "app.api.repository.list_photos",
+        lambda **_kwargs: ([], None),
+    )
+
+    result = media_search.run("query.jpg")
+
+    assert result["fallback"] is True
+    assert result["filters"]["q"] == "улица"
+
+
+def test_parse_result_keeps_the_raw_text():
+    from app.qwen.processor import QwenParseError, parse_result
+
+    with pytest.raises(QwenParseError) as raised:
+        parse_result("просто текст без json")
+
+    assert raised.value.raw == "просто текст без json"
+
+
 # ---- worker branch ----
 
 

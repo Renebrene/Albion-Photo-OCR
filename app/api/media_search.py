@@ -25,6 +25,10 @@ from pathlib import Path
 
 from app.api.nl_search import MAX_PER_TERM, MAX_TOTAL
 
+# The raw answer may still carry a literal <think> block; it is not a search
+# phrase, so it is dropped before the fallback text is used.
+_THINK_TAGS = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
 MAX_FILE_BYTES = int(os.getenv("SCENE_SEARCH_MAX_BYTES", 25 * 1024 * 1024))
 
 # Deliberately outside SCENE_INBOX: query files are working copies, not photo
@@ -235,19 +239,61 @@ def search(filters: dict, *, limit: int = MAX_PER_TERM) -> dict:
     }
 
 
+# A query image gets more room than a batch photo: some models ignore
+# `think: false` and spend tokens on reasoning before the JSON.
+QUERY_MAX_OUTPUT_TOKENS = int(os.getenv("SCENE_SEARCH_MAX_TOKENS", "1024"))
+
+# Longest raw-model text kept as a search phrase when the JSON never arrives.
+MAX_FALLBACK_CHARS = 300
+
+
 def describe(path: str | Path, *, model: str | None = None) -> dict:
-    """Run the QWEN vision model over the query image (worker only)."""
+    """
+    Run the QWEN vision model over the query image (worker only).
 
-    from app.qwen.processor import analyze_image, resolve_settings
+    A photo search does not need the strict field set: when the model answers
+    with prose instead of JSON (it happens when the reasoning channel eats the
+    token budget), the text itself is used as the search phrase instead of
+    failing the job.
+    """
 
-    config = resolve_settings()
-    fields, _raw, seconds = analyze_image(
-        str(path),
-        model=model or config.get("model"),
-        config=config,
-    )
+    from app.qwen.processor import QwenParseError, analyze_image, resolve_settings
 
-    return {"fields": fields, "seconds": seconds}
+    config = {**resolve_settings(), "max_output_tokens": QUERY_MAX_OUTPUT_TOKENS}
+
+    try:
+        fields, _raw, seconds = analyze_image(
+            str(path),
+            model=model or config.get("model"),
+            config=config,
+        )
+    except QwenParseError as exc:
+        text = _plain_text(exc.raw)
+
+        if not text:
+            raise
+
+        return {
+            "fields": {
+                "description": text[:MAX_FALLBACK_CHARS],
+                "address": None,
+                "client": None,
+                "brand": None,
+                "category": None,
+                "tags": [],
+            },
+            "seconds": 0.0,
+            "fallback": True,
+        }
+
+    return {"fields": fields, "seconds": seconds, "fallback": False}
+
+
+def _plain_text(raw: str) -> str:
+    """Reduce a model answer to a single-line search phrase."""
+
+    text = _THINK_TAGS.sub(" ", str(raw or ""))
+    return " ".join(text.split())
 
 
 def run(path: str | Path) -> dict:
@@ -267,5 +313,8 @@ def run(path: str | Path) -> dict:
         "filters": filters,
         "qwen": fields,
         "qwen_time_sec": round(float(described["seconds"]), 3),
+        # True when the model answered with prose and the text itself became
+        # the search phrase.
+        "fallback": bool(described.get("fallback")),
         **result,
     }
