@@ -198,6 +198,41 @@ export function fetchNlSearchJob(jobId) {
   return getJson(`${BASE}/v1/jobs/nl-search/${jobId}`)
 }
 
+// Smart search by one uploaded photo. The file is transient on the server:
+// it is deleted once the worker finishes the job.
+export async function searchByMedia(file) {
+  const form = new FormData()
+  form.append('file', file)
+
+  // No Content-Type header: the browser sets the multipart boundary.
+  const response = await fetch(`${BASE}/v1/search/media`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: form,
+  })
+
+  if (!response.ok) {
+    let detail = `API error ${response.status}`
+    try {
+      const payload = await response.json()
+      if (payload && payload.detail) detail = payload.detail
+    } catch {
+      // ignore non-JSON error bodies
+    }
+    throw new Error(detail)
+  }
+
+  return response.json()
+}
+
+export function fetchMediaSearchJob(jobId) {
+  return getJson(`${BASE}/v1/jobs/media-search/${jobId}`)
+}
+
+export function cancelJob(jobId) {
+  return postJson(`${BASE}/v1/jobs/${jobId}/cancel`, {})
+}
+
 export function fetchAutomation() {
   return getJson(`${BASE}/v1/automation`)
 }

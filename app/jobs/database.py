@@ -20,6 +20,7 @@ JOB_TYPES = {
     "QWEN_PHOTO",
     "NL_SEARCH",
     "INGEST_DIR",
+    "MEDIA_SEARCH",
 }
 
 _JOB_COLUMNS = (
@@ -230,6 +231,33 @@ def mark_done(job_id: int, result: dict[str, Any] | None = None) -> None:
                 raise ValueError(
                     f"Cannot complete job {job_id}: not RUNNING"
                 )
+
+
+def mark_cancelled(job_id: int) -> bool:
+    """
+    Cancel a queued or running job.
+
+    PENDING flips to CANCELLED immediately and the worker never claims it. A
+    RUNNING job cannot be interrupted mid-step (the QWEN HTTP call finishes),
+    but its status changes too, so mark_done()/mark_failed() refuse to publish
+    the result and the worker discards it. Returns False when the job is
+    already finished or does not exist.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.job_queue
+                SET status = 'CANCELLED',
+                    finished_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+                  AND status IN ('PENDING', 'RUNNING')
+                """,
+                (job_id,),
+            )
+
+            return cur.rowcount == 1
 
 
 def requeue_stale(

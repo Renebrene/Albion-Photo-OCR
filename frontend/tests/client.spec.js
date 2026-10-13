@@ -4,9 +4,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  cancelJob,
+  fetchMediaSearchJob,
   fetchPhotos,
   getToken,
   setToken,
+  searchByMedia,
   uploadPhotos,
   createHybridRun,
 } from '../src/api/client'
@@ -120,5 +123,49 @@ describe('api client', () => {
     expect(options.body).toBeInstanceOf(FormData)
     // Browser must set the multipart boundary itself.
     expect(options.headers['Content-Type']).toBeUndefined()
+  })
+
+  it('sends one image as a media-search query', async () => {
+    mockFetchOnce(okJson({ job_id: 7 }))
+    const file = new File([new Uint8Array([1, 2, 3])], 'banner.jpg', {
+      type: 'image/jpeg',
+    })
+
+    const result = await searchByMedia(file)
+
+    const [url, options] = global.fetch.mock.calls[0]
+    expect(url).toContain('/v1/search/media')
+    expect(options.method).toBe('POST')
+    expect(options.body).toBeInstanceOf(FormData)
+    expect(options.headers['Content-Type']).toBeUndefined()
+    expect(result).toEqual({ job_id: 7 })
+  })
+
+  it('surfaces the server detail when the media search is rejected', async () => {
+    mockFetchOnce(errJson(400, { detail: 'not a decodable image' }))
+    const file = new File([new Uint8Array([1])], 'x.jpg', {
+      type: 'image/jpeg',
+    })
+
+    await expect(searchByMedia(file)).rejects.toThrow('not a decodable image')
+  })
+
+  it('reads a media-search job by id', async () => {
+    mockFetchOnce(okJson({ status: 'DONE', result: { photo_ids: [] } }))
+
+    const job = await fetchMediaSearchJob(12)
+
+    expect(global.fetch.mock.calls[0][0]).toContain('/v1/jobs/media-search/12')
+    expect(job.status).toBe('DONE')
+  })
+
+  it('cancels a job by id', async () => {
+    mockFetchOnce(okJson({ job_id: 12, status: 'CANCELLED' }))
+
+    await cancelJob(12)
+
+    const [url, options] = global.fetch.mock.calls[0]
+    expect(url).toContain('/v1/jobs/12/cancel')
+    expect(options.method).toBe('POST')
   })
 })

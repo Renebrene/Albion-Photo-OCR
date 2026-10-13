@@ -54,11 +54,24 @@ def _execute(job: dict) -> dict:
 
         return ingest_directory(str(payload["directory"]))
 
+    if job_type == "MEDIA_SEARCH":
+        from app.api.media_search import delete_query
+        from app.api.media_search import run as media_run
+
+        path = str(payload["path"])
+
+        try:
+            return media_run(path)
+        finally:
+            # The uploaded query image is transient by design: it exists only
+            # for the duration of the job.
+            delete_query(path)
+
     raise ValueError(f"Unsupported job type: {job_type}")
 
 
 # Jobs that may load the local QWEN model; used to decide idle unload.
-_MODEL_JOB_TYPES = {"QWEN_PHOTO", "NL_SEARCH"}
+_MODEL_JOB_TYPES = {"QWEN_PHOTO", "NL_SEARCH", "MEDIA_SEARCH"}
 
 
 def _unload_on_idle() -> bool:
@@ -98,12 +111,30 @@ def run_once() -> str | None:
     try:
         result = _execute(job)
     except Exception as exc:  # noqa: BLE001 - reported to the queue
-        # Store the message without absolute server paths.
-        jobs.mark_failed(job["id"], redact_absolute_paths(repr(exc)))
+        # A job cancelled while it ran keeps its CANCELLED status: the failure
+        # is not published (mark_failed refuses to touch a non-RUNNING row).
+        try:
+            # Store the message without absolute server paths.
+            jobs.mark_failed(job["id"], redact_absolute_paths(repr(exc)))
+        except ValueError:
+            print(
+                f"[worker] job {job['id']} was cancelled; error not recorded",
+                flush=True,
+            )
+
         print(f"[worker] job {job['id']} FAILED: {exc}", flush=True)
         return str(job["job_type"])
 
-    jobs.mark_done(job["id"], result)
+    try:
+        jobs.mark_done(job["id"], result)
+    except ValueError:
+        # Cancelled mid-run: the result is discarded, the status stays CANCELLED.
+        print(
+            f"[worker] job {job['id']} was cancelled; result discarded",
+            flush=True,
+        )
+        return str(job["job_type"])
+
     print(f"[worker] job {job['id']} DONE {result}", flush=True)
     return str(job["job_type"])
 

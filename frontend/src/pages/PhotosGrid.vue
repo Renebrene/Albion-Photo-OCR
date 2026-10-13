@@ -5,10 +5,13 @@ import { Notify } from 'quasar'
 
 import {
   authImageUrl,
+  cancelJob,
   downloadAuthenticated,
+  fetchMediaSearchJob,
   fetchPhotoDetails,
   originalUrl,
   previewUrl,
+  searchByMedia,
 } from '../api/client'
 import AuthImage from '../components/AuthImage.vue'
 import DisplaySettings from '../components/DisplaySettings.vue'
@@ -22,6 +25,24 @@ const { items, error, loading, addresses, clients, collections, savedSearches } 
 
 const q = ref('')
 const dateMode = ref('upload')
+
+// ---- smart search by an uploaded photo (item 2; photos only for now) ----
+const mediaInput = ref(null)
+const mediaFile = ref(null) // the chosen File, kept in memory until ПОИСК
+const mediaJobId = ref(null)
+const mediaStage = ref('')
+const mediaBusy = ref(false)
+
+const mediaName = computed(() => (mediaFile.value ? mediaFile.value.name : ''))
+
+const mediaStageText = computed(
+  () =>
+    ({
+      queued: 'в очереди…',
+      qwen: 'QWEN обрабатывает фото…',
+      search: 'поиск по базе…',
+    })[mediaStage.value] || 'обработка…',
+)
 const period = ref('month')
 const customFrom = ref(null)
 const customTo = ref(null)
@@ -204,6 +225,99 @@ async function reset() {
   store.collectionId = null
   store.clearSelection()
   await apply()
+}
+
+// ---- smart search by an uploaded photo ----
+
+function pickMedia() {
+  mediaInput.value?.click()
+}
+
+function onMediaChosen(event) {
+  const [file] = Array.from(event.target.files || [])
+  event.target.value = '' // allow re-picking the same file
+
+  mediaFile.value = file || null
+
+  if (file) {
+    // A media query and a text query are mutually exclusive.
+    q.value = ''
+  }
+}
+
+function clearMedia() {
+  mediaFile.value = null
+  mediaStage.value = ''
+  store.applyNlResults([])
+}
+
+async function runMediaSearch() {
+  if (!mediaFile.value || mediaBusy.value) return
+
+  mediaBusy.value = true
+  mediaStage.value = 'queued'
+
+  try {
+    const { job_id: jobId } = await searchByMedia(mediaFile.value)
+    mediaJobId.value = jobId
+
+    let job = null
+
+    // QWEN needs a few seconds per image; poll until the worker publishes it.
+    for (let i = 0; i < 60; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+      job = await fetchMediaSearchJob(jobId)
+
+      if (job.status === 'RUNNING') mediaStage.value = 'qwen'
+      if (['DONE', 'FAILED', 'CANCELLED'].includes(job.status)) break
+    }
+
+    if (!job || job.status === 'CANCELLED') {
+      Notify.create({ type: 'info', message: 'Поиск остановлен' })
+      return
+    }
+
+    if (job.status !== 'DONE') {
+      Notify.create({
+        type: 'negative',
+        message: `ИИ-поиск: ${job ? job.status : 'таймаут'}`,
+      })
+      return
+    }
+
+    const result = job.result || {}
+    const ids = result.photo_ids || []
+    const truncated = result.truncated
+    const described = result.qwen && result.qwen.description
+
+    Notify.create({
+      type: truncated ? 'warning' : 'info',
+      message: truncated
+        ? `ИИ-поиск: показаны первые ${ids.length} (есть ещё совпадения)`
+        : `ИИ-поиск: найдено ${ids.length}${
+            described ? ` — «${described}»` : ''
+          }`,
+    })
+
+    await store.applyNlResults(ids)
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    mediaBusy.value = false
+    mediaJobId.value = null
+    mediaStage.value = ''
+  }
+}
+
+async function stopMediaSearch() {
+  if (!mediaJobId.value) return
+
+  try {
+    await cancelJob(mediaJobId.value)
+    Notify.create({ type: 'info', message: 'Поиск остановлен' })
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
 }
 
 // ---- saved searches ----
@@ -634,26 +748,84 @@ function tagList(meta) {
 
       <!-- RIGHT: toolbar + grid with its own vertical scroll -->
       <div class="col column full-height">
-        <!-- unified search bar: Enter = Поиск, icon button = Поиск -->
+        <!-- unified search bar: Enter = Поиск, camera = search by a photo -->
         <div class="row items-center q-gutter-sm q-mb-sm">
           <q-input
             v-model="q"
             dense
             outlined
             clearable
-            placeholder="Название файла, клиент, бренд, адрес"
+            :disable="!!mediaFile"
+            :placeholder="
+              mediaFile ? '' : 'Название файла, клиент, бренд, адрес'
+            "
             class="col"
             @keyup.enter="apply"
           >
             <template #prepend>
-              <q-icon name="search" />
+              <q-icon :name="mediaFile ? 'image' : 'search'" />
             </template>
           </q-input>
-          <q-btn dense color="primary" icon="search" label="ПОИСК" @click="apply" />
-          <q-btn dense flat icon="refresh" @click="store.refresh()">
+
+          <!-- the chosen image is named right in the search row -->
+          <q-chip
+            v-if="mediaFile"
+            dense
+            removable
+            color="teal"
+            text-color="white"
+            icon="photo_camera"
+            @remove="clearMedia"
+          >
+            {{ mediaName }} (фото)
+          </q-chip>
+
+          <q-btn dense flat icon="photo_camera" :disable="mediaBusy" @click="pickMedia">
+            <q-tooltip>Умный поиск по фото (одно изображение)</q-tooltip>
+          </q-btn>
+          <input
+            ref="mediaInput"
+            type="file"
+            accept="image/jpeg,image/png,.jpg,.jpeg,.png"
+            class="hidden-input"
+            @change="onMediaChosen"
+          />
+
+          <!-- ПОИСК turns into ИИ-поиск for an image, and into СТОП while it runs -->
+          <q-btn
+            v-if="mediaBusy"
+            dense
+            color="negative"
+            icon="stop"
+            label="СТОП"
+            @click="stopMediaSearch"
+          />
+          <q-btn
+            v-else-if="mediaFile"
+            dense
+            color="teal"
+            icon="auto_awesome"
+            label="ИИ-ПОИСК"
+            @click="runMediaSearch"
+          />
+          <q-btn
+            v-else
+            dense
+            color="primary"
+            icon="search"
+            label="ПОИСК"
+            @click="apply"
+          />
+
+          <q-spinner-dots v-if="mediaBusy" color="teal" size="24px" />
+          <span v-if="mediaBusy" class="text-caption text-grey">
+            {{ mediaStageText }}
+          </span>
+
+          <q-btn dense flat icon="refresh" :disable="mediaBusy" @click="store.refresh()">
             <q-tooltip>Обновить</q-tooltip>
           </q-btn>
-          <q-btn dense flat icon="restart_alt" @click="reset">
+          <q-btn dense flat icon="restart_alt" :disable="mediaBusy" @click="reset">
             <q-tooltip>Сбросить фильтры и результаты поиска</q-tooltip>
           </q-btn>
         </div>
@@ -1185,6 +1357,10 @@ function tagList(meta) {
 .photo-card {
   position: relative;
   overflow: hidden;
+}
+
+.hidden-input {
+  display: none;
 }
 
 .photo-check {

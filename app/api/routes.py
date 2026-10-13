@@ -26,6 +26,7 @@ from fastapi import (
 from app import settings_store
 from app.api import repository
 from app.api import data as data_mod
+from app.api import media_search
 from app.api import sources
 from app.api import system as sysinfo
 from app.api import upload as upload_mod
@@ -541,6 +542,89 @@ def get_job(job_id: int):
 
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
+
+    return job
+
+
+@jobs_router.post(
+    "/v1/jobs/{job_id}/cancel",
+    response_model=None,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def cancel_job(job_id: int):
+    """
+    Cancel a queued job (and mark a running one cancelled).
+
+    A job that is still PENDING is never claimed by the worker. One that is
+    already RUNNING cannot be interrupted mid-step, but its result is
+    discarded: mark_done() refuses to publish into a cancelled row. Finished
+    jobs cannot be cancelled (409).
+    """
+
+    if not jobs_db.mark_cancelled(job_id):
+        raise HTTPException(
+            status_code=409,
+            detail="job is not pending or running",
+        )
+
+    return {"job_id": job_id, "status": "CANCELLED"}
+
+
+# ---------------------------------------------------------------------------
+# Smart search by an uploaded photo (transient: the file is deleted by the
+# worker once the job finishes)
+# ---------------------------------------------------------------------------
+
+
+@searches_router.post(
+    "/v1/search/media",
+    status_code=202,
+    dependencies=[Depends(require_scope("searches:write"))],
+)
+def search_by_media(file: UploadFile = File(...)):
+    """
+    Enqueue a search by one uploaded photo.
+
+    The image is stored in a dedicated working folder, verified with a real
+    decoder and dropped if it is not an image. The QWEN description and the
+    photo search run in the worker (job_type MEDIA_SEARCH); poll
+    GET /v1/jobs/media-search/{id} for {qwen, filters, photo_ids, count}.
+    """
+
+    try:
+        stored = media_search.store_query(file.filename, file.file)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        media_search.verify_image(stored)
+    except ValueError as exc:
+        media_search.delete_query(stored)
+        raise HTTPException(
+            status_code=400,
+            detail="not a decodable image",
+        ) from exc
+
+    job_id = jobs_db.enqueue(
+        "MEDIA_SEARCH",
+        {"path": str(stored), "filename": stored.name},
+    )
+
+    return {"job_id": job_id}
+
+
+@searches_router.get(
+    "/v1/jobs/media-search/{job_id}",
+    response_model=None,
+    dependencies=[Depends(require_scope("read"))],
+)
+def get_media_search(job_id: int):
+    """Return a media-search job (status + result), readable with `read`."""
+
+    job = jobs_db.get_job(job_id)
+
+    if job is None or job.get("job_type") != "MEDIA_SEARCH":
+        raise HTTPException(status_code=404, detail="media search not found")
 
     return job
 
