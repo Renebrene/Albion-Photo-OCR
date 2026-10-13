@@ -24,6 +24,7 @@ from fastapi import (
 )
 
 from app import settings_store
+from app.api import directory as directory_mod
 from app.api import repository
 from app.api import data as data_mod
 from app.api import media_search
@@ -34,6 +35,9 @@ from app.api.auth import auth_enabled, require_scope, resolve_principal
 from app.api.config import ORIGINALS_ROOTS, PREVIEW_ROOT
 from app.core.errors import redact_paths
 from app.api.schemas import (
+    AddressCreate,
+    AddressFingerprintsRequest,
+    AddressUpdate,
     AutomationUpdate,
     ClientAliasRequest,
     CollectionCreate,
@@ -68,6 +72,7 @@ originals_router = APIRouter()
 jobs_router = APIRouter()
 collections_router = APIRouter()
 searches_router = APIRouter()
+addresses_router = APIRouter()
 uploads_router = APIRouter()
 auth_router = APIRouter()
 users_router = APIRouter()
@@ -1155,3 +1160,130 @@ def run_ingest(request: SourceRunRequest):
         "skipped": job_id is None,
         "directory": str(directory),
     }
+
+
+# ---------------------------------------------------------------------------
+# Address directory (schema/022): legal and simplified names for fingerprints
+# ---------------------------------------------------------------------------
+
+
+def _directory_error(exc: directory_mod.DirectoryError) -> HTTPException:
+    """Map a directory validation error to a client error without internals."""
+
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+@addresses_router.get(
+    "/v1/addresses/directory",
+    response_model=None,
+    dependencies=[Depends(require_scope("read"))],
+)
+def list_address_directory():
+    """Every address with the fingerprint ids mapped to it."""
+
+    return {"items": directory_mod.list_addresses()}
+
+
+@addresses_router.get(
+    "/v1/addresses/unassigned",
+    response_model=None,
+    dependencies=[Depends(require_scope("read"))],
+)
+def list_unassigned_fingerprints():
+    """
+    Fingerprints found on disk that no address owns yet.
+
+    Lets the UI offer the ids that still need a name instead of asking the
+    user to type a technical id by hand.
+    """
+
+    known = [item["id"] for item in sysinfo.list_fingerprints()]
+
+    return {"items": directory_mod.unassigned_fingerprints(known)}
+
+
+@addresses_router.post(
+    "/v1/addresses/directory",
+    status_code=201,
+    response_model=None,
+    dependencies=[Depends(require_scope("addresses:write"))],
+)
+def create_address(request: AddressCreate):
+    """Create one address (at least one of the two names must be filled)."""
+
+    try:
+        return directory_mod.create_address(
+            legal_address=request.legal_address,
+            simple_address=request.simple_address,
+            sort_order=request.sort_order,
+        )
+    except directory_mod.DirectoryError as exc:
+        raise _directory_error(exc) from exc
+
+
+@addresses_router.put(
+    "/v1/addresses/directory/{address_id}",
+    response_model=None,
+    dependencies=[Depends(require_scope("addresses:write"))],
+)
+def update_address(address_id: int, request: AddressUpdate):
+    """Update the supplied fields; omitted ones keep their value."""
+
+    try:
+        updated = directory_mod.update_address(
+            address_id,
+            legal_address=request.legal_address,
+            simple_address=request.simple_address,
+            active=request.active,
+            sort_order=request.sort_order,
+        )
+    except directory_mod.DirectoryError as exc:
+        raise _directory_error(exc) from exc
+
+    if updated is None:
+        raise HTTPException(status_code=404, detail="address not found")
+
+    return updated
+
+
+@addresses_router.delete(
+    "/v1/addresses/directory/{address_id}",
+    response_model=None,
+    dependencies=[Depends(require_scope("addresses:write"))],
+)
+def delete_address(address_id: int):
+    """Delete an address; its fingerprint mappings go with it."""
+
+    if not directory_mod.delete_address(address_id):
+        raise HTTPException(status_code=404, detail="address not found")
+
+    return {"address_id": address_id, "deleted": True}
+
+
+@addresses_router.put(
+    "/v1/addresses/directory/{address_id}/fingerprints",
+    response_model=None,
+    dependencies=[Depends(require_scope("addresses:write"))],
+)
+def set_address_fingerprints(
+    address_id: int,
+    request: AddressFingerprintsRequest,
+):
+    """
+    Replace the fingerprint ids of an address (the list is the new set).
+
+    A fingerprint id belongs to one address: ids listed here are moved.
+    """
+
+    try:
+        updated = directory_mod.set_fingerprints(
+            address_id,
+            request.fingerprints,
+        )
+    except directory_mod.DirectoryError as exc:
+        raise _directory_error(exc) from exc
+
+    if updated is None:
+        raise HTTPException(status_code=404, detail="address not found")
+
+    return updated

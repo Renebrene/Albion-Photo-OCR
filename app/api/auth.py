@@ -31,6 +31,9 @@ ROLE_SCOPES: dict[str, set[str]] = {
         "searches:write",
         "upload:write",
         "jobs:read",
+        # Names for the addresses (schema/022) are day-to-day curation work,
+        # not administration: the manager may edit them.
+        "addresses:write",
     },
     "Гость": {"read"},
 }

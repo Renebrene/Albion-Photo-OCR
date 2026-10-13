@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.auth import validate_token_config
 from app.api.config import API_HOST, API_PORT, CORS_ORIGINS
 from app.api.routes import (
+    addresses_router,
     auth_router,
     collections_router,
     jobs_router,
@@ -66,6 +67,7 @@ def create_app() -> FastAPI:
     app.include_router(jobs_router, prefix="/api")
     app.include_router(collections_router, prefix="/api")
     app.include_router(searches_router, prefix="/api")
+    app.include_router(addresses_router, prefix="/api")
     app.include_router(uploads_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
     app.include_router(users_router, prefix="/api")

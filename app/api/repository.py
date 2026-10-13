@@ -19,7 +19,7 @@ from app.ingest.database import get_connection
 
 # Address comes from the recognition pipeline (HYBRID verdict, falling back to
 # the DINO best candidate); `client` comes from the parallel QWEN metadata.
-_PHOTO_DERIVED = """
+_PHOTO_BASE = """
     SELECT
         p.photo_id        AS photo_id,
         p.filename        AS filename,
@@ -57,9 +57,27 @@ _PHOTO_DERIVED = """
     LEFT JOIN public.photo_qwen AS q ON q.photo_id = p.photo_id
 """
 
+# The recognised id (t.address) is resolved to the directory names in an outer
+# query: the id is computed above, so it cannot be joined inside the same
+# SELECT. Photos without a mapping read back with NULL names.
+_PHOTO_DERIVED = """
+    SELECT
+        t.*,
+        d.legal_address AS legal_address,
+        d.simple_address AS simple_address
+    FROM (""" + _PHOTO_BASE + """) AS t
+    LEFT JOIN public.address_fingerprints AS f
+           ON f.fingerprint_id = t.address
+          AND f.active
+    LEFT JOIN public.address_directory AS d
+           ON d.address_id = f.address_id
+          AND d.active
+"""
+
 _PHOTO_SELECT = (
     "SELECT photo_id, filename, width, height, container_format, "
-    "address, client, brand, category, created_at, taken_at, size_bytes "
+    "address, client, brand, category, created_at, taken_at, size_bytes, "
+    "legal_address, simple_address "
     "FROM (" + _PHOTO_DERIVED + ") AS t"
 )
 
@@ -78,6 +96,8 @@ def _photo_row(row) -> PhotoSummary:
         created_at=row[9],
         taken_at=row[10],
         size_bytes=row[11],
+        legal_address=row[12],
+        simple_address=row[13],
     )
 
 

@@ -33,6 +33,11 @@ class PhotoSummary(BaseModel):
     taken_at: datetime | None = None
     size_bytes: int | None = None
 
+    # Address directory (schema 022), resolved from `address` (the recognised
+    # fingerprint id). None until that id is mapped to an address.
+    legal_address: str | None = None
+    simple_address: str | None = None
+
 
 class PhotoPage(BaseModel):
     items: list[PhotoSummary]
@@ -159,6 +164,32 @@ class ClientAliasRequest(BaseModel):
 
     alias: str = Field(min_length=1, max_length=200)
     canonical: str = Field(min_length=1, max_length=200)
+
+
+class AddressCreate(BaseModel):
+    """One address in the directory (schema/022).
+
+    At least one name must be filled; the API rejects a blank pair.
+    """
+
+    legal_address: str | None = Field(default=None, max_length=300)
+    simple_address: str | None = Field(default=None, max_length=300)
+    sort_order: int | None = None
+
+
+class AddressUpdate(BaseModel):
+    """Partial update: omitted fields keep their stored value."""
+
+    legal_address: str | None = Field(default=None, max_length=300)
+    simple_address: str | None = Field(default=None, max_length=300)
+    active: bool | None = None
+    sort_order: int | None = None
+
+
+class AddressFingerprintsRequest(BaseModel):
+    """Fingerprint ids mapped to an address (the list replaces the current one)."""
+
+    fingerprints: list[str] = Field(default_factory=list, max_length=500)
 
 
 class SelectionState(BaseModel):

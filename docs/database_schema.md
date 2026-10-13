@@ -41,6 +41,9 @@ PostgreSQL — источник истины для переходов межд�
 017_job_dedup.sql → индекс для дедупа активных QWEN-заданий
 018_photo_metadata.sql → ALTER photos: + taken_at (EXIF), + size_bytes
 019_job_ingest.sql → ALTER job_queue: + job_type INGEST_DIR (+ индекс дедупа)
+020_job_media_search.sql → ALTER job_queue: + job_type MEDIA_SEARCH
+021_job_cancel.sql → ALTER job_queue: + статус CANCELLED
+022_address_directory.sql → address_directory, address_fingerprints
 ```
 
 **`004` теперь backfill-safe и идемпотентен (2026-10-12):** создаёт `dino_batches` при отсутствии, добавляет `dino_runs.batch_id` (nullable) при отсутствии, бэкфиллит существующие runs без batch (по одному legacy-batch на run, со статусом и счётчиками из run), затем ставит `NOT NULL` и создаёт индекс. Повторный прогон — no-op. Ранее файл делал `ADD COLUMN` и сразу `SET NOT NULL`, что падало на непустой `dino_runs`.
@@ -323,6 +326,16 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 ### 4.20 `client_aliases` — нормализация клиентов QWEN
 
 `schema/016_client_aliases.sql` (идемпотентно): `alias` TEXT PK, `canonical` TEXT, `created_at`. Аналог легаси `client_aliases`/`client_normalizer`: сопоставляет «сырое» написание клиента от QWEN каноническому. Исходные строки в `photo_qwen` не меняются. `list_clients` группирует по `COALESCE(alias.canonical, client)`; фильтр `client=` в `/v1/photos` тоже учитывает алиасы. API `GET /v1/client-aliases`, `PUT/DELETE /v1/client-aliases` (scope `collections:write`).
+
+### 4.21 `address_directory` / `address_fingerprints` — справочник адресов
+
+`schema/022_address_directory.sql` (идемпотентно; аддитивно, ничего не переписывает).
+
+- `address_directory`: `address_id` SERIAL PK, `legal_address` (полное юридическое название), `simple_address` (упрощённое — для чекбоксов и списков), `active`, `sort_order`, `created_at`, `updated_at`. CHECK `address_directory_named` требует заполнить хотя бы одно из двух названий; частичный UNIQUE-индекс `uq_address_directory_legal` запрещает два адреса с одинаковым юридическим названием (сравнение без учёта регистра и пробелов, пустые значения не считаются).
+- `address_fingerprints`: `fingerprint_id` TEXT **PK**, `address_id` → `address_directory` (`ON DELETE CASCADE`), `active`, метки времени. В легаси у этой таблицы не было ни PK, ни уникальности — здесь один идентификатор принадлежит ровно одному адресу, поэтому опечатка не создаёт конкурирующих строк.
+- **Связь с выдачей.** Распознанный идентификатор не хранится в `photos` — он вычисляется (`hybrid_final_id`, иначе `dino_best_id`). Поэтому `app/api/repository.py` разрешает его в имена во внешнем запросе: базовый SELECT считает `address`, а внешний слой делает `LEFT JOIN address_fingerprints` по этому значению и `LEFT JOIN address_directory`. Фото без сопоставления читается с `NULL` в обоих полях; ничего не переписывается.
+- **API**: `GET /v1/addresses/directory` (scope `read`) — список адресов с их идентификаторами; `GET /v1/addresses/unassigned` — идентификаторы из `data/fingerprints/`, которым ещё не сопоставлен адрес; `POST/PUT/DELETE /v1/addresses/directory[/{id}]` и `PUT /v1/addresses/directory/{id}/fingerprints` (scope `addresses:write`). Модуль — `app/api/directory.py`; запросы параметризованы, идентификатор сверяется с `^[A-Za-z0-9._-]{1,64}$`, `sort_order` ограничен.
+- **Откат**: `DROP TABLE address_fingerprints; DROP TABLE address_directory;`
 
 ## 5. Локальная SQLite-очередь (не PostgreSQL)
 
