@@ -69,17 +69,23 @@ else
         -f "$SCHEMA_DIR/000_bootstrap.sql"
 fi
 
-echo "[2/2] application schema (as '$APP_USER' @ $APP_DB)"
+echo "[2/2] application schema (via scripts/migrate.py, versioned)"
 
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+if [[ -x "$SCRIPT_DIR/../.venv/bin/python" ]]; then
+    PYTHON_BIN="$SCRIPT_DIR/../.venv/bin/python"
+fi
+
+# An existing database (photos already present) predates schema_migrations:
+# adopt it by recording the current files as applied instead of re-running the
+# non-idempotent CREATE TABLEs.
 existing="$(app_psql -tAc "select coalesce(to_regclass('public.photos')::text, '')")"
 
 if [[ -n "$existing" ]]; then
-    echo "  public.photos already exists -> skipping 001..005 (schema is not idempotent)"
+    echo "  public.photos exists -> baselining existing schema"
+    "$PYTHON_BIN" "$SCRIPT_DIR/migrate.py" --baseline
 else
-    for name in 001_ingest 002_preview 003_dino 004_dino_batches 005_hybrid 006_job_queue 007_qwen 008_settings 009_collections 010_users 011_saved_searches 012_automation 013_nl_search 014_search_indexes 015_manager_selections 016_client_aliases 017_job_dedup; do
-        echo "  applying schema/$name.sql"
-        app_psql -v ON_ERROR_STOP=1 -f "$SCHEMA_DIR/$name.sql"
-    done
+    "$PYTHON_BIN" "$SCRIPT_DIR/migrate.py"
 fi
 
 echo "Done. Export for the application:"
