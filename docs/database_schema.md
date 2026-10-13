@@ -37,6 +37,7 @@ PostgreSQL — источник истины для переходов межд�
 013_nl_search.sql → ALTER job_queue: + job_type NL_SEARCH
 014_search_indexes.sql → pg_trgm + GIN-индексы (filename, client/brand/category/description)
 015_manager_selections.sql → manager_selections
+016_client_aliases.sql → client_aliases
 ```
 
 **`004` теперь backfill-safe и идемпотентен (2026-10-12):** создаёт `dino_batches` при отсутствии, добавляет `dino_runs.batch_id` (nullable) при отсутствии, бэкфиллит существующие runs без batch (по одному legacy-batch на run, со статусом и счётчиками из run), затем ставит `NOT NULL` и создаёт индекс. Повторный прогон — no-op. Ранее файл делал `ADD COLUMN` и сразу `SET NOT NULL`, что падало на непустой `dino_runs`.
@@ -293,6 +294,10 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 ### 4.17 `manager_selections` — персональное состояние менеджера
 
 `schema/015_manager_selections.sql` (идемпотентно): `user_id` TEXT PK, `state` JSONB, `updated_at`. Аналог легаси `manager_selections`: хранит снимок состояния GRID на пользователя (выбранные `photo_id`). API `GET/PUT /v1/selection` требует аутентифицированного пользователя (`_require_user`), запись идёт только в строку текущего `user_id` (scope `collections:write`). В открытом режиме без сессии — 401.
+
+### 4.18 `client_aliases` — нормализация клиентов QWEN
+
+`schema/016_client_aliases.sql` (идемпотентно): `alias` TEXT PK, `canonical` TEXT, `created_at`. Аналог легаси `client_aliases`/`client_normalizer`: сопоставляет «сырое» написание клиента от QWEN каноническому. Исходные строки в `photo_qwen` не меняются. `list_clients` группирует по `COALESCE(alias.canonical, client)`; фильтр `client=` в `/v1/photos` тоже учитывает алиасы. API `GET /v1/client-aliases`, `PUT/DELETE /v1/client-aliases` (scope `collections:write`).
 
 ## 5. Локальная SQLite-очередь (не PostgreSQL)
 

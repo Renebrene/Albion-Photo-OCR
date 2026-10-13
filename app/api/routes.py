@@ -32,6 +32,7 @@ from app.api.config import PREVIEW_ROOT
 from app.core.errors import redact_paths
 from app.api.schemas import (
     AutomationUpdate,
+    ClientAliasRequest,
     CollectionCreate,
     CollectionMembersRequest,
     DinoBatchRequest,
@@ -655,6 +656,35 @@ def delete_saved_search(search_id: int):
         raise HTTPException(status_code=404, detail="saved search not found")
 
     return {"deleted": search_id}
+
+
+# ---------------------------------------------------------------------------
+# Client aliases (QWEN client name normalization)
+# ---------------------------------------------------------------------------
+
+
+@read_router.get("/v1/client-aliases", response_model=None)
+def list_client_aliases():
+    return {"items": repository.list_client_aliases()}
+
+
+@searches_router.put(
+    "/v1/client-aliases",
+    dependencies=[Depends(require_scope("collections:write"))],
+)
+def upsert_client_alias(request: ClientAliasRequest):
+    return repository.upsert_client_alias(request.alias, request.canonical)
+
+
+@searches_router.delete(
+    "/v1/client-aliases",
+    dependencies=[Depends(require_scope("collections:write"))],
+)
+def delete_client_alias(alias: str = Query(..., min_length=1, max_length=200)):
+    if not repository.delete_client_alias(alias):
+        raise HTTPException(status_code=404, detail="alias not found")
+
+    return {"deleted": alias}
 
 
 # ---------------------------------------------------------------------------

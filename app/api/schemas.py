@@ -134,6 +134,13 @@ class CollectionMembersRequest(BaseModel):
     values: list[str] = Field(min_length=1)
 
 
+class ClientAliasRequest(BaseModel):
+    """Map a raw QWEN client string to a canonical one."""
+
+    alias: str = Field(min_length=1, max_length=200)
+    canonical: str = Field(min_length=1, max_length=200)
+
+
 class SelectionState(BaseModel):
     """Free-form per-manager GRID state blob."""
 

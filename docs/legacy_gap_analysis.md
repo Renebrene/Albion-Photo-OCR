@@ -64,7 +64,7 @@
 ### I. Qwen — расширения
 - **NL/поиск по Qwen-полям** в БД (`search.py`: `ILIKE` по client/brand/category/description/text/objects) и идея «Qwen — языковой интерфейс к БД». — **Реализовано (2026-10-13)**: `q` ищет по Qwen-полям; NL-поиск (job `NL_SEARCH` + `POST /v1/jobs/nl-search`), QWEN переводит запрос в фильтры в воркере.
 - Флаг **«Автоматически запускать Qwen после DINO»**, «Повторно запустить Qwen», старт/стоп из UI. — **Частично**: авто-QWEN в планировщике (`auto_qwen`); повторный запуск — `POST /v1/jobs/qwen` с `photo_ids`.
-- Нормализация клиентов Qwen (`smart_client_normalizer.py`, qwen3:4b). — нет.
+- Нормализация клиентов Qwen (`smart_client_normalizer.py`, qwen3:4b). — **Реализовано вручную (2026-10-13)**: `schema/016 client_aliases` + `/v1/client-aliases` + UI. Авто-подсказки алиасов через LLM — нет (инференс только в воркере).
 - Сейчас: извлечение (`QWEN_PHOTO`), выбор модели, NL-поиск.
 
 ## 3. Что стоит добавить (рекомендация, по приоритету)

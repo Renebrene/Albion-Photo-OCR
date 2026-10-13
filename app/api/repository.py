@@ -132,11 +132,18 @@ def list_photos(
         params.extend(likes)
 
     if clients:
-        likes = [f"%{value}%" for value in clients]
-        clauses.append(
-            "(" + " OR ".join(["t.client ILIKE %s"] * len(likes)) + ")"
-        )
-        params.extend(likes)
+        # Match either the raw QWEN client or any alias mapping to a
+        # canonical value that matches (client_aliases).
+        parts = []
+        for value in clients:
+            like = f"%{value}%"
+            parts.append(
+                "(t.client ILIKE %s OR t.client IN ("
+                "SELECT alias FROM public.client_aliases "
+                "WHERE canonical ILIKE %s))"
+            )
+            params.extend([like, like])
+        clauses.append("(" + " OR ".join(parts) + ")")
 
     if date_from:
         clauses.append("t.created_at >= %s::date")
@@ -249,12 +256,19 @@ def list_addresses(*, limit: int = 1000) -> list[dict]:
 
 
 def list_clients(*, limit: int = 1000) -> list[dict]:
-    """Distinct QWEN clients with photo counts."""
+    """
+    Distinct QWEN clients with photo counts.
+
+    Aliased raw values are folded into their canonical client (client_aliases).
+    """
 
     sql = (
-        "SELECT client, count(*) AS count FROM (" + _PHOTO_SELECT + ") AS t "
-        "WHERE client IS NOT NULL AND client <> '' "
-        "GROUP BY client ORDER BY lower(client) LIMIT %s"
+        "SELECT COALESCE(a.canonical, t.client) AS client, count(*) AS count "
+        "FROM (" + _PHOTO_SELECT + ") AS t "
+        "LEFT JOIN public.client_aliases AS a ON a.alias = t.client "
+        "WHERE t.client IS NOT NULL AND t.client <> '' "
+        "GROUP BY COALESCE(a.canonical, t.client) "
+        "ORDER BY lower(COALESCE(a.canonical, t.client)) LIMIT %s"
     )
 
     with get_connection() as conn:
@@ -264,6 +278,50 @@ def list_clients(*, limit: int = 1000) -> list[dict]:
                 {"client": row[0], "count": int(row[1])}
                 for row in cur.fetchall()
             ]
+
+
+# ---------------------------------------------------------------------------
+# Client aliases (QWEN client name normalization)
+# ---------------------------------------------------------------------------
+
+
+def list_client_aliases() -> list[dict]:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT alias, canonical FROM public.client_aliases "
+                "ORDER BY lower(alias)"
+            )
+            return [
+                {"alias": row[0], "canonical": row[1]}
+                for row in cur.fetchall()
+            ]
+
+
+def upsert_client_alias(alias: str, canonical: str) -> dict:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO public.client_aliases (alias, canonical)
+                VALUES (%s, %s)
+                ON CONFLICT (alias) DO UPDATE
+                    SET canonical = EXCLUDED.canonical
+                """,
+                (alias, canonical),
+            )
+
+    return {"alias": alias, "canonical": canonical}
+
+
+def delete_client_alias(alias: str) -> bool:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM public.client_aliases WHERE alias = %s",
+                (alias,),
+            )
+            return cur.rowcount == 1
 
 
 # ---------------------------------------------------------------------------

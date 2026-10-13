@@ -166,6 +166,20 @@ export async function fetchDataExport(format = 'json') {
   return response
 }
 
+export function fetchClientAliases() {
+  return getJson(`${BASE}/v1/client-aliases`)
+}
+
+export function saveClientAlias(alias, canonical) {
+  return putJson(`${BASE}/v1/client-aliases`, { alias, canonical })
+}
+
+export function deleteClientAlias(alias) {
+  return deleteJson(
+    `${BASE}/v1/client-aliases?alias=${encodeURIComponent(alias)}`,
+  )
+}
+
 export function fetchSelection() {
   return getJson(`${BASE}/v1/selection`)
 }

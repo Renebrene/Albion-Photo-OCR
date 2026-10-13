@@ -278,6 +278,13 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 - **UI**: состояние выбора фото (`selected`) сохраняется на менеджера (debounce ~0.8 c) и восстанавливается при входе; если сессии нет — режим остаётся локальным (401 игнорируется).
 - **Цвет менеджера**: `session.applyColor()` уже темизирует приложение (`setCssVar('primary', user.color)`); в шапку добавлен аватар с цветом менеджера.
 
+### Срез 21 — нормализация клиентов QWEN
+
+- **Схема `016_client_aliases.sql`**: `client_aliases(alias PK, canonical, created_at)`.
+- **API**: `GET /v1/client-aliases`; `PUT` (alias→canonical), `DELETE ?alias=` (scope `collections:write`).
+- `list_clients` группирует по каноническому имени; фильтр `client=` учитывает алиасы. Исходные `photo_qwen.client` не меняются.
+- **UI**: карточка «Нормализация клиентов» в «Настройки → QWEN» (список + добавить/удалить).
+
 ### Frontend — `frontend/` (Vue 3 + Quasar + Vite + Pinia + Router)
 
 - Экран GRID: карточки на SMALL-превью, `q-infinite-scroll`, поиск по имени файла, клик → просмотр MIDDLE, состояния loading/empty/error.
