@@ -96,6 +96,33 @@ export const useDisplayStore = defineStore('display', () => {
 // Characters a file name may not contain on the common platforms.
 const UNSAFE_NAME_CHARS = /[\\/:*?"<>|\u0000-\u001f]/g
 
+/**
+ * Sort photo rows for the grid (item: sorting with an up/down arrow).
+ *
+ * `date` uses the capture date when the photo has one and the upload time
+ * otherwise; the other keys are compared as text in Russian.
+ */
+export function sortPhotos(items, key, direction = 'asc') {
+  const factor = direction === 'desc' ? -1 : 1
+  const rows = Array.isArray(items) ? [...items] : []
+
+  return rows.sort((a, b) => {
+    if (key === 'date') {
+      const av = a.taken_at || a.created_at || ''
+      const bv = b.taken_at || b.created_at || ''
+
+      if (av === bv) return 0
+
+      return (av < bv ? -1 : 1) * factor
+    }
+
+    const av = (a[key] || '').toString()
+    const bv = (b[key] || '').toString()
+
+    return av.localeCompare(bv, 'ru') * factor
+  })
+}
+
 /** Make one address name safe to use as part of a file name. */
 export function safeFilePart(value) {
   if (value === null || value === undefined) return ''

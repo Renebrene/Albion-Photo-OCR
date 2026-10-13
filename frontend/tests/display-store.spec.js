@@ -9,6 +9,7 @@ import {
   downloadFileName,
   fieldText,
   safeFilePart,
+  sortPhotos,
   useDisplayStore,
 } from '../src/stores/display'
 
@@ -168,5 +169,44 @@ describe('download file names (item 11b)', () => {
     )
 
     expect(useDisplayStore().downloadNameMode).toBe('filename')
+  })
+})
+
+
+describe('grid sorting', () => {
+  const rows = [
+    { photo_id: 'b', filename: 'б.jpg', client: 'Бета', taken_at: '2026-05-01T10:00:00' },
+    { photo_id: 'a', filename: 'а.jpg', client: 'Альфа', created_at: '2026-01-01T10:00:00' },
+    { photo_id: 'c', filename: 'в.jpg', client: null, taken_at: '2026-03-01T10:00:00' },
+  ]
+
+  it('sorts text fields in both directions', () => {
+    expect(sortPhotos(rows, 'filename').map((r) => r.photo_id)).toEqual(['a', 'b', 'c'])
+    expect(sortPhotos(rows, 'filename', 'desc').map((r) => r.photo_id)).toEqual([
+      'c',
+      'b',
+      'a',
+    ])
+  })
+
+  it('sorts by date using the capture date, falling back to the upload time', () => {
+    // a has no capture date -> its upload time (January) puts it first.
+    expect(sortPhotos(rows, 'date').map((r) => r.photo_id)).toEqual(['a', 'c', 'b'])
+    expect(sortPhotos(rows, 'date', 'desc').map((r) => r.photo_id)).toEqual([
+      'b',
+      'c',
+      'a',
+    ])
+  })
+
+  it('treats a missing field as an empty string and never mutates the input', () => {
+    const sorted = sortPhotos(rows, 'client')
+
+    expect(sorted.map((r) => r.client)).toEqual([null, 'Альфа', 'Бета'])
+    expect(rows.map((r) => r.photo_id)).toEqual(['b', 'a', 'c'])
+  })
+
+  it('tolerates a missing list', () => {
+    expect(sortPhotos(null, 'filename')).toEqual([])
   })
 })

@@ -14,17 +14,28 @@ import {
   searchByMedia,
 } from '../api/client'
 import AuthImage from '../components/AuthImage.vue'
+import ClientNormalization from '../components/ClientNormalization.vue'
 import DisplaySettings from '../components/DisplaySettings.vue'
 import {
   LIST_FIELDS,
   downloadFileName,
   fieldText,
+  sortPhotos,
   useDisplayStore,
 } from '../stores/display'
 import { usePhotosStore } from '../stores/photos'
+import { useSessionStore } from '../stores/session'
 
 const store = usePhotosStore()
 const display = useDisplayStore()
+const session = useSessionStore()
+
+// Client aliases are curation work (scope collections:write): managers and
+// administrators may edit them, guests only look at the grid.
+const canNormalizeClients = computed(() =>
+  ['Администратор', 'Менеджер'].includes(session.user?.role),
+)
+const normalizationOpen = ref(false)
 const { items, error, loading, addresses, clients, collections, savedSearches } =
   storeToRefs(store)
 
@@ -55,20 +66,22 @@ const customTo = ref(null)
 // Grid presentation (mirrors the legacy list/tile toggle + sorting).
 const viewMode = ref('tiles')
 const sortKey = ref('filename')
+const sortDirection = ref('asc')
+
 const sortOptions = [
   { label: 'По имени файла', value: 'filename' },
   { label: 'По адресу', value: 'address' },
   { label: 'По клиенту', value: 'client' },
+  { label: 'По дате съёмки', value: 'date' },
 ]
 
-const sortedItems = computed(() => {
-  const key = sortKey.value
-  return [...items.value].sort((a, b) => {
-    const av = (a[key] || '').toString()
-    const bv = (b[key] || '').toString()
-    return av.localeCompare(bv, 'ru')
-  })
-})
+const sortedItems = computed(() =>
+  sortPhotos(items.value, sortKey.value, sortDirection.value),
+)
+
+function toggleSortDirection() {
+  sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc'
+}
 
 const viewerOpen = ref(false)
 const current = ref(null)
@@ -104,8 +117,23 @@ const periods = [
   { label: 'Текущий месяц', value: 'month' },
   { label: 'Предыдущий месяц', value: 'prev_month' },
   { label: 'Все даты', value: 'all' },
-  { label: 'Выбрать период', value: 'custom' },
+  { label: 'Период…', value: 'custom' },
 ]
+
+// "Выбрать / снять" is one button: it flips between the two states.
+const allLoadedSelected = computed(
+  () =>
+    items.value.length > 0 &&
+    items.value.every((photo) => store.isSelected(photo.photo_id)),
+)
+
+function toggleSelectAll() {
+  if (allLoadedSelected.value) {
+    store.clearSelection()
+  } else {
+    store.selectAllCurrent()
+  }
+}
 
 function iso(date) {
   return date.toISOString().slice(0, 10)
@@ -570,48 +598,10 @@ function tagList(meta) {
 <template>
   <q-page class="photos-page q-pa-md">
     <div class="row no-wrap q-col-gutter-md full-height">
-      <!-- LEFT: period + addresses + clients + collections (sticky, own scroll) -->
+      <!-- LEFT: addresses + clients (stacked) + collections (sticky, own scroll) -->
       <div class="col-auto left-panel" style="width: 360px; min-width: 320px">
-        <q-card flat bordered class="q-mb-sm">
-          <q-card-section class="q-pb-sm">
-            <div class="text-subtitle2 q-mb-sm">Период</div>
-
-            <q-option-group v-model="dateMode" :options="dateModes" inline dense />
-
-            <q-select
-              v-model="period"
-              :options="periods"
-              dense
-              outlined
-              emit-value
-              map-options
-              option-label="label"
-              option-value="value"
-              class="q-mt-sm"
-              @update:model-value="apply"
-            />
-
-            <div v-if="period === 'custom'" class="row q-col-gutter-xs q-mt-sm">
-              <div class="col">
-                <q-input v-model="customFrom" type="date" dense outlined label="С" />
-              </div>
-              <div class="col">
-                <q-input v-model="customTo" type="date" dense outlined label="По" />
-              </div>
-              <div class="col-auto">
-                <q-btn dense flat icon="search" @click="apply" />
-              </div>
-            </div>
-
-            <div class="text-caption text-grey-7 q-mt-xs">
-              «Дата съёмки» — из EXIF; у фото без EXIF даты нет, и они в этот
-              период не попадут.
-            </div>
-          </q-card-section>
-        </q-card>
-
-        <div class="row no-wrap q-mb-sm" style="height: 300px">
-          <q-card flat bordered class="col q-mr-xs column">
+        <div class="column q-mb-sm">
+          <q-card flat bordered class="column q-mb-xs" style="height: 260px">
             <q-card-section class="q-pb-xs row items-center">
               <div class="text-subtitle2 col">Адреса</div>
               <q-btn dense flat size="sm" label="Все" @click="selectAllAddresses" />
@@ -640,7 +630,7 @@ function tagList(meta) {
             </q-scroll-area>
           </q-card>
 
-          <q-card flat bordered class="col column">
+          <q-card flat bordered class="column" style="height: 260px">
             <q-card-section class="q-pb-xs row items-center">
               <div class="text-subtitle2 col">Клиенты</div>
               <q-btn dense flat size="sm" label="Все" @click="selectAllClients" />
@@ -702,52 +692,6 @@ function tagList(meta) {
                     icon="delete"
                     @click.stop="removeCollection(collection)"
                   />
-                </q-item-section>
-              </q-item>
-            </q-list>
-          </q-scroll-area>
-        </q-card>
-
-        <q-card flat bordered class="column q-mt-sm" style="height: 200px">
-          <q-card-section class="q-pb-xs row items-center">
-            <div class="text-subtitle2 col">История поиска</div>
-            <q-btn
-              dense
-              flat
-              size="sm"
-              icon="bookmark_add"
-              label="Сохранить поиск"
-              @click="openSaveSearch"
-            />
-          </q-card-section>
-          <q-separator />
-          <q-scroll-area class="col">
-            <q-list dense>
-              <q-item
-                v-for="search in savedSearches"
-                :key="search.search_id"
-                clickable
-                @click="applySavedSearch(search)"
-              >
-                <q-item-section avatar>
-                  <q-icon name="bookmark" size="18px" />
-                </q-item-section>
-                <q-item-section>
-                  <div class="ellipsis">{{ search.name }}</div>
-                </q-item-section>
-                <q-item-section side>
-                  <q-btn
-                    dense
-                    flat
-                    size="sm"
-                    icon="delete"
-                    @click.stop="removeSavedSearch(search)"
-                  />
-                </q-item-section>
-              </q-item>
-              <q-item v-if="!savedSearches.length">
-                <q-item-section class="text-caption text-grey">
-                  Нет сохранённых поисков
                 </q-item-section>
               </q-item>
             </q-list>
@@ -866,6 +810,56 @@ function tagList(meta) {
 
           <q-space />
 
+          <!-- дата: источник фильтра и периода — выпадающим списком -->
+          <q-select
+            v-model="dateMode"
+            :options="dateModes"
+            dense
+            outlined
+            emit-value
+            map-options
+            option-label="label"
+            option-value="value"
+            label="Дата"
+            style="min-width: 140px"
+            @update:model-value="apply"
+          />
+
+          <!-- период: компактно, свой период — двумя полями в этой же строке -->
+          <q-select
+            v-model="period"
+            :options="periods"
+            dense
+            outlined
+            emit-value
+            map-options
+            option-label="label"
+            option-value="value"
+            label="Период"
+            style="min-width: 150px"
+            @update:model-value="apply"
+          />
+          <template v-if="period === 'custom'">
+            <q-input
+              v-model="customFrom"
+              type="date"
+              dense
+              outlined
+              label="С"
+              style="width: 130px"
+              @blur="apply"
+            />
+            <q-input
+              v-model="customTo"
+              type="date"
+              dense
+              outlined
+              label="По"
+              style="width: 130px"
+              @blur="apply"
+            />
+          </template>
+
           <q-select
             v-model="sortKey"
             :options="sortOptions"
@@ -876,8 +870,16 @@ function tagList(meta) {
             option-label="label"
             option-value="value"
             label="Сортировка"
-            style="min-width: 170px"
+            style="min-width: 175px"
           />
+          <q-btn dense flat @click="toggleSortDirection">
+            <q-icon
+              :name="sortDirection === 'asc' ? 'arrow_upward' : 'arrow_downward'"
+            />
+            <q-tooltip>
+              {{ sortDirection === 'asc' ? 'По возрастанию' : 'По убыванию' }}
+            </q-tooltip>
+          </q-btn>
 
           <q-btn-toggle
             v-model="viewMode"
@@ -896,24 +898,76 @@ function tagList(meta) {
             <q-tooltip>Настройки отображения</q-tooltip>
           </q-btn>
 
-          <div class="text-caption text-grey">{{ items.length }} фото</div>
+          <!-- нормализация клиентов: раньше жила в настройках QWEN -->
+          <q-btn
+            v-if="canNormalizeClients"
+            dense
+            flat
+            icon="sync_alt"
+            @click="normalizationOpen = true"
+          >
+            <q-tooltip>Нормализация клиентов</q-tooltip>
+          </q-btn>
+
+          <!-- сохранённые поиски переехали из левой панели в это меню -->
+          <q-btn dense flat icon="bookmarks">
+            <q-tooltip>Сохранённые поиски</q-tooltip>
+            <q-menu>
+              <q-list dense style="min-width: 240px">
+                <q-item clickable v-close-popup @click="openSaveSearch">
+                  <q-item-section avatar>
+                    <q-icon name="bookmark_add" />
+                  </q-item-section>
+                  <q-item-section>Сохранить текущий поиск</q-item-section>
+                </q-item>
+                <q-separator />
+                <q-item
+                  v-for="search in savedSearches"
+                  :key="search.search_id"
+                  clickable
+                  v-close-popup
+                  @click="applySavedSearch(search)"
+                >
+                  <q-item-section avatar>
+                    <q-icon name="bookmark" size="18px" />
+                  </q-item-section>
+                  <q-item-section>
+                    <div class="ellipsis">{{ search.name }}</div>
+                  </q-item-section>
+                  <q-item-section side>
+                    <q-btn
+                      dense
+                      flat
+                      size="sm"
+                      icon="delete"
+                      @click.stop="removeSavedSearch(search)"
+                    />
+                  </q-item-section>
+                </q-item>
+                <q-item v-if="!savedSearches.length">
+                  <q-item-section class="text-caption text-grey">
+                    Нет сохранённых поисков
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-menu>
+          </q-btn>
         </div>
 
+        <!-- действия над выбором — своей строкой -->
         <div class="row items-center q-gutter-sm q-mb-sm">
           <q-btn
-            flat
             dense
-            icon="select_all"
-            label="Выбрать все"
-            @click="store.selectAllCurrent()"
-          />
-          <q-btn
+            :icon="allLoadedSelected ? 'deselect' : 'select_all'"
+            :label="allLoadedSelected ? 'Снять' : 'Выбрать'"
+            :color="allLoadedSelected ? 'grey-7' : 'primary'"
             flat
-            dense
-            icon="deselect"
-            label="Снять"
-            @click="store.clearSelection()"
-          />
+            @click="toggleSelectAll"
+          >
+            <q-tooltip>
+              Выбрать все загруженные фото или снять выбор
+            </q-tooltip>
+          </q-btn>
           <q-badge v-if="store.selectedCount" color="primary">
             выбрано: {{ store.selectedCount }}
           </q-badge>
@@ -921,14 +975,14 @@ function tagList(meta) {
             dense
             color="secondary"
             icon="bookmark_add"
-            label="В подборку"
+            label="Портфель"
             @click="openBucketDialog"
           />
           <q-btn
             dense
             flat
             icon="download"
-            label="Скачать выбранные"
+            label="Скачать"
             @click="downloadSelected"
           />
         </div>
@@ -1317,6 +1371,18 @@ function tagList(meta) {
         <q-card-actions align="right">
           <q-btn flat label="Отмена" v-close-popup />
           <q-btn color="primary" label="Сохранить" @click="saveSearch" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Client normalisation (moved out of the QWEN settings) -->
+    <q-dialog v-model="normalizationOpen">
+      <q-card style="min-width: 520px; max-width: 92vw">
+        <q-card-section>
+          <ClientNormalization />
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Закрыть" v-close-popup />
         </q-card-actions>
       </q-card>
     </q-dialog>
