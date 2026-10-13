@@ -1,6 +1,18 @@
 # Scene Fingerprint / PhotoBAse — анализ и план развития
 
-**Статус:** read-only анализ существующей реализации и проектные рекомендации. Прототип FastAPI/Vue/Quasar в этой работе **не создавался**; API-контракт в `api_target.yaml` — целевой проект, не существующий API.
+> **Актуализация (2026-10-13).** Ниже сохранён исходный анализ на момент его
+> написания. С тех пор в репозитории реализован целевой web-слой: FastAPI
+> (`app/api/`, схемы `006`–`017`), Quasar SPA (`frontend/`), аутентификация и
+> роли (bearer + сессии, fail-closed), очередь заданий PostgreSQL + воркер
+> (`app/jobs/`), QWEN/провайдеры, NL-поиск, подборки/сохранённые поиски,
+> версионированный миграционный раннер (`scripts/migrate.py`). Поэтому
+> утверждения вида «REST API / Vue-Quasar не реализованы», «аутентификации
+> нет» в разделах 1, 3, 5.1, 7 ниже относятся **к моменту анализа**, а не к
+> текущему состоянию. Актуальные детали — в
+> [`frontend_quasar.md`](frontend_quasar.md), [`database_schema.md`](database_schema.md),
+> [`db_setup.md`](db_setup.md).
+
+**Статус (исходный):** read-only анализ существующей реализации и проектные рекомендации. Прототип FastAPI/Vue/Quasar в этой работе **не создавался**; API-контракт в `api_target.yaml` — целевой проект, не существующий API.
 
 ## 1. Краткое резюме
 
@@ -28,8 +40,8 @@
 | PREVIEW | SMALL/MIDDLE JPEG, валидатор, DB upsert | `app/preview/*`, `docs/preview.txt`, `schema/002_preview.sql` |
 | DINO | Неизменяемый batch, inference, TOP-5 и per-image results | `app/dino/*`, `docs/dino.txt`, схемы `003`–`004` |
 | HYBRID | Финальный выбор по DINO результатам и последовательному контексту | `app/hybrid/*`, `docs/hybrid.txt`, `schema/005_hybrid.sql` |
-| REST API | Целевая интеграция UI/сервисов | В основной копии endpoints не подтверждены; целевой контракт в `api_target.yaml` |
-| Vue/Quasar UI | Целевой интерфейс к API | В checkout не обнаружено; UI рекомендации основаны на требованиях и архивных обсуждениях |
+| REST API | Целевая интеграция UI/сервисов | На момент анализа endpoints не подтверждены; **реализовано позже** (`app/api/`, см. актуализацию) |
+| Vue/Quasar UI | Целевой интерфейс к API | На момент анализа в checkout не обнаружено; **реализовано позже** (`frontend/`, см. актуализацию) |
 
 Зависимости зафиксированы в `pyproject.toml`: Python `>=3.12,<3.13`, NiceGUI, Torch/Torchvision, Pillow, NumPy, FAISS CPU, OpenCV, Transformers, PostgreSQL `psycopg` и другие. Указаны одновременно `opencv-python-headless` и `opencv-python`; оправданность/совместимость этих двух дистрибутивов следует проверить при стандартизации окружения.
 
@@ -63,11 +75,11 @@ Fingerprint v3.3 использует `facebook/dinov2-base` через Transfor
 
 ## 5. API, модели, доступ и ошибки
 
-### 5.1 Текущее состояние
+### 5.1 Текущее состояние (на момент анализа; см. актуализацию вверху)
 
 `app/main.py` поднимает NiceGUI с UI; обнаружен только `@ui.page('/')`. Ни HTTP API routes, ни документированного access control/RBAC/Bearer auth в главной копии не подтверждено. Поэтому сервис нельзя безопасно выставлять в сеть только на основании текущего UI. Незавершенный FastAPI-каркас, встречающийся в локальном worktree, не считается частью текущего продукта/контракта.
 
-Целевые API для будущей разработки определены в `api_target.yaml`: `/health`, `/v1/ingest`, `/v1/photos/{photo_id}`, `/v1/search`, `/v1/batches/dino`, `/v1/batches/{batch_id}`, `/v1/batches/{batch_id}/hybrid`, `/v1/previews/{photo_id}/{size}`. Это proposal, endpoints не реализованы.
+Целевые API для будущей разработки определены в `api_target.yaml`: `/health`, `/v1/ingest`, `/v1/photos/{photo_id}`, `/v1/search`, `/v1/batches/dino`, `/v1/batches/{batch_id}`, `/v1/batches/{batch_id}/hybrid`, `/v1/previews/{photo_id}/{size}`. Это был proposal на момент анализа; **фактический API реализован шире** (см. актуализацию и `frontend_quasar.md`).
 
 ### 5.2 Контракты
 

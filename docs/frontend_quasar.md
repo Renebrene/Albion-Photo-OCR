@@ -1,6 +1,6 @@
 # Фронтенд: старый NiceGUI → целевой Quasar
 
-**Статус:** описание исторического фронтенда (по `111/`) и план переноса на Vue 3 + Quasar. Текущий репозиторий фронтенда на Quasar не содержит. Контракт API — [`api_target.yaml`](api_target.yaml), ТЗ — [`future_implementation_tz.md`](future_implementation_tz.md).
+**Статус:** описание исторического фронтенда (по `111/`), план переноса и **журнал реализации**. Перенос на Vue 3 + Quasar **выполнен** (`frontend/`, раздел 6, «Срезы»); разделы 1–5 сохраняют исторический контекст. Контракт API — [`api_target.yaml`](api_target.yaml), ТЗ — [`future_implementation_tz.md`](future_implementation_tz.md).
 
 ## 1. Что есть сейчас в репозитории
 
@@ -365,12 +365,14 @@ INGEST_DB_PASSWORD=lora scripts/dev_up.sh --prod        # собрать SPA и 
 
 Скрипт ждёт готовности `/api/health`, ставит frontend-зависимости при необходимости и убивает всё дерево процессов на выходе.
 
-### Ограничения среза
+### Ограничения (актуально)
 
-- Нет аутентификации/прав; нет выдачи originals.
-- Фильтры — только по имени файла: в текущей схеме нет `address`/`client` (в легаси их давал QWEN, см. [`qwen_process.md`](qwen_process.md)).
-- Нет экранов обработки (INGEST/DINO/HYBRID) и подборок — следующие этапы.
-- Prod-раздача: собрать `frontend/dist` и отдать статику (reverse proxy или FastAPI static).
+Раздел выше — исторический снимок ранних срезов. Текущее состояние:
+
+- **Аутентификация/права есть**: fail-closed bearer + сессии, роли/scopes, логин-гейт; выдача originals ограничена scope `originals` и `SCENE_ORIGINALS_ROOTS` (см. Срез 23).
+- **Фильтры**: `q` (мультиполевой), `address[]`, `client[]`, даты, подборка, `ids[]`.
+- **Экраны**: обработка (INGEST/DINO/HYBRID через jobs), QWEN, подборки, сохранённые поиски, техраздел, пользователи.
+- **Prod-раздача**: `frontend/dist` отдаётся самим FastAPI (SPA fallback); `deploy/systemd/` — юниты API и worker.
 
 ## 7. Источники
 

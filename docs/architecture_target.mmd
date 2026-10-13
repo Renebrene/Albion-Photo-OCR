@@ -1,5 +1,6 @@
-%% PhotoBAse / Scene Fingerprint — current service flows and proposed web layer
-%% The REST/UI area is a target design, not implemented in this checkout.
+%% PhotoBAse / Scene Fingerprint — service flows and web layer
+%% The REST/UI area was the target at analysis time and is now implemented
+%% (app/api + frontend/). Kept as a separate group for clarity.
 flowchart LR
     ORIG[(Original photos\nread-only)]
 
@@ -17,10 +18,10 @@ flowchart LR
       DINOR[(dino_runs + dino_candidates\nTOP-5, score, margin)]
       HYBRID[HYBRID\nTOP-5 + sequence/neighbors]
       HYBRIDT[(hybrid runs / verdicts)]
-      GRID[Existing NiceGUI\nfingerprint create / recognize / list]
+      GRID[Legacy NiceGUI\nfingerprint create / recognize / list\n(replaced by the Quasar SPA)]
     end
 
-    subgraph TARGET[Future web application — proposed, not implemented]
+    subgraph TARGET[Web application — implemented (app/api + frontend)]
       API[FastAPI REST API\nPydantic DTO + auth scopes]
       JOB[Durable job / batch worker]
       VUE[Vue 3 + Quasar UI]
