@@ -1,0 +1,39 @@
+# PhotoBAse / Scene Fingerprint — deferred job worker.
+#
+# Processes the shared queue (DINO_BATCH, HYBRID_RUN, QWEN_PHOTO, NL_SEARCH)
+# and can drive the automation scheduler. It runs heavy inference (torch,
+# Ollama QWEN), so keep it on the machine that owns the models/GPU.
+#
+# Install (see README.md):
+#   sudo cp deploy/systemd/scene-worker.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now scene-worker
+
+[Unit]
+Description=PhotoBAse Scene Fingerprint worker
+Documentation=file:deploy/systemd/README.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=scene
+Group=scene
+WorkingDirectory=/opt/scene-fingerprint
+EnvironmentFile=/etc/scene-fingerprint.env
+
+# --requeue-stale returns jobs left RUNNING by a crashed worker to PENDING.
+# Add --automation to drive the interval scheduler (automation_settings).
+ExecStart=/opt/scene-fingerprint/.venv/bin/python -m app.jobs.worker \
+    --watch --requeue-stale 30 --interval 5
+
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/scene-fingerprint/data
+
+[Install]
+WantedBy=multi-user.target

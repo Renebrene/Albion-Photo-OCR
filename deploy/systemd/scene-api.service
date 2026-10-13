@@ -1,0 +1,38 @@
+# PhotoBAse / Scene Fingerprint — HTTP API (FastAPI + built SPA).
+#
+# Install (adjust paths and the env file first, see README.md):
+#   sudo cp deploy/systemd/scene-api.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now scene-api
+#
+# The SPA (frontend/dist) must be built before the first start so the same
+# process can serve it:  cd frontend && bun run build
+
+[Unit]
+Description=PhotoBAse Scene Fingerprint API
+Documentation=file:deploy/systemd/README.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Dedicated unprivileged user that owns the checkout and the venv.
+User=scene
+Group=scene
+WorkingDirectory=/opt/scene-fingerprint
+EnvironmentFile=/etc/scene-fingerprint.env
+
+ExecStart=/opt/scene-fingerprint/.venv/bin/python -m uvicorn \
+    app.api.main:app --host 0.0.0.0 --port 8010
+
+Restart=on-failure
+RestartSec=5
+# Light hardening; relax only for the paths the process really needs.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/scene-fingerprint/data
+
+[Install]
+WantedBy=multi-user.target

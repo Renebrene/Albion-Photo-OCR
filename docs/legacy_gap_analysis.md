@@ -55,7 +55,7 @@
 ### G. Оркестрация и сервисы
 - **`supervisor.py` / `controller.py` / `modes.py`**: режимы **manual / automatic (по времени) / watcher (слежение за папкой, polling)**, таблица **`pipeline_control`** (running/stop_requested/mode/watcher_path), `run_pipeline()` (DINO+Qwen), планировщик `seconds_until`. `chunk_234.md`, `chunk_145.md`, `chunk_142.md`. — **Частично реализовано (2026-10-13)**: расписание (`schema/012_automation.sql` + `/v1/automation` + `worker --automation`), авто-QWEN/авто-DINO. **Watcher папки/авто-INGEST — нет** (пишет новые данные).
 - **`recovery.py`**: возврат «зависших» `processing → pending`. **Реализовано (2026-10-13)**: `app/jobs/database.py:requeue_stale()` (RUNNING старше N минут → PENDING), CLI-флаг `python -m app.jobs.worker --requeue-stale MINUTES` и `POST /v1/jobs/requeue-stale` (scope `jobs:write`). Проверено на реальном случае: 2 зависших QWEN-задания восстановлены и дообработаны.
-- **systemd-юниты** (`scene-fingerprint.service`, `lora.service`, `dashboard.service`). `chunk_106.md:2469`.
+- **systemd-юниты** (`scene-fingerprint.service`, `lora.service`, `dashboard.service`). `chunk_106.md:2469`. — **Реализовано (2026-10-13)**: `deploy/systemd/` (`scene-api.service`, `scene-worker.service`, `scene.env.example`, README). Не запускались на машине — только файлы/инструкция.
 - Сейчас: очередь + `python -m app.jobs.worker` (polling), `--automation` (расписание), `requeue-stale` (recovery), `scripts/dev_up.sh`. Нет: watcher папки/авто-INGEST и systemd-юнитов.
 
 ### H. OCR
