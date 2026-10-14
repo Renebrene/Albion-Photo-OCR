@@ -31,11 +31,26 @@ _THINK_TAGS = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
 MAX_FILE_BYTES = int(os.getenv("SCENE_SEARCH_MAX_BYTES", 25 * 1024 * 1024))
 
+# A video query is bigger than a photo one: a 20-second phone clip is a few
+# tens of megabytes.
+MAX_VIDEO_BYTES = int(
+    os.getenv("SCENE_SEARCH_MAX_VIDEO_BYTES", 300 * 1024 * 1024)
+)
+
+# Ролики короткие (владелец: «не более 20 секунд»), и кадры из них берутся
+# по секундам 2, 4, 6 … — столько, сколько влезает в длительность.
+MAX_VIDEO_SECONDS = float(os.getenv("SCENE_SEARCH_MAX_VIDEO_SECONDS", "20"))
+FRAME_SECONDS = (2, 4, 6, 8, 10, 12, 14, 16, 18)
+MAX_FRAMES = len(FRAME_SECONDS)
+
 # Deliberately outside SCENE_INBOX: query files are working copies, not photo
 # sources, and must never look like INGEST input.
 QUERY_DIR = Path(os.getenv("SCENE_SEARCH_QUERY_DIR", "data/media_search"))
 
-ALLOWED_SUFFIXES = {".jpg", ".jpeg", ".png"}
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
+VIDEO_SUFFIXES = {".mp4", ".m4v", ".mov", ".mpeg", ".mpg"}
+
+ALLOWED_SUFFIXES = IMAGE_SUFFIXES | VIDEO_SUFFIXES
 
 _SAFE_CHARS = re.compile(r"[^A-Za-z0-9._-]")
 _CHUNK = 1024 * 1024
@@ -83,17 +98,25 @@ def prune_stale() -> int:
     return removed
 
 
-def store_query(filename: str | None, stream) -> Path:
+def store_query(
+    filename: str | None,
+    stream,
+    *,
+    max_bytes: int | None = None,
+) -> Path:
     """
-    Store one uploaded query image under QUERY_DIR.
+    Store one uploaded query file (photo or video) under QUERY_DIR.
 
-    The name is sanitized, the size is bounded and the file is written to a
-    unique path (mkstemp, mode 0600) so two uploads can never collide and a
-    failed write never leaves a partial file behind. The client's own name is
-    only kept as the stem: the file is a short-lived working copy.
+    The name is sanitized, the size is bounded (photos and videos have
+    different caps) and the file is written to a unique path (mkstemp, mode
+    0600) so two uploads can never collide and a failed write never leaves a
+    partial file behind. The client's own name is only kept as the stem: the
+    file is a short-lived working copy.
     """
 
     import tempfile
+
+    limit = MAX_FILE_BYTES if max_bytes is None else int(max_bytes)
 
     safe_name = sanitize_filename(filename)
 
@@ -125,8 +148,12 @@ def store_query(filename: str | None, stream) -> Path:
 
                 written += len(chunk)
 
-                if written > MAX_FILE_BYTES:
-                    raise ValueError("file is too large")
+                if written > limit:
+                    raise ValueError(
+                        "файл слишком большой: "
+                        f"{written / 1024 / 1024:.1f} МБ, "
+                        f"предел {limit / 1024 / 1024:.0f} МБ"
+                    )
 
                 handle.write(chunk)
 
@@ -155,16 +182,176 @@ def verify_image(path: Path) -> None:
         raise ValueError(f"not a decodable image: {exc}") from exc
 
 
-def delete_query(path: str | Path) -> bool:
-    """Remove a query file; missing files are not an error."""
+def kind_for(path: str | Path) -> str:
+    """'video' for the video extensions, 'image' otherwise."""
+
+    return "video" if Path(path).suffix.lower() in VIDEO_SUFFIXES else "image"
+
+
+def frame_times(duration: float, *, seconds=FRAME_SECONDS) -> list[float]:
+    """
+    Моменты съёмки кадров: 2, 4, 6 … секунда — сколько влезает в ролик.
+
+    У совсем короткого ролика кадр берётся один, из середины: иначе искать
+    было бы не по чему.
+    """
+
+    times = [float(value) for value in seconds if value < duration - 0.1]
+
+    if not times:
+        times = [max(0.0, duration / 2)]
+
+    return times[:MAX_FRAMES]
+
+
+def video_metadata(path: str | Path) -> dict:
+    """
+    Basic facts about a video, read by OpenCV (there is no ffmpeg on this box).
+
+    Raises ValueError when the file cannot be opened or is longer than a query
+    may be - the modal shows these details back to the user.
+    """
+
+    import cv2
+
+    capture = cv2.VideoCapture(str(path))
+
+    if not capture.isOpened():
+        capture.release()
+        raise ValueError(
+            "видео не читается: формат или кодек не поддерживается "
+            "(принимаются MP4 и MPEG)"
+        )
 
     try:
-        Path(path).unlink()
-        return True
+        fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+        frames = float(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0)
+        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        fourcc = int(capture.get(cv2.CAP_PROP_FOURCC) or 0)
+    finally:
+        capture.release()
+
+    codec = "".join(
+        chr((fourcc >> (8 * index)) & 0xFF) for index in range(4)
+    ).strip()
+
+    duration = frames / fps if fps > 0 and frames > 0 else 0.0
+
+    if duration <= 0 or width <= 0 or height <= 0:
+        raise ValueError(
+            "видео не читается: не удалось определить длительность или размер"
+        )
+
+    if duration > MAX_VIDEO_SECONDS:
+        raise ValueError(
+            f"ролик длиннее {MAX_VIDEO_SECONDS:.0f} с: "
+            f"{duration:.1f} с — обрежьте его или возьмите другой"
+        )
+
+    return {
+        "width": width,
+        "height": height,
+        "fps": round(fps, 2),
+        "frames": int(frames),
+        "duration_sec": round(duration, 2),
+        "codec": codec,
+    }
+
+
+def frames_dir(path: str | Path) -> Path:
+    """Папка кадров рядом с загруженным роликом."""
+
+    path = Path(path)
+
+    return path.parent / f"{path.stem}_frames"
+
+
+def extract_frames(
+    path: str | Path,
+    *,
+    seconds=FRAME_SECONDS,
+) -> list[dict]:
+    """
+    [{path, sec}] — кадры ролика, сохранённые рядом с ним.
+
+    Кадры лежат в отдельной папке, поэтому удаление запроса удаляет и их.
+    """
+
+    import cv2
+
+    path = Path(path)
+    meta = video_metadata(path)
+
+    target = frames_dir(path)
+    target.mkdir(parents=True, exist_ok=True)
+
+    capture = cv2.VideoCapture(str(path))
+    saved: list[dict] = []
+
+    try:
+        for index, moment in enumerate(
+            frame_times(meta["duration_sec"], seconds=seconds),
+            start=1,
+        ):
+            capture.set(cv2.CAP_PROP_POS_MSEC, moment * 1000)
+            ok, frame = capture.read()
+
+            if not ok or frame is None:
+                continue
+
+            out = target / f"frame_{index:02d}_s{int(moment):02d}.jpg"
+
+            if cv2.imwrite(str(out), frame, [int(cv2.IMWRITE_JPEG_QUALITY), 88]):
+                saved.append({"path": out, "sec": float(moment)})
+    finally:
+        capture.release()
+
+    if not saved:
+        raise ValueError("из ролика не удалось извлечь ни одного кадра")
+
+    return saved
+
+
+def verify_media(path: str | Path) -> dict:
+    """
+    Check that the upload really is a photo or a video; return the video facts.
+
+    Photos go through the PIL decoder, videos are opened by OpenCV. Anything
+    the decoders reject is refused here with a readable reason.
+    """
+
+    if kind_for(path) == "video":
+        return video_metadata(path)
+
+    verify_image(path)
+
+    return {}
+
+
+def delete_query(path: str | Path) -> bool:
+    """Remove a query file (and the frames of a video query)."""
+
+    import shutil
+
+    path = Path(path)
+
+    removed = False
+
+    try:
+        path.unlink()
+        removed = True
     except FileNotFoundError:
-        return False
+        pass
     except OSError:
-        return False
+        pass
+
+    folder = frames_dir(path)
+
+    if folder.is_dir():
+        shutil.rmtree(folder, ignore_errors=True)
+
+    return removed
 
 
 def discard_query_file(path: object) -> bool:
@@ -318,25 +505,132 @@ def _plain_text(raw: str) -> str:
     return " ".join(text.split())
 
 
-def run(path: str | Path) -> dict:
+def _merge_fields(frame_fields: list[dict]) -> dict:
     """
-    Describe the uploaded image and search the base with that description.
+    Свести ответы по кадрам в один.
 
-    Returns a serialisable result for the job row: the QWEN fields, the
-    filters derived from them and the matched photo_ids.
+    Теги — объединение (по ним и идёт поиск), описание/адрес/клиент/бренд/
+    категория — первые непустые, чтобы в окне было что показать.
     """
 
-    described = describe(path)
-    fields = described["fields"]
-    filters = description_filters(fields)
-    result = search(filters)
+    tags: list[str] = []
+
+    merged = {
+        "description": None,
+        "address": None,
+        "client": None,
+        "brand": None,
+        "category": None,
+        "tags": tags,
+    }
+
+    for fields in frame_fields:
+        for key in ("description", "address", "client", "brand", "category"):
+            value = fields.get(key)
+
+            if value and not merged[key]:
+                merged[key] = value
+
+        for tag in fields.get("tags") or []:
+            text = str(tag).strip()
+
+            if text and text not in tags:
+                tags.append(text)
+
+    return merged
+
+
+def run(
+    path: str | Path,
+    *,
+    kind: str | None = None,
+    progress=None,
+) -> dict:
+    """
+    Describe the uploaded photo/video and search the base with that description.
+
+    A video is described frame by frame — кадры берутся по фиксированным
+    секундам ролика (2, 4, 6 …), поиск идёт по каждому кадру, а результаты
+    объединяются: фото — сумма без повторов, теги — объединение,
+    описание/адрес/клиент/бренд — первые непустые.
+
+    `progress(done, total, stage)` вызывается перед каждым кадром: по нему
+    окно рисует полосу и замечает отмену.
+
+    Returns a serialisable result for the job row.
+    """
+
+    kind = kind or kind_for(path)
+
+    if kind == "video":
+        sources = extract_frames(path)
+    else:
+        sources = [{"path": Path(path), "sec": None}]
+
+    total = len(sources)
+
+    frame_fields: list[dict] = []
+    per_frame: list[dict] = []
+    photo_ids: dict[str, None] = {}
+    seconds_total = 0.0
+    truncated = False
+    fallback = False
+
+    for index, source in enumerate(sources, start=1):
+        if progress is not None:
+            stage = (
+                f"кадр {index} из {total} ({source['sec']:.0f} с)"
+                if source["sec"] is not None
+                else "распознавание"
+            )
+            progress(index - 1, total, stage)
+
+        described = describe(source["path"])
+        fields = described["fields"]
+
+        seconds_total += float(described["seconds"] or 0.0)
+        fallback = fallback or bool(described.get("fallback"))
+        frame_fields.append(fields)
+
+        found = search(description_filters(fields))
+        truncated = truncated or bool(found["truncated"])
+
+        for photo_id in found["photo_ids"]:
+            photo_ids.setdefault(photo_id, None)
+
+        per_frame.append(
+            {
+                "sec": source["sec"],
+                "description": fields.get("description"),
+                "client": fields.get("client"),
+                "brand": fields.get("brand"),
+                "category": fields.get("category"),
+                "tags": list(fields.get("tags") or []),
+                "count": found["count"],
+            }
+        )
+
+        # Общий предел поиска: дальше кадры смотреть смысла нет.
+        if len(photo_ids) >= MAX_TOTAL:
+            truncated = True
+            break
+
+    if progress is not None:
+        progress(total, total, "готово")
+
+    merged = _merge_fields(frame_fields)
 
     return {
-        "filters": filters,
-        "qwen": fields,
-        "qwen_time_sec": round(float(described["seconds"]), 3),
+        "kind": kind,
+        "frames_count": total,
+        "per_frame": per_frame,
+        "filters": description_filters(merged),
+        "qwen": merged,
+        "qwen_time_sec": round(seconds_total, 3),
         # True when the model answered with prose and the text itself became
         # the search phrase.
-        "fallback": bool(described.get("fallback")),
-        **result,
+        "fallback": fallback,
+        "photo_ids": list(photo_ids),
+        "count": len(photo_ids),
+        "truncated": truncated,
     }

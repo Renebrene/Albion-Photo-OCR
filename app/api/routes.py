@@ -762,34 +762,59 @@ def cancel_job(job_id: int):
 )
 def search_by_media(file: UploadFile = File(...)):
     """
-    Enqueue a search by one uploaded photo.
+    Enqueue a search by one uploaded photo or video.
 
-    The image is stored in a dedicated working folder, verified with a real
-    decoder and dropped if it is not an image. The QWEN description and the
-    photo search run in the worker (job_type MEDIA_SEARCH); poll
-    GET /v1/jobs/media-search/{id} for {qwen, filters, photo_ids, count}.
+    The file is stored in a dedicated working folder, verified with a real
+    decoder (PIL for photos, OpenCV for video) and dropped when it is neither.
+    A video longer than the query limit is refused here, with the reason.
+    The QWEN description and the photo search run in the worker
+    (job_type MEDIA_SEARCH); poll GET /v1/jobs/media-search/{id} for
+    {qwen, filters, photo_ids, count, per_frame}.
+
+    The response carries the file's facts so the window can show them before
+    the search starts (format, size, and for a video - duration and frames).
     """
 
+    kind = media_search.kind_for(file.filename or "")
+
+    limit = (
+        media_search.MAX_VIDEO_BYTES
+        if kind == "video"
+        else media_search.MAX_FILE_BYTES
+    )
+
     try:
-        stored = media_search.store_query(file.filename, file.file)
+        stored = media_search.store_query(
+            file.filename,
+            file.file,
+            max_bytes=limit,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
-        media_search.verify_image(stored)
+        facts = media_search.verify_media(stored)
     except ValueError as exc:
         media_search.delete_query(stored)
-        raise HTTPException(
-            status_code=400,
-            detail="not a decodable image",
-        ) from exc
+
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     job_id = jobs_db.enqueue(
         "MEDIA_SEARCH",
-        {"path": str(stored), "filename": stored.name},
+        {
+            "path": str(stored),
+            "filename": stored.name,
+            "kind": kind,
+        },
     )
 
-    return {"job_id": job_id}
+    return {
+        "job_id": job_id,
+        "kind": kind,
+        "filename": file.filename or stored.name,
+        "size_bytes": stored.stat().st_size,
+        "media": facts,
+    }
 
 
 @searches_router.get(

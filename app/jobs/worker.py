@@ -149,10 +149,16 @@ def _execute(job: dict) -> dict:
         path = str(payload["path"])
 
         try:
-            return media_run(path)
+            # A video query is described frame by frame; the callback carries
+            # the frame counter into the job's progress and notices a cancel.
+            return media_run(
+                path,
+                kind=payload.get("kind"),
+                progress=job_control(int(job["id"])),
+            )
         finally:
-            # The uploaded query image is transient by design: it exists only
-            # for the duration of the job.
+            # The uploaded query file is transient by design: it exists only
+            # for the duration of the job (frames of a video go with it).
             delete_query(path)
 
     raise ValueError(f"Unsupported job type: {job_type}")

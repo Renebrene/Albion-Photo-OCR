@@ -322,14 +322,20 @@ def test_media_search_job_describes_then_deletes_the_file(query_dir, monkeypatch
     path = media_search.store_query("q.jpg", io.BytesIO(_jpeg_bytes()))
     seen: list[str] = []
 
-    def fake_run(argument):
+    def fake_run(argument, **kwargs):
         seen.append(str(argument))
         return {"photo_ids": ["PH_a"], "count": 1}
 
     monkeypatch.setattr("app.api.media_search.run", fake_run)
 
     result = worker._execute(
-        {"job_type": "MEDIA_SEARCH", "payload": {"path": str(path)}}
+        {
+            # A real job row always carries its id: the worker reports progress
+            # and notices a cancel through it.
+            "id": 1,
+            "job_type": "MEDIA_SEARCH",
+            "payload": {"path": str(path)},
+        }
     )
 
     assert result == {"photo_ids": ["PH_a"], "count": 1}
@@ -343,13 +349,19 @@ def test_media_search_job_deletes_the_file_on_failure(query_dir, monkeypatch):
 
     path = media_search.store_query("q.jpg", io.BytesIO(_jpeg_bytes()))
 
-    def explode(_argument):
+    def explode(_argument, **kwargs):
         raise RuntimeError("model is unavailable")
 
     monkeypatch.setattr("app.api.media_search.run", explode)
 
     with pytest.raises(RuntimeError):
-        worker._execute({"job_type": "MEDIA_SEARCH", "payload": {"path": str(path)}})
+        worker._execute(
+            {
+                "id": 1,
+                "job_type": "MEDIA_SEARCH",
+                "payload": {"path": str(path)},
+            }
+        )
 
     assert not path.exists()
 
@@ -438,3 +450,184 @@ def test_discard_query_file_only_touches_query_dir(query_dir, tmp_path):
 
     assert outside.exists()
     assert not inside.exists()
+
+
+# ---- видео: кадры и объединение результатов ----
+
+
+def _mp4_bytes(seconds: float = 6.0, fps: int = 10, size=(160, 120)) -> bytes:
+    """
+    Настоящий небольшой mp4, собранный OpenCV.
+
+    ffmpeg в системе нет, но запись mp4v сборка OpenCV обычно умеет; если
+    нет — тест пропускается, а не падает.
+    """
+
+    import tempfile
+
+    import cv2
+    import numpy as np
+
+    handle = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+    handle.close()
+
+    writer = cv2.VideoWriter(
+        handle.name,
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        fps,
+        size,
+    )
+
+    if not writer.isOpened():
+        Path(handle.name).unlink(missing_ok=True)
+        pytest.skip("сборка OpenCV не умеет писать mp4")
+
+    try:
+        for index in range(int(seconds * fps)):
+            frame = np.full((size[1], size[0], 3), index % 200, dtype=np.uint8)
+            writer.write(frame)
+    finally:
+        writer.release()
+
+    data = Path(handle.name).read_bytes()
+    Path(handle.name).unlink(missing_ok=True)
+
+    return data
+
+
+def test_kind_for_detects_video_and_photo():
+    assert media_search.kind_for("clip.mp4") == "video"
+    assert media_search.kind_for("clip.MPEG") == "video"
+    assert media_search.kind_for("photo.jpg") == "image"
+
+
+def test_frame_times_follow_the_clip_length():
+    # Двадцатисекундный ролик: кадры на 2, 4, 6 … 18 секунде.
+    assert media_search.frame_times(20.0) == [2, 4, 6, 8, 10, 12, 14, 16, 18]
+    # Короткий: только те секунды, что в него влезают.
+    assert media_search.frame_times(5.0) == [2, 4]
+    # Совсем короткий: один кадр из середины.
+    assert media_search.frame_times(1.0) == [0.5]
+
+
+def test_video_metadata_and_frames(query_dir):
+    data = _mp4_bytes(seconds=6.0)
+
+    stored = media_search.store_query(
+        "clip.mp4",
+        io.BytesIO(data),
+        max_bytes=media_search.MAX_VIDEO_BYTES,
+    )
+
+    assert media_search.kind_for(stored) == "video"
+
+    meta = media_search.verify_media(stored)
+
+    assert meta["width"] == 160
+    assert meta["height"] == 120
+    assert 5.0 < meta["duration_sec"] < 7.0
+    assert meta["codec"]
+
+    frames = media_search.extract_frames(stored)
+
+    assert [item["sec"] for item in frames] == [2, 4]
+    assert all(item["path"].is_file() for item in frames)
+
+    # Удаление запроса уносит и кадры.
+    assert media_search.delete_query(stored) is True
+    assert not media_search.frames_dir(stored).exists()
+
+
+def test_video_longer_than_the_limit_is_refused(query_dir, monkeypatch):
+    monkeypatch.setattr(media_search, "MAX_VIDEO_SECONDS", 3.0)
+
+    stored = media_search.store_query(
+        "clip.mp4",
+        io.BytesIO(_mp4_bytes(seconds=6.0)),
+        max_bytes=media_search.MAX_VIDEO_BYTES,
+    )
+
+    with pytest.raises(ValueError, match="длиннее"):
+        media_search.verify_media(stored)
+
+
+def test_garbage_video_is_refused(query_dir):
+    stored = media_search.store_query(
+        "clip.mp4",
+        io.BytesIO(b"not a video at all"),
+        max_bytes=media_search.MAX_VIDEO_BYTES,
+    )
+
+    with pytest.raises(ValueError):
+        media_search.verify_media(stored)
+
+
+def test_run_merges_the_frames_of_a_video(monkeypatch):
+    """Поиск по ролику объединяет то, что нашли отдельные кадры."""
+
+    frames = [
+        {"path": Path("frame_1.jpg"), "sec": 2.0},
+        {"path": Path("frame_2.jpg"), "sec": 4.0},
+    ]
+
+    monkeypatch.setattr(media_search, "extract_frames", lambda path: frames)
+
+    answers = {
+        "frame_1.jpg": {
+            "description": "щит с автомобилем",
+            "brand": "Бренд А",
+            "client": None,
+            "category": None,
+            "tags": ["щит", "авто"],
+        },
+        "frame_2.jpg": {
+            "description": "улица с людьми",
+            "brand": None,
+            "client": "Клиент Б",
+            "category": "реклама",
+            "tags": ["авто", "люди"],
+        },
+    }
+
+    def fake_describe(path, model=None):
+        fields = {"address": None, **answers[Path(path).name]}
+
+        return {"fields": fields, "seconds": 1.0, "fallback": False}
+
+    monkeypatch.setattr(media_search, "describe", fake_describe)
+
+    asked: list[str] = []
+
+    def fake_search(filters, limit=media_search.MAX_PER_TERM):
+        asked.append(filters.get("q"))
+
+        return {
+            "photo_ids": [f"PH_{len(asked):024x}"],
+            "count": 1,
+            "truncated": False,
+        }
+
+    monkeypatch.setattr(media_search, "search", fake_search)
+
+    seen: list[tuple] = []
+
+    result = media_search.run(
+        "clip.mp4",
+        kind="video",
+        progress=lambda done, total, stage: seen.append((done, total, stage)),
+    )
+
+    assert result["kind"] == "video"
+    assert result["frames_count"] == 2
+    assert result["per_frame"][0]["sec"] == 2.0
+    # Первые непустые значения и объединение тегов.
+    assert result["qwen"]["brand"] == "Бренд А"
+    assert result["qwen"]["client"] == "Клиент Б"
+    assert result["qwen"]["category"] == "реклама"
+    assert result["qwen"]["tags"] == ["щит", "авто", "люди"]
+    assert result["count"] == 2
+    # Поиск шёл по каждому кадру отдельно.
+    assert asked == ["щит с автомобилем", "улица с людьми"]
+    # Полоса прогресса: вызов на кадр плюс финальный.
+    assert seen[0] == (0, 2, "кадр 1 из 2 (2 с)")
+    assert seen[-1] == (2, 2, "готово")
