@@ -341,6 +341,43 @@ def test_renaming_an_alias_renames_the_fingerprint(restore_fingerprint):
         directory_mod.delete_address(address["address_id"])
 
 
+def test_preview_path_comes_from_the_validated_id(tmp_path, monkeypatch):
+    """The montage is looked up inside the fingerprints root, never elsewhere."""
+
+    monkeypatch.setattr(fp, "FINGERPRINTS_ROOT", tmp_path)
+
+    (tmp_path / "78_v33").mkdir()
+    saved = tmp_path / "78_v33" / "preview.jpg"
+    saved.write_bytes(b"\xff\xd8\xff\xe0")
+
+    assert fp.preview_path("78_v33") == saved
+
+    # Built before previews existed: nothing saved yet.
+    (tmp_path / "90_v33").mkdir()
+    assert fp.preview_path("90_v33") is None
+
+    with pytest.raises(fp.FingerprintError):
+        fp.preview_path("../etc/passwd")
+
+
+def test_preview_endpoint_serves_the_saved_montage(tmp_path, monkeypatch):
+    monkeypatch.setattr(fp, "FINGERPRINTS_ROOT", tmp_path)
+
+    (tmp_path / "78_v33").mkdir()
+    (tmp_path / "78_v33" / "preview.jpg").write_bytes(b"\xff\xd8\xff\xe0preview")
+
+    found = client.get("/api/v1/fingerprints/registry/78_v33/preview")
+
+    assert found.status_code == 200
+    assert found.headers["content-type"] == "image/jpeg"
+    assert found.content.startswith(b"\xff\xd8\xff")
+    # Rebuilding keeps the id, so the browser must not cache the picture.
+    assert found.headers["cache-control"] == "no-cache"
+
+    missing = client.get("/api/v1/fingerprints/registry/90_v33/preview")
+    assert missing.status_code == 404
+
+
 # ---- endpoints ----
 
 

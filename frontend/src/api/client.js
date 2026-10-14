@@ -288,6 +288,12 @@ export function fetchFingerprintVersions(fingerprintId) {
   )
 }
 
+// Montage of the source photos, saved with the fingerprint at build time.
+// Older fingerprints have none until they are rebuilt (the request 404s).
+export function fingerprintPreviewUrl(fingerprintId) {
+  return `${BASE}/v1/fingerprints/registry/${encodeURIComponent(fingerprintId)}/preview`
+}
+
 export function fetchAutomation() {
   return getJson(`${BASE}/v1/automation`)
 }

@@ -4,7 +4,7 @@
 // The vectors live on disk; this table mirrors them from
 // data/fingerprints/*/metadata.json and adds the human layer: a name, a
 // description, the source folder, archiving and a version journal.
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { Notify } from 'quasar'
 
 import {
@@ -17,6 +17,7 @@ import {
   fetchFingerprintRegistry,
   fetchFingerprintVersions,
   fetchJob,
+  fingerprintPreviewUrl,
   pauseJob,
   pickFolderNative,
   resumeJob,
@@ -454,10 +455,23 @@ async function openVersions(item) {
   }
 }
 
+// The window shows the legal address (the alias is the fingerprint's name).
 function addressLabel(item) {
   const address = item.address
   if (!address) return '—'
-  return address.simple_address || address.legal_address || '—'
+  return address.legal_address || address.simple_address || '—'
+}
+
+// Previews are written by the builder; a fingerprint built before that has
+// none and the request 404s, so the failure is remembered per fingerprint.
+const previewFailed = reactive(new Set())
+
+function previewSrc(fingerprintId) {
+  return fingerprintPreviewUrl(fingerprintId)
+}
+
+function markPreviewFailed(fingerprintId) {
+  previewFailed.add(fingerprintId)
 }
 
 function day(value) {
@@ -509,6 +523,7 @@ function day(value) {
       :pagination="{ rowsPerPage: 0 }"
       :columns="[
         { name: 'id', label: 'ID', field: 'fingerprint_id', align: 'left', sortable: true },
+        { name: 'preview', label: 'Превью', field: 'fingerprint_id', align: 'center' },
         { name: 'name', label: 'Имя', field: 'name', align: 'left', sortable: true },
         { name: 'address', label: 'Адрес', field: (row) => addressLabel(row), align: 'left' },
         { name: 'images', label: 'Фото', field: 'images_count', align: 'right', sortable: true },
@@ -520,6 +535,27 @@ function day(value) {
       ]"
       no-data-label="Реестр пуст — нажмите «Синхронизировать с диском»"
     >
+      <template #body-cell-preview="props">
+        <q-td :props="props">
+          <q-btn dense flat icon="photo_library" size="sm">
+            <q-tooltip :delay="200" max-width="600px" class="bg-white text-dark shadow-4">
+              <div class="text-caption q-mb-xs">Фото, из которых собран слепок</div>
+              <img
+                v-if="!previewFailed.has(props.row.fingerprint_id)"
+                :src="previewSrc(props.row.fingerprint_id)"
+                style="width: 560px; display: block; border-radius: 4px"
+                alt="превью слепка"
+                @error="markPreviewFailed(props.row.fingerprint_id)"
+              />
+              <div v-else class="text-caption text-grey-7">
+                Превью нет: слепок собран до появления превью, пересоберите его
+                из папки — картинка появится.
+              </div>
+            </q-tooltip>
+          </q-btn>
+        </q-td>
+      </template>
+
       <template #body-cell-disk="props">
         <q-td :props="props">
           <q-icon
@@ -620,6 +656,24 @@ function day(value) {
             label="Папка-источник эталонных фото"
             hint="например data/input/78"
           />
+
+          <div>
+            <div class="text-caption text-grey-7 q-mb-xs">
+              Фото, из которых собран слепок (сохранены вместе со слепком)
+            </div>
+            <img
+              v-if="editTarget && !previewFailed.has(editTarget.fingerprint_id)"
+              :src="previewSrc(editTarget.fingerprint_id)"
+              style="width: 100%; border-radius: 4px"
+              alt="превью слепка"
+              @error="markPreviewFailed(editTarget.fingerprint_id)"
+            />
+            <div v-else class="text-caption text-grey-7">
+              Превью нет: слепок собран до появления превью. Пересоберите его из
+              папки — картинка появится.
+            </div>
+          </div>
+
           <div class="row items-center">
             <q-toggle v-model="editTarget.active" dense label="Активен" />
             <q-space />

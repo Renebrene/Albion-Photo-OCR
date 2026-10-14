@@ -10,12 +10,21 @@ from pathlib import Path
 
 import faiss
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 from app.ingest.integrity import read_taken_at
 
 from .image import image_files
 from .scene_analyzer import CompactDescriptor
+
+# A small composite of the source photos, published next to the vectors: the
+# originals are not kept, so this is the only picture of what a fingerprint was
+# built from once its source folder is gone. Additive - nothing reads the
+# vectors differently, and a fingerprint without it stays valid.
+PREVIEW_NAME = "preview.jpg"
+PREVIEW_COLUMNS = 4
+PREVIEW_ROWS = 3
+PREVIEW_CELL = (240, 180)
 
 
 def sample_paths(paths, count):
@@ -64,6 +73,62 @@ def image_meta(paths):
         result.append({"name": path.name, "taken_at": taken_at})
 
     return result
+
+
+def build_preview(
+    paths,
+    output,
+    *,
+    columns=PREVIEW_COLUMNS,
+    rows=PREVIEW_ROWS,
+    cell=PREVIEW_CELL,
+):
+    """
+    Compose a montage of up to columns*rows source photos into *output*.
+
+    The photos are sampled with the same stride the build uses, so the montage
+    shows the spread of viewpoints rather than one burst. A file that cannot be
+    decoded is skipped; when nothing could be read nothing is written and None
+    is returned - an unreadable source must never fail a build.
+    """
+
+    picks = sample_paths(list(paths), columns * rows)
+    thumbs = []
+
+    for path in picks:
+        try:
+            with Image.open(path) as image:
+                if getattr(image, "n_frames", 1) > 1:
+                    image.seek(0)
+
+                thumbs.append(
+                    ImageOps.fit(
+                        image.convert("RGB"),
+                        cell,
+                        method=Image.LANCZOS,
+                    )
+                )
+        except Exception:  # noqa: BLE001 - a broken photo must not fail a build
+            continue
+
+    if not thumbs:
+        return None
+
+    canvas = Image.new(
+        "RGB",
+        (cell[0] * columns, cell[1] * rows),
+        (24, 24, 24),
+    )
+
+    for index, thumb in enumerate(thumbs):
+        canvas.paste(
+            thumb,
+            ((index % columns) * cell[0], (index // columns) * cell[1]),
+        )
+
+    canvas.save(output, format="JPEG", quality=82, optimize=True)
+
+    return output
 
 
 class FingerprintManager:
@@ -534,6 +599,10 @@ class FingerprintManager:
             ),
         )
 
+        # Small montage of the sources, published with the vectors (the window
+        # shows it for a fingerprint whose source folder is long gone).
+        preview = build_preview(paths, output / PREVIEW_NAME)
+
         metadata = {
             "id": fingerprint_id,
             "version": self.VERSION,
@@ -574,6 +643,8 @@ class FingerprintManager:
                 Path(path).name
                 for path in paths
             ],
+            # None when no source photo could be decoded for the montage.
+            "preview": PREVIEW_NAME if preview else None,
         }
 
         with (

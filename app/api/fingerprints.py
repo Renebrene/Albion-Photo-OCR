@@ -19,7 +19,7 @@ import json
 import re
 from pathlib import Path
 
-from app.api.config import FINGERPRINTS_ROOT
+from app.api.config import FINGERPRINTS_ROOT, FINGERPRINT_PREVIEW_NAME
 from app.ingest.database import get_connection
 
 FINGERPRINT_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
@@ -368,6 +368,23 @@ def get_fingerprint(fingerprint_id: str) -> dict | None:
             row = cur.fetchone()
 
     return _row_to_fingerprint(row) if row is not None else None
+
+
+def preview_path(fingerprint_id: str) -> Path | None:
+    """
+    The montage stored with a fingerprint, or None when it has none.
+
+    The path is built from the validated id inside the fingerprints root, so a
+    request cannot aim it anywhere else. Fingerprints built before previews
+    existed have none until they are rebuilt (scripts/backfill_fingerprint_previews.py
+    makes one from the source folder while it still exists).
+    """
+
+    fingerprint_id = _check_id(fingerprint_id)
+
+    path = Path(FINGERPRINTS_ROOT) / fingerprint_id / FINGERPRINT_PREVIEW_NAME
+
+    return path if path.is_file() else None
 
 
 def list_versions(fingerprint_id: str) -> list[dict] | None:

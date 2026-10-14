@@ -117,13 +117,14 @@ afterEach(() => {
 })
 
 describe('FingerprintsList.vue', () => {
-  it('renders the registry with address, photo count and disk state', async () => {
+  it('renders the registry with legal address, photo count and disk state', async () => {
     const wrapper = mountWindow()
     await flushPromises()
 
     expect(wrapper.text()).toContain('Слепки (2)')
     expect(wrapper.text()).toContain('78_v33')
-    expect(wrapper.text()).toContain('Мира 1')
+    // The address column shows the legal name, not the alias.
+    expect(wrapper.text()).toContain('ООО «Ромашка»')
     expect(wrapper.text()).toContain('Малая подборка')
     expect(wrapper.text()).toContain('19')
   })
@@ -132,12 +133,39 @@ describe('FingerprintsList.vue', () => {
     const wrapper = mountWindow()
     await flushPromises()
 
-    // Columns: ID, Имя, Адрес, Фото, ...
+    // Columns: ID, Превью, Имя, Адрес, Фото, ...
     const cells = wrapper.findAll('tbody tr').at(0).findAll('td')
 
     expect(cells.at(0).text()).toContain('78_v33')
-    expect(cells.at(1).text()).toBe('Мира 1')
-    expect(cells.at(2).text()).toContain('Мира 1')
+    expect(cells.at(2).text()).toBe('Мира 1')
+    expect(cells.at(3).text()).toContain('ООО «Ромашка»')
+  })
+
+  it('offers a preview of the source photos', async () => {
+    const wrapper = mountWindow()
+    await flushPromises()
+
+    expect(wrapper.html()).toContain('photo_library')
+  })
+
+  it('shows the saved preview in the edit dialog', async () => {
+    const wrapper = mountWindow()
+    await flushPromises()
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.html().includes('edit'))
+      .trigger('click')
+    await flushPromises()
+
+    const image = [...document.body.querySelectorAll('img')].find((node) =>
+      (node.getAttribute('src') || '').includes('/preview'),
+    )
+
+    expect(image).toBeTruthy()
+    expect(image.getAttribute('src')).toBe(
+      '/api/v1/fingerprints/registry/78_v33/preview',
+    )
   })
 
   it('shows a dash when a fingerprint has no address yet', async () => {

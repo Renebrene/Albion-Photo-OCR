@@ -79,6 +79,8 @@ def test_successful_create_publishes_complete_fingerprint(tmp_path):
         "representatives.npy",
         "faiss.index",
         "metadata.json",
+        # The montage of the sources is published with the vectors.
+        "preview.jpg",
     ):
         assert (output / name).exists()
 
@@ -89,6 +91,36 @@ def test_successful_create_publishes_complete_fingerprint(tmp_path):
 
     data = manager.load("fp_ok")
     assert data["embeddings"].shape == (3, 768)
+
+
+def test_preview_is_a_montage_of_the_sources(tmp_path):
+    settings, manager = _manager(tmp_path, _StubEmbedder())
+    source = _make_images(tmp_path)
+
+    metadata = manager.create("fp_preview", source)
+
+    preview = settings.fingerprints_dir / "fp_preview" / "preview.jpg"
+
+    assert preview.is_file()
+    assert metadata["preview"] == "preview.jpg"
+
+    with Image.open(preview) as image:
+        assert image.size == (960, 540)
+        assert image.format == "JPEG"
+
+
+def test_preview_is_skipped_when_no_photo_can_be_read(tmp_path):
+    """An unreadable source must not fail a build - it just leaves no preview."""
+
+    from app.core.fingerprint import build_preview
+
+    broken = tmp_path / "broken.jpg"
+    broken.write_bytes(b"not an image")
+
+    output = tmp_path / "out.jpg"
+
+    assert build_preview([broken], output) is None
+    assert not output.exists()
 
 
 def test_existing_fingerprint_is_not_overwritten(tmp_path):

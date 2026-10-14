@@ -1448,6 +1448,37 @@ def list_fingerprint_versions(fingerprint_id: str):
     return {"items": versions}
 
 
+@fingerprints_router.get(
+    "/v1/fingerprints/registry/{fingerprint_id}/preview",
+    response_model=None,
+    dependencies=[Depends(require_scope("read"))],
+)
+def get_fingerprint_preview(fingerprint_id: str) -> Response:
+    """
+    The montage of source photos stored with a fingerprint (preview.jpg).
+
+    The builder writes it next to the vectors, so it outlives the source folder.
+    404 when the fingerprint has none - built before previews existed and not
+    rebuilt since.
+    """
+
+    try:
+        path = fingerprints_mod.preview_path(fingerprint_id)
+    except fingerprints_mod.FingerprintError as exc:
+        raise _fingerprint_error(exc) from exc
+
+    if path is None:
+        raise HTTPException(status_code=404, detail="preview not found")
+
+    # Rebuilding a fingerprint keeps its id, so the same URL gets new content:
+    # it must not be cached.
+    return Response(
+        content=path.read_bytes(),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Building a fingerprint from the window: choose a folder, enqueue the build
 # ---------------------------------------------------------------------------

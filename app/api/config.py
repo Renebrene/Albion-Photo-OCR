@@ -21,6 +21,11 @@ FINGERPRINTS_ROOT = Path(
     os.getenv("SCENE_DATA", "data")
 ) / "fingerprints"
 
+# Montage the builder writes next to the vectors (app/core/fingerprint.py
+# PREVIEW_NAME). Repeated here on purpose: importing the builder would pull
+# faiss/opencv into the API process, which this module exists to avoid.
+FINGERPRINT_PREVIEW_NAME = "preview.jpg"
+
 # Allowed roots for serving original files. Comma-separated absolute paths
 # (e.g. the mounted photo volume). Empty -> originals are refused (fail-closed):
 # a registered path outside these roots is never served.
