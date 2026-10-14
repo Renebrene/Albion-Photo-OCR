@@ -137,16 +137,39 @@ def test_address_and_client_facets():
     assert "items" in clients
 
     for item in addresses["items"]:
-        # The recognised id is what the filter sends; the directory names are
-        # what the panel shows (None until the id is mapped to an address).
-        assert set(item) == {
-            "address",
-            "count",
-            "simple_address",
-            "legal_address",
-        }
+        # The recognised id is what the filter sends; `name` is what the panel
+        # shows (the alias of the fingerprint's address, or the id).
+        assert set(item) == {"address", "name", "count"}
     for item in clients["items"]:
         assert set(item) == {"client", "count"}
+
+
+@requires_db
+def test_address_filter_is_built_from_the_fingerprints():
+    """
+    The «Адреса» panel lists fingerprints by name, not raw verdict ids: every
+    active fingerprint is present (even one without recognised photos) and the
+    list is ordered by the displayed name.
+    """
+
+    addresses = client.get("/api/v1/addresses").json()["items"]
+    registry = client.get("/api/v1/fingerprints/registry").json()["items"]
+
+    if not registry:
+        pytest.skip("the fingerprint registry is empty")
+
+    listed = {item["address"] for item in addresses}
+
+    for item in registry:
+        if item["active"]:
+            assert item["fingerprint_id"] in listed
+
+    for item in addresses:
+        assert item["name"]
+        assert item["count"] >= 0
+
+    names = [item["name"].casefold() for item in addresses]
+    assert names == sorted(names)
 
 
 @requires_db

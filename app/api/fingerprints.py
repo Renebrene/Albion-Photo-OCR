@@ -267,7 +267,12 @@ def sync_from_disk() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _fingerprint_name(row) -> str:
+def resolve_name(
+    display_name: object,
+    simple_address: object,
+    legal_address: object,
+    fingerprint_id: str,
+) -> str:
     """
     The name a fingerprint is shown by.
 
@@ -277,11 +282,11 @@ def _fingerprint_name(row) -> str:
     fingerprint with no address at all keeps its technical id.
     """
 
-    for value in (row[1], row[13], row[12]):
+    for value in (display_name, simple_address, legal_address):
         if isinstance(value, str) and value.strip():
             return value.strip()
 
-    return row[0]
+    return fingerprint_id
 
 
 def _row_to_fingerprint(row) -> dict:
@@ -290,7 +295,7 @@ def _row_to_fingerprint(row) -> dict:
         "display_name": row[1],
         # display_name resolved against the address directory (see above); the
         # window shows this, display_name stays the stored human field.
-        "name": _fingerprint_name(row),
+        "name": resolve_name(row[1], row[13], row[12], row[0]),
         "description": row[2],
         "algorithm_version": row[3],
         "model": row[4],

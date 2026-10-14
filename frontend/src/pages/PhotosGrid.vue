@@ -636,8 +636,8 @@ function tagList(meta) {
                 @click="pickAddress(item.address)"
               >
                 <q-item-section>
-                  {{ item.simple_address || item.address }}
-                  <q-tooltip v-if="item.simple_address">
+                  {{ item.name }}
+                  <q-tooltip v-if="item.name !== item.address">
                     {{ item.address }}
                   </q-tooltip>
                 </q-item-section>

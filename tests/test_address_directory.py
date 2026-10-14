@@ -179,13 +179,26 @@ def test_photo_rows_carry_the_directory_names(cleanup_addresses):
 
     from app.api import repository
 
+    # The fingerprint is MOVED onto the temporary address below, so only one
+    # that has no address yet may be picked: mapping a fingerprint that is
+    # already spoken for would move it off the real address, and deleting the
+    # temporary one would then take that mapping with it.
+    already_mapped = set(directory_mod.fingerprint_map(active_only=False))
+
     # `address` is computed from the recognition pipeline, not stored on the
     # photo row, so pick a recognised photo through the API query itself.
     items, _cursor = repository.list_photos(limit=50)
-    recognised = next((item for item in items if item.address), None)
+    recognised = next(
+        (
+            item
+            for item in items
+            if item.address and item.address not in already_mapped
+        ),
+        None,
+    )
 
     if recognised is None:
-        pytest.skip("no recognised photo in the database")
+        pytest.skip("no recognised photo whose fingerprint has no address")
 
     photo_id, fingerprint_id = recognised.photo_id, recognised.address
 

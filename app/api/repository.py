@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from psycopg.types.json import Json
 
+from app.api import fingerprints
 from app.api.schemas import (
     DinoBatchSummary,
     DinoRunSummary,
@@ -269,34 +270,81 @@ def all_photo_ids() -> list[str]:
 
 def list_addresses(*, limit: int = 1000) -> list[dict]:
     """
-    Distinct addresses (recognition result) with photo counts.
+    The address filter of the photo page: one entry per fingerprint.
 
-    Used by the side panel that mirrors the legacy UI.
+    The list is built from the fingerprint registry, not from the photos, so it
+    is the list of fingerprints (each one is an address/shield) shown by name -
+    the manual name, the alias of its address, or the technical id. A
+    fingerprint stays in the panel even while no photo has been recognised as
+    it; its counter says how many photos carry its verdict.
+
+    A recognised id that is not an active fingerprint is appended, so a photo
+    can never become unfilterable. `address` is that recognised id and is what
+    the filter sends; `name` is what the panel shows.
     """
-
-    sql = (
-        "SELECT address, count(*) AS count, "
-        "max(simple_address) AS simple_address, "
-        "max(legal_address) AS legal_address "
-        "FROM (" + _PHOTO_SELECT + ") AS t "
-        "WHERE address IS NOT NULL AND address <> '' "
-        "GROUP BY address ORDER BY address LIMIT %s"
-    )
 
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, (limit,))
-            return [
-                {
-                    # The recognised fingerprint id is what the filter sends;
-                    # the directory names are what the panel shows.
-                    "address": row[0],
-                    "count": int(row[1]),
-                    "simple_address": row[2],
-                    "legal_address": row[3],
-                }
-                for row in cur.fetchall()
-            ]
+            cur.execute(
+                "SELECT address, count(*) FROM (" + _PHOTO_SELECT + ") AS t "
+                "WHERE address IS NOT NULL AND address <> '' "
+                "GROUP BY address"
+            )
+            counts = {row[0]: int(row[1]) for row in cur.fetchall()}
+
+            # Every fingerprint, archived ones included: an archived fingerprint
+            # still recognises photos, and those must keep their name.
+            cur.execute(
+                """
+                SELECT f.fingerprint_id, f.display_name, f.active,
+                       d.simple_address, d.legal_address
+                FROM public.fingerprints AS f
+                LEFT JOIN public.address_fingerprints AS af
+                       ON af.fingerprint_id = f.fingerprint_id AND af.active
+                LEFT JOIN public.address_directory AS d
+                       ON d.address_id = af.address_id AND d.active
+                """
+            )
+            rows = cur.fetchall()
+
+    items: list[dict] = []
+    listed: set[str] = set()
+    known: dict[str, str] = {}
+
+    for row in rows:
+        fingerprint_id = row[0]
+        name = fingerprints.resolve_name(row[1], row[3], row[4], fingerprint_id)
+
+        known[fingerprint_id] = name
+
+        if not row[2]:  # archived: only listed when it still recognises photos
+            continue
+
+        listed.add(fingerprint_id)
+        items.append(
+            {
+                "address": fingerprint_id,
+                "name": name,
+                "count": counts.get(fingerprint_id, 0),
+            }
+        )
+
+    for fingerprint_id, count in counts.items():
+        if fingerprint_id in listed:
+            continue
+
+        items.append(
+            {
+                "address": fingerprint_id,
+                "name": known.get(fingerprint_id, fingerprint_id),
+                "count": count,
+            }
+        )
+
+    # The panel shows names, so it is ordered by them.
+    items.sort(key=lambda item: (item["name"].casefold(), item["address"]))
+
+    return items[:limit]
 
 
 def list_clients(*, limit: int = 1000) -> list[dict]:

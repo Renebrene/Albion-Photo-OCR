@@ -67,6 +67,17 @@ def restore_fingerprint():
 # ---- validation ----
 
 
+def test_resolve_name_falls_back_to_alias_then_legal_then_id():
+    """The order the window, the grid and the address panel all rely on."""
+
+    assert fp.resolve_name("", "Мира 1", "ООО «Ромашка»", "78_v33") == "Мира 1"
+    assert fp.resolve_name("Своё имя", "Мира 1", "ООО «Ромашка»", "78_v33") == "Своё имя"
+    assert fp.resolve_name("", "", "ООО «Ромашка»", "78_v33") == "ООО «Ромашка»"
+    assert fp.resolve_name("", None, None, "78_v33") == "78_v33"
+    # Whitespace is not a name.
+    assert fp.resolve_name("  ", " ", None, "78_v33") == "78_v33"
+
+
 def test_ids_are_restricted():
     assert fp._check_id("78_v33") == "78_v33"
 
