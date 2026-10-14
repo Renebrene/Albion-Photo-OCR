@@ -187,7 +187,9 @@ def test_photo_rows_carry_the_directory_names(cleanup_addresses):
 
     # `address` is computed from the recognition pipeline, not stored on the
     # photo row, so pick a recognised photo through the API query itself.
-    items, _cursor = repository.list_photos(limit=50)
+    # A wide page: the fingerprint must be unmapped, and the first photos may
+    # all belong to addresses that already are.
+    items, _cursor = repository.list_photos(limit=250)
     recognised = next(
         (
             item

@@ -136,6 +136,13 @@ def list_photos(
     }
 
 
+@read_router.get("/v1/stats", response_model=None)
+def get_stats():
+    """Counts for the status bar: photos, addresses, clients, last upload."""
+
+    return repository.stats()
+
+
 @read_router.get("/v1/system", response_model=None)
 def get_system_info():
     return sysinfo.system_info()

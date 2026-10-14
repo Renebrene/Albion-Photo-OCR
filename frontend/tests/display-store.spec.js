@@ -339,6 +339,50 @@ describe('draggable panel sizes', () => {
     expect(display.sideListHeight).toBe(300)
   })
 
+  it('remembers the current settings as the base and returns to them', async () => {
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ state: {} }),
+    })
+
+    const display = useDisplayStore()
+
+    display.tileColumns = 5
+    display.saveAsBase()
+
+    expect(display.base.tileColumns).toBe(5)
+
+    // Someone fiddles with the view...
+    display.tileColumns = 2
+    display.leftPanelOpen = false
+
+    display.restoreBase()
+
+    expect(display.tileColumns).toBe(5)
+    expect(display.leftPanelOpen).toBe(true)
+
+    delete global.fetch
+  })
+
+  it('takes a settings file as the new base', async () => {
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ state: {} }),
+    })
+
+    const display = useDisplayStore()
+
+    display.adoptBase({ tileColumns: 3, downloadNameMode: 'simple' })
+
+    expect(display.tileColumns).toBe(3)
+    expect(display.downloadNameMode).toBe('simple')
+    expect(display.base.tileColumns).toBe(3)
+
+    delete global.fetch
+  })
+
   it('restores the settings of the user from the server', async () => {
     global.fetch = async () => ({
       ok: true,

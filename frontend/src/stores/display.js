@@ -152,6 +152,55 @@ export const useDisplayStore = defineStore('display', () => {
     }
   }
 
+  // Base (starting) state: a snapshot of the settings that the installation is
+  // known to work with. «Вернуть базовые» restores it - the 100 % working
+  // layout - and it can be downloaded or loaded from a file as a backup.
+  const BASE_KEY = `${STORAGE_KEY}.base`
+
+  function loadBase() {
+    try {
+      const raw = window.localStorage.getItem(BASE_KEY)
+      const parsed = raw ? JSON.parse(raw) : null
+
+      if (parsed && typeof parsed === 'object') return parsed
+    } catch {
+      // unreadable storage -> no base yet
+    }
+
+    return null
+  }
+
+  const base = ref(loadBase())
+
+  function saveAsBase() {
+    const data = snapshot()
+
+    base.value = data
+
+    try {
+      window.localStorage.setItem(BASE_KEY, JSON.stringify(data))
+    } catch {
+      // private mode: the base lives for this session only
+    }
+
+    try {
+      saveSelection({ display_base: data }).catch(() => {})
+    } catch {
+      // offline: the local copy is enough
+    }
+  }
+
+  /** Back to the base state (or to the built-in defaults when none was saved). */
+  function restoreBase() {
+    applyState(base.value || {})
+    persist()
+  }
+
+  function adoptBase(source) {
+    applyState(source)
+    saveAsBase()
+  }
+
   let serverTimer = null
 
   function persist() {
@@ -180,10 +229,14 @@ export const useDisplayStore = defineStore('display', () => {
   async function loadFromServer() {
     try {
       const payload = await fetchSelection()
-      const remote = payload && payload.state ? payload.state.display : null
+      const state = payload && payload.state ? payload.state : {}
 
-      if (remote && typeof remote === 'object') {
-        applyState(remote)
+      if (state.display && typeof state.display === 'object') {
+        applyState(state.display)
+      }
+
+      if (state.display_base && typeof state.display_base === 'object') {
+        base.value = state.display_base
       }
     } catch {
       // Not authenticated (or the endpoint is unavailable): keep the local ones.
@@ -243,6 +296,12 @@ export const useDisplayStore = defineStore('display', () => {
     resizeSideList,
     reset,
     loadFromServer,
+    // Base (starting) state: reserve, restore, adopt from a file.
+    base,
+    saveAsBase,
+    restoreBase,
+    adoptBase,
+    snapshot,
   }
 })
 

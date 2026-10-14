@@ -1,10 +1,14 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { Dark, Notify } from 'quasar'
+import { useRouter } from 'vue-router'
 
+import { fetchStats } from './api/client'
 import { useDisplayStore } from './stores/display'
 import { usePhotosStore } from './stores/photos'
 import { useSessionStore } from './stores/session'
+
+const router = useRouter()
 
 const session = useSessionStore()
 const photos = usePhotosStore()
@@ -13,10 +17,21 @@ const display = useDisplayStore()
 const password = ref('')
 const loginName = ref('')
 
+// The interface is drawn only once the user's settings are in place: otherwise
+// the grid would flash the default layout and then rearrange itself.
+const booted = ref(false)
+
+// The technical section is for the staff: Администратор and Менеджер.
+const canUseTech = computed(() =>
+  ['Администратор', 'Менеджер'].includes(session.user?.role),
+)
+
 onMounted(async () => {
   await session.load()
 
-  if (!needsLogin.value) {
+  if (needsLogin()) {
+    booted.value = true
+  } else {
     await afterAuth()
   }
 })
@@ -25,7 +40,40 @@ async function afterAuth() {
   photos.loadSelectionState()
   // The display settings follow the user, not the browser.
   await display.loadFromServer()
+  await loadStats()
+  booted.value = true
 }
+
+// ---- подвал: сводка по базе ----
+
+const stats = ref({ photos: null, addresses: null, clients: null, last_photo_at: null })
+
+async function loadStats() {
+  try {
+    stats.value = await fetchStats()
+  } catch {
+    // Подвал — вспомогательная информация: без неё окно работает как обычно.
+  }
+}
+
+// «14.10.2026» — дата последнего добавления фото.
+const lastPhoto = computed(() => {
+  const value = stats.value.last_photo_at
+
+  if (!value) return '—'
+
+  const [date] = String(value).split(/[T ]/)
+
+  const [year, month, day] = date.split('-')
+
+  return year && month && day ? `${day}.${month}.${year}` : date
+})
+
+const lastPhotoFull = computed(() => {
+  const value = stats.value.last_photo_at
+
+  return value ? String(value).replace('T', ' ').slice(0, 19) : 'нет данных'
+})
 
 // Auth is required and nobody is logged in: show the login screen.
 function needsLogin() {
@@ -36,8 +84,12 @@ async function doLogin() {
   try {
     const user = await session.login(loginName.value, password.value)
     Notify.create({ type: 'positive', message: `Вы вошли как ${user.name}` })
+
+    // Restore the settings first, then open the main window (the gallery).
     await afterAuth()
+    await router.push('/')
   } catch (err) {
+    booted.value = true
     Notify.create({ type: 'negative', message: err.message })
   }
 }
@@ -45,6 +97,9 @@ async function doLogin() {
 async function doLogout() {
   await session.logout()
   Notify.create({ type: 'info', message: 'Выход выполнен' })
+
+  // The next user starts from the front page, whatever page this one was on.
+  await router.push('/')
 }
 
 function toggleDark() {
@@ -60,13 +115,15 @@ function toggleDark() {
 
         <q-btn flat round dense icon="dark_mode" @click="toggleDark" />
 
-        <q-tabs v-if="session.user" align="right" shrink>
-          <q-route-tab to="/" label="Фото" exact />
+        <!-- Главный экран выделен плашкой, как блок пользователя. -->
+        <q-tabs v-if="session.user" align="right" shrink class="header-gallery">
+          <q-route-tab to="/" icon="photo_library" label="Фотогалерея" exact />
         </q-tabs>
 
-        <!-- Технический раздел: шестерёнка вместо вкладки. -->
+        <!-- Технический раздел: шестерёнка вместо вкладки. Доступен только
+             Администратору и Менеджеру — у Гостя его нет вовсе. -->
         <q-btn
-          v-if="session.user"
+          v-if="session.user && canUseTech"
           flat
           round
           dense
@@ -137,8 +194,48 @@ function toggleDark() {
         </q-card>
       </div>
 
+      <!-- Пока настройки пользователя не загружены, экран не рисуем: иначе
+           грид мелькнёт раскладкой по умолчанию и перестроится. -->
+      <div v-else-if="!booted" class="flex flex-center" style="min-height: 70vh">
+        <q-spinner-dots color="primary" size="36px" />
+      </div>
+
       <router-view v-else />
     </q-page-container>
+
+    <!-- Подвал-статусбар на всю ширину: грид и боковые панели упираются в него. -->
+    <q-footer v-if="session.user" class="app-footer">
+      <div class="row items-center no-wrap full-width q-px-md">
+        <q-btn
+          flat
+          dense
+          no-caps
+          icon="help_outline"
+          label="Руководство пользователя"
+          to="/help"
+        />
+
+        <q-space />
+
+        <span class="footer-item">
+          Фото: <b>{{ stats.photos === null ? '—' : stats.photos }}</b>
+        </span>
+        <span class="footer-dot">·</span>
+        <span class="footer-item">
+          Адреса: <b>{{ stats.addresses === null ? '—' : stats.addresses }}</b>
+        </span>
+        <span class="footer-dot">·</span>
+        <span class="footer-item">
+          Клиенты: <b>{{ stats.clients === null ? '—' : stats.clients }}</b>
+        </span>
+        <span class="footer-dot">·</span>
+        <span class="footer-item">
+          Последнее фото добавлено:
+          <b class="footer-last">{{ lastPhoto }}</b>
+          <q-tooltip>{{ lastPhotoFull }}</q-tooltip>
+        </span>
+      </div>
+    </q-footer>
   </q-layout>
 </template>
 
@@ -149,5 +246,56 @@ function toggleDark() {
   border: 1px solid rgba(255, 255, 255, 0.38);
   border-radius: 999px;
   padding: 2px 14px 2px 6px;
+}
+
+/* Главный экран («Фотогалерея») выделен той же плашкой. */
+.header-gallery :deep(.q-tab) {
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 999px;
+  min-height: 32px;
+  padding: 0 14px;
+}
+
+.header-gallery :deep(.q-tab--active) {
+  background: rgba(255, 255, 255, 0.34);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+/* Подвал-статусбар. */
+.app-footer {
+  min-height: 34px;
+  background: #f4f5f7;
+  color: #4b5563;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.footer-item {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.footer-dot {
+  margin: 0 8px;
+  color: #9ca3af;
+}
+
+/* Дата последнего добавления — то, за чем следят: выделена. */
+.footer-last {
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 6px;
+  padding: 0 6px;
+}
+
+body.body--dark .app-footer {
+  background: #1d1d1f;
+  color: #cbd0d6;
+  border-top-color: rgba(255, 255, 255, 0.12);
+}
+
+body.body--dark .footer-last {
+  color: #fde68a;
+  background: rgba(253, 230, 138, 0.16);
 }
 </style>

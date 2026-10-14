@@ -4,6 +4,7 @@ import { computed, ref } from 'vue'
 import { useSessionStore } from '../stores/session'
 import Processing from './Processing.vue'
 import Settings from './Settings.vue'
+import BaseSettings from '../components/BaseSettings.vue'
 import UsersAdmin from '../components/UsersAdmin.vue'
 import SystemMonitor from '../components/SystemMonitor.vue'
 import FingerprintsList from '../components/FingerprintsList.vue'
@@ -35,18 +36,26 @@ const canEditClients = computed(() =>
   <q-page class="q-pa-md">
     <div class="text-h6 q-mb-md">Технический раздел</div>
 
+    <!-- Порядок задан владельцем: сначала работа с фотографиями, затем службы,
+         затем слепки и адреса, в конце — пользователи и вид. -->
     <q-tabs v-model="tab" dense align="left" class="text-primary q-mb-sm">
+      <span class="tab-sep" />
+      <q-tab name="ingest" icon="folder_open" label="Загрузка" />
       <q-tab name="processing" icon="play_circle" label="Обработка" />
-      <q-tab name="last_run" icon="history" label="Последний запуск" />
-      <q-tab name="qwen" icon="auto_awesome" label="QWEN" />
+      <q-tab name="qwen" icon="auto_awesome" label="Распознавание" />
+      <span class="tab-sep" />
       <q-tab name="automation" icon="schedule" label="Автоматизация" />
+      <q-tab name="last_run" icon="history" label="Последний запуск" />
       <q-tab name="system" icon="monitor_heart" label="Система" />
+      <q-tab name="base" icon="tune" label="Настройки" />
+      <q-tab name="data" icon="storage" label="Данные" />
+      <span class="tab-sep" />
       <q-tab name="fingerprints" icon="fingerprint" label="Слепки" />
       <q-tab name="addresses" icon="place" label="Адреса" />
-      <q-tab name="ingest" icon="folder_open" label="Ingest" />
-      <q-tab name="display" icon="grid_view" label="Отображение" />
+      <span class="tab-sep" />
       <q-tab v-if="isAdmin" name="users" icon="group" label="Пользователи" />
-      <q-tab name="data" icon="storage" label="Данные" />
+      <q-tab name="display" icon="grid_view" label="Отображение" />
+      <span class="tab-sep" />
     </q-tabs>
 
     <q-tab-panels v-model="tab" animated>
@@ -64,6 +73,10 @@ const canEditClients = computed(() =>
 
       <q-tab-panel name="system">
         <SystemMonitor />
+      </q-tab-panel>
+
+      <q-tab-panel name="base">
+        <BaseSettings />
       </q-tab-panel>
 
       <q-tab-panel name="fingerprints">
@@ -122,3 +135,18 @@ const canEditClients = computed(() =>
     </q-tab-panels>
   </q-page>
 </template>
+
+<style scoped>
+/* Разделители групп вкладок технического раздела. */
+.tab-sep {
+  width: 1px;
+  height: 20px;
+  align-self: center;
+  margin: 0 10px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+body.body--dark .tab-sep {
+  background: rgba(255, 255, 255, 0.24);
+}
+</style>

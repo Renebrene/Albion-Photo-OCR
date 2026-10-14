@@ -347,6 +347,37 @@ def list_addresses(*, limit: int = 1000) -> list[dict]:
     return items[:limit]
 
 
+def stats() -> dict:
+    """
+    Counts for the status bar at the bottom of the window.
+
+    `last_photo_at` is when the corpus last grew (INGEST writes created_at), so
+    the window can show how fresh it is.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    (SELECT count(*) FROM public.photos),
+                    (SELECT count(*) FROM public.address_directory
+                      WHERE active),
+                    (SELECT count(DISTINCT client) FROM public.photo_qwen
+                      WHERE client IS NOT NULL AND client <> ''),
+                    (SELECT max(created_at) FROM public.photos)
+                """
+            )
+            row = cur.fetchone()
+
+    return {
+        "photos": int(row[0]),
+        "addresses": int(row[1]),
+        "clients": int(row[2]),
+        "last_photo_at": row[3],
+    }
+
+
 def list_clients(*, limit: int = 1000) -> list[dict]:
     """
     Distinct QWEN clients with photo counts.
