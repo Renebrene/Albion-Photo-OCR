@@ -85,6 +85,39 @@ describe('photos store', () => {
     expect(store.hasMore).toBe(true)
   })
 
+  it('asks for a full page and keeps loading while the cursor lasts', async () => {
+    const urls = []
+
+    routes.photos = (url) => {
+      urls.push(url)
+
+      // Three pages of 100, 100 and 56: exactly how the grid walks 256 photos.
+      const cursor = new URL(url, 'http://x').searchParams.get('cursor')
+      const pages = {
+        null: { items: Array.from({ length: 100 }, (_, i) => photo(`PH_${i}`)), next_cursor: 'c1' },
+        c1: { items: Array.from({ length: 100 }, (_, i) => photo(`PH_b${i}`)), next_cursor: 'c2' },
+        c2: { items: Array.from({ length: 56 }, (_, i) => photo(`PH_c${i}`)), next_cursor: null },
+      }
+
+      return jsonResponse(pages[cursor])
+    }
+
+    const store = usePhotosStore()
+
+    await store.loadPage()
+    expect(store.hasMore).toBe(true)
+    await store.loadPage()
+    await store.loadPage()
+
+    expect(store.items).toHaveLength(256)
+    expect(store.hasMore).toBe(false)
+
+    // Одна страница — максимальный размер, который принимает API.
+    expect(urls[0]).toContain('limit=100')
+    // Никакого фильтра по дате по умолчанию: грид показывает все фото.
+    expect(urls[0]).not.toContain('date_from')
+  })
+
   it('passes multi-select filters as repeated params', async () => {
     const store = usePhotosStore()
     store.selectedAddresses = ['78_v33', '79_v33']

@@ -19,6 +19,11 @@ import {
 // it never lands in the reactive store state).
 let persistTimer = null
 
+// The API caps one page at 100 rows; the grid loads page by page as the user
+// scrolls, so a bigger page means fewer round trips without holding everything
+// in memory at once.
+const PAGE_SIZE = 100
+
 export const usePhotosStore = defineStore('photos', {
   state: () => ({
     items: [],
@@ -62,7 +67,7 @@ export const usePhotosStore = defineStore('photos', {
 
       try {
         const page = await fetchPhotos({
-          limit: 50,
+          limit: PAGE_SIZE,
           cursor: this.nextCursor,
           q: this.query || null,
           address: this.selectedAddresses.length

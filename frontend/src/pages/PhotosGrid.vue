@@ -53,7 +53,8 @@ const mediaStageText = computed(
       search: 'поиск по базе…',
     })[mediaStage.value] || 'обработка…',
 )
-const period = ref('month')
+// По умолчанию — все фото: грид подгружает их страницами по мере прокрутки.
+const period = ref('all')
 const customFrom = ref(null)
 const customTo = ref(null)
 
@@ -130,9 +131,9 @@ const dateModes = [
 ]
 
 const periods = [
+  { label: 'Все даты', value: 'all' },
   { label: 'Текущий месяц', value: 'month' },
   { label: 'Предыдущий месяц', value: 'prev_month' },
-  { label: 'Все даты', value: 'all' },
   { label: 'Период…', value: 'custom' },
 ]
 
@@ -944,7 +945,7 @@ function tagList(meta) {
         </div>
 
         <div ref="gridScrollEl" class="col grid-scroll">
-          <q-infinite-scroll @load="onLoad" :offset="300">
+          <q-infinite-scroll @load="onLoad" :offset="600">
             <div v-if="viewMode === 'tiles'" class="photo-grid" :style="gridStyle">
               <q-card
                 v-for="photo in sortedItems"
