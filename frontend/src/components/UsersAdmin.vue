@@ -3,12 +3,21 @@ import { onMounted, ref } from 'vue'
 import { Notify } from 'quasar'
 
 import { createUser, fetchUsers, updateUser } from '../api/client'
+import { useSessionStore } from '../stores/session'
+
+const session = useSessionStore()
 
 const users = ref([])
 const loading = ref(false)
 
 const dialogOpen = ref(false)
 const form = ref({ name: '', role: 'Менеджер', color: '', password: '' })
+
+// Editing an existing user: name, role and the colour that themes the app for
+// them (it used to be possible only when the user was created).
+const editOpen = ref(false)
+const editUser = ref(null)
+const editForm = ref({ name: '', role: 'Менеджер', color: '' })
 
 const passwordOpen = ref(false)
 const passwordUser = ref(null)
@@ -55,6 +64,47 @@ async function toggleActive(user) {
   try {
     await updateUser(user.user_id, { active: !user.active })
     await load()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
+// The seeded accounts must stay usable, so they cannot be archived.
+const BUILTIN_NAMES = ['администратор', 'гость']
+
+function isBuiltin(user) {
+  return BUILTIN_NAMES.includes(String(user && user.name ? user.name : '').trim().toLowerCase())
+}
+
+function openEdit(user) {
+  editUser.value = user
+  editForm.value = {
+    name: user.name,
+    role: user.role,
+    color: user.color || '',
+  }
+  editOpen.value = true
+}
+
+async function saveEdit() {
+  const target = editUser.value
+
+  try {
+    await updateUser(target.user_id, {
+      name: editForm.value.name.trim(),
+      role: editForm.value.role,
+      // An empty colour clears it; the API treats null as "leave as is".
+      color: editForm.value.color || '',
+    })
+
+    Notify.create({ type: 'positive', message: 'Пользователь сохранён' })
+    editOpen.value = false
+    await load()
+
+    // Own colour themes the app straight away.
+    if (session.user && session.user.user_id === target.user_id) {
+      await session.load()
+    }
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   }
@@ -112,14 +162,24 @@ async function savePassword() {
       </template>
       <template #body-cell-actions="props">
         <q-td :props="props">
+          <q-btn dense flat size="sm" icon="edit" @click="openEdit(props.row)">
+            <q-tooltip>Имя, роль, цвет</q-tooltip>
+          </q-btn>
           <q-btn dense flat size="sm" icon="key" @click="openPassword(props.row)" />
           <q-btn
             dense
             flat
             size="sm"
             :icon="props.row.active ? 'archive' : 'unarchive'"
+            :disable="isBuiltin(props.row)"
             @click="toggleActive(props.row)"
-          />
+          >
+            <q-tooltip>
+              {{ isBuiltin(props.row)
+                ? 'Администратора и Гостя нельзя архивировать'
+                : (props.row.active ? 'В архив' : 'Вернуть из архива') }}
+            </q-tooltip>
+          </q-btn>
         </q-td>
       </template>
     </q-table>
@@ -159,6 +219,41 @@ async function savePassword() {
         <q-card-actions align="right">
           <q-btn flat label="Отмена" v-close-popup />
           <q-btn color="primary" label="Создать" @click="save" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <q-dialog v-model="editOpen">
+      <q-card style="min-width: 360px">
+        <q-card-section class="text-subtitle1">
+          Пользователь: {{ editUser?.name }}
+        </q-card-section>
+        <q-separator />
+        <q-card-section class="q-gutter-sm">
+          <q-input v-model="editForm.name" dense outlined label="Имя" />
+          <q-select v-model="editForm.role" :options="roles" dense outlined label="Роль" />
+          <q-select
+            v-model="editForm.color"
+            :options="colors"
+            dense
+            outlined
+            clearable
+            label="Цвет"
+            hint="Цвет темы у этого пользователя; пусто — основной синий"
+          >
+            <template #option="scope">
+              <q-item v-bind="scope.itemProps">
+                <q-item-section avatar>
+                  <q-icon name="circle" :style="{ color: scope.opt }" />
+                </q-item-section>
+                <q-item-section>{{ scope.opt }}</q-item-section>
+              </q-item>
+            </template>
+          </q-select>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Отмена" v-close-popup />
+          <q-btn color="primary" label="Сохранить" @click="saveEdit" />
         </q-card-actions>
       </q-card>
     </q-dialog>

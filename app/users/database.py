@@ -73,6 +73,18 @@ def get_user_by_name(name: str) -> dict | None:
     return _row_to_user(row, include_hash=True) if row is not None else None
 
 
+# The two seeded accounts (schema/010). They must keep working - one
+# administers the installation, the other is the shared read-only login - so
+# neither may be archived, whatever else is edited.
+BUILTIN_USER_NAMES = frozenset({"администратор", "гость"})
+
+
+def is_builtin_user(user: dict) -> bool:
+    """True for the seeded accounts, which cannot be archived."""
+
+    return (user.get("name") or "").strip().casefold() in BUILTIN_USER_NAMES
+
+
 def create_user(
     *,
     name: str,

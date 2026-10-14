@@ -338,4 +338,58 @@ describe('draggable panel sizes', () => {
     expect(display.leftPanelWidth).toBe(340)
     expect(display.sideListHeight).toBe(300)
   })
+
+  it('restores the settings of the user from the server', async () => {
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        state: { display: { tileColumns: 3, leftPanelOpen: false } },
+      }),
+    })
+
+    const display = useDisplayStore()
+    await display.loadFromServer()
+
+    expect(display.tileColumns).toBe(3)
+    expect(display.leftPanelOpen).toBe(false)
+    // Keys the server does not carry stay at their defaults.
+    expect(display.rightPanelWidth).toBe(340)
+
+    delete global.fetch
+  })
+
+  it('keeps the local settings when the server has none', async () => {
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ state: {} }),
+    })
+
+    const display = useDisplayStore()
+    display.tileColumns = 5
+    await display.loadFromServer()
+
+    expect(display.tileColumns).toBe(5)
+
+    delete global.fetch
+  })
+
+  it('sends the settings to the server when they change', async () => {
+    const calls = []
+
+    global.fetch = async (url, options = {}) => {
+      calls.push(JSON.parse(options.body || '{}'))
+      return { ok: true, status: 200, json: async () => ({ state: {} }) }
+    }
+
+    const display = useDisplayStore()
+    display.tileColumns = 4
+    await new Promise((resolve) => setTimeout(resolve, 900))
+
+    expect(calls.length).toBeGreaterThan(0)
+    expect(calls[calls.length - 1].state.display.tileColumns).toBe(4)
+
+    delete global.fetch
+  })
 })

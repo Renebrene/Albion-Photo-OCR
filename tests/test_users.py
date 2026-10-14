@@ -82,6 +82,44 @@ def test_create_user_requires_users_manage(monkeypatch):
 
 
 @requires_db
+def test_seeded_accounts_cannot_be_archived():
+    """
+    Администратор and Гость are the accounts the installation keeps working:
+    the API refuses to archive them, and the window disables the button.
+    """
+
+    from fastapi import HTTPException
+
+    from app.api import routes
+    from app.api.schemas import UserUpdate
+
+    seeded = [
+        user
+        for user in users_db.list_users(active_only=False)
+        if user["name"] in ("Администратор", "Гость")
+    ]
+
+    if len(seeded) < 2:
+        pytest.skip("the seeded accounts are not present")
+
+    for user in seeded:
+        with pytest.raises(HTTPException) as failure:
+            routes.update_user(user["user_id"], UserUpdate(active=False))
+
+        assert failure.value.status_code == 400
+        assert "нельзя архивировать" in failure.value.detail
+
+    # Editing them otherwise still works (the rule only blocks archiving).
+    # The values are written back unchanged, so the row is left as it was.
+    edited = routes.update_user(
+        seeded[0]["user_id"],
+        UserUpdate(name=seeded[0]["name"], color=seeded[0].get("color")),
+    )
+
+    assert edited["active"] is True
+
+
+@requires_db
 def test_login_and_me(temp_user):
     user = users_db.create_user(
         name="Тест Логин",

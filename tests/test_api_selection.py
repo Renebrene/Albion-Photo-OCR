@@ -83,5 +83,17 @@ def test_selection_lifecycle():
 
         got = client.get("/api/v1/selection", headers=headers).json()
         assert got["state"]["filters"] == {"q": "Luvio"}
+
+        # A partial save (the grid sends only its selection, the display
+        # settings only theirs) must not drop the other keys.
+        client.put(
+            "/api/v1/selection",
+            json={"state": {"selected": ["PH_c"]}},
+            headers=headers,
+        )
+        merged = client.get("/api/v1/selection", headers=headers).json()
+
+        assert merged["state"]["selected"] == ["PH_c"]
+        assert merged["state"]["filters"] == {"q": "Luvio"}
     finally:
         _cleanup_user(name)

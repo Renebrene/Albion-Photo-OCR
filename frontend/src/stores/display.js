@@ -1,9 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 
+import { fetchSelection, saveSelection } from '../api/client'
+
 // Display settings for the photo grid (number of tile columns, which fields a
-// list row shows). Shared by the grid's gear dialog and the technical section,
-// persisted in localStorage only — nothing is sent to the server.
+// list row shows). Shared by the grid's gear dialog and the technical section.
+// They are kept per user on the server (the `display` key of the selection
+// state) and mirrored into localStorage, so a login on another machine brings
+// the same view back.
 
 // Tile mode: a fixed number of columns, or 'auto' - the grid counts columns
 // from its own width, so dragging the panel border reflows the tiles.
@@ -68,73 +72,121 @@ function loadState() {
 }
 
 export const useDisplayStore = defineStore('display', () => {
-  const saved = loadState()
-
-  const tileColumns = ref(
-    TILE_COUNTS.some((option) => option.value === saved.tileColumns)
-      ? saved.tileColumns
-      : DEFAULT_TILE_COLUMNS,
-  )
-
-  const listFields = ref(
-    Array.isArray(saved.listFields) && saved.listFields.length
-      ? saved.listFields.filter((field) =>
-          LIST_FIELDS.some((option) => option.value === field),
-        )
-      : [...DEFAULT_LIST_FIELDS],
-  )
-
-  const downloadNameMode = ref(
-    DOWNLOAD_NAME_MODES.some((option) => option.value === saved.downloadNameMode)
-      ? saved.downloadNameMode
-      : DEFAULT_DOWNLOAD_NAME_MODE,
-  )
-
   const clamp = (value, { min, max }) =>
     Math.min(max, Math.max(min, Math.round(Number(value) || min)))
 
-  const leftPanelWidth = ref(
-    clamp(saved.leftPanelWidth ?? DEFAULT_PANEL_WIDTH, PANEL_LIMITS),
-  )
+  const tileColumns = ref(DEFAULT_TILE_COLUMNS)
+  const listFields = ref([...DEFAULT_LIST_FIELDS])
+  const downloadNameMode = ref(DEFAULT_DOWNLOAD_NAME_MODE)
+  const leftPanelWidth = ref(DEFAULT_PANEL_WIDTH)
+  const rightPanelWidth = ref(DEFAULT_PANEL_WIDTH)
+  const sideListHeight = ref(DEFAULT_SIDE_LIST_HEIGHT)
+  const leftPanelOpen = ref(DEFAULT_SIDE_PANELS_OPEN)
+  const rightPanelOpen = ref(DEFAULT_SIDE_PANELS_OPEN)
 
-  const rightPanelWidth = ref(
-    clamp(saved.rightPanelWidth ?? DEFAULT_PANEL_WIDTH, PANEL_LIMITS),
-  )
+  /**
+   * Take the settings from a plain object (localStorage or the server),
+   * falling back to the defaults for anything missing or unusable.
+   */
+  function applyState(source) {
+    const saved = source && typeof source === 'object' ? source : {}
 
-  // Height of the Адреса/Клиенты card; below it sits the Подборки card.
-  const sideListHeight = ref(
-    clamp(saved.sideListHeight ?? DEFAULT_SIDE_LIST_HEIGHT, SIDE_LIST_LIMITS),
-  )
+    tileColumns.value = TILE_COUNTS.some(
+      (option) => option.value === saved.tileColumns,
+    )
+      ? saved.tileColumns
+      : DEFAULT_TILE_COLUMNS
 
-  const leftPanelOpen = ref(
-    typeof saved.leftPanelOpen === 'boolean'
-      ? saved.leftPanelOpen
-      : DEFAULT_SIDE_PANELS_OPEN,
-  )
+    listFields.value =
+      Array.isArray(saved.listFields) && saved.listFields.length
+        ? saved.listFields.filter((field) =>
+            LIST_FIELDS.some((option) => option.value === field),
+          )
+        : [...DEFAULT_LIST_FIELDS]
 
-  const rightPanelOpen = ref(
-    typeof saved.rightPanelOpen === 'boolean'
-      ? saved.rightPanelOpen
-      : DEFAULT_SIDE_PANELS_OPEN,
-  )
+    downloadNameMode.value = DOWNLOAD_NAME_MODES.some(
+      (option) => option.value === saved.downloadNameMode,
+    )
+      ? saved.downloadNameMode
+      : DEFAULT_DOWNLOAD_NAME_MODE
+
+    leftPanelWidth.value = clamp(
+      saved.leftPanelWidth ?? DEFAULT_PANEL_WIDTH,
+      PANEL_LIMITS,
+    )
+
+    rightPanelWidth.value = clamp(
+      saved.rightPanelWidth ?? DEFAULT_PANEL_WIDTH,
+      PANEL_LIMITS,
+    )
+
+    // Height of the Адреса/Клиенты card; below it sits the Подборки card.
+    sideListHeight.value = clamp(
+      saved.sideListHeight ?? DEFAULT_SIDE_LIST_HEIGHT,
+      SIDE_LIST_LIMITS,
+    )
+
+    leftPanelOpen.value =
+      typeof saved.leftPanelOpen === 'boolean'
+        ? saved.leftPanelOpen
+        : DEFAULT_SIDE_PANELS_OPEN
+
+    rightPanelOpen.value =
+      typeof saved.rightPanelOpen === 'boolean'
+        ? saved.rightPanelOpen
+        : DEFAULT_SIDE_PANELS_OPEN
+  }
+
+  applyState(loadState())
+
+  function snapshot() {
+    return {
+      tileColumns: tileColumns.value,
+      listFields: [...listFields.value],
+      downloadNameMode: downloadNameMode.value,
+      leftPanelOpen: leftPanelOpen.value,
+      rightPanelOpen: rightPanelOpen.value,
+      leftPanelWidth: leftPanelWidth.value,
+      rightPanelWidth: rightPanelWidth.value,
+      sideListHeight: sideListHeight.value,
+    }
+  }
+
+  let serverTimer = null
 
   function persist() {
+    const data = snapshot()
+
     try {
-      window.localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          tileColumns: tileColumns.value,
-          listFields: listFields.value,
-          downloadNameMode: downloadNameMode.value,
-          leftPanelOpen: leftPanelOpen.value,
-          rightPanelOpen: rightPanelOpen.value,
-          leftPanelWidth: leftPanelWidth.value,
-          rightPanelWidth: rightPanelWidth.value,
-          sideListHeight: sideListHeight.value,
-        }),
-      )
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
     } catch {
       // storage disabled (private mode): keep the value for this session only
+    }
+
+    // The settings belong to the user, not to the browser: the same blob is
+    // kept on the server (under the `display` key of the selection state) so a
+    // login elsewhere brings them back. Debounced, failures are ignored.
+    clearTimeout(serverTimer)
+    serverTimer = setTimeout(() => {
+      try {
+        saveSelection({ display: data }).catch(() => {})
+      } catch {
+        // No session or no network: the local copy is all we have.
+      }
+    }, 800)
+  }
+
+  /** Restore this user's settings after a login. */
+  async function loadFromServer() {
+    try {
+      const payload = await fetchSelection()
+      const remote = payload && payload.state ? payload.state.display : null
+
+      if (remote && typeof remote === 'object') {
+        applyState(remote)
+      }
+    } catch {
+      // Not authenticated (or the endpoint is unavailable): keep the local ones.
     }
   }
 
@@ -190,6 +242,7 @@ export const useDisplayStore = defineStore('display', () => {
     resizePanel,
     resizeSideList,
     reset,
+    loadFromServer,
   }
 })
 

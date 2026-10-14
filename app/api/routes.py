@@ -952,16 +952,24 @@ def put_selection(
     principal=Depends(require_scope("collections:write")),
 ):
     user = _require_user(principal)
+    user_id = str(user["user_id"])
+
+    # Merge instead of replace: the grid selection and the display settings are
+    # saved by different parts of the UI, and neither may drop the other's keys.
+    current = repository.get_manager_selection(user_id)
+    current = current if isinstance(current, dict) else {}
+
+    merged = {**current, **request.state}
 
     # Bound the stored blob so a client cannot write arbitrarily large state.
-    if len(json.dumps(request.state, ensure_ascii=False)) > 65536:
+    if len(json.dumps(merged, ensure_ascii=False)) > 65536:
         raise HTTPException(
             status_code=413,
             detail="selection state is too large",
         )
 
-    repository.save_manager_selection(str(user["user_id"]), request.state)
-    return {"state": request.state}
+    repository.save_manager_selection(user_id, merged)
+    return {"state": merged}
 
 
 # ---------------------------------------------------------------------------
@@ -1061,8 +1069,18 @@ def create_user(request: UserCreate):
     dependencies=[Depends(require_scope("users:manage"))],
 )
 def update_user(user_id: int, request: UserUpdate):
-    if users_db.get_user(user_id) is None:
+    user = users_db.get_user(user_id)
+
+    if user is None:
         raise HTTPException(status_code=404, detail="user not found")
+
+    # The seeded Администратор and Гость keep working: archiving them would
+    # leave the installation without an administrator or a shared login.
+    if request.active is False and users_db.is_builtin_user(user):
+        raise HTTPException(
+            status_code=400,
+            detail="Администратора и Гостя нельзя архивировать",
+        )
 
     updated = users_db.update_user(
         user_id,
