@@ -95,14 +95,26 @@ def _mount_spa(app: FastAPI) -> None:
     if assets.is_dir():
         app.mount("/assets", StaticFiles(directory=assets), name="assets")
 
-    @app.get("/{full_path:path}", include_in_schema=False)
+    # GET and HEAD: `curl -I /` (and some clients) send HEAD.
+    @app.api_route(
+        "/{full_path:path}",
+        methods=["GET", "HEAD"],
+        include_in_schema=False,
+    )
     def spa_fallback(full_path: str):
         candidate = SPA_DIST / full_path
 
         if full_path and candidate.is_file():
             return FileResponse(candidate)
 
-        return FileResponse(SPA_DIST / "index.html")
+        # index.html must not be cached: after a rebuild the hashed bundles
+        # change, and a cached shell would keep asking for files that no longer
+        # exist (a blank page). The bundles themselves are content-hashed and
+        # can be cached forever, which StaticFiles below already does.
+        return FileResponse(
+            SPA_DIST / "index.html",
+            headers={"Cache-Control": "no-cache, must-revalidate"},
+        )
 
 
 app = create_app()

@@ -10,7 +10,7 @@ EnvironmentFile=/home/alexice/.config/scene-fingerprint.env
 # Only fingerprint builds, several at once: each process claims its own job
 # (claim_next is atomic), so a batch of builds is distributed over them.
 # --parallel sets how many; torch threads per process are cores/parallel.
-ExecStart=/home/alexice/scene-fingerprint/.venv/bin/python -m app.jobs.worker --watch --only FINGERPRINT_BUILD --parallel 3 --interval 2
+ExecStart=/home/alexice/scene-fingerprint/.venv/bin/python -m app.jobs.worker --watch --only FINGERPRINT_BUILD --parallel 6 --interval 2
 Restart=always
 RestartSec=10
 
