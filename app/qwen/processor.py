@@ -255,6 +255,15 @@ def _ollama_analyze(config: dict, path: str) -> tuple[dict, dict, float]:
     # Fall back to the reasoning channel if the model left content empty.
     content = message.get("content") or message.get("thinking") or ""
 
+    limit = int(config.get("max_output_tokens", MAX_OUTPUT_TOKENS))
+
+    # A «thinking» model that spent the whole budget on reasoning: say so
+    # instead of failing later with «no JSON object».
+    truncated = answer_truncated(payload, content, config["model"], limit)
+
+    if truncated is not None:
+        raise truncated
+
     return parse_result(content), payload, 0.0
 
 
@@ -333,6 +342,16 @@ def _openai_analyze(config: dict, path: str) -> tuple[dict, dict, float]:
 
     content = (choices[0].get("message") or {}).get("content") or ""
 
+    # The cloud provider reports the same «ran out of budget» as finish_reason.
+    truncated = answer_truncated(
+        {"done_reason": choices[0].get("finish_reason"), "message": {}},
+        content,
+        config["model"],
+    )
+
+    if truncated is not None:
+        raise truncated
+
     return parse_result(content), payload, 0.0
 
 
@@ -388,6 +407,35 @@ class QwenParseError(ValueError):
     def __init__(self, message: str, raw: str = ""):
         super().__init__(message)
         self.raw = raw
+
+
+def answer_truncated(
+    payload: dict,
+    content: str,
+    model: str,
+    limit: int = MAX_OUTPUT_TOKENS,
+) -> QwenParseError | None:
+    """
+    The «thinking» failure, turned into a readable error (or None).
+
+    Some models (Qwen3 without the -instruct tag, for instance) reason before
+    answering and ignore `think: false`; the whole output budget goes into the
+    reasoning and the answer is cut off before the JSON. Left as it is, every
+    photo fails with a cryptic «no JSON object» - this says what to do.
+    """
+
+    if str(content).strip():
+        return None
+
+    if payload.get("done_reason") != "length":
+        return None
+
+    return QwenParseError(
+        f"модель «{model}» не успела ответить: ответ обрезан по лимиту "
+        f"{limit} токенов, всё ушло на рассуждения. Возьмите instruct-модель "
+        "(например qwen3-vl:4b-instruct) или модель без «размышлений».",
+        raw=str((payload.get("message") or {}).get("thinking") or "")[:2000],
+    )
 
 
 def parse_result(content) -> dict:

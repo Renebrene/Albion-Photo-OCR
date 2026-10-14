@@ -13,7 +13,7 @@ import os
 import pytest
 
 from app.qwen import database as qwen_db
-from app.qwen.processor import parse_result
+from app.qwen.processor import answer_truncated, parse_result
 
 
 def test_parse_result_from_json_string():
@@ -71,6 +71,38 @@ def test_parse_result_extracts_json_from_prose():
     result = parse_result(content)
 
     assert result["description"] == "Двор"
+
+
+# ---------------------------------------------------------------------------
+# «Thinking» models that never reach the answer (2026-10-14: qwen3-vl:8b)
+# ---------------------------------------------------------------------------
+
+
+def test_truncated_answer_is_explained():
+    """
+    The whole budget went into reasoning: the error must name the model and
+    say what to do, not just «no JSON object».
+    """
+
+    payload = {
+        "done_reason": "length",
+        "message": {"content": "", "thinking": "<think>Думаю про вывеску..."},
+    }
+
+    error = answer_truncated(payload, "", "qwen3-vl:8b", 512)
+
+    assert error is not None
+    assert "qwen3-vl:8b" in str(error)
+    assert "instruct" in str(error)
+    assert error.raw.startswith("<think>")
+
+
+def test_a_finished_answer_is_not_blamed_on_truncation():
+    # A real answer, even an unusable one, is the parser's business.
+    assert answer_truncated({"done_reason": "stop"}, "текст", "m", 512) is None
+
+    # Truncated but with content: the parser reports the missing JSON.
+    assert answer_truncated({"done_reason": "length"}, "текст", "m", 512) is None
 
 
 # ---------------------------------------------------------------------------
