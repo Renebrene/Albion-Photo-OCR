@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Notify } from 'quasar'
 
@@ -15,8 +15,10 @@ import {
 } from '../api/client'
 import AuthImage from '../components/AuthImage.vue'
 import CollectionsPanel from '../components/CollectionsPanel.vue'
+import ResizeHandle from '../components/ResizeHandle.vue'
 import DisplaySettings from '../components/DisplaySettings.vue'
 import {
+  AUTO_TILE_MIN_WIDTH,
   LIST_FIELDS,
   downloadFileName,
   fieldText,
@@ -85,9 +87,31 @@ const detailsLoading = ref(false)
 const settingsOpen = ref(false)
 const gridScrollEl = ref(null)
 
+// Ширина контейнера грида: нужна, чтобы в режиме «Авто» посчитать колонки
+// заново при перетаскивании границ панелей.
+const gridWidth = ref(0)
+let gridObserver = null
+
+const effectiveColumns = computed(() => {
+  if (display.tileColumns !== 'auto') return display.tileColumns
+
+  const width = gridWidth.value || 0
+
+  if (!width) return 4
+
+  return Math.max(1, Math.min(8, Math.floor(width / AUTO_TILE_MIN_WIDTH)))
+})
+
 const gridStyle = computed(() => ({
-  gridTemplateColumns: `repeat(${display.tileColumns}, minmax(0, 1fr))`,
+  gridTemplateColumns: `repeat(${effectiveColumns.value}, minmax(0, 1fr))`,
 }))
+
+function stopGridObserver() {
+  if (gridObserver) {
+    gridObserver.disconnect()
+    gridObserver = null
+  }
+}
 
 function scrollToTop() {
   if (gridScrollEl.value) gridScrollEl.value.scrollTop = 0
@@ -155,10 +179,20 @@ onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
   await store.loadFacets()
   apply()
+  await nextTick()
+
+  if (gridScrollEl.value && typeof ResizeObserver !== 'undefined') {
+    gridObserver = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry) gridWidth.value = entry.contentRect.width
+    })
+    gridObserver.observe(gridScrollEl.value)
+  }
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
+  stopGridObserver()
 })
 
 // Arrow keys page through the gallery in the order it is displayed.
@@ -572,14 +606,18 @@ function tagList(meta) {
 
 <template>
   <q-page class="photos-page q-pa-md">
-    <div class="row no-wrap q-col-gutter-md full-height">
+    <div class="row no-wrap full-height">
       <!-- LEFT: адреса + подборки; складывается кнопкой у края -->
       <div
         v-if="display.leftPanelOpen"
-        class="col-auto left-panel"
-        style="width: 340px; min-width: 300px"
+        class="left-panel q-pr-xs"
+        :style="{ width: display.leftPanelWidth + 'px', flex: '0 0 auto' }"
       >
-        <q-card flat bordered class="column q-mb-sm" style="height: 300px">
+        <q-card
+          flat bordered
+          class="column"
+          :style="{ height: display.sideListHeight + 'px' }"
+        >
           <q-card-section class="q-pb-xs row items-center">
             <div class="text-subtitle2 col">Адреса</div>
             <q-btn dense flat size="sm" label="Все" @click="selectAllAddresses" />
@@ -608,11 +646,24 @@ function tagList(meta) {
           </q-scroll-area>
         </q-card>
 
+        <ResizeHandle
+          direction="horizontal"
+          title="Потяните, чтобы изменить высоту списка адресов"
+          @resize="(delta) => display.resizeSideList(delta)"
+        />
+
         <CollectionsPanel @create="openBucketDialog" />
       </div>
 
+      <ResizeHandle
+        v-if="display.leftPanelOpen"
+        direction="vertical"
+        title="Потяните, чтобы изменить ширину левой панели"
+        @resize="(delta) => display.resizePanel('left', delta)"
+      />
+
       <!-- RIGHT: toolbar + grid with its own vertical scroll -->
-      <div class="col column full-height">
+      <div class="col column full-height q-px-xs">
         <!-- unified search bar: Enter = Поиск, camera = search by a photo -->
         <div class="row items-center q-gutter-sm q-mb-sm">
           <q-input
@@ -1042,13 +1093,24 @@ function tagList(meta) {
         </div>
       </div>
 
+      <ResizeHandle
+        v-if="display.rightPanelOpen"
+        direction="vertical"
+        title="Потяните, чтобы изменить ширину правой панели"
+        @resize="(delta) => display.resizePanel('right', delta)"
+      />
+
       <!-- RIGHT: клиенты + подборки; складывается кнопкой у края -->
       <div
         v-if="display.rightPanelOpen"
-        class="col-auto right-panel"
-        style="width: 340px; min-width: 300px"
+        class="right-panel q-pl-xs"
+        :style="{ width: display.rightPanelWidth + 'px', flex: '0 0 auto' }"
       >
-        <q-card flat bordered class="column q-mb-sm" style="height: 300px">
+        <q-card
+          flat bordered
+          class="column"
+          :style="{ height: display.sideListHeight + 'px' }"
+        >
           <q-card-section class="q-pb-xs row items-center">
             <div class="text-subtitle2 col">Клиенты</div>
             <q-btn dense flat size="sm" label="Все" @click="selectAllClients" />
@@ -1076,6 +1138,12 @@ function tagList(meta) {
             </q-list>
           </q-scroll-area>
         </q-card>
+
+        <ResizeHandle
+          direction="horizontal"
+          title="Потяните, чтобы изменить высоту списка клиентов"
+          @resize="(delta) => display.resizeSideList(delta)"
+        />
 
         <CollectionsPanel @create="openBucketDialog" />
       </div>

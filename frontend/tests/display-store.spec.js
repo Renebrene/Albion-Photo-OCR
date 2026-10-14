@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   DOWNLOAD_NAME_MODES,
   LIST_FIELDS,
+  PANEL_LIMITS,
+  SIDE_LIST_LIMITS,
   TILE_COUNTS,
   downloadFileName,
   fieldText,
@@ -24,9 +26,11 @@ describe('display store', () => {
   it('starts from documented defaults', () => {
     const display = useDisplayStore()
 
-    expect(display.tileColumns).toBe(4)
+    expect(display.tileColumns).toBe('auto')
     expect(display.listFields).toEqual(['filename', 'address', 'client'])
-    expect(TILE_COUNTS).toContain(display.tileColumns)
+    expect(TILE_COUNTS.map((option) => option.value)).toContain(
+      display.tileColumns,
+    )
   })
 
   it('drops unknown fields and invalid tile counts from storage', () => {
@@ -40,7 +44,7 @@ describe('display store', () => {
 
     const display = useDisplayStore()
 
-    expect(display.tileColumns).toBe(4)
+    expect(display.tileColumns).toBe('auto')
     expect(display.listFields).toEqual(['filename', 'client'])
   })
 
@@ -57,11 +61,14 @@ describe('display store', () => {
       downloadNameMode: 'filename',
       leftPanelOpen: true,
       rightPanelOpen: true,
+      leftPanelWidth: 340,
+      rightPanelWidth: 340,
+      sideListHeight: 300,
     })
 
     display.reset()
 
-    expect(display.tileColumns).toBe(4)
+    expect(display.tileColumns).toBe('auto')
     expect(display.listFields).toEqual(['filename', 'address', 'client'])
     expect(display.downloadNameMode).toBe('filename')
   })
@@ -248,5 +255,87 @@ describe('side panels of the photo page', () => {
     const display = useDisplayStore()
     expect(display.leftPanelOpen).toBe(false)
     expect(display.rightPanelOpen).toBe(true)
+  })
+})
+
+
+describe('draggable panel sizes', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+    setActivePinia(createPinia())
+  })
+
+  it('starts from the documented sizes', () => {
+    const display = useDisplayStore()
+
+    expect(display.leftPanelWidth).toBe(340)
+    expect(display.rightPanelWidth).toBe(340)
+    expect(display.sideListHeight).toBe(300)
+  })
+
+  it('moves the left border with the cursor and clamps it', () => {
+    const display = useDisplayStore()
+
+    display.resizePanel('left', 60)
+    expect(display.leftPanelWidth).toBe(400)
+
+    // Never below the minimum or above the maximum.
+    display.resizePanel('left', -10_000)
+    expect(display.leftPanelWidth).toBe(PANEL_LIMITS.min)
+
+    display.resizePanel('left', 10_000)
+    expect(display.leftPanelWidth).toBe(PANEL_LIMITS.max)
+  })
+
+  it('grows the right panel when its border moves left', () => {
+    const display = useDisplayStore()
+
+    // The right panel sits on the opposite edge, so a negative delta grows it.
+    display.resizePanel('right', -40)
+
+    expect(display.rightPanelWidth).toBe(380)
+  })
+
+  it('resizes the list/collections divider inside a panel', () => {
+    const display = useDisplayStore()
+
+    display.resizeSideList(50)
+    expect(display.sideListHeight).toBe(350)
+
+    display.resizeSideList(-10_000)
+    expect(display.sideListHeight).toBe(SIDE_LIST_LIMITS.min)
+  })
+
+  it('ignores nonsense stored sizes and keeps sane ones', () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        leftPanelWidth: 'широкая',
+        rightPanelWidth: 500,
+        sideListHeight: 1e9,
+      }),
+    )
+
+    const display = useDisplayStore()
+
+    expect(display.leftPanelWidth).toBe(PANEL_LIMITS.min)
+    expect(display.rightPanelWidth).toBe(500)
+    expect(display.sideListHeight).toBe(SIDE_LIST_LIMITS.max)
+  })
+
+  it('persists the sizes and restores the defaults', async () => {
+    const display = useDisplayStore()
+
+    display.resizePanel('left', 40)
+    display.resizeSideList(40)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY))
+    expect(stored.leftPanelWidth).toBe(380)
+    expect(stored.sideListHeight).toBe(340)
+
+    display.reset()
+    expect(display.leftPanelWidth).toBe(340)
+    expect(display.sideListHeight).toBe(300)
   })
 })

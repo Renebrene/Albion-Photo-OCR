@@ -20,13 +20,19 @@ const display = useDisplayStore()
       <div class="text-subtitle2">Режим «Плитка»: плиток в ряду</div>
       <q-btn-toggle
         v-model="display.tileColumns"
-        :options="TILE_COUNTS.map((count) => ({ label: String(count), value: count }))"
+        :options="TILE_COUNTS"
         dense
         unelevated
         no-caps
+        emit-value
+        map-options
         toggle-color="primary"
         class="q-mt-xs"
       />
+      <div class="text-caption text-grey">
+        «Авто» — колонки считаются по ширине грида: при перетаскивании границ
+        панелей плитки перестраиваются сами.
+      </div>
     </div>
 
     <div>

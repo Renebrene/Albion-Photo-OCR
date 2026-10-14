@@ -5,7 +5,24 @@ import { ref, watch } from 'vue'
 // list row shows). Shared by the grid's gear dialog and the technical section,
 // persisted in localStorage only — nothing is sent to the server.
 
-export const TILE_COUNTS = [2, 3, 4, 5, 6]
+// Tile mode: a fixed number of columns, or 'auto' - the grid counts columns
+// from its own width, so dragging the panel border reflows the tiles.
+export const TILE_COUNTS = [
+  { value: 'auto', label: 'Авто (по ширине)' },
+  { value: 2, label: '2' },
+  { value: 3, label: '3' },
+  { value: 4, label: '4' },
+  { value: 5, label: '5' },
+  { value: 6, label: '6' },
+]
+
+// Target tile width used by 'auto': the grid fits as many columns as possible
+// while keeping tiles at least this wide.
+export const AUTO_TILE_MIN_WIDTH = 190
+
+// Draggable panel sizes (px). Clamped so a panel can never eat the grid.
+export const PANEL_LIMITS = { min: 240, max: 620 }
+export const SIDE_LIST_LIMITS = { min: 140, max: 640 }
 
 // Fields that exist on the `/v1/photos` row (see app/api/repository.py).
 export const LIST_FIELDS = [
@@ -28,7 +45,9 @@ export const DOWNLOAD_NAME_MODES = [
   { value: 'legal', label: 'Адрес (юридический)' },
 ]
 
-const DEFAULT_TILE_COLUMNS = 4
+const DEFAULT_TILE_COLUMNS = 'auto'
+const DEFAULT_PANEL_WIDTH = 340
+const DEFAULT_SIDE_LIST_HEIGHT = 300
 const DEFAULT_LIST_FIELDS = ['filename', 'address', 'client']
 const DEFAULT_DOWNLOAD_NAME_MODE = 'filename'
 // The side panels of the photo page (addresses/collections on the left,
@@ -52,7 +71,7 @@ export const useDisplayStore = defineStore('display', () => {
   const saved = loadState()
 
   const tileColumns = ref(
-    TILE_COUNTS.includes(saved.tileColumns)
+    TILE_COUNTS.some((option) => option.value === saved.tileColumns)
       ? saved.tileColumns
       : DEFAULT_TILE_COLUMNS,
   )
@@ -69,6 +88,22 @@ export const useDisplayStore = defineStore('display', () => {
     DOWNLOAD_NAME_MODES.some((option) => option.value === saved.downloadNameMode)
       ? saved.downloadNameMode
       : DEFAULT_DOWNLOAD_NAME_MODE,
+  )
+
+  const clamp = (value, { min, max }) =>
+    Math.min(max, Math.max(min, Math.round(Number(value) || min)))
+
+  const leftPanelWidth = ref(
+    clamp(saved.leftPanelWidth ?? DEFAULT_PANEL_WIDTH, PANEL_LIMITS),
+  )
+
+  const rightPanelWidth = ref(
+    clamp(saved.rightPanelWidth ?? DEFAULT_PANEL_WIDTH, PANEL_LIMITS),
+  )
+
+  // Height of the Адреса/Клиенты card; below it sits the Подборки card.
+  const sideListHeight = ref(
+    clamp(saved.sideListHeight ?? DEFAULT_SIDE_LIST_HEIGHT, SIDE_LIST_LIMITS),
   )
 
   const leftPanelOpen = ref(
@@ -93,6 +128,9 @@ export const useDisplayStore = defineStore('display', () => {
           downloadNameMode: downloadNameMode.value,
           leftPanelOpen: leftPanelOpen.value,
           rightPanelOpen: rightPanelOpen.value,
+          leftPanelWidth: leftPanelWidth.value,
+          rightPanelWidth: rightPanelWidth.value,
+          sideListHeight: sideListHeight.value,
         }),
       )
     } catch {
@@ -107,6 +145,9 @@ export const useDisplayStore = defineStore('display', () => {
       downloadNameMode,
       leftPanelOpen,
       rightPanelOpen,
+      leftPanelWidth,
+      rightPanelWidth,
+      sideListHeight,
     ],
     persist,
     { deep: true },
@@ -118,6 +159,23 @@ export const useDisplayStore = defineStore('display', () => {
     downloadNameMode.value = DEFAULT_DOWNLOAD_NAME_MODE
     leftPanelOpen.value = DEFAULT_SIDE_PANELS_OPEN
     rightPanelOpen.value = DEFAULT_SIDE_PANELS_OPEN
+    leftPanelWidth.value = DEFAULT_PANEL_WIDTH
+    rightPanelWidth.value = DEFAULT_PANEL_WIDTH
+    sideListHeight.value = DEFAULT_SIDE_LIST_HEIGHT
+  }
+
+  function resizePanel(side, delta) {
+    if (side === 'left') {
+      leftPanelWidth.value = clamp(leftPanelWidth.value + delta, PANEL_LIMITS)
+    } else {
+      // Dragging the right border right moves it right: the width grows with
+      // the negative delta, because the panel sits at the other edge.
+      rightPanelWidth.value = clamp(rightPanelWidth.value - delta, PANEL_LIMITS)
+    }
+  }
+
+  function resizeSideList(delta) {
+    sideListHeight.value = clamp(sideListHeight.value + delta, SIDE_LIST_LIMITS)
   }
 
   return {
@@ -126,6 +184,11 @@ export const useDisplayStore = defineStore('display', () => {
     downloadNameMode,
     leftPanelOpen,
     rightPanelOpen,
+    leftPanelWidth,
+    rightPanelWidth,
+    sideListHeight,
+    resizePanel,
+    resizeSideList,
     reset,
   }
 })
