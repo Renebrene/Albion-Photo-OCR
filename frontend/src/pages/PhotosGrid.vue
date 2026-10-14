@@ -770,10 +770,40 @@ function tagList(meta) {
           </q-btn>
         </div>
 
-        <!-- sorting, view mode and display settings in one row.
-             Chosen addresses and clients are not repeated here as chips: the
-             left and right panels highlight them. -->
+        <!-- Действия над выбором, сортировка, вид и настройки — одной строкой.
+             Выбранные адреса и клиенты здесь не повторяются: их подсвечивают
+             боковые панели. -->
         <div class="row items-center q-gutter-xs q-mb-sm">
+          <q-btn
+            dense
+            :icon="allLoadedSelected ? 'deselect' : 'select_all'"
+            :label="allLoadedSelected ? 'Снять' : 'Выбрать'"
+            :color="allLoadedSelected ? 'grey-7' : 'primary'"
+            flat
+            @click="toggleSelectAll"
+          >
+            <q-tooltip>
+              Выбрать все загруженные фото или снять выбор
+            </q-tooltip>
+          </q-btn>
+          <q-badge v-if="store.selectedCount" color="primary">
+            выбрано: {{ store.selectedCount }}
+          </q-badge>
+          <q-btn
+            dense
+            color="secondary"
+            icon="bookmark_add"
+            label="Портфель"
+            @click="openBucketDialog"
+          />
+          <q-btn
+            dense
+            flat
+            icon="download"
+            label="Скачать"
+            @click="downloadSelected"
+          />
+
           <q-space />
 
           <!-- дата: источник фильтра и периода — выпадающим списком -->
@@ -907,39 +937,6 @@ function tagList(meta) {
               </q-list>
             </q-menu>
           </q-btn>
-        </div>
-
-        <!-- действия над выбором — своей строкой -->
-        <div class="row items-center q-gutter-sm q-mb-sm">
-          <q-btn
-            dense
-            :icon="allLoadedSelected ? 'deselect' : 'select_all'"
-            :label="allLoadedSelected ? 'Снять' : 'Выбрать'"
-            :color="allLoadedSelected ? 'grey-7' : 'primary'"
-            flat
-            @click="toggleSelectAll"
-          >
-            <q-tooltip>
-              Выбрать все загруженные фото или снять выбор
-            </q-tooltip>
-          </q-btn>
-          <q-badge v-if="store.selectedCount" color="primary">
-            выбрано: {{ store.selectedCount }}
-          </q-badge>
-          <q-btn
-            dense
-            color="secondary"
-            icon="bookmark_add"
-            label="Портфель"
-            @click="openBucketDialog"
-          />
-          <q-btn
-            dense
-            flat
-            icon="download"
-            label="Скачать"
-            @click="downloadSelected"
-          />
         </div>
 
         <div v-if="error" class="q-mb-md">
