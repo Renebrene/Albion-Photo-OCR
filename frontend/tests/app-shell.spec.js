@@ -59,6 +59,7 @@ function installFetch({ loggedIn = true } = {}) {
             address: '78_v33',
             simple_address: 'Комарова 13',
             client: 'Клиент А',
+            brand: 'Бренд Б',
             taken_at: '2025-07-17 11:43:19',
             size_bytes: 4194304,
           },
@@ -138,6 +139,33 @@ describe('оболочка приложения', () => {
     expect(caption).toContain('photo.jpg')
     expect(caption).toContain('17.07.2025 · 4.0 МБ')
     expect(caption).toContain('Клиент А')
+
+    wrapper.unmount()
+  })
+
+  it('в списке подпись идёт двумя строками', async () => {
+    const wrapper = await mountShell()
+
+    // Переключаем вид на «Список»: вторая кнопка переключателя.
+    const listButton = wrapper
+      .findAll('button')
+      .find((button) => button.html().includes('view_list'))
+
+    expect(listButton).toBeTruthy()
+
+    await listButton.trigger('click')
+    await flushPromises()
+
+    const rows = wrapper.findAll('.q-list .q-item')
+    const row = rows.find((item) => item.text().includes('photo.jpg'))
+
+    expect(row).toBeTruthy()
+
+    const text = row.text().replace(/\s+/g, ' ')
+
+    // Строка 1: адрес, дата съёмки и вес. Строка 2: имя файла, клиент, бренд.
+    expect(text).toContain('Комарова 13 · 17.07.2025 · 4.0 МБ')
+    expect(text).toContain('photo.jpg, Клиент А, Бренд Б')
 
     wrapper.unmount()
   })

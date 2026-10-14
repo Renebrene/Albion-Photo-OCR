@@ -597,6 +597,16 @@ function fieldLabel(key) {
   return option ? option.label : key
 }
 
+// Поля, которые уже показаны двумя основными строками списка: повторять их
+// третьей строкой незачем.
+const LIST_CAPTION_FIELDS = ['filename', 'address', 'client', 'brand', 'taken_at']
+
+function extraListFields(photo) {
+  return display.listFields
+    .filter((field) => !LIST_CAPTION_FIELDS.includes(field))
+    .map((field) => `${fieldLabel(field)}: ${fieldText(photo, field)}`)
+}
+
 
 async function openOriginal(photo) {
   try {
@@ -1119,22 +1129,40 @@ function tagList(meta) {
                   />
                 </q-item-section>
                 <q-item-section>
-                  <q-item-label v-if="display.listFields.includes('filename')">
-                    {{ photo.filename }}
-                  </q-item-label>
-                  <q-item-label
-                    v-if="display.listFields.some((value) => value !== 'filename')"
-                    caption
-                  >
+                  <!-- Строка 1: адрес (алиас) жирным, затем дата съёмки и вес. -->
+                  <q-item-label class="ellipsis">
                     <span
-                      v-for="(field, index) in display.listFields.filter(
-                        (value) => value !== 'filename',
-                      )"
-                      :key="field"
+                      v-if="photo.simple_address || photo.address"
+                      class="text-weight-bold"
                     >
-                      <template v-if="index"> · </template>
-                      {{ fieldLabel(field) }}: {{ fieldText(photo, field) }}
+                      {{ photo.simple_address || photo.address }}
                     </span>
+                    <span v-if="tileMeta(photo)" class="text-grey-8">
+                      <template v-if="photo.simple_address || photo.address">
+                        ·
+                      </template>
+                      {{ tileMeta(photo) }}
+                    </span>
+                  </q-item-label>
+
+                  <!-- Строка 2: имя файла, клиент и бренд через запятую. -->
+                  <q-item-label caption class="ellipsis">
+                    {{
+                      [photo.filename, photo.client, photo.brand]
+                        .filter(Boolean)
+                        .join(', ')
+                    }}
+                  </q-item-label>
+
+                  <!-- Остальные поля из настроек списка (размер в пикселях,
+                       дата загрузки) — третьей строкой, чтобы настройка не
+                       потеряла смысл. -->
+                  <q-item-label
+                    v-if="extraListFields(photo).length"
+                    caption
+                    class="ellipsis text-grey-7"
+                  >
+                    {{ extraListFields(photo).join(' · ') }}
                   </q-item-label>
                 </q-item-section>
                 <q-item-section side>
