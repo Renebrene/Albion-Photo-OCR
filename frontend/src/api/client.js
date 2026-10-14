@@ -482,6 +482,14 @@ export function removeCollectionMembers(collectionId, payload) {
   )
 }
 
+// Состав подборки: адреса, клиенты или фото (по умолчанию — фото).
+export function fetchCollectionMembers(collectionId, memberType = 'photo') {
+  return getJson(
+    `${BASE}/v1/collections/${collectionId}/members` +
+      `?member_type=${encodeURIComponent(memberType)}`,
+  )
+}
+
 export function fetchAddresses() {
   return getJson(`${BASE}/v1/addresses`)
 }

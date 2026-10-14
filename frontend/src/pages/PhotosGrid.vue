@@ -31,7 +31,7 @@ import { usePhotosStore } from '../stores/photos'
 const store = usePhotosStore()
 const display = useDisplayStore()
 
-const { items, error, loading, addresses, clients, collections, savedSearches } =
+const { items, error, loading, addresses, clients, savedSearches } =
   storeToRefs(store)
 
 const q = ref('')
@@ -119,12 +119,36 @@ function scrollToTop() {
   if (gridScrollEl.value) gridScrollEl.value.scrollTop = 0
 }
 
-// "В подборку" dialog
+// "В подборку" dialog: подборка хранит выбор адресов или клиентов.
 const bucketOpen = ref(false)
 const bucketId = ref(null)
+// Какие подборки показывает диалог: адресные или клиентские.
+const bucketScope = ref('addresses')
 const newName = ref('')
-const newKind = ref('Моя')
-const newClient = ref('')
+// Существующие подборки того же вида, что и сохраняемый выбор.
+const bucketOptions = computed(() =>
+  store.collectionsFor(bucketScope.value).map((collection) => ({
+    label: collection.name,
+    value: collection.collection_id,
+  })),
+)
+// Имена отмеченных значений для диалога: у адресов в выборе лежит
+// технический id (79_v33), а показывать нужно понятное имя.
+const bucketValues = computed(() => {
+  const values =
+    bucketScope.value === 'clients'
+      ? store.selectedClients
+      : store.selectedAddresses
+
+  if (bucketScope.value === 'clients') return values
+
+  return values.map((value) => {
+    const found = addresses.value.find((item) => item.address === value)
+    const name = found && (found.name || found.address)
+
+    return name && name !== value ? `${name} (${value})` : value
+  })
+})
 
 const dateModes = [
   { label: 'Дата загрузки', value: 'upload' },
@@ -421,11 +445,22 @@ async function removeSavedSearch(search) {
   }
 }
 
-async function openBucketDialog() {
-  if (!store.selectedCount) {
-    Notify.create({ type: 'info', message: 'Сначала выберите фото' })
+async function openBucketDialog(scope = 'addresses') {
+  const values =
+    scope === 'clients' ? store.selectedClients : store.selectedAddresses
+
+  if (!values.length) {
+    Notify.create({
+      type: 'info',
+      message:
+        scope === 'clients'
+          ? 'Сначала отметьте клиентов в правой панели'
+          : 'Сначала отметьте адреса в левой панели',
+    })
     return
   }
+
+  bucketScope.value = scope
   await store.loadCollections()
   bucketId.value = null
   newName.value = ''
@@ -433,26 +468,21 @@ async function openBucketDialog() {
 }
 
 async function saveToBucket() {
+  const name = newName.value.trim()
+
+  if (!bucketId.value && !name) {
+    Notify.create({ type: 'warning', message: 'Введите название подборки' })
+    return
+  }
+
   try {
-    let collectionId = bucketId.value
+    await store.saveSelectionAsCollection({
+      name,
+      scope: bucketScope.value,
+      collectionId: bucketId.value || null,
+    })
 
-    if (!collectionId) {
-      const name = newName.value.trim()
-      if (!name) {
-        Notify.create({ type: 'warning', message: 'Введите название подборки' })
-        return
-      }
-      const created = await store.createCollection({
-        name,
-        kind: newKind.value,
-        client: newClient.value.trim() || null,
-        scope: 'photos',
-      })
-      collectionId = created.collection_id
-    }
-
-    const added = await store.addSelectedToCollection(collectionId)
-    Notify.create({ type: 'positive', message: `Добавлено в подборку: ${added}` })
+    Notify.create({ type: 'positive', message: 'Подборка сохранена' })
     bucketOpen.value = false
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
@@ -628,11 +658,24 @@ async function saveOriginal(photo) {
   }
 }
 
+/** Из меню снимка: сохранить его адрес в подборку адресов. */
 async function addOneToBucket(photo) {
-  if (!store.isSelected(photo.photo_id)) {
-    store.toggleSelected(photo.photo_id)
+  const address = photo.address
+
+  if (!address) {
+    Notify.create({
+      type: 'info',
+      message: 'У снимка нет распознанного адреса',
+    })
+    return
   }
-  await openBucketDialog()
+
+  if (!store.selectedAddresses.includes(address)) {
+    store.selectedAddresses = [...store.selectedAddresses, address]
+    await store.refresh()
+  }
+
+  await openBucketDialog('addresses')
 }
 
 // QWEN metadata for the open photo (may be null when it has not run).
@@ -748,7 +791,7 @@ function tagList(meta) {
           @resize="(delta) => display.resizeSideList(delta)"
         />
 
-        <CollectionsPanel @create="openBucketDialog" />
+        <CollectionsPanel scope="addresses" @create="openBucketDialog" />
       </div>
 
       <ResizeHandle
@@ -1274,7 +1317,7 @@ function tagList(meta) {
           @resize="(delta) => display.resizeSideList(delta)"
         />
 
-        <CollectionsPanel @create="openBucketDialog" />
+        <CollectionsPanel scope="clients" @create="openBucketDialog" />
       </div>
     </div>
 
@@ -1474,43 +1517,51 @@ function tagList(meta) {
       </q-card>
     </q-dialog>
 
+    <!-- Подборка хранит отмеченные адреса или клиентов и восстанавливает
+         этот выбор по клику в списке. -->
     <q-dialog v-model="bucketOpen">
-      <q-card style="min-width: 360px">
-        <q-card-section class="text-subtitle1">В подборку</q-card-section>
+      <q-card style="min-width: 400px">
+        <q-card-section class="text-subtitle1">
+          {{
+            bucketScope === 'clients'
+              ? 'Подборка клиентов'
+              : 'Подборка адресов'
+          }}
+        </q-card-section>
         <q-separator />
         <q-card-section class="q-gutter-sm">
+          <div class="text-body2">
+            В подборку войдут отмеченные
+            {{ bucketScope === 'clients' ? 'клиенты' : 'адреса' }}:
+            <b>{{ bucketValues.length }}</b>
+          </div>
+          <div class="text-caption text-grey-7">
+            {{ bucketValues.join(', ') || '—' }}
+          </div>
+
           <q-select
             v-model="bucketId"
-            :options="collections"
-            option-label="name"
-            option-value="collection_id"
+            :options="bucketOptions"
             emit-value
             map-options
             dense
             outlined
             clearable
-            label="Существующая подборка"
-          />
-          <div class="text-caption text-grey">или создать новую:</div>
-          <q-input v-model="newName" dense outlined label="Название" />
-          <q-select
-            v-model="newKind"
-            :options="['Моя', 'Клиентская']"
-            dense
-            outlined
-            label="Тип"
+            label="Обновить существующую подборку"
+            hint="или оставьте пустым и введите название новой"
           />
           <q-input
-            v-if="newKind === 'Клиентская'"
-            v-model="newClient"
+            v-model="newName"
             dense
             outlined
-            label="Клиент"
+            label="Название новой подборки"
+            :disable="!!bucketId"
+            @keyup.enter="saveToBucket"
           />
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Отмена" v-close-popup />
-          <q-btn color="primary" label="Добавить" @click="saveToBucket" />
+          <q-btn color="primary" label="Сохранить" @click="saveToBucket" />
         </q-card-actions>
       </q-card>
     </q-dialog>

@@ -8,10 +8,12 @@ import {
   deleteSavedSearch as deleteSavedSearchApi,
   fetchAddresses,
   fetchClients,
+  fetchCollectionMembers,
   fetchCollections,
   fetchPhotos,
   fetchSavedSearches,
   fetchSelection,
+  removeCollectionMembers,
   saveSelection,
 } from '../api/client'
 
@@ -58,6 +60,9 @@ export const usePhotosStore = defineStore('photos', {
   getters: {
     hasMore: (state) => state.nextCursor !== null,
     selectedCount: (state) => state.selected.length,
+    // Подборки одного вида: 'addresses' — в левой панели, 'clients' — в правой.
+    collectionsFor: (state) => (scope) =>
+      state.collections.filter((item) => item.scope === scope),
   },
 
   actions: {
@@ -77,7 +82,8 @@ export const usePhotosStore = defineStore('photos', {
           date_from: this.dateFrom || null,
           date_to: this.dateTo || null,
           date_mode: this.dateMode || 'upload',
-          collection_id: this.collectionId || null,
+          // Подборка на фото не влияет: она восстанавливает выбор адресов или
+          // клиентов, а грид фильтруется уже по нему.
           ids: this.nlIds.length ? this.nlIds : null,
         })
 
@@ -147,17 +153,74 @@ export const usePhotosStore = defineStore('photos', {
       await this.refresh()
     },
 
-    async selectCollection(collectionId) {
-      await this.applyFilters({
-        q: this.query,
-        addresses: this.selectedAddresses,
-        clients: this.selectedClients,
-        dateFrom: this.dateFrom,
-        dateTo: this.dateTo,
-        dateMode: this.dateMode,
-        collectionId,
-        ids: this.nlIds,
-      })
+    /**
+     * Подборка = сохранённое состояние выбора.
+     *
+     * Адресная подборка отмечает свои адреса в левом списке, клиентская — свои
+     * клиенты в правом; грид после этого показывает фото по этим фильтрам.
+     * Повторный клик по активной подборке снимает выбор.
+     */
+    async applyCollection(collection) {
+      const isClients = collection.scope === 'clients'
+
+      if (this.collectionId === collection.collection_id) {
+        this.collectionId = null
+
+        if (isClients) this.selectedClients = []
+        else this.selectedAddresses = []
+
+        await this.refresh()
+        return
+      }
+
+      const memberType = isClients ? 'client' : 'address'
+      const data = await fetchCollectionMembers(
+        collection.collection_id,
+        memberType,
+      )
+      const values = data.items || []
+
+      if (isClients) this.selectedClients = values
+      else this.selectedAddresses = values
+
+      this.collectionId = collection.collection_id
+      await this.refresh()
+    },
+
+    /** Сохранить текущий выбор адресов (или клиентов) как подборку. */
+    async saveSelectionAsCollection({ name, scope, collectionId = null }) {
+      const isClients = scope === 'clients'
+      const values = isClients
+        ? [...this.selectedClients]
+        : [...this.selectedAddresses]
+
+      if (!values.length) return null
+
+      const memberType = isClients ? 'client' : 'address'
+
+      let id = collectionId
+
+      if (!id) {
+        const created = await createCollectionApi({ name, kind: 'Моя', scope })
+        id = created.collection_id
+      }
+
+      // Подборка хранит ровно текущий выбор: прежний состав заменяем.
+      const current = await fetchCollectionMembers(id, memberType)
+
+      if ((current.items || []).length) {
+        await removeCollectionMembers(id, {
+          member_type: memberType,
+          values: current.items,
+        })
+      }
+
+      await addCollectionMembers(id, { member_type: memberType, values })
+
+      await this.loadCollections()
+      this.collectionId = id
+
+      return id
     },
 
     // ---- natural-language search ----
@@ -261,18 +324,6 @@ export const usePhotosStore = defineStore('photos', {
       await deleteCollectionApi(collectionId)
       if (this.collectionId === collectionId) this.collectionId = null
       await this.loadCollections()
-    },
-
-    async addSelectedToCollection(collectionId) {
-      const values = [...this.selected]
-      if (!values.length) return 0
-
-      const result = await addCollectionMembers(collectionId, {
-        member_type: 'photo',
-        values,
-      })
-      await this.loadCollections()
-      return result.added
     },
   },
 })

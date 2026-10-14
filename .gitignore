@@ -47,6 +47,10 @@ Thumbs.db
 # Runtime previews
 data/preview/
 
+# Scratch output of measurements and scans (montages, JSON dumps) — keep
+# physically, do not commit
+data/output/
+
 # Query images of a media search: they exist only while the job runs
 data/media_search/
 

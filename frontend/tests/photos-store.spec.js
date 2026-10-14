@@ -162,21 +162,153 @@ describe('photos store', () => {
     expect(lastPhotosUrl()).not.toContain('ids=')
   })
 
-  it('adds the current selection to a collection', async () => {
+  it('collectionsFor keeps only the requested scope', () => {
     const store = usePhotosStore()
-    store.selected = ['PH_a', 'PH_b']
+    store.collections = [
+      { collection_id: 1, name: 'Центр', scope: 'addresses', members: 3 },
+      { collection_id: 2, name: 'Маркет', scope: 'clients', members: 2 },
+      { collection_id: 3, name: 'Старое', scope: 'photos', members: 9 },
+    ]
 
-    const added = await store.addSelectedToCollection(7)
+    expect(store.collectionsFor('addresses').map((c) => c.collection_id)).toEqual([1])
+    expect(store.collectionsFor('clients').map((c) => c.collection_id)).toEqual([2])
+  })
 
-    expect(added).toBe(2)
-    const call = global.fetch.mock.calls.find(([url]) =>
-      String(url).includes('/collections/7/members'),
+  it('applyCollection restores an address selection and filters the grid', async () => {
+    routes.push({
+      method: 'GET',
+      match: (p) => p === '/api/v1/collections/7/members',
+      respond: () => jsonResponse({ items: ['78_v33', '79_v33'] }),
+    })
+
+    const store = usePhotosStore()
+    const collection = { collection_id: 7, name: 'Центр', scope: 'addresses' }
+
+    await store.applyCollection(collection)
+
+    expect(store.selectedAddresses).toEqual(['78_v33', '79_v33'])
+    expect(store.collectionId).toBe(7)
+
+    const url = lastPhotosUrl()
+    expect(url).toContain('address=78_v33&address=79_v33')
+    // Подборка в /v1/photos не передаётся: грид строится по выбору адресов.
+    expect(url).not.toContain('collection_id')
+
+    const memberCall = global.fetch.mock.calls.find(([u]) =>
+      String(u).includes('/collections/7/members'),
     )
-    expect(call[0]).toBe('/api/v1/collections/7/members')
-    expect(call[1].method).toBe('POST')
-    expect(JSON.parse(call[1].body)).toEqual({
-      member_type: 'photo',
-      values: ['PH_a', 'PH_b'],
+    expect(String(memberCall[0])).toContain('member_type=address')
+
+    // Повторный клик по активной подборке снимает выбор.
+    await store.applyCollection(collection)
+    expect(store.selectedAddresses).toEqual([])
+    expect(store.collectionId).toBe(null)
+  })
+
+  it('applyCollection restores a client selection', async () => {
+    routes.push({
+      method: 'GET',
+      match: (p) => p === '/api/v1/collections/5/members',
+      respond: () => jsonResponse({ items: ['Маркет'] }),
+    })
+
+    const store = usePhotosStore()
+    await store.applyCollection({
+      collection_id: 5,
+      name: 'Клиенты',
+      scope: 'clients',
+    })
+
+    expect(store.selectedClients).toEqual(['Маркет'])
+    expect(lastPhotosUrl()).toContain(
+      'client=%D0%9C%D0%B0%D1%80%D0%BA%D0%B5%D1%82',
+    )
+  })
+
+  it('saveSelectionAsCollection stores the current address selection', async () => {
+    const calls = []
+
+    routes.push({
+      method: 'POST',
+      match: (p) => p === '/api/v1/collections',
+      respond: (url, opts) => {
+        calls.push({ url, body: JSON.parse(opts.body) })
+        return jsonResponse(
+          { collection_id: 12, name: 'Центр', scope: 'addresses', members: 0 },
+          201,
+        )
+      },
+    })
+    routes.push({
+      method: 'GET',
+      match: (p) => p === '/api/v1/collections/12/members',
+      respond: () => jsonResponse({ items: [] }),
+    })
+    const store = usePhotosStore()
+    store.selectedAddresses = ['78_v33', '79_v33']
+
+    const id = await store.saveSelectionAsCollection({
+      name: 'Центр',
+      scope: 'addresses',
+    })
+
+    expect(id).toBe(12)
+    expect(calls[0].body).toEqual({
+      name: 'Центр',
+      kind: 'Моя',
+      scope: 'addresses',
+    })
+
+    const addCall = global.fetch.mock.calls.find(
+      ([u, o]) =>
+        String(u) === '/api/v1/collections/12/members' &&
+        (o?.method || '').toUpperCase() === 'POST',
+    )
+    expect(JSON.parse(addCall[1].body)).toEqual({
+      member_type: 'address',
+      values: ['78_v33', '79_v33'],
+    })
+    expect(store.collectionId).toBe(12)
+  })
+
+  it('saveSelectionAsCollection replaces the members of an existing collection', async () => {
+    const removed = []
+
+    routes.push({
+      method: 'GET',
+      match: (p) => p === '/api/v1/collections/12/members',
+      respond: () => jsonResponse({ items: ['80_v33'] }),
+    })
+    routes.push({
+      method: 'POST',
+      match: (p) => p === '/api/v1/collections/12/members/remove',
+      respond: (url, opts) => {
+        removed.push(JSON.parse(opts.body))
+        return jsonResponse({ collection_id: 12, removed: 1 })
+      },
+    })
+
+    const store = usePhotosStore()
+    store.selectedClients = ['Маркет']
+
+    await store.saveSelectionAsCollection({
+      name: '',
+      scope: 'clients',
+      collectionId: 12,
+    })
+
+    expect(removed).toEqual([
+      { member_type: 'client', values: ['80_v33'] },
+    ])
+
+    const addCall = global.fetch.mock.calls.find(
+      ([u, o]) =>
+        String(u) === '/api/v1/collections/12/members' &&
+        (o?.method || '').toUpperCase() === 'POST',
+    )
+    expect(JSON.parse(addCall[1].body)).toEqual({
+      member_type: 'client',
+      values: ['Маркет'],
     })
   })
 
@@ -233,14 +365,17 @@ describe('photos store', () => {
     ).toBe(false)
   })
 
-  it('addSelectedToCollection is a no-op without a selection', async () => {
+  it('saveSelectionAsCollection is a no-op without a selection', async () => {
     const store = usePhotosStore()
-    const added = await store.addSelectedToCollection(7)
+    const id = await store.saveSelectionAsCollection({
+      name: 'Пусто',
+      scope: 'addresses',
+    })
 
-    expect(added).toBe(0)
+    expect(id).toBe(null)
     expect(
       global.fetch.mock.calls.some(([url]) =>
-        String(url).includes('/members'),
+        String(url).includes('/collections'),
       ),
     ).toBe(false)
   })
