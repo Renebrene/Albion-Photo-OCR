@@ -347,6 +347,7 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 - **Источник истины — диск.** `app/api/fingerprints.py` читает `data/fingerprints/<id>/metadata.json` (`sync_from_disk()`), заводит строку реестра и добавляет версию **только когда изменилось число фото или список имён** — повторная синхронизация ничего не пишет. Реестр можно пересобрать с диска в любой момент; человеческие поля (имя, описание, папка, архив) живут только в базе.
 - **API**: `GET /v1/fingerprints/registry` (scope `read`) — список с адресом (из `address_fingerprints`) и текущей версией; `GET /v1/fingerprints/registry/{id}` и `.../versions` (scope `read`); `POST /v1/fingerprints/sync` и `PUT /v1/fingerprints/registry/{id}` (scope `jobs:write`, то есть Администратор).
 - **UI**: вкладка «Слепки» в техразделе — синхронизация с диском, переименование/описание/папка-источник, архивация тумблером, журнал версий с именами файлов.
+- **Сборка из окна** (`schema/024`): тип задания `FINGERPRINT_BUILD` в `job_queue` (выполняет scene-worker, как `INGEST_DIR`); `fingerprint_versions.images_meta` хранит `[{name, taken_at}]` — имена и **даты съёмок** использованных фото, потому что оригиналы после сборки не сохраняются. `fingerprints.source_folder` заполняется из `metadata.json` только если пуст (ручная правка в окне приоритетнее). Бэкфилл для слепков старого формата: `scripts/backfill_fingerprint_meta.py`.
 - **Откат**: `DROP TABLE fingerprint_versions; DROP TABLE fingerprints;` (теряется только человеческая обвязка).
 
 ## 5. Локальная SQLite-очередь (не PostgreSQL)

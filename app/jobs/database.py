@@ -21,6 +21,7 @@ JOB_TYPES = {
     "NL_SEARCH",
     "INGEST_DIR",
     "MEDIA_SEARCH",
+    "FINGERPRINT_BUILD",
 }
 
 _JOB_COLUMNS = (
@@ -88,6 +89,52 @@ def enqueue_qwen(photo_id: str) -> int | None:
                 """,
                 (Json({"photo_id": photo_id}), photo_id),
             )
+            row = cur.fetchone()
+
+            return int(row[0]) if row is not None else None
+
+
+def enqueue_fingerprint_build(
+    fingerprint_id: str,
+    folder: str,
+    *,
+    max_photos: int | None = None,
+    replace: bool = True,
+) -> int | None:
+    """
+    Queue one fingerprint build (or rebuild).
+
+    One active build per fingerprint: a second request while the first is still
+    PENDING/RUNNING is not duplicated (returns None), the same way a repeated
+    ingest of one folder is skipped.
+    """
+
+    payload = {
+        "fingerprint_id": str(fingerprint_id),
+        "folder": str(folder),
+        "replace": bool(replace),
+    }
+
+    if max_photos:
+        payload["max_photos"] = int(max_photos)
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO public.job_queue (job_type, payload, status)
+                SELECT %s, %s, 'PENDING'
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM public.job_queue
+                    WHERE job_type = 'FINGERPRINT_BUILD'
+                      AND status IN ('PENDING', 'RUNNING')
+                      AND payload ->> 'fingerprint_id' = %s
+                )
+                RETURNING id
+                """,
+                ("FINGERPRINT_BUILD", Json(payload), payload["fingerprint_id"]),
+            )
+
             row = cur.fetchone()
 
             return int(row[0]) if row is not None else None

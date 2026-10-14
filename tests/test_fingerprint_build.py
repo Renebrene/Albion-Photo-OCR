@@ -1,0 +1,272 @@
+"""
+Building a fingerprint from a folder (job FINGERPRINT_BUILD, schema/024).
+
+The heavy part (DINOv2) is not exercised here: the tests cover sampling, the
+photo metadata (names + capture dates), the job payload mapping and the API
+endpoints. Anything that queues a job cleans it up.
+"""
+
+from __future__ import annotations
+
+import os
+
+import pytest
+from fastapi.testclient import TestClient
+from PIL import Image
+
+from app.api.main import app
+from app.core.fingerprint import image_meta, sample_paths
+
+client = TestClient(app, raise_server_exceptions=False)
+
+
+def _db_available() -> bool:
+    if not os.getenv("INGEST_DB_PASSWORD"):
+        return False
+    try:
+        from app.ingest.database import get_connection
+
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("select to_regclass('public.job_queue')")
+                return cur.fetchone()[0] is not None
+    except Exception:
+        return False
+
+
+def _build_job_type_available() -> bool:
+    if not _db_available():
+        return False
+    try:
+        from app.ingest.database import get_connection
+
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                    "WHERE conname = 'job_queue_job_type_check'"
+                )
+                row = cur.fetchone()
+                return bool(row) and "FINGERPRINT_BUILD" in row[0]
+    except Exception:
+        return False
+
+
+requires_build_job = pytest.mark.skipif(
+    not _build_job_type_available(),
+    reason="schema/024 (FINGERPRINT_BUILD) is not applied",
+)
+
+
+@pytest.fixture
+def photo_folder(tmp_path):
+    """A folder with three photos, one of them carrying an EXIF capture date."""
+
+    for index in range(3):
+        Image.new("RGB", (16, 12), color=(10, 20, 30)).save(
+            tmp_path / f"{index}.jpg", format="JPEG"
+        )
+
+    exif = Image.Exif()
+    exif.get_ifd(0x8769)[0x9003] = "2026:05:01 10:20:30"
+    Image.new("RGB", (16, 12), color=(1, 2, 3)).save(
+        tmp_path / "with_date.jpg", format="JPEG", exif=exif
+    )
+
+    return tmp_path
+
+
+# ---- sampling ----
+
+
+def test_sample_paths_takes_a_stride_not_the_first_n():
+    paths = [f"{index}.jpg" for index in range(1, 11)]
+
+    assert sample_paths(paths, 3) == ["1.jpg", "4.jpg", "7.jpg"]
+    # stride = 10/4 = 2.5 -> indices 0, 2, 5, 7
+    assert sample_paths(paths, 4) == ["1.jpg", "3.jpg", "6.jpg", "8.jpg"]
+
+
+def test_sample_paths_keeps_everything_when_the_folder_is_smaller():
+    paths = ["a.jpg", "b.jpg"]
+
+    assert sample_paths(paths, 30) == paths
+    assert sample_paths(paths, 0) == paths
+    assert sample_paths([], 30) == []
+
+
+# ---- photo names + capture dates ----
+
+
+def test_image_meta_records_names_and_dates(photo_folder):
+    names = sorted(path.name for path in photo_folder.iterdir())
+    meta = image_meta(sorted(photo_folder.iterdir()))
+
+    assert [item["name"] for item in meta] == names
+    dated = {item["name"]: item["taken_at"] for item in meta}
+
+    assert dated["with_date.jpg"] == "2026-05-01 10:20:30"
+    # A photo without EXIF is still listed, just without a date.
+    assert dated.get("0.jpg") is None
+
+
+def test_image_meta_survives_an_unreadable_file(tmp_path):
+    broken = tmp_path / "broken.jpg"
+    broken.write_bytes(b"not an image")
+
+    meta = image_meta([broken])
+
+    assert meta == [{"name": "broken.jpg", "taken_at": None}]
+
+
+# ---- job payload ----
+
+
+def test_worker_maps_the_build_payload(monkeypatch):
+    from app.jobs import worker
+
+    seen: dict = {}
+
+    def fake_build(fingerprint_id, folder, *, max_photos=None, replace=True):
+        seen.update(
+            fingerprint_id=fingerprint_id,
+            folder=folder,
+            max_photos=max_photos,
+            replace=replace,
+        )
+        return {"fingerprint_id": fingerprint_id, "images": 20}
+
+    monkeypatch.setattr("app.pipeline.build.build_fingerprint", fake_build)
+
+    result = worker._execute(
+        {
+            "job_type": "FINGERPRINT_BUILD",
+            "payload": {
+                "fingerprint_id": "78_v33",
+                "folder": "/photos/78",
+                "max_photos": 30,
+                "replace": True,
+            },
+        }
+    )
+
+    assert seen == {
+        "fingerprint_id": "78_v33",
+        "folder": "/photos/78",
+        "max_photos": 30,
+        "replace": True,
+    }
+    assert result["images"] == 20
+
+
+def test_build_does_not_mark_the_qwen_model_busy():
+    """Fingerprint building uses DINOv2, so it must not trigger QWEN unload."""
+
+    from app.jobs import worker
+
+    assert "FINGERPRINT_BUILD" not in worker._MODEL_JOB_TYPES
+
+
+# ---- endpoints ----
+
+
+def test_build_rejects_an_empty_folder(tmp_path):
+    response = client.post(
+        "/api/v1/fingerprints/build",
+        json={"fingerprint_id": "test_v33", "folder": str(tmp_path)},
+    )
+
+    assert response.status_code == 400
+    assert "фотограф" in response.json()["detail"]
+
+
+def test_build_rejects_a_bad_fingerprint_id(photo_folder):
+    response = client.post(
+        "/api/v1/fingerprints/build",
+        json={"fingerprint_id": "bad id!", "folder": str(photo_folder)},
+    )
+
+    assert response.status_code == 400
+
+
+def test_build_rejects_a_missing_folder(tmp_path):
+    response = client.post(
+        "/api/v1/fingerprints/build",
+        json={
+            "fingerprint_id": "test_v33",
+            "folder": str(tmp_path / "nope"),
+        },
+    )
+
+    assert response.status_code == 404
+
+
+@requires_build_job
+def test_build_queues_a_job_and_can_be_cancelled(photo_folder):
+    response = client.post(
+        "/api/v1/fingerprints/build",
+        json={
+            "fingerprint_id": "test_build_v33",
+            "folder": str(photo_folder),
+            "max_photos": 2,
+        },
+    )
+
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["job_id"]
+    assert payload["photos"] == 4
+    assert payload["max_photos"] == 2
+
+    # Cancel it so the worker never runs the real build.
+    cancelled = client.post(f"/api/v1/jobs/{payload['job_id']}/cancel")
+    assert cancelled.status_code == 200
+
+
+def test_browse_starts_at_the_allowed_roots():
+    response = client.get("/api/v1/fingerprints/browse")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["path"] is None
+    assert isinstance(body["dirs"], list)
+
+
+def test_browse_lists_subfolders(photo_folder):
+    child = photo_folder / "nested"
+    child.mkdir()
+    Image.new("RGB", (16, 12)).save(child / "a.jpg", format="JPEG")
+
+    response = client.get(
+        "/api/v1/fingerprints/browse",
+        params={"path": str(photo_folder)},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["path"] == str(photo_folder)
+    names = [item["name"] for item in body["dirs"]]
+    assert "nested" in names
+    nested = next(item for item in body["dirs"] if item["name"] == "nested")
+    assert nested["photos"] == 1
+    assert body["photos"] == 4  # the photos directly in the folder
+
+
+def test_browse_rejects_a_unknown_path(tmp_path):
+    response = client.get(
+        "/api/v1/fingerprints/browse",
+        params={"path": str(tmp_path / "nope")},
+    )
+
+    assert response.status_code == 404
+
+
+def test_native_picker_is_off_by_default():
+    from app.api import routes
+
+    response = client.post("/api/v1/fingerprints/pick-folder")
+
+    if routes.NATIVE_PICKER:
+        pytest.skip("the native picker is enabled in this environment")
+
+    assert response.status_code == 501

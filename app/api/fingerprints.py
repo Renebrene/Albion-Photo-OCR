@@ -79,6 +79,20 @@ def _read_metadata(directory: Path) -> dict | None:
     names = metadata.get("image_names")
     names = [str(name) for name in names] if isinstance(names, list) else []
 
+    # schema/024: the builder records each source photo with its capture date,
+    # because the originals are not kept anywhere.
+    meta = metadata.get("image_meta")
+    meta = meta if isinstance(meta, list) else []
+
+    cleaned_meta = [
+        {
+            "name": str(item.get("name")),
+            "taken_at": item.get("taken_at"),
+        }
+        for item in meta
+        if isinstance(item, dict) and item.get("name")
+    ]
+
     return {
         "fingerprint_id": directory.name,
         "algorithm_version": metadata.get("version"),
@@ -86,6 +100,8 @@ def _read_metadata(directory: Path) -> dict | None:
         "dimension": metadata.get("dimension"),
         "images_count": int(metadata.get("images") or len(names) or 0),
         "image_names": names,
+        "image_meta": cleaned_meta,
+        "source_folder": metadata.get("source_folder"),
     }
 
 
@@ -145,6 +161,9 @@ def sync_from_disk() -> dict:
                             model = COALESCE(%s, model),
                             dimension = COALESCE(%s, dimension),
                             images_count = %s,
+                            -- Fill the source folder only when it is empty: a
+                            -- manual edit in the window wins over the disk.
+                            source_folder = COALESCE(source_folder, %s),
                             updated_at = CURRENT_TIMESTAMP
                         WHERE fingerprint_id = %s
                         """,
@@ -153,6 +172,7 @@ def sync_from_disk() -> dict:
                             item["model"],
                             item["dimension"],
                             item["images_count"],
+                            item.get("source_folder"),
                             fingerprint_id,
                         ),
                     )
@@ -162,8 +182,8 @@ def sync_from_disk() -> dict:
                         """
                         INSERT INTO public.fingerprints
                             (fingerprint_id, algorithm_version, model,
-                             dimension, images_count)
-                        VALUES (%s, %s, %s, %s, %s)
+                             dimension, images_count, source_folder)
+                        VALUES (%s, %s, %s, %s, %s, %s)
                         """,
                         (
                             fingerprint_id,
@@ -171,6 +191,7 @@ def sync_from_disk() -> dict:
                             item["model"],
                             item["dimension"],
                             item["images_count"],
+                            item.get("source_folder"),
                         ),
                     )
                     created.append(fingerprint_id)
@@ -191,6 +212,19 @@ def sync_from_disk() -> dict:
                     same_names = list(stored_names) == item["image_names"]
 
                     if same_count and same_names:
+                        # Keep the capture dates fresh on an unchanged set too.
+                        if item.get("image_meta"):
+                            cur.execute(
+                                """
+                                UPDATE public.fingerprint_versions
+                                SET images_meta = %s
+                                WHERE fingerprint_id = %s AND is_current
+                                """,
+                                (
+                                    json.dumps(item["image_meta"]),
+                                    fingerprint_id,
+                                ),
+                            )
                         continue
 
                     cur.execute(
@@ -206,14 +240,16 @@ def sync_from_disk() -> dict:
                     """
                     INSERT INTO public.fingerprint_versions
                         (fingerprint_id, algorithm_version, images_count,
-                         image_names, is_current)
-                    VALUES (%s, %s, %s, %s, TRUE)
+                         image_names, images_meta, source_folder, is_current)
+                    VALUES (%s, %s, %s, %s, %s, %s, TRUE)
                     """,
                     (
                         fingerprint_id,
                         item["algorithm_version"],
                         item["images_count"],
                         json.dumps(item["image_names"]),
+                        json.dumps(item.get("image_meta") or []),
+                        item.get("source_folder"),
                     ),
                 )
                 added_versions.append(fingerprint_id)
@@ -327,8 +363,8 @@ def list_versions(fingerprint_id: str) -> list[dict] | None:
             cur.execute(
                 """
                 SELECT version_id, algorithm_version, images_count,
-                       image_names, source_folder, is_current, created_at,
-                       recreated_at
+                       image_names, images_meta, source_folder, is_current,
+                       created_at, recreated_at
                 FROM public.fingerprint_versions
                 WHERE fingerprint_id = %s
                 ORDER BY created_at DESC, version_id DESC
@@ -343,10 +379,11 @@ def list_versions(fingerprint_id: str) -> list[dict] | None:
             "algorithm_version": row[1],
             "images_count": int(row[2]),
             "image_names": list(row[3] or []),
-            "source_folder": row[4],
-            "is_current": bool(row[5]),
-            "created_at": row[6],
-            "recreated_at": row[7],
+            "images_meta": list(row[4] or []),
+            "source_folder": row[5],
+            "is_current": bool(row[6]),
+            "created_at": row[7],
+            "recreated_at": row[8],
         }
         for row in rows
     ]

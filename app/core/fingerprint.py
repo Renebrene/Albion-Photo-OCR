@@ -9,9 +9,60 @@ from pathlib import Path
 
 import faiss
 import numpy as np
+from PIL import Image
+
+from app.ingest.integrity import read_taken_at
 
 from .image import image_files
 from .scene_analyzer import CompactDescriptor
+
+
+def sample_paths(paths, count):
+    """
+    Take *count* photos spread across a sorted list.
+
+    A stride, not the first N: the files are usually sorted by name (i.e. by
+    shooting order), so the first N would be one burst of shots from a single
+    viewpoint. Nothing is copied - the builder reads these paths directly.
+    """
+
+    paths = list(paths)
+
+    if count >= len(paths) or count <= 0:
+        return paths
+
+    stride = len(paths) / count
+
+    return [paths[int(index * stride)] for index in range(count)]
+
+
+def image_meta(paths):
+    """
+    [{name, taken_at}] for the source photos of a fingerprint.
+
+    The originals are not kept: their names and capture dates are the only
+    trace the registry needs, so they are captured here while the folder is
+    still at hand. EXIF is best-effort - a photo without a date is still listed.
+    """
+
+    result = []
+
+    for path in paths:
+        path = Path(path)
+        taken_at = None
+
+        try:
+            with Image.open(path) as image:
+                if getattr(image, "n_frames", 1) > 1:
+                    image.seek(0)
+
+                taken_at = read_taken_at(image)
+        except Exception:  # noqa: BLE001 - a broken EXIF must not fail a build
+            taken_at = None
+
+        result.append({"name": path.name, "taken_at": taken_at})
+
+    return result
 
 
 class FingerprintManager:
@@ -162,7 +213,24 @@ class FingerprintManager:
         fingerprint_id,
         folder,
         embedder=None,
+        *,
+        max_photos=None,
+        replace=False,
+        source_folder=None,
     ):
+        """
+        Build one fingerprint from every image in *folder* (recursively).
+
+        max_photos  - use at most this many photos, spread across the folder
+                      (the subset rule for new fingerprints). No file is copied:
+                      the builder reads the sources where they are.
+        replace     - overwrite an existing fingerprint. The previous vectors are
+                      moved aside first and only deleted once the new ones are
+                      published, so a failed rebuild leaves the old fingerprint
+                      in place.
+        source_folder - recorded in metadata.json for the registry.
+        """
+
         fingerprint_id = str(
             fingerprint_id
         )
@@ -176,16 +244,21 @@ class FingerprintManager:
                 f"No images found in {folder}"
             )
 
+        if max_photos:
+            paths = sample_paths(paths, int(max_photos))
+
         output = self._path(
             fingerprint_id
         )
+
+        previous = None
 
         if output.exists():
             existing = list(
                 output.iterdir()
             )
 
-            if existing:
+            if existing and not replace:
                 raise FileExistsError(
                     f"Fingerprint '{fingerprint_id}' "
                     f"already exists and is not empty: "
@@ -213,17 +286,35 @@ class FingerprintManager:
                 fingerprint_id,
                 paths,
                 embedder,
+                source_folder=source_folder,
             )
 
-            # output is either absent or an empty leftover directory.
-            if output.exists():
+            # Move the old vectors aside only now that the new ones exist.
+            if output.exists() and any(output.iterdir()):
+                previous = Path(
+                    tempfile.mkdtemp(
+                        prefix=f".{fingerprint_id}.old-",
+                        dir=parent,
+                    )
+                )
+                previous.rmdir()
+                os.replace(output, previous)
+            elif output.exists():
+                # An empty leftover directory.
                 output.rmdir()
 
             os.replace(staging, output)
 
         except BaseException:
             shutil.rmtree(staging, ignore_errors=True)
+
+            if previous is not None and previous.exists() and not output.exists():
+                os.replace(previous, output)
+
             raise
+
+        if previous is not None:
+            shutil.rmtree(previous, ignore_errors=True)
 
         return metadata
 
@@ -233,6 +324,7 @@ class FingerprintManager:
         fingerprint_id,
         paths,
         embedder,
+        source_folder=None,
     ):
         print(
             f"[Fingerprint v3.3] "
@@ -419,6 +511,11 @@ class FingerprintManager:
         metadata = {
             "id": fingerprint_id,
             "version": self.VERSION,
+            # Where the reference photos came from and what they were: the
+            # originals are not stored, so the registry keeps their names
+            # and capture dates here (schema/024).
+            "source_folder": str(source_folder) if source_folder else None,
+            "image_meta": image_meta(paths),
             "model": str(
                 getattr(
                     embedder,

@@ -54,6 +54,16 @@ def _execute(job: dict) -> dict:
 
         return ingest_directory(str(payload["directory"]))
 
+    if job_type == "FINGERPRINT_BUILD":
+        from app.pipeline.build import build_fingerprint
+
+        return build_fingerprint(
+            str(payload["fingerprint_id"]),
+            str(payload["folder"]),
+            max_photos=payload.get("max_photos"),
+            replace=bool(payload.get("replace", True)),
+        )
+
     if job_type == "MEDIA_SEARCH":
         from app.api.media_search import delete_query
         from app.api.media_search import run as media_run

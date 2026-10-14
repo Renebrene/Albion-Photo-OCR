@@ -249,6 +249,23 @@ export function updateFingerprint(fingerprintId, payload) {
   )
 }
 
+export function buildFingerprint(payload) {
+  return postJson(`${BASE}/v1/fingerprints/build`, payload)
+}
+
+export function browseFolders(path = null) {
+  const suffix = path ? `?path=${encodeURIComponent(path)}` : ''
+  return getJson(`${BASE}/v1/fingerprints/browse${suffix}`)
+}
+
+export function pickFolderNative() {
+  return postJson(`${BASE}/v1/fingerprints/pick-folder`, {})
+}
+
+export function fetchJob(jobId) {
+  return getJson(`${BASE}/v1/jobs/${jobId}`)
+}
+
 export function fetchFingerprintVersions(fingerprintId) {
   return getJson(
     `${BASE}/v1/fingerprints/registry/${encodeURIComponent(fingerprintId)}/versions`,

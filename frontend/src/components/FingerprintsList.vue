@@ -8,8 +8,12 @@ import { computed, onMounted, ref } from 'vue'
 import { Notify } from 'quasar'
 
 import {
+  browseFolders,
+  buildFingerprint,
   fetchFingerprintRegistry,
   fetchFingerprintVersions,
+  fetchJob,
+  pickFolderNative,
   syncFingerprints,
   updateFingerprint,
 } from '../api/client'
@@ -42,6 +46,146 @@ async function load() {
     error.value = err.message
   } finally {
     loading.value = false
+  }
+}
+
+// ---- build / rebuild ------------------------------------------------------
+
+const buildOpen = ref(false)
+const buildBusy = ref(false)
+const buildJob = ref(null) // { id, status, result, error }
+const buildForm = ref({
+  fingerprint_id: '',
+  folder: '',
+  max_photos: 30,
+  replace: true,
+})
+
+// folder picker
+const browseOpen = ref(false)
+const browseBusy = ref(false)
+const browsed = ref({ path: null, parent: null, dirs: [], photos: 0 })
+const browseError = ref('')
+
+const PHOTO_CHOICES = [
+  { label: '30 фото (норма 20–30)', value: 30 },
+  { label: '20 фото', value: 20 },
+  { label: 'все фото в папке', value: 0 },
+]
+
+function openBuild(item = null) {
+  buildForm.value = {
+    fingerprint_id: item?.fingerprint_id || '',
+    folder: item?.source_folder || '',
+    max_photos: 30,
+    replace: true,
+  }
+  buildJob.value = null
+  buildOpen.value = true
+}
+
+async function loadBrowse(path) {
+  browseBusy.value = true
+  browseError.value = ''
+
+  try {
+    browsed.value = await browseFolders(path)
+  } catch (err) {
+    browseError.value = err.message
+  } finally {
+    browseBusy.value = false
+  }
+}
+
+function openBrowser() {
+  browseOpen.value = true
+  loadBrowse(buildForm.value.folder || null)
+}
+
+function chooseFolder(path) {
+  buildForm.value.folder = path
+  browseOpen.value = false
+}
+
+async function pickNative() {
+  browseBusy.value = true
+
+  try {
+    const result = await pickFolderNative()
+    buildForm.value.folder = result.path
+    browseOpen.value = false
+  } catch (err) {
+    browseError.value = err.message
+  } finally {
+    browseBusy.value = false
+  }
+}
+
+async function startBuild() {
+  const form = buildForm.value
+
+  if (!form.fingerprint_id.trim()) {
+    Notify.create({ type: 'warning', message: 'Укажите ID слепка' })
+    return
+  }
+
+  if (!form.folder.trim()) {
+    Notify.create({ type: 'warning', message: 'Выберите папку с фотографиями' })
+    return
+  }
+
+  buildBusy.value = true
+  buildJob.value = null
+
+  try {
+    const started = await buildFingerprint({
+      fingerprint_id: form.fingerprint_id.trim(),
+      folder: form.folder.trim(),
+      max_photos: form.max_photos || null,
+      replace: form.replace,
+    })
+
+    buildJob.value = { id: started.job_id, status: 'PENDING' }
+
+    Notify.create({
+      type: started.skipped ? 'warning' : 'positive',
+      message: started.skipped
+        ? 'Сборка этого слепка уже в очереди'
+        : `Задание сборки №${started.job_id} (фото в папке: ${started.photos})`,
+    })
+
+    if (!started.skipped) {
+      await pollBuild(started.job_id)
+    }
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    buildBusy.value = false
+  }
+}
+
+async function pollBuild(jobId) {
+  // DINO over 20-40 photos takes a while; poll a few minutes.
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+    const job = await fetchJob(jobId)
+    buildJob.value = { id: jobId, status: job.status }
+
+    if (job.status === 'DONE') {
+      buildJob.value.result = job.result
+      Notify.create({
+        type: 'positive',
+        message: `Слепок собран: ${job.result?.images} фото`,
+      })
+      await load()
+      return
+    }
+
+    if (job.status === 'FAILED' || job.status === 'CANCELLED') {
+      buildJob.value.error = job.error_message || job.status
+      Notify.create({ type: 'negative', message: `Сборка: ${buildJob.value.error}` })
+      return
+    }
   }
 }
 
@@ -132,6 +276,12 @@ function day(value) {
       <div class="text-subtitle1 col">
         Слепки ({{ items.length }})
       </div>
+      <q-btn v-if="isAdmin" dense color="primary" icon="add" label="Создать слепок"
+        @click="openBuild()">
+        <q-tooltip>
+          Выбрать папку с фотографиями и собрать (или пересобрать) слепок
+        </q-tooltip>
+      </q-btn>
       <q-btn v-if="isAdmin" dense flat icon="sync" label="Синхронизировать с диском"
         :loading="syncing" @click="sync">
         <q-tooltip>
@@ -200,6 +350,9 @@ function day(value) {
           </q-btn>
           <q-btn dense flat icon="edit" :disable="!isAdmin" @click="openEdit(props.row)">
             <q-tooltip>Имя, описание, папка-источник</q-tooltip>
+          </q-btn>
+          <q-btn v-if="isAdmin" dense flat icon="refresh" @click="openBuild(props.row)">
+            <q-tooltip>Пересобрать из папки</q-tooltip>
           </q-btn>
         </q-td>
       </template>
@@ -311,6 +464,146 @@ function day(value) {
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Закрыть" v-close-popup />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- build / rebuild -->
+    <q-dialog v-model="buildOpen">
+      <q-card style="min-width: 560px; max-width: 94vw">
+        <q-card-section class="text-subtitle1">Создать / пересобрать слепок</q-card-section>
+        <q-separator />
+        <q-card-section class="q-gutter-sm">
+          <q-input
+            v-model="buildForm.fingerprint_id"
+            dense
+            outlined
+            label="ID слепка"
+            hint="например 78_v33 — пересборка заменит векторы, старая версия останется в журнале"
+          />
+
+          <div class="row items-center q-gutter-sm">
+            <q-input
+              v-model="buildForm.folder"
+              dense
+              outlined
+              class="col"
+              label="Папка с фотографиями"
+              hint="Папки по умолчанию нет — берутся файлы из выбранной; исходники только читаются"
+            />
+            <q-btn dense color="secondary" icon="folder_open" label="Выбрать папку"
+              @click="openBrowser" />
+          </div>
+
+          <div class="row items-center q-gutter-sm">
+            <q-select
+              v-model="buildForm.max_photos"
+              :options="PHOTO_CHOICES"
+              dense
+              outlined
+              emit-value
+              map-options
+              option-label="label"
+              option-value="value"
+              label="Сколько фото взять"
+              style="min-width: 230px"
+            />
+            <q-toggle v-model="buildForm.replace" dense
+              label="Пересобрать, если слепок уже есть" />
+          </div>
+
+          <div class="text-caption text-grey">
+            Норма — 20–30 фото (замер: `docs/fingerprint_size_experiment.md`).
+            Подвыборка берётся шагом по списку, файлы не копируются. После
+            сборки оригиналы не нужны: сохраняются векторы, а в базе — имена
+            фото и даты съёмок.
+          </div>
+
+          <div v-if="buildJob" class="q-mt-sm">
+            <q-banner :class="buildJob.status === 'DONE' ? 'bg-green-1' : (buildJob.error ? 'bg-red-1 text-negative' : 'bg-blue-1')">
+              Задание №{{ buildJob.id }}: {{ buildJob.status }}
+              <template v-if="buildJob.result">
+                · собрано из {{ buildJob.result.images }} фото
+              </template>
+              <template v-if="buildJob.error"> · {{ buildJob.error }}</template>
+            </q-banner>
+          </div>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Закрыть" v-close-popup />
+          <q-btn
+            color="primary"
+            label="Собрать"
+            :loading="buildBusy"
+            :disable="!buildForm.fingerprint_id.trim() || !buildForm.folder.trim()"
+            @click="startBuild"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- folder browser (server side) -->
+    <q-dialog v-model="browseOpen">
+      <q-card style="min-width: 620px; max-width: 94vw; max-height: 88vh">
+        <q-card-section class="row items-center">
+          <div class="text-subtitle1 col">
+            Выбор папки на сервере
+          </div>
+          <q-btn dense flat icon="desktop_windows" label="Системный диалог"
+            :loading="browseBusy" @click="pickNative">
+            <q-tooltip>
+              Открыть окно выбора папки на машине сервера
+              (нужен включённый SCENE_NATIVE_PICKER)
+            </q-tooltip>
+          </q-btn>
+        </q-card-section>
+        <q-separator />
+        <q-card-section style="max-height: 60vh; overflow: auto">
+          <div v-if="browseError" class="text-negative text-caption q-mb-sm">
+            {{ browseError }}
+          </div>
+
+          <div class="row items-center q-gutter-sm q-mb-sm">
+            <q-btn dense flat icon="arrow_upward" :disable="!browsed.parent"
+              @click="loadBrowse(browsed.parent)">
+              <q-tooltip>Наверх</q-tooltip>
+            </q-btn>
+            <span class="text-caption ellipsis">{{ browsed.path || 'разрешённые корни' }}</span>
+            <q-badge color="grey-7">фото здесь: {{ browsed.photos }}</q-badge>
+            <q-space />
+            <q-btn v-if="browsed.path" dense color="primary" label="Взять эту папку"
+              @click="chooseFolder(browsed.path)" />
+          </div>
+
+          <q-list dense separator>
+            <q-item
+              v-for="dir in browsed.dirs"
+              :key="dir.path"
+              clickable
+              @click="loadBrowse(dir.path)"
+            >
+              <q-item-section avatar>
+                <q-icon name="folder" color="amber-8" />
+              </q-item-section>
+              <q-item-section>
+                <div class="ellipsis">{{ dir.name }}</div>
+              </q-item-section>
+              <q-item-section side>
+                <span class="text-caption text-grey">{{ dir.photos }} фото</span>
+                <q-btn dense flat icon="check" @click.stop="chooseFolder(dir.path)">
+                  <q-tooltip>Взять эту папку</q-tooltip>
+                </q-btn>
+              </q-item-section>
+            </q-item>
+            <q-item v-if="!browsed.dirs.length">
+              <q-item-section class="text-caption text-grey">
+                Подпапок нет
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Отмена" v-close-popup />
         </q-card-actions>
       </q-card>
     </q-dialog>

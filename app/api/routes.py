@@ -9,7 +9,10 @@ unset, everything is open for local development. Read endpoints require the
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 from fastapi import (
@@ -33,7 +36,8 @@ from app.api import sources
 from app.api import system as sysinfo
 from app.api import upload as upload_mod
 from app.api.auth import auth_enabled, require_scope, resolve_principal
-from app.api.config import ORIGINALS_ROOTS, PREVIEW_ROOT
+from app.api.config import ORIGINALS_ROOTS, PREVIEW_ROOT, SOURCE_ROOTS
+from app.ingest.integrity import SUPPORTED_EXTENSIONS
 from app.core.errors import redact_paths
 from app.api.schemas import (
     AddressCreate,
@@ -44,6 +48,7 @@ from app.api.schemas import (
     CollectionCreate,
     CollectionMembersRequest,
     DinoBatchRequest,
+    FingerprintBuildRequest,
     FingerprintUpdate,
     HybridRequest,
     LoginRequest,
@@ -1390,3 +1395,210 @@ def list_fingerprint_versions(fingerprint_id: str):
         raise HTTPException(status_code=404, detail="fingerprint not found")
 
     return {"items": versions}
+
+
+# ---------------------------------------------------------------------------
+# Building a fingerprint from the window: choose a folder, enqueue the build
+# ---------------------------------------------------------------------------
+
+
+@fingerprints_router.post(
+    "/v1/fingerprints/build",
+    status_code=202,
+    response_model=None,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def build_fingerprint(request: FingerprintBuildRequest):
+    """
+    Queue a fingerprint build from a server-side folder.
+
+    The folder is validated the same way as the INGEST working folder
+    (existence, and SCENE_SOURCE_ROOTS when it is set). The build itself runs in
+    the worker - it reads every photo and runs DINOv2, which must not happen in
+    a request handler. Nothing is copied: the builder reads the folder and keeps
+    only the result plus the names and capture dates of the photos used.
+    """
+
+    try:
+        fingerprint_id = fingerprints_mod._check_id(request.fingerprint_id)
+    except fingerprints_mod.FingerprintError as exc:
+        raise _fingerprint_error(exc) from exc
+
+    folder = sources.resolve_directory(request.folder)
+    stats = sources.folder_stats(folder)
+
+    if not stats["files"]:
+        raise HTTPException(
+            status_code=400,
+            detail="в папке нет фотографий",
+        )
+
+    job_id = jobs_db.enqueue_fingerprint_build(
+        fingerprint_id,
+        str(folder),
+        max_photos=request.max_photos,
+        replace=request.replace,
+    )
+
+    return {
+        "job_id": job_id,
+        "skipped": job_id is None,
+        "fingerprint_id": fingerprint_id,
+        "folder": str(folder),
+        "photos": stats["files"],
+        "max_photos": request.max_photos,
+    }
+
+
+def _direct_photo_count(directory: Path) -> int:
+    """Photos directly inside *directory* (no recursion): a hint for the picker."""
+
+    try:
+        return sum(
+            1
+            for entry in os.scandir(directory)
+            if entry.is_file()
+            and Path(entry.name).suffix.lower() in SUPPORTED_EXTENSIONS
+        )
+    except OSError:
+        return 0
+
+
+@fingerprints_router.get(
+    "/v1/fingerprints/browse",
+    response_model=None,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def browse_folders(path: str | None = Query(default=None)):
+    """
+    List sub-folders of a server directory, for the folder picker.
+
+    Without a path it lists the allowed roots (or the home directory when
+    SCENE_SOURCE_ROOTS is not configured). This reads directory names only;
+    when SCENE_SOURCE_ROOTS is set, nothing outside those roots is listed.
+    """
+
+    if path:
+        current = sources.resolve_directory(path)
+    else:
+        roots = SOURCE_ROOTS or [Path.home()]
+
+        return {
+            "path": None,
+            "parent": None,
+            "dirs": [
+                {
+                    "name": str(root),
+                    "path": str(root),
+                    "photos": _direct_photo_count(root),
+                }
+                for root in roots
+                if root.is_dir()
+            ],
+            "photos": 0,
+        }
+
+    parent = current.parent
+
+    try:
+        entries = sorted(
+            (
+                entry
+                for entry in os.scandir(current)
+                if entry.is_dir() and not entry.name.startswith(".")
+            ),
+            key=lambda entry: entry.name.lower(),
+        )
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail="folder is not readable") from exc
+
+    dirs = []
+
+    for entry in entries:
+        child = Path(entry.path)
+
+        # Keep the listing inside the configured roots.
+        if SOURCE_ROOTS and not any(
+            str(child).startswith(str(root)) for root in SOURCE_ROOTS
+        ):
+            continue
+
+        dirs.append(
+            {
+                "name": entry.name,
+                "path": entry.path,
+                "photos": _direct_photo_count(child),
+            }
+        )
+
+    return {
+        "path": str(current),
+        "parent": str(parent) if parent != current else None,
+        "dirs": dirs,
+        "photos": _direct_photo_count(current),
+    }
+
+
+# The OS folder dialog can only run on the machine that has a desktop session
+# (the server, when the browser is used locally). It is off by default: the
+# in-app browser works from any client.
+NATIVE_PICKER = os.getenv("SCENE_NATIVE_PICKER", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+}
+
+
+@fingerprints_router.post(
+    "/v1/fingerprints/pick-folder",
+    response_model=None,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def pick_folder_native():
+    """
+    Open the system folder dialog on the server and return the chosen path.
+
+    A browser cannot hand a server-side path to the page, so this is the only
+    way to get a literal OS dialog; it needs a desktop session on the server and
+    is enabled with SCENE_NATIVE_PICKER=1. The chosen folder is validated with
+    the same rules as everywhere else (existence, SCENE_SOURCE_ROOTS).
+    """
+
+    if not NATIVE_PICKER:
+        raise HTTPException(
+            status_code=501,
+            detail="системный выбор папки выключен (SCENE_NATIVE_PICKER=1)",
+        )
+
+    zenity = shutil.which("zenity")
+
+    if zenity is None:
+        raise HTTPException(
+            status_code=501,
+            detail="zenity не найден на сервере",
+        )
+
+    try:
+        completed = subprocess.run(
+            [
+                zenity,
+                "--file-selection",
+                "--directory",
+                "--title=Папка с фотографиями для слепка",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=504, detail="диалог не был закрыт") from exc
+
+    if completed.returncode != 0:
+        raise HTTPException(status_code=409, detail="выбор папки отменён")
+
+    chosen = (completed.stdout or "").strip()
+
+    if not chosen:
+        raise HTTPException(status_code=409, detail="папка не выбрана")
+
+    return {"path": str(sources.resolve_directory(chosen))}

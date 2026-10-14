@@ -192,6 +192,15 @@ class AddressFingerprintsRequest(BaseModel):
     fingerprints: list[str] = Field(default_factory=list, max_length=500)
 
 
+class FingerprintBuildRequest(BaseModel):
+    """Build (or rebuild) a fingerprint from a folder of photos."""
+
+    fingerprint_id: str = Field(min_length=1, max_length=64)
+    folder: str = Field(min_length=1, max_length=4096)
+    max_photos: int | None = Field(default=None, ge=1, le=5000)
+    replace: bool = True
+
+
 class FingerprintUpdate(BaseModel):
     """Human fields of a fingerprint (schema/023); omitted keeps the value."""
 
