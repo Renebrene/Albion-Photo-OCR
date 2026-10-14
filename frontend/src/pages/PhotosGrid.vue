@@ -459,6 +459,34 @@ async function saveToBucket() {
   }
 }
 
+// ---- подпись плитки ----
+
+/** Дата съёмки как «17.07.2025» (пустая строка, если её нет). */
+function tileDate(photo) {
+  const value = photo && photo.taken_at
+
+  if (!value) return ''
+
+  const [date] = String(value).split(/[T ]/)
+  const [year, month, day] = date.split('-')
+
+  return year && month && day ? `${day}.${month}.${year}` : date
+}
+
+/** Вес файла в мегабайтах, одна цифра после запятой. */
+function tileSize(photo) {
+  const bytes = Number(photo && photo.size_bytes)
+
+  if (!bytes) return ''
+
+  return `${(bytes / 1024 / 1024).toFixed(1)} МБ`
+}
+
+/** «дата · вес» одной строкой; пусто, когда нет ни того, ни другого. */
+function tileMeta(photo) {
+  return [tileDate(photo), tileSize(photo)].filter(Boolean).join(' · ')
+}
+
 // ZIP: one server-built archive instead of a file per photo.
 const zipBusy = ref(false)
 
@@ -1009,19 +1037,27 @@ function tagList(meta) {
                   @click="open(photo)"
                 />
                 <q-card-section class="q-pa-xs">
-                  <div class="ellipsis text-caption">{{ photo.filename }}</div>
+                  <!-- Подпись плитки: алиас адреса жирным, имя файла обычным,
+                       дата съёмки и вес — жирным курсивом, клиент — курсивом. -->
                   <div
                     v-if="photo.address"
-                    class="ellipsis text-caption text-grey-8"
+                    class="ellipsis text-caption text-weight-bold"
                   >
                     {{ photo.simple_address || photo.address }}
                     <q-tooltip v-if="photo.simple_address">
                       {{ photo.address }}
                     </q-tooltip>
                   </div>
+                  <div class="ellipsis text-caption">{{ photo.filename }}</div>
+                  <div
+                    v-if="tileMeta(photo)"
+                    class="ellipsis text-caption text-weight-bold font-italic"
+                  >
+                    {{ tileMeta(photo) }}
+                  </div>
                   <div
                     v-if="photo.client"
-                    class="ellipsis text-caption text-grey-8"
+                    class="ellipsis text-caption font-italic"
                   >
                     {{ photo.client }}
                   </div>

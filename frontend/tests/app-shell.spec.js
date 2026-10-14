@@ -56,8 +56,11 @@ function installFetch({ loggedIn = true } = {}) {
             width: 100,
             height: 100,
             container_format: 'JPEG',
-            address: null,
-            client: null,
+            address: '78_v33',
+            simple_address: 'Комарова 13',
+            client: 'Клиент А',
+            taken_at: '2025-07-17 11:43:19',
+            size_bytes: 4194304,
           },
         ],
         next_cursor: null,
@@ -127,6 +130,14 @@ describe('оболочка приложения', () => {
 
     // Вход не показывается: сессия живая.
     expect(wrapper.text()).not.toContain('Войти')
+
+    // Подпись плитки: алиас адреса, имя файла, дата съёмки с весом, клиент.
+    const caption = wrapper.text()
+
+    expect(caption).toContain('Комарова 13')
+    expect(caption).toContain('photo.jpg')
+    expect(caption).toContain('17.07.2025 · 4.0 МБ')
+    expect(caption).toContain('Клиент А')
 
     wrapper.unmount()
   })
