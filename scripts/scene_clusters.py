@@ -1,8 +1,8 @@
 """
-Сцены в папках со снимками: отпечатки кадров и разбиение на условия съёмки.
+Сцены в папках со снимками: отпечатки кадров и выборка 20–30 разных кадров.
 
     python scripts/scene_clusters.py --root data/input
-    python scripts/scene_clusters.py --root data/input --json data/output/scenes.json
+    python scripts/scene_clusters.py --root data/input --json data/output/selection.json
 
 Что делает по каждой папке (адресу):
 
@@ -11,12 +11,19 @@
 2. Схлопывает почти одинаковые кадры: расстояние Хэмминга pHash меньше порога —
    это одна серия («щелчок за щелчком») или дубль, в выборке он не нужен.
 3. Кластеризует по одному представителю каждой серии по СОСТАВНОМУ признаку
-   (pHash + цветовая подпись + яркость) и подбирает число сцен автоматически.
-4. Печатает для каждой папки хвост кривой «k: силуэт» и выбранное k, чтобы
-   выбор был виден, а не «на глаз».
+   (pHash + [dHash] + цветовая подпись + яркость) и подбирает число сцен по
+   силуэту.
+4. Приводит число сцен к рабочему диапазону 20–30 (`--select-min/--select-max`):
+   если условий съёмки мало (2–3), кластеров всё равно столько, сколько нужно
+   кадров — выборка добирается равномерно по папке; если сцен слишком много,
+   лишние схлопываются порогом.
+5. Берёт по одному кадру на кластер — ближайший к центру кластера. Это и есть
+   готовая выборка для слепка: непохожие кадры из разных условий съёмки.
+6. Печатает для каждой папки хвост кривой «k: силуэт», выбранное k и список
+   отобранных файлов (в JSON по `--select-json`).
 
-Скрипт ничего не меняет и не собирает: он только показывает, из скольких сцен
-состоит папка. Выбор кадров и сборка слепков — следующий шаг.
+Скрипт ничего не меняет: он читает папки и рассказывает, что из них выбрал.
+Сборка слепков — следующий шаг, отдельной командой.
 """
 
 from __future__ import annotations
@@ -39,6 +46,18 @@ DEFAULT_DEDUP = 6
 # Автоподбор числа сцен идёт по этому диапазону.
 DEFAULT_K_MIN = 2
 DEFAULT_K_MAX = 40
+
+# Рабочий размер выборки для слепка: столько разных кадров нужно с папки.
+# Владелец замерил 20–30 фото на слепок (docs/fingerprint_size_experiment.md),
+# поэтому число сцен приводится к этому диапазону: меньше 20 — добираем
+# кластеры, больше 30 — схлопываем.
+DEFAULT_SELECT_MIN = 20
+DEFAULT_SELECT_MAX = 30
+
+# dHash в составном признаке: он ловит направление градиента (pHash — крупные
+# блоки DCT после сглаживания), то есть ракурс и «куда смотрит» кадр. Блок
+# ±1-бит, как pHash, — веса сопоставимы.
+USE_DHASH = True
 
 # Выбор k: берём наибольшее k, чей силуэт не хуже этой доли от лучшего.
 # Силуэт почти всегда максимален при k=2 (две «кучки» — светлое/тёмное,
@@ -165,12 +184,29 @@ def dedup_groups(dist: np.ndarray, threshold: int) -> list[list[int]]:
     return groups
 
 
-def scene_features(rows: list[dict], keep: list[int]) -> np.ndarray:
+def packed_bits(values: list[int], index: np.ndarray) -> np.ndarray:
+    """Распаковать 64-битные отпечатки в вектор ±1 (строки — кадры)."""
+
+    packed = np.array([values[i] for i in index], dtype=np.uint64)
+    bits = np.unpackbits(
+        packed.view(np.uint8).reshape(len(index), 8), axis=1
+    ).astype(np.float32)
+
+    return (bits * 2.0) - 1.0
+
+
+def scene_features(
+    rows: list[dict], keep: list[int], use_dhash: bool = USE_DHASH
+) -> np.ndarray:
     """
     Составной признак сцены для выбранных кадров (по одному на серию).
 
-    Три блока в одном векторе:
+    Блоки в одном векторе:
       * pHash (64 бита) — композиция/ракурс;
+      * dHash (64 бита, если включён) — разность соседних пикселей, то есть
+        направление градиента; pHash это низкочастотная DCT уменьшенного
+        кадра. Блоки считают разное (контур/деталь против общей композиции),
+        поэтому вместе они разделяют кадры чуть точнее, чем один pHash;
       * цветовая подпись (42 бита) — температура и насыщенность, то есть
         погода и время суток;
       * яркость (одна ось, ×BRIGHTNESS_WEIGHT) — прямая подсказка о свете.
@@ -181,21 +217,75 @@ def scene_features(rows: list[dict], keep: list[int]) -> np.ndarray:
 
     index = np.array(keep, dtype=int)
 
-    packed = np.array([rows[i]["phash"] for i in index], dtype=np.uint64)
-    phash_bits = np.unpackbits(
-        packed.view(np.uint8).reshape(len(index), 8), axis=1
-    ).astype(np.float32)
-    phash_part = (phash_bits * 2.0) - 1.0
+    parts = [packed_bits([row["phash"] for row in rows], index)]
+
+    if use_dhash:
+        parts.append(packed_bits([row["dhash"] for row in rows], index))
 
     color_bits = np.array([rows[i]["color"] for i in index], dtype=np.float32)
-    color_part = (color_bits * 2.0) - 1.0
+    parts.append((color_bits * 2.0) - 1.0)
 
-    brightness = np.array(
-        [[rows[i]["brightness"] * BRIGHTNESS_WEIGHT] for i in index],
-        dtype=np.float32,
+    parts.append(
+        np.array(
+            [[rows[i]["brightness"] * BRIGHTNESS_WEIGHT] for i in index],
+            dtype=np.float32,
+        )
     )
 
-    return np.hstack([phash_part, color_part, brightness])
+    return np.hstack(parts)
+
+
+def target_scenes(
+    natural: int,
+    representatives: int,
+    select_min: int,
+    select_max: int,
+    forced: int | None = None,
+) -> int:
+    """
+    Сколько сцен взять в работу.
+
+    Правило владельца: в слепок идут 20–30 разных кадров. Поэтому
+      * нашли меньше 20 условий съёмки — берём 20 (кластеры дробим мельче,
+        выборка равномерно добирается по папке);
+      * нашли больше 30 — берём 30 (лишние схлопываются);
+      * нашли в диапазоне — берём как есть.
+    Больше, чем есть серий, сцен не бывает: кластер из одного кадра — норма.
+    """
+
+    if forced is not None:
+        return max(1, min(forced, representatives))
+
+    return max(1, min(max(natural, select_min), select_max, representatives))
+
+
+def pick_representatives(
+    features: np.ndarray,
+    labels: list[int],
+    rows: list[dict],
+    keep: list[int],
+) -> list[str]:
+    """
+    По одному кадру на кластер: ближайший к центру кластера (медоид).
+
+    Это и есть выборка для слепка: каждая сцена представлена своим, самым
+    «типичным» кадром. Кластер из одного кадра даёт этот же кадр.
+    """
+
+    labels_array = np.array(labels, dtype=int)
+    picks: list[str] = []
+
+    for cluster in range(int(labels_array.max()) + 1 if len(labels_array) else 0):
+        members = np.flatnonzero(labels_array == cluster)
+
+        if not members.size:
+            continue
+
+        centre = features[members].mean(axis=0)
+        distances = np.linalg.norm(features[members] - centre, axis=1)
+        picks.append(rows[keep[int(members[int(distances.argmin())])]]["path"])
+
+    return picks
 
 
 def choose_k(
@@ -276,8 +366,11 @@ def scenes_for_folder(
     k_min: int,
     k_max: int,
     forced_k: int | None,
+    select_min: int = DEFAULT_SELECT_MIN,
+    select_max: int = DEFAULT_SELECT_MAX,
+    use_dhash: bool = USE_DHASH,
 ) -> dict:
-    """Признаки, серии дублей и найденное число сцен для одной папки."""
+    """Признаки, серии дублей, число сцен и выборка кадров для одной папки."""
 
     started = time.perf_counter()
     rows = hash_folder(photos, workers)
@@ -289,6 +382,8 @@ def scenes_for_folder(
             "hashed": 0,
             "shots": 0,
             "scenes": 0,
+            "selected": 0,
+            "selected_files": [],
             "scores": [],
             "seconds": round(time.perf_counter() - started, 2),
             "error": "нет читаемых кадров",
@@ -303,11 +398,26 @@ def scenes_for_folder(
     # Кластеризуем по одному представителю на серию, но уже по составному
     # признаку — иначе сцены не отделяются от «просто похожих картинок».
     keep = [group[0] for group in groups]
-    features = scene_features(rows, keep)
+    features = scene_features(rows, keep, use_dhash)
 
-    best_k, scores, labels, silhouette = choose_k(
+    natural, scores, labels, silhouette = choose_k(
         features, k_min, k_max, forced_k
     )
+
+    # Рабочий диапазон 20–30: мало сцен — дробим мельче, много — схлопываем.
+    scenes = target_scenes(natural, len(keep), select_min, select_max, forced_k)
+
+    if scenes != natural and len(keep) >= 2:
+        from sklearn.cluster import KMeans
+
+        labels = [
+            int(item)
+            for item in KMeans(
+                n_clusters=scenes, n_init=10, random_state=0
+            ).fit_predict(features)
+        ]
+
+    selected = pick_representatives(features, labels, rows, keep)
 
     return {
         "address": folder.name,
@@ -315,7 +425,10 @@ def scenes_for_folder(
         "photos": len(photos),
         "hashed": len(rows),
         "shots": len(groups),
-        "scenes": best_k,
+        "natural_scenes": natural,
+        "scenes": scenes,
+        "selected": len(selected),
+        "selected_files": selected,
         "silhouette": silhouette,
         "scores": scores,
         "seconds": round(time.perf_counter() - started, 2),
@@ -339,7 +452,8 @@ def print_k_curve(result: dict, tail: int = 8) -> None:
     )
 
     print(
-        f"  {result['address']:>4}  k*={result['scenes']:>3}  "
+        f"  {result['address']:>4}  сцен={result['scenes']:>3} "
+        f"(нашлось {result.get('natural_scenes', result['scenes'])})  "
         f"силуэт={result.get('silhouette') if result.get('silhouette') is not None else '—'}  "
         f"хвост k→силуэт: {curve}"
     )
@@ -357,6 +471,23 @@ def main() -> int:
     parser.add_argument("--dedup", type=int, default=DEFAULT_DEDUP)
     parser.add_argument("--k-min", type=int, default=DEFAULT_K_MIN)
     parser.add_argument("--k-max", type=int, default=DEFAULT_K_MAX)
+    parser.add_argument(
+        "--select-min",
+        type=int,
+        default=DEFAULT_SELECT_MIN,
+        help="минимум кадров в выборке (меньше сцен — дробим мельче)",
+    )
+    parser.add_argument(
+        "--select-max",
+        type=int,
+        default=DEFAULT_SELECT_MAX,
+        help="максимум кадров в выборке (больше сцен — схлопываем)",
+    )
+    parser.add_argument(
+        "--no-dhash",
+        action="store_true",
+        help="считать признак без dHash (pHash + цвет + яркость)",
+    )
     parser.add_argument(
         "--k",
         type=int,
@@ -395,12 +526,14 @@ def main() -> int:
     print(
         f"папок: {len(folders)}, процессов: {args.workers}, "
         f"порог серии: {args.dedup}, диапазон сцен: {args.k_min}–{args.k_max}, "
+        f"выборка: {args.select_min}–{args.select_max} кадров, "
+        f"dHash: {'нет' if args.no_dhash else 'да'}, "
         f"k={'авто' if args.k is None else args.k}\n"
     )
 
     print(
-        f"{'адрес':>8} {'фото':>5} {'кадров':>7} {'серий':>6} {'сцен':>5}  "
-        f"{'силуэт':>7}  сек"
+        f"{'адрес':>8} {'фото':>5} {'кадров':>7} {'серий':>6} {'сцен':>5} "
+        f"{'выборка':>7}  {'силуэт':>7}  сек"
     )
 
     for folder in folders:
@@ -418,6 +551,9 @@ def main() -> int:
             args.k_min,
             args.k_max,
             args.k,
+            args.select_min,
+            args.select_max,
+            not args.no_dhash,
         )
 
         results.append(result)
@@ -426,7 +562,8 @@ def main() -> int:
 
         print(
             f"{result['address']:>8} {result['photos']:>5} {result['hashed']:>7} "
-            f"{result.get('shots', 0):>6} {result['scenes']:>5}  "
+            f"{result.get('shots', 0):>6} {result['scenes']:>5} "
+            f"{result.get('selected', 0):>7}  "
             f"{f'{best:.3f}' if best is not None else '—':>7}  {result['seconds']:>4}"
         )
 
@@ -436,18 +573,31 @@ def main() -> int:
         print_k_curve(result)
 
     scenes = [result["scenes"] for result in results if result["scenes"]]
-    shots = [result.get("shots", 0) for result in results]
-    two = [result["address"] for result in results if result["scenes"] == 2]
+    selected = [result.get("selected", 0) for result in results]
+    grown = [
+        result["address"]
+        for result in results
+        if result.get("scenes", 0) > result.get("natural_scenes", 0)
+    ]
+    shrunk = [
+        result["address"]
+        for result in results
+        if result.get("scenes", 0) < result.get("natural_scenes", 0)
+    ]
 
     if scenes:
         print(
             f"\nсцен на папку: мин {min(scenes)}, среднее "
             f"{sum(scenes) / len(scenes):.1f}, макс {max(scenes)}; "
-            f"кадров после схлопывания серий: {sum(shots)}"
+            f"кадров в выборке: мин {min(selected)}, "
+            f"среднее {sum(selected) / len(selected):.1f}, макс {max(selected)}"
         )
 
-    if two:
-        print(f"ровно 2 сцены: {', '.join(two)}")
+    if grown:
+        print(f"дроблено до {args.select_min}: {', '.join(grown)}")
+
+    if shrunk:
+        print(f"схлопнуто до {args.select_max}: {', '.join(shrunk)}")
 
     if args.json:
         args.json.parent.mkdir(parents=True, exist_ok=True)
