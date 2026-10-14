@@ -7,6 +7,19 @@ import { quasar, transformAssetUrls } from '@quasar/vite-plugin'
 const apiTarget = process.env.VITE_API_TARGET || 'http://127.0.0.1:8010'
 
 export default defineConfig({
+  // Shown in the status bar: lets anyone check at a glance whether the browser
+  // is showing a freshly built interface or a cached one.
+  define: {
+    // Local time of the build machine: the status bar shows it as is.
+    __APP_BUILD__: JSON.stringify(
+      new Date().toLocaleString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+    ),
+  },
   plugins: [
     vue({ template: { transformAssetUrls } }),
     quasar(),

@@ -46,6 +46,9 @@ async function afterAuth() {
 
 // ---- подвал: сводка по базе ----
 
+// Время сборки подставляет Vite (см. define в vite.config.js).
+const build = __APP_BUILD__
+
 const stats = ref({ photos: null, addresses: null, clients: null, last_photo_at: null })
 
 async function loadStats() {
@@ -233,6 +236,15 @@ function toggleDark() {
           Последнее фото добавлено:
           <b class="footer-last">{{ lastPhoto }}</b>
           <q-tooltip>{{ lastPhotoFull }}</q-tooltip>
+        </span>
+
+        <span class="footer-dot">·</span>
+        <span class="footer-item text-grey-6">
+          сборка {{ build }}
+          <q-tooltip>
+            Время сборки интерфейса. Если оно старше последнего обновления —
+            страница в браузере старая, обновите её (Ctrl+F5).
+          </q-tooltip>
         </span>
       </div>
     </q-footer>
