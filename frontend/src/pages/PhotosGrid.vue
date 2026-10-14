@@ -31,11 +31,18 @@ const display = useDisplayStore()
 const session = useSessionStore()
 
 // Client aliases are curation work (scope collections:write): managers and
-// administrators may edit them, guests only look at the grid.
+// administrators may edit them, guests only look at the grid. The block lives
+// in its own right-hand column, which the toolbar button can hide.
 const canNormalizeClients = computed(() =>
   ['Администратор', 'Менеджер'].includes(session.user?.role),
 )
-const normalizationOpen = ref(false)
+
+const showNormalization = computed({
+  get: () => canNormalizeClients.value && display.showNormalization,
+  set: (value) => {
+    display.showNormalization = value
+  },
+})
 const { items, error, loading, addresses, clients, collections, savedSearches } =
   storeToRefs(store)
 
@@ -898,15 +905,19 @@ function tagList(meta) {
             <q-tooltip>Настройки отображения</q-tooltip>
           </q-btn>
 
-          <!-- нормализация клиентов: раньше жила в настройках QWEN -->
+          <!-- нормализация клиентов живёт в правой колонке; кнопка её скрывает -->
           <q-btn
             v-if="canNormalizeClients"
             dense
             flat
-            icon="sync_alt"
-            @click="normalizationOpen = true"
+            :icon="showNormalization ? 'view_sidebar' : 'sync_alt'"
+            :color="showNormalization ? 'primary' : 'grey-8'"
+            @click="showNormalization = !showNormalization"
           >
-            <q-tooltip>Нормализация клиентов</q-tooltip>
+            <q-tooltip>
+              {{ showNormalization ? 'Скрыть' : 'Показать' }} колонку
+              нормализации клиентов
+            </q-tooltip>
           </q-btn>
 
           <!-- сохранённые поиски переехали из левой панели в это меню -->
@@ -1139,6 +1150,26 @@ function tagList(meta) {
             Ничего не найдено.
           </div>
         </div>
+      </div>
+
+      <!-- RIGHT: client normalisation in its own column (managers/admins) -->
+      <div
+        v-if="showNormalization"
+        class="col-auto right-panel"
+        style="width: 340px; min-width: 300px"
+      >
+        <q-card flat bordered class="q-mb-sm">
+          <q-card-section class="q-pb-xs row items-center">
+            <div class="text-subtitle2 col">Нормализация клиентов</div>
+            <q-btn dense flat icon="close" @click="showNormalization = false">
+              <q-tooltip>Скрыть колонку</q-tooltip>
+            </q-btn>
+          </q-card-section>
+          <q-separator />
+          <q-card-section>
+            <ClientNormalization />
+          </q-card-section>
+        </q-card>
       </div>
     </div>
 
@@ -1375,18 +1406,6 @@ function tagList(meta) {
       </q-card>
     </q-dialog>
 
-    <!-- Client normalisation (moved out of the QWEN settings) -->
-    <q-dialog v-model="normalizationOpen">
-      <q-card style="min-width: 520px; max-width: 92vw">
-        <q-card-section>
-          <ClientNormalization />
-        </q-card-section>
-        <q-card-actions align="right">
-          <q-btn flat label="Закрыть" v-close-popup />
-        </q-card-actions>
-      </q-card>
-    </q-dialog>
-
     <!-- Display settings; the same panel is duplicated in the technical section -->
     <q-dialog v-model="settingsOpen">
       <q-card style="min-width: 380px; max-width: 90vw">
@@ -1413,7 +1432,8 @@ function tagList(meta) {
   overflow: hidden;
 }
 
-.left-panel {
+.left-panel,
+.right-panel {
   height: 100%;
   overflow-y: auto;
 }

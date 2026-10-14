@@ -31,6 +31,9 @@ export const DOWNLOAD_NAME_MODES = [
 const DEFAULT_TILE_COLUMNS = 4
 const DEFAULT_LIST_FIELDS = ['filename', 'address', 'client']
 const DEFAULT_DOWNLOAD_NAME_MODE = 'filename'
+// The client-normalisation column on the photo page: shown by default for the
+// roles allowed to edit aliases, hidden for everyone else.
+const DEFAULT_SHOW_NORMALIZATION = true
 const STORAGE_KEY = 'scene.display.v1'
 
 function loadState() {
@@ -67,6 +70,12 @@ export const useDisplayStore = defineStore('display', () => {
       : DEFAULT_DOWNLOAD_NAME_MODE,
   )
 
+  const showNormalization = ref(
+    typeof saved.showNormalization === 'boolean'
+      ? saved.showNormalization
+      : DEFAULT_SHOW_NORMALIZATION,
+  )
+
   function persist() {
     try {
       window.localStorage.setItem(
@@ -75,6 +84,7 @@ export const useDisplayStore = defineStore('display', () => {
           tileColumns: tileColumns.value,
           listFields: listFields.value,
           downloadNameMode: downloadNameMode.value,
+          showNormalization: showNormalization.value,
         }),
       )
     } catch {
@@ -82,15 +92,26 @@ export const useDisplayStore = defineStore('display', () => {
     }
   }
 
-  watch([tileColumns, listFields, downloadNameMode], persist, { deep: true })
+  watch(
+    [tileColumns, listFields, downloadNameMode, showNormalization],
+    persist,
+    { deep: true },
+  )
 
   function reset() {
     tileColumns.value = DEFAULT_TILE_COLUMNS
     listFields.value = [...DEFAULT_LIST_FIELDS]
     downloadNameMode.value = DEFAULT_DOWNLOAD_NAME_MODE
+    showNormalization.value = DEFAULT_SHOW_NORMALIZATION
   }
 
-  return { tileColumns, listFields, downloadNameMode, reset }
+  return {
+    tileColumns,
+    listFields,
+    downloadNameMode,
+    showNormalization,
+    reset,
+  }
 })
 
 // Characters a file name may not contain on the common platforms.

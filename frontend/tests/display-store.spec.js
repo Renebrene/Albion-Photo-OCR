@@ -55,6 +55,7 @@ describe('display store', () => {
       tileColumns: 6,
       listFields: ['filename', 'brand'],
       downloadNameMode: 'filename',
+      showNormalization: true,
     })
 
     display.reset()
@@ -208,5 +209,38 @@ describe('grid sorting', () => {
 
   it('tolerates a missing list', () => {
     expect(sortPhotos(null, 'filename')).toEqual([])
+  })
+})
+
+
+describe('client normalisation column', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+    setActivePinia(createPinia())
+  })
+
+  it('is visible by default and persists being hidden', async () => {
+    const display = useDisplayStore()
+
+    expect(display.showNormalization).toBe(true)
+
+    display.showNormalization = false
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(
+      JSON.parse(window.localStorage.getItem(STORAGE_KEY)).showNormalization,
+    ).toBe(false)
+
+    display.reset()
+    expect(display.showNormalization).toBe(true)
+  })
+
+  it('honours a stored false', () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ showNormalization: false }),
+    )
+
+    expect(useDisplayStore().showNormalization).toBe(false)
   })
 })
