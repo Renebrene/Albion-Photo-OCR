@@ -73,8 +73,10 @@ function measureChrome() {
 
 // ---- подвал: сводка по базе ----
 
-// Время сборки подставляет Vite (см. define в vite.config.js).
-const build = __APP_BUILD__
+// Время сборки подставляет Vite (см. define в vite.config.js). typeof здесь не
+// для красоты: если подстановка не сработала (сборка другим инструментом,
+// тесты), обычное обращение обрушило бы всё приложение, а не подпись в подвале.
+const build = typeof __APP_BUILD__ === 'string' ? __APP_BUILD__ : '—'
 
 const stats = ref({ photos: null, addresses: null, clients: null, last_photo_at: null })
 
