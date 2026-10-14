@@ -89,6 +89,8 @@ onMounted(load)
     <q-card-section>
       <div class="text-subtitle2 q-mb-sm">Папка с рабочими фотографиями</div>
 
+      <!-- Подсказка вынесена из строки: внутри неё она добавляла высоту, и
+           кнопки вставали выше поля ввода. -->
       <div class="row items-center q-gutter-sm">
         <q-input
           v-model="path"
@@ -96,7 +98,7 @@ onMounted(load)
           outlined
           class="col"
           label="Путь на сервере"
-          hint="Обход рекурсивный, включая подпапки; исходники только читаются"
+          @keyup.enter="save"
         />
         <q-btn
           dense
@@ -107,6 +109,9 @@ onMounted(load)
           @click="save"
         />
         <q-btn dense flat label="Проверить" :loading="busy" @click="check" />
+      </div>
+      <div class="text-caption text-grey-7 q-mt-xs q-mb-sm">
+        Обход рекурсивный, включая подпапки; исходники только читаются
       </div>
 
       <div class="row items-center q-gutter-md q-mt-sm">

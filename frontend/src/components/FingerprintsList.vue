@@ -792,10 +792,14 @@ function day(value) {
               outlined
               class="col"
               label="Папка с фотографиями"
-              hint="Папки по умолчанию нет — берутся файлы из выбранной; исходники только читаются"
             />
             <q-btn dense color="secondary" icon="folder_open" label="Выбрать папку"
               @click="openBrowser" />
+          </div>
+          <!-- Подсказка вне строки: внутри она поднимала кнопку над полем. -->
+          <div class="text-caption text-grey-7 q-mt-xs q-mb-sm">
+            Папки по умолчанию нет — берутся файлы из выбранной; исходники
+            только читаются
           </div>
 
           <div class="row items-center q-gutter-sm">
@@ -975,7 +979,6 @@ function day(value) {
               outlined
               class="col"
               label="Папка с подпапками адресов"
-              hint="например data/input — вложенные папки станут слепками"
               @keyup.enter="loadBatchDirs(batchParent)"
             />
             <q-btn dense label="Показать подпапки" :loading="batchBusy"
@@ -988,6 +991,10 @@ function day(value) {
               label="Вверх"
               @click="loadBatchDirs(batchParentPath)"
             />
+          </div>
+          <!-- Подсказка вне строки: внутри она поднимала кнопки над полем. -->
+          <div class="text-caption text-grey-7 q-mt-xs">
+            например data/input — вложенные папки станут слепками
           </div>
 
           <div class="row items-center q-gutter-sm q-mt-sm">

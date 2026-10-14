@@ -21,6 +21,17 @@
   text-transform: uppercase;
 }
 
+/* Шапка панели — серая плашка на всю ширину карточки. */
+.panel-head {
+  background: #eef0f3;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+}
+
+body.body--dark .panel-head {
+  background: rgba(255, 255, 255, 0.07);
+  border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+
 /* Шапка таблиц была тёмной и жирной — серый читается спокойнее. */
 .q-table thead tr th {
   color: #6b7280 !important;

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Dark, Notify } from 'quasar'
 import { useRouter } from 'vue-router'
 
@@ -34,6 +34,13 @@ onMounted(async () => {
   } else {
     await afterAuth()
   }
+
+  // Подвал может обернуть содержимое при узком окне — меряем и при изменении.
+  window.addEventListener('resize', measureChrome)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', measureChrome)
 })
 
 async function afterAuth() {
@@ -42,6 +49,26 @@ async function afterAuth() {
   await display.loadFromServer()
   await loadStats()
   booted.value = true
+
+  // Шапка и подвал уже отрисованы: измеряем их и отдаём размер странице фото,
+  // чтобы низ грида упирался ровно в подвал (никаких зашитых 85 px).
+  await nextTick()
+  measureChrome()
+}
+
+// ---- шапка и подвал: их суммарная высота ----
+
+const headerRef = ref(null)
+const footerRef = ref(null)
+
+function measureChrome() {
+  const header = headerRef.value?.$el?.getBoundingClientRect().height || 50
+  const footer = footerRef.value?.$el?.getBoundingClientRect().height || 35
+
+  document.documentElement.style.setProperty(
+    '--app-chrome',
+    `${Math.round(header + footer)}px`,
+  )
 }
 
 // ---- подвал: сводка по базе ----
@@ -112,7 +139,7 @@ function toggleDark() {
 
 <template>
   <q-layout view="hHh lpR fFf">
-    <q-header elevated class="bg-primary text-white">
+    <q-header ref="headerRef" elevated class="bg-primary text-white">
       <q-toolbar>
         <q-toolbar-title>АЛЬБИОН: Фотобаза</q-toolbar-title>
 
@@ -207,7 +234,7 @@ function toggleDark() {
     </q-page-container>
 
     <!-- Подвал-статусбар на всю ширину: грид и боковые панели упираются в него. -->
-    <q-footer v-if="session.user" class="app-footer">
+    <q-footer ref="footerRef" v-if="session.user" class="app-footer">
       <div class="row items-center no-wrap full-width q-px-md">
         <q-btn
           flat

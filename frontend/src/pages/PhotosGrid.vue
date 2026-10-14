@@ -653,7 +653,7 @@ function tagList(meta) {
           class="column"
           :style="{ height: display.sideListHeight + 'px' }"
         >
-          <q-card-section class="q-pb-xs row items-center">
+          <q-card-section class="panel-head q-pb-xs row items-center">
             <div class="panel-title col">Адреса</div>
             <!-- Одна кнопка: пока ничего не выбрано — «Все», иначе «Снять». -->
             <q-btn
@@ -1158,7 +1158,7 @@ function tagList(meta) {
           class="column"
           :style="{ height: display.sideListHeight + 'px' }"
         >
-          <q-card-section class="q-pb-xs row items-center">
+          <q-card-section class="panel-head q-pb-xs row items-center">
             <div class="panel-title col">Клиенты</div>
             <!-- Одна кнопка: пока ничего не выбрано — «Все», иначе «Снять». -->
             <q-btn
@@ -1497,10 +1497,10 @@ function tagList(meta) {
 <style scoped>
 /* The page itself does not scroll: the filter column is sticky and the grid
    scrolls inside its own container, so the toolbars stay in place.
-   50px — панель в шапке, 35px — подвал-статусбар: без вычитания подвала
-   нижний ряд фото уходил бы под него. */
+   --app-chrome — суммарная высота шапки и подвала, её измеряет App.vue: низ
+   грида упирается ровно в подвал без зашитых значений. */
 .photos-page {
-  height: calc(100vh - 85px);
+  height: calc(100vh - var(--app-chrome, 85px));
   overflow: hidden;
 }
 
