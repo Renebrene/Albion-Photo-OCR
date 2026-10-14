@@ -262,11 +262,17 @@ def test_browse_rejects_a_unknown_path(tmp_path):
 
 
 def test_native_picker_is_off_by_default():
-    from app.api import routes
+    """
+    The flag is checked BEFORE the request: when the picker is enabled the
+    endpoint opens a real desktop dialog and blocks until someone closes it, so
+    a test must never call it.
+    """
 
-    response = client.post("/api/v1/fingerprints/pick-folder")
+    from app.api import routes
 
     if routes.NATIVE_PICKER:
         pytest.skip("the native picker is enabled in this environment")
+
+    response = client.post("/api/v1/fingerprints/pick-folder")
 
     assert response.status_code == 501

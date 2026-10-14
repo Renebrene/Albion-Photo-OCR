@@ -48,6 +48,7 @@ from app.api.schemas import (
     CollectionCreate,
     CollectionMembersRequest,
     DinoBatchRequest,
+    FingerprintAddressRequest,
     FingerprintBuildRequest,
     FingerprintUpdate,
     HybridRequest,
@@ -1542,6 +1543,8 @@ def browse_folders(path: str | None = Query(default=None)):
 # The OS folder dialog can only run on the machine that has a desktop session
 # (the server, when the browser is used locally). It is off by default: the
 # in-app browser works from any client.
+MAX_IMPORT_BYTES = 10 * 1024 * 1024
+
 NATIVE_PICKER = os.getenv("SCENE_NATIVE_PICKER", "0").strip().lower() in {
     "1",
     "true",
@@ -1602,3 +1605,74 @@ def pick_folder_native():
         raise HTTPException(status_code=409, detail="папка не выбрана")
 
     return {"path": str(sources.resolve_directory(chosen))}
+
+
+@fingerprints_router.put(
+    "/v1/fingerprints/registry/{fingerprint_id}/address",
+    response_model=None,
+    dependencies=[Depends(require_scope("addresses:write"))],
+)
+def set_fingerprint_address(
+    fingerprint_id: str,
+    request: FingerprintAddressRequest,
+):
+    """
+    Map a fingerprint to a legal address from the directory (or clear it).
+
+    The id comes from the directory dropdown; nothing is typed by hand, so a
+    fingerprint can only point at an address that exists.
+    """
+
+    try:
+        updated = fingerprints_mod.set_address(
+            fingerprint_id,
+            request.address_id,
+        )
+    except fingerprints_mod.FingerprintError as exc:
+        raise _fingerprint_error(exc) from exc
+
+    if updated is None:
+        raise HTTPException(status_code=404, detail="fingerprint not found")
+
+    return updated
+
+
+@addresses_router.post(
+    "/v1/addresses/import",
+    response_model=None,
+    dependencies=[Depends(require_scope("addresses:write"))],
+)
+def import_address_directory(file: UploadFile = File(...)):
+    """
+    Import legal addresses from a spreadsheet (.xlsx, .xlsm, .csv, .tsv).
+
+    The header row is optional. Existing addresses are matched by the legal name
+    and keep their id, so photos and fingerprints mapped to them stay mapped;
+    only a different simplified name is refreshed.
+    """
+
+    try:
+        content = file.file.read()
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail="файл не читается") from exc
+
+    if not content:
+        raise HTTPException(status_code=400, detail="пустой файл")
+
+    if len(content) > MAX_IMPORT_BYTES:
+        raise HTTPException(status_code=413, detail="файл слишком большой")
+
+    try:
+        items = directory_mod.parse_address_table(content, file.filename or "")
+    except directory_mod.DirectoryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if not items:
+        raise HTTPException(status_code=400, detail="в файле нет адресов")
+
+    try:
+        result = directory_mod.import_addresses(items)
+    except directory_mod.DirectoryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {"rows": len(items), **result}

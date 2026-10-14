@@ -452,3 +452,54 @@ def update_fingerprint(
                 return None
 
     return get_fingerprint(fingerprint_id)
+
+
+def set_address(fingerprint_id: str, address_id: int | None) -> dict | None:
+    """
+    Map a fingerprint to an address from the directory, or clear the mapping.
+
+    The fingerprint id is the primary key of address_fingerprints, so a
+    fingerprint belongs to exactly one address: mapping it elsewhere moves it.
+    Returns the refreshed registry row, or None when the fingerprint is unknown.
+    """
+
+    fingerprint_id = _check_id(fingerprint_id)
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM public.fingerprints WHERE fingerprint_id = %s",
+                (fingerprint_id,),
+            )
+
+            if cur.fetchone() is None:
+                return None
+
+            if address_id is None:
+                cur.execute(
+                    "DELETE FROM public.address_fingerprints "
+                    "WHERE fingerprint_id = %s",
+                    (fingerprint_id,),
+                )
+            else:
+                cur.execute(
+                    "SELECT 1 FROM public.address_directory WHERE address_id = %s",
+                    (int(address_id),),
+                )
+
+                if cur.fetchone() is None:
+                    raise FingerprintError("адрес не найден")
+
+                cur.execute(
+                    """
+                    INSERT INTO public.address_fingerprints
+                        (fingerprint_id, address_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT (fingerprint_id) DO UPDATE
+                       SET address_id = EXCLUDED.address_id,
+                           updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (fingerprint_id, int(address_id)),
+                )
+
+    return get_fingerprint(fingerprint_id)

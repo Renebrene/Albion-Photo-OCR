@@ -10,6 +10,7 @@ import {
   deleteAddress,
   fetchAddressDirectory,
   fetchUnassignedFingerprints,
+  importAddresses,
   setAddressFingerprints,
   updateAddress,
 } from '../api/client'
@@ -32,6 +33,39 @@ const mapTarget = ref(null)
 const mapSelected = ref([])
 
 const busy = computed(() => loading.value)
+
+// import from a spreadsheet
+const importInput = ref(null)
+const importing = ref(false)
+
+function pickImportFile() {
+  importInput.value?.click()
+}
+
+async function onImportFileChosen(event) {
+  const [file] = Array.from(event.target.files || [])
+  event.target.value = ''
+
+  if (!file) return
+
+  importing.value = true
+
+  try {
+    const result = await importAddresses(file)
+    Notify.create({
+      type: 'positive',
+      message:
+        `Импорт: строк ${result.rows}, добавлено ${result.created}, ` +
+        `обновлено ${result.updated}, без изменений ${result.skipped}` +
+        (result.errors?.length ? `, ошибок ${result.errors.length}` : ''),
+    })
+    await load()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    importing.value = false
+  }
+}
 
 async function load() {
   loading.value = true
@@ -179,6 +213,26 @@ async function saveMap() {
         </div>
         <div class="text-caption text-grey q-mt-sm">
           Хотя бы одно из двух названий обязательно; юридическое — уникально.
+          Существующий адрес можно загрузить файлом .xlsx/.csv — сопоставление
+          идёт по юридическому названию, id адреса сохраняется.
+        </div>
+
+        <div class="row q-mt-sm">
+          <q-btn
+            dense
+            flat
+            icon="upload_file"
+            label="Импорт из XLSX / CSV"
+            :loading="importing"
+            @click="pickImportFile"
+          />
+          <input
+            ref="importInput"
+            type="file"
+            accept=".xlsx,.xlsm,.csv,.tsv"
+            class="hidden-input"
+            @change="onImportFileChosen"
+          />
         </div>
       </q-card-section>
     </q-card>
@@ -308,3 +362,9 @@ async function saveMap() {
     </q-dialog>
   </div>
 </template>
+
+<style scoped>
+.hidden-input {
+  display: none;
+}
+</style>

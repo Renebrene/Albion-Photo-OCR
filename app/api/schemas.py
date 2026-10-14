@@ -192,6 +192,12 @@ class AddressFingerprintsRequest(BaseModel):
     fingerprints: list[str] = Field(default_factory=list, max_length=500)
 
 
+class FingerprintAddressRequest(BaseModel):
+    """Address from the directory to map a fingerprint to (None clears it)."""
+
+    address_id: int | None = None
+
+
 class FingerprintBuildRequest(BaseModel):
     """Build (or rebuild) a fingerprint from a folder of photos."""
 

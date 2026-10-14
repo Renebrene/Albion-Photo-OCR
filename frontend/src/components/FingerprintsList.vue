@@ -10,10 +10,12 @@ import { Notify } from 'quasar'
 import {
   browseFolders,
   buildFingerprint,
+  fetchAddressDirectory,
   fetchFingerprintRegistry,
   fetchFingerprintVersions,
   fetchJob,
   pickFolderNative,
+  setFingerprintAddress,
   syncFingerprints,
   updateFingerprint,
 } from '../api/client'
@@ -209,9 +211,32 @@ async function sync() {
   }
 }
 
-function openEdit(item) {
+// Адреса для выпадающего списка: берутся из справочника (вкладка «Адреса»).
+const addressOptions = ref([])
+const editAddressId = ref(null)
+
+async function loadAddressOptions() {
+  if (addressOptions.value.length) return
+
+  try {
+    const items = (await fetchAddressDirectory()).items || []
+    addressOptions.value = items
+      .filter((item) => item.active && item.legal_address)
+      .map((item) => ({
+        label: item.legal_address,
+        value: item.address_id,
+        caption: item.simple_address || '',
+      }))
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
+async function openEdit(item) {
   editTarget.value = { ...item }
+  editAddressId.value = item.address?.address_id ?? null
   editOpen.value = true
+  await loadAddressOptions()
 }
 
 async function saveEdit() {
@@ -224,6 +249,14 @@ async function saveEdit() {
       source_folder: target.source_folder,
       active: target.active,
     })
+
+    // Привязка к юридическому адресу из справочника (можно и снять).
+    const current = target.address?.address_id ?? null
+
+    if (editAddressId.value !== current) {
+      await setFingerprintAddress(target.fingerprint_id, editAddressId.value ?? null)
+    }
+
     editOpen.value = false
     Notify.create({ type: 'positive', message: 'Слепок сохранён' })
     await load()
@@ -377,6 +410,31 @@ function day(value) {
             outlined
             label="Имя слепка"
           />
+          <q-select
+            v-model="editAddressId"
+            :options="addressOptions"
+            dense
+            outlined
+            clearable
+            emit-value
+            map-options
+            option-label="label"
+            option-value="value"
+            label="Юридический адрес (из справочника)"
+            hint="Список ведётся во вкладке «Адреса»; можно очистить, чтобы снять привязку"
+          >
+            <template #option="scope">
+              <q-item v-bind="scope.itemProps">
+                <q-item-section>
+                  <q-item-label>{{ scope.opt.label }}</q-item-label>
+                  <q-item-label v-if="scope.opt.caption" caption>
+                    {{ scope.opt.caption }}
+                  </q-item-label>
+                </q-item-section>
+              </q-item>
+            </template>
+          </q-select>
+
           <q-input
             v-model="editTarget.description"
             dense

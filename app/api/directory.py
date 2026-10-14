@@ -314,3 +314,239 @@ def set_fingerprints(address_id: int, fingerprint_ids: list[str]) -> dict | None
                 )
 
     return get_address(address_id)
+
+
+# ---------------------------------------------------------------------------
+# Import from a spreadsheet (legal addresses are usually kept in XLSX)
+# ---------------------------------------------------------------------------
+
+# Column titles people actually use; matching is case- and space-insensitive.
+_LEGAL_HEADERS = {
+    "юридический адрес",
+    "юридическое название",
+    "юридический",
+    "наименование",
+    "адрес",
+    "address",
+    "legal_address",
+    "legal address",
+    "legal",
+}
+
+_SIMPLE_HEADERS = {
+    "упрощённый адрес",
+    "упрощенный адрес",
+    "упрощённое",
+    "упрощенное",
+    "краткое название",
+    "alias",
+    "simple_address",
+    "simple address",
+    "simple",
+}
+
+MAX_IMPORT_ROWS = 5000
+
+
+def _cell(value: object) -> str:
+    if value is None:
+        return ""
+
+    return " ".join(str(value).split()).strip()
+
+
+def _rows_from_bytes(content: bytes, filename: str) -> list[list[str]]:
+    """Raw rows from an .xlsx (openpyxl) or a text table (.csv/.tsv/.txt)."""
+
+    name = (filename or "").lower()
+
+    if name.endswith((".csv", ".tsv", ".txt")):
+        import csv
+        import io as _io
+
+        text = None
+
+        for encoding in ("utf-8-sig", "utf-8", "cp1251"):
+            try:
+                text = content.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+
+        if text is None:
+            raise DirectoryError("не удалось прочитать кодировку файла")
+
+        sample = text[:4096]
+        delimiter = "\t" if (name.endswith(".tsv") or sample.count("\t") > sample.count(",")) else ","
+
+        rows = []
+
+        for row in csv.reader(_io.StringIO(text), delimiter=delimiter):
+            rows.append([_cell(cell) for cell in row])
+            if len(rows) > MAX_IMPORT_ROWS:
+                break
+
+        return rows
+
+    if not name.endswith((".xlsx", ".xlsm")):
+        raise DirectoryError("поддерживаются файлы .xlsx, .xlsm, .csv, .tsv")
+
+    import io as _io
+
+    import openpyxl
+
+    try:
+        workbook = openpyxl.load_workbook(
+            _io.BytesIO(content),
+            read_only=True,
+            data_only=True,
+        )
+    except Exception as exc:  # noqa: BLE001 - reported to the caller
+        raise DirectoryError("файл не читается как XLSX") from exc
+
+    sheet = workbook.active
+    rows = []
+
+    for row in sheet.iter_rows(values_only=True):
+        rows.append([_cell(cell) for cell in row])
+
+        if len(rows) > MAX_IMPORT_ROWS:
+            break
+
+    workbook.close()
+
+    return rows
+
+
+def parse_address_table(content: bytes, filename: str = "") -> list[dict]:
+    """
+    [{legal_address, simple_address}] from a spreadsheet.
+
+    The header row is optional: when a column title is recognised, those columns
+    are used; otherwise the first column is the legal address and the second the
+    simplified one (a single column is legal-only).
+    """
+
+    rows = [row for row in _rows_from_bytes(content, filename) if any(row)]
+
+    if not rows:
+        return []
+
+    header = [cell.lower() for cell in rows[0]]
+    legal_index = simple_index = None
+
+    for index, title in enumerate(header):
+        if legal_index is None and title in _LEGAL_HEADERS:
+            legal_index = index
+        elif simple_index is None and title in _SIMPLE_HEADERS:
+            simple_index = index
+
+    has_header = legal_index is not None or simple_index is not None
+
+    if not has_header:
+        legal_index = 0
+        simple_index = 1 if len(rows[0]) > 1 else None
+    elif legal_index is None:
+        legal_index = 0 if simple_index != 0 else None
+
+    body = rows[1:] if has_header else rows
+
+    items = []
+
+    for row in body:
+        legal = row[legal_index] if legal_index is not None and legal_index < len(row) else ""
+        simple = (
+            row[simple_index]
+            if simple_index is not None and simple_index < len(row)
+            else ""
+        )
+
+        if not legal and not simple:
+            continue
+
+        items.append({"legal_address": legal, "simple_address": simple})
+
+    return items
+
+
+def import_addresses(items: list[dict]) -> dict:
+    """
+    Create or update addresses from parsed rows.
+
+    Rows are matched by the legal name (case- and whitespace-insensitive). An
+    existing address keeps its id - photos and fingerprints mapped to it are not
+    disturbed - and only its simplified name is refreshed when the file brings a
+    different one.
+    """
+
+    if not isinstance(items, list):
+        raise DirectoryError("ожидался список адресов")
+
+    if len(items) > MAX_IMPORT_ROWS:
+        raise DirectoryError("слишком много строк в файле")
+
+    created = 0
+    updated = 0
+    skipped = 0
+    errors: list[str] = []
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            for item in items:
+                try:
+                    legal = _clean_name(item.get("legal_address"), field="legal_address")
+                    simple = _clean_name(item.get("simple_address"), field="simple_address")
+                except DirectoryError as exc:
+                    errors.append(str(exc))
+                    continue
+
+                if not legal and not simple:
+                    skipped += 1
+                    continue
+
+                existing = None
+
+                if legal:
+                    cur.execute(
+                        """
+                        SELECT address_id, simple_address
+                        FROM public.address_directory
+                        WHERE lower(btrim(legal_address)) = lower(btrim(%s))
+                        """,
+                        (legal,),
+                    )
+                    existing = cur.fetchone()
+
+                if existing is None:
+                    cur.execute(
+                        """
+                        INSERT INTO public.address_directory
+                            (legal_address, simple_address)
+                        VALUES (%s, %s)
+                        """,
+                        (legal, simple),
+                    )
+                    created += 1
+                    continue
+
+                address_id, current_simple = existing
+
+                if simple and simple != (current_simple or ""):
+                    cur.execute(
+                        """
+                        UPDATE public.address_directory
+                        SET simple_address = %s, updated_at = CURRENT_TIMESTAMP
+                        WHERE address_id = %s
+                        """,
+                        (simple, address_id),
+                    )
+                    updated += 1
+                else:
+                    skipped += 1
+
+    return {
+        "created": created,
+        "updated": updated,
+        "skipped": skipped,
+        "errors": errors[:20],
+    }

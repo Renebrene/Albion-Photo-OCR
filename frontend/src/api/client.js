@@ -335,6 +335,40 @@ export function deleteAddress(addressId) {
   return deleteJson(`${BASE}/v1/addresses/directory/${addressId}`)
 }
 
+// Import legal addresses from a spreadsheet (.xlsx/.csv) into the directory.
+export async function importAddresses(file) {
+  const form = new FormData()
+  form.append('file', file)
+
+  // No Content-Type header: the browser sets the multipart boundary.
+  const response = await fetch(`${BASE}/v1/addresses/import`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: form,
+  })
+
+  if (!response.ok) {
+    let detail = `API error ${response.status}`
+    try {
+      const payload = await response.json()
+      if (payload && payload.detail) detail = payload.detail
+    } catch {
+      // ignore non-JSON error bodies
+    }
+    throw new Error(detail)
+  }
+
+  return response.json()
+}
+
+// Map a fingerprint to an address from the directory (null clears it).
+export function setFingerprintAddress(fingerprintId, addressId) {
+  return putJson(
+    `${BASE}/v1/fingerprints/registry/${encodeURIComponent(fingerprintId)}/address`,
+    { address_id: addressId },
+  )
+}
+
 export function setAddressFingerprints(addressId, fingerprints) {
   return putJson(`${BASE}/v1/addresses/directory/${addressId}/fingerprints`, {
     fingerprints,
