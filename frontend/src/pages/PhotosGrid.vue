@@ -14,7 +14,7 @@ import {
   searchByMedia,
 } from '../api/client'
 import AuthImage from '../components/AuthImage.vue'
-import ClientNormalization from '../components/ClientNormalization.vue'
+import CollectionsPanel from '../components/CollectionsPanel.vue'
 import DisplaySettings from '../components/DisplaySettings.vue'
 import {
   LIST_FIELDS,
@@ -24,25 +24,10 @@ import {
   useDisplayStore,
 } from '../stores/display'
 import { usePhotosStore } from '../stores/photos'
-import { useSessionStore } from '../stores/session'
 
 const store = usePhotosStore()
 const display = useDisplayStore()
-const session = useSessionStore()
 
-// Client aliases are curation work (scope collections:write): managers and
-// administrators may edit them, guests only look at the grid. The block lives
-// in its own right-hand column, which the toolbar button can hide.
-const canNormalizeClients = computed(() =>
-  ['Администратор', 'Менеджер'].includes(session.user?.role),
-)
-
-const showNormalization = computed({
-  get: () => canNormalizeClients.value && display.showNormalization,
-  set: (value) => {
-    display.showNormalization = value
-  },
-})
 const { items, error, loading, addresses, clients, collections, savedSearches } =
   storeToRefs(store)
 
@@ -236,23 +221,6 @@ async function selectAllClients() {
 async function clearClients() {
   store.selectedClients = []
   await apply()
-}
-
-async function pickCollection(collection) {
-  await store.selectCollection(
-    store.collectionId === collection.collection_id
-      ? null
-      : collection.collection_id,
-  )
-}
-
-async function removeCollection(collection) {
-  try {
-    await store.deleteCollectionById(collection.collection_id)
-    Notify.create({ type: 'positive', message: 'Подборка удалена' })
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  }
 }
 
 async function reset() {
@@ -605,105 +573,42 @@ function tagList(meta) {
 <template>
   <q-page class="photos-page q-pa-md">
     <div class="row no-wrap q-col-gutter-md full-height">
-      <!-- LEFT: addresses + clients (stacked) + collections (sticky, own scroll) -->
-      <div class="col-auto left-panel" style="width: 360px; min-width: 320px">
-        <div class="column q-mb-sm">
-          <q-card flat bordered class="column q-mb-xs" style="height: 260px">
-            <q-card-section class="q-pb-xs row items-center">
-              <div class="text-subtitle2 col">Адреса</div>
-              <q-btn dense flat size="sm" label="Все" @click="selectAllAddresses" />
-              <q-btn dense flat size="sm" label="Снять" @click="clearAddresses" />
-            </q-card-section>
-            <q-separator />
-            <q-scroll-area class="col">
-              <q-list dense>
-                <q-item
-                  v-for="item in addresses"
-                  :key="item.address"
-                  clickable
-                  :active="store.selectedAddresses.includes(item.address)"
-                  active-class="bg-primary text-white"
-                  @click="pickAddress(item.address)"
-                >
-                  <q-item-section>{{ item.address }}</q-item-section>
-                  <q-item-section side>{{ item.count }}</q-item-section>
-                </q-item>
-                <q-item v-if="!addresses.length">
-                  <q-item-section class="text-caption text-grey">
-                    Нет адресов
-                  </q-item-section>
-                </q-item>
-              </q-list>
-            </q-scroll-area>
-          </q-card>
-
-          <q-card flat bordered class="column" style="height: 260px">
-            <q-card-section class="q-pb-xs row items-center">
-              <div class="text-subtitle2 col">Клиенты</div>
-              <q-btn dense flat size="sm" label="Все" @click="selectAllClients" />
-              <q-btn dense flat size="sm" label="Снять" @click="clearClients" />
-            </q-card-section>
-            <q-separator />
-            <q-scroll-area class="col">
-              <q-list dense>
-                <q-item
-                  v-for="item in clients"
-                  :key="item.client"
-                  clickable
-                  :active="store.selectedClients.includes(item.client)"
-                  active-class="bg-secondary text-white"
-                  @click="pickClient(item.client)"
-                >
-                  <q-item-section>{{ item.client }}</q-item-section>
-                  <q-item-section side>{{ item.count }}</q-item-section>
-                </q-item>
-                <q-item v-if="!clients.length">
-                  <q-item-section class="text-caption text-grey">
-                    Нет клиентов
-                  </q-item-section>
-                </q-item>
-              </q-list>
-            </q-scroll-area>
-          </q-card>
-        </div>
-
-        <q-card flat bordered class="column" style="height: 240px">
+      <!-- LEFT: адреса + подборки; складывается кнопкой у края -->
+      <div
+        v-if="display.leftPanelOpen"
+        class="col-auto left-panel"
+        style="width: 340px; min-width: 300px"
+      >
+        <q-card flat bordered class="column q-mb-sm" style="height: 300px">
           <q-card-section class="q-pb-xs row items-center">
-            <div class="text-subtitle2 col">Подборки</div>
-            <q-btn dense flat icon="add" size="sm" @click="openBucketDialog" />
+            <div class="text-subtitle2 col">Адреса</div>
+            <q-btn dense flat size="sm" label="Все" @click="selectAllAddresses" />
+            <q-btn dense flat size="sm" label="Снять" @click="clearAddresses" />
           </q-card-section>
           <q-separator />
           <q-scroll-area class="col">
             <q-list dense>
               <q-item
-                v-for="collection in collections"
-                :key="collection.collection_id"
+                v-for="item in addresses"
+                :key="item.address"
                 clickable
-                :active="store.collectionId === collection.collection_id"
-                active-class="bg-secondary text-white"
-                @click="pickCollection(collection)"
+                :active="store.selectedAddresses.includes(item.address)"
+                active-class="bg-primary text-white"
+                @click="pickAddress(item.address)"
               >
-                <q-item-section avatar>
-                  <q-icon name="bookmark" size="18px" />
-                </q-item-section>
-                <q-item-section>
-                  <div class="ellipsis">{{ collection.name }}</div>
-                  <div class="text-caption text-grey-7">{{ collection.kind }}</div>
-                </q-item-section>
-                <q-item-section side>{{ collection.members }}</q-item-section>
-                <q-item-section side>
-                  <q-btn
-                    dense
-                    flat
-                    size="sm"
-                    icon="delete"
-                    @click.stop="removeCollection(collection)"
-                  />
+                <q-item-section>{{ item.address }}</q-item-section>
+                <q-item-section side>{{ item.count }}</q-item-section>
+              </q-item>
+              <q-item v-if="!addresses.length">
+                <q-item-section class="text-caption text-grey">
+                  Нет адресов
                 </q-item-section>
               </q-item>
             </q-list>
           </q-scroll-area>
         </q-card>
+
+        <CollectionsPanel @create="openBucketDialog" />
       </div>
 
       <!-- RIGHT: toolbar + grid with its own vertical scroll -->
@@ -903,21 +808,6 @@ function tagList(meta) {
 
           <q-btn dense flat icon="settings" @click="settingsOpen = true">
             <q-tooltip>Настройки отображения</q-tooltip>
-          </q-btn>
-
-          <!-- нормализация клиентов живёт в правой колонке; кнопка её скрывает -->
-          <q-btn
-            v-if="canNormalizeClients"
-            dense
-            flat
-            :icon="showNormalization ? 'view_sidebar' : 'sync_alt'"
-            :color="showNormalization ? 'primary' : 'grey-8'"
-            @click="showNormalization = !showNormalization"
-          >
-            <q-tooltip>
-              {{ showNormalization ? 'Скрыть' : 'Показать' }} колонку
-              нормализации клиентов
-            </q-tooltip>
           </q-btn>
 
           <!-- сохранённые поиски переехали из левой панели в это меню -->
@@ -1152,26 +1042,73 @@ function tagList(meta) {
         </div>
       </div>
 
-      <!-- RIGHT: client normalisation in its own column (managers/admins) -->
+      <!-- RIGHT: клиенты + подборки; складывается кнопкой у края -->
       <div
-        v-if="showNormalization"
+        v-if="display.rightPanelOpen"
         class="col-auto right-panel"
         style="width: 340px; min-width: 300px"
       >
-        <q-card flat bordered class="q-mb-sm">
+        <q-card flat bordered class="column q-mb-sm" style="height: 300px">
           <q-card-section class="q-pb-xs row items-center">
-            <div class="text-subtitle2 col">Нормализация клиентов</div>
-            <q-btn dense flat icon="close" @click="showNormalization = false">
-              <q-tooltip>Скрыть колонку</q-tooltip>
-            </q-btn>
+            <div class="text-subtitle2 col">Клиенты</div>
+            <q-btn dense flat size="sm" label="Все" @click="selectAllClients" />
+            <q-btn dense flat size="sm" label="Снять" @click="clearClients" />
           </q-card-section>
           <q-separator />
-          <q-card-section>
-            <ClientNormalization />
-          </q-card-section>
+          <q-scroll-area class="col">
+            <q-list dense>
+              <q-item
+                v-for="item in clients"
+                :key="item.client"
+                clickable
+                :active="store.selectedClients.includes(item.client)"
+                active-class="bg-secondary text-white"
+                @click="pickClient(item.client)"
+              >
+                <q-item-section>{{ item.client }}</q-item-section>
+                <q-item-section side>{{ item.count }}</q-item-section>
+              </q-item>
+              <q-item v-if="!clients.length">
+                <q-item-section class="text-caption text-grey">
+                  Нет клиентов
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-scroll-area>
         </q-card>
+
+        <CollectionsPanel @create="openBucketDialog" />
       </div>
     </div>
+
+    <!-- плавающие кнопки у краёв: складывают панели в край -->
+    <q-btn
+      class="edge-toggle edge-toggle--left"
+      round
+      dense
+      size="sm"
+      :icon="display.leftPanelOpen ? 'chevron_left' : 'chevron_right'"
+      :color="display.leftPanelOpen ? 'grey-7' : 'primary'"
+      @click="display.leftPanelOpen = !display.leftPanelOpen"
+    >
+      <q-tooltip>
+        {{ display.leftPanelOpen ? 'Скрыть' : 'Показать' }} адреса и подборки
+      </q-tooltip>
+    </q-btn>
+
+    <q-btn
+      class="edge-toggle edge-toggle--right"
+      round
+      dense
+      size="sm"
+      :icon="display.rightPanelOpen ? 'chevron_right' : 'chevron_left'"
+      :color="display.rightPanelOpen ? 'grey-7' : 'primary'"
+      @click="display.rightPanelOpen = !display.rightPanelOpen"
+    >
+      <q-tooltip>
+        {{ display.rightPanelOpen ? 'Скрыть' : 'Показать' }} клиентов и подборки
+      </q-tooltip>
+    </q-btn>
 
     <q-page-sticky position="bottom-right" :offset="[18, 18]">
       <q-btn fab-mini color="primary" icon="arrow_upward" @click="scrollToTop">
@@ -1436,6 +1373,23 @@ function tagList(meta) {
 .right-panel {
   height: 100%;
   overflow-y: auto;
+}
+
+/* Кнопки у краёв: панель складывается, кнопка остаётся на виду. */
+.edge-toggle {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  opacity: 0.9;
+}
+
+.edge-toggle--left {
+  left: 4px;
+}
+
+.edge-toggle--right {
+  right: 4px;
 }
 
 .grid-scroll {

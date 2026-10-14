@@ -31,9 +31,10 @@ export const DOWNLOAD_NAME_MODES = [
 const DEFAULT_TILE_COLUMNS = 4
 const DEFAULT_LIST_FIELDS = ['filename', 'address', 'client']
 const DEFAULT_DOWNLOAD_NAME_MODE = 'filename'
-// The client-normalisation column on the photo page: shown by default for the
-// roles allowed to edit aliases, hidden for everyone else.
-const DEFAULT_SHOW_NORMALIZATION = true
+// The side panels of the photo page (addresses/collections on the left,
+// clients/collections on the right). Each can be collapsed to the edge; the
+// floating edge button brings it back.
+const DEFAULT_SIDE_PANELS_OPEN = true
 const STORAGE_KEY = 'scene.display.v1'
 
 function loadState() {
@@ -70,10 +71,16 @@ export const useDisplayStore = defineStore('display', () => {
       : DEFAULT_DOWNLOAD_NAME_MODE,
   )
 
-  const showNormalization = ref(
-    typeof saved.showNormalization === 'boolean'
-      ? saved.showNormalization
-      : DEFAULT_SHOW_NORMALIZATION,
+  const leftPanelOpen = ref(
+    typeof saved.leftPanelOpen === 'boolean'
+      ? saved.leftPanelOpen
+      : DEFAULT_SIDE_PANELS_OPEN,
+  )
+
+  const rightPanelOpen = ref(
+    typeof saved.rightPanelOpen === 'boolean'
+      ? saved.rightPanelOpen
+      : DEFAULT_SIDE_PANELS_OPEN,
   )
 
   function persist() {
@@ -84,7 +91,8 @@ export const useDisplayStore = defineStore('display', () => {
           tileColumns: tileColumns.value,
           listFields: listFields.value,
           downloadNameMode: downloadNameMode.value,
-          showNormalization: showNormalization.value,
+          leftPanelOpen: leftPanelOpen.value,
+          rightPanelOpen: rightPanelOpen.value,
         }),
       )
     } catch {
@@ -93,7 +101,13 @@ export const useDisplayStore = defineStore('display', () => {
   }
 
   watch(
-    [tileColumns, listFields, downloadNameMode, showNormalization],
+    [
+      tileColumns,
+      listFields,
+      downloadNameMode,
+      leftPanelOpen,
+      rightPanelOpen,
+    ],
     persist,
     { deep: true },
   )
@@ -102,14 +116,16 @@ export const useDisplayStore = defineStore('display', () => {
     tileColumns.value = DEFAULT_TILE_COLUMNS
     listFields.value = [...DEFAULT_LIST_FIELDS]
     downloadNameMode.value = DEFAULT_DOWNLOAD_NAME_MODE
-    showNormalization.value = DEFAULT_SHOW_NORMALIZATION
+    leftPanelOpen.value = DEFAULT_SIDE_PANELS_OPEN
+    rightPanelOpen.value = DEFAULT_SIDE_PANELS_OPEN
   }
 
   return {
     tileColumns,
     listFields,
     downloadNameMode,
-    showNormalization,
+    leftPanelOpen,
+    rightPanelOpen,
     reset,
   }
 })

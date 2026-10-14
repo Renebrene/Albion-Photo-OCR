@@ -12,6 +12,7 @@ import DataModule from '../components/DataModule.vue'
 import Automation from '../components/Automation.vue'
 import DisplaySettings from '../components/DisplaySettings.vue'
 import AddressDirectory from '../components/AddressDirectory.vue'
+import ClientNormalization from '../components/ClientNormalization.vue'
 import IngestFolder from '../components/IngestFolder.vue'
 
 // Mirrors the legacy NiceGUI "технический раздел" (components/technical.py)
@@ -22,6 +23,12 @@ const session = useSessionStore()
 
 // The user directory is administrator-only.
 const isAdmin = computed(() => session.user?.role === 'Администратор')
+
+// Editing client aliases needs the collections:write scope, which Администратор
+// and Менеджер have; Гость would only get 403s, so the block is hidden for it.
+const canEditClients = computed(() =>
+  ['Администратор', 'Менеджер'].includes(session.user?.role),
+)
 </script>
 
 <template>
@@ -76,18 +83,33 @@ const isAdmin = computed(() => session.user?.role === 'Администрато�
       </q-tab-panel>
 
       <q-tab-panel name="display">
-        <q-card flat bordered style="max-width: 640px">
-          <q-card-section>
-            <div class="text-subtitle2 q-mb-sm">
-              Настройки отображения грида
-            </div>
-            <DisplaySettings />
-            <div class="text-caption text-grey q-mt-sm">
-              То же окно открывается шестерёнкой рядом с переключателем
-              «Плитка/Список» на странице фото.
-            </div>
-          </q-card-section>
-        </q-card>
+        <div class="row q-col-gutter-md">
+          <div class="col-12 col-md-6">
+            <q-card flat bordered>
+              <q-card-section>
+                <div class="text-subtitle2 q-mb-sm">
+                  Настройки отображения грида
+                </div>
+                <DisplaySettings />
+                <div class="text-caption text-grey q-mt-sm">
+                  То же окно открывается шестерёнкой рядом с переключателем
+                  «Плитка/Список» на странице фото.
+                </div>
+              </q-card-section>
+            </q-card>
+          </div>
+
+          <div v-if="canEditClients" class="col-12 col-md-6">
+            <q-card flat bordered>
+              <q-card-section>
+                <ClientNormalization />
+                <div class="text-caption text-grey q-mt-sm">
+                  Раньше этот блок стоял на странице фото в правой колонке.
+                </div>
+              </q-card-section>
+            </q-card>
+          </div>
+        </div>
       </q-tab-panel>
 
       <q-tab-panel v-if="isAdmin" name="users">

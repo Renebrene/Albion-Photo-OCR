@@ -55,7 +55,8 @@ describe('display store', () => {
       tileColumns: 6,
       listFields: ['filename', 'brand'],
       downloadNameMode: 'filename',
-      showNormalization: true,
+      leftPanelOpen: true,
+      rightPanelOpen: true,
     })
 
     display.reset()
@@ -213,34 +214,39 @@ describe('grid sorting', () => {
 })
 
 
-describe('client normalisation column', () => {
+describe('side panels of the photo page', () => {
   beforeEach(() => {
     window.localStorage.clear()
     setActivePinia(createPinia())
   })
 
-  it('is visible by default and persists being hidden', async () => {
+  it('are open by default and remember being collapsed', async () => {
     const display = useDisplayStore()
 
-    expect(display.showNormalization).toBe(true)
+    expect(display.leftPanelOpen).toBe(true)
+    expect(display.rightPanelOpen).toBe(true)
 
-    display.showNormalization = false
+    display.leftPanelOpen = false
+    display.rightPanelOpen = false
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    expect(
-      JSON.parse(window.localStorage.getItem(STORAGE_KEY)).showNormalization,
-    ).toBe(false)
+    const stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY))
+    expect(stored.leftPanelOpen).toBe(false)
+    expect(stored.rightPanelOpen).toBe(false)
 
     display.reset()
-    expect(display.showNormalization).toBe(true)
+    expect(display.leftPanelOpen).toBe(true)
+    expect(display.rightPanelOpen).toBe(true)
   })
 
-  it('honours a stored false', () => {
+  it('honour stored false values', () => {
     window.localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ showNormalization: false }),
+      JSON.stringify({ leftPanelOpen: false, rightPanelOpen: true }),
     )
 
-    expect(useDisplayStore().showNormalization).toBe(false)
+    const display = useDisplayStore()
+    expect(display.leftPanelOpen).toBe(false)
+    expect(display.rightPanelOpen).toBe(true)
   })
 })
