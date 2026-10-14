@@ -8,6 +8,7 @@ import { Notify, Quasar } from 'quasar'
 import { createPinia, setActivePinia } from 'pinia'
 
 import FingerprintsList from '../src/components/FingerprintsList.vue'
+import { setToken } from '../src/api/client'
 import { useSessionStore } from '../src/stores/session'
 
 Notify.create = vi.fn()
@@ -16,6 +17,7 @@ let registry
 let versions
 let syncCalls
 let updates
+let imageCalls
 
 function jsonResponse(body, status = 200) {
   return { ok: status < 400, status, json: async () => body }
@@ -25,6 +27,29 @@ function installFetch() {
   global.fetch = vi.fn(async (url, options = {}) => {
     const method = (options.method || 'GET').toUpperCase()
     const path = String(url).split('?')[0]
+
+    // The preview goes through the authenticated image loader, not an <img>.
+    if (method === 'GET' && path.endsWith('/preview')) {
+      imageCalls.push({
+        url: String(url),
+        auth: (options.headers || {}).Authorization || '',
+      })
+      return {
+        ok: true,
+        status: 200,
+        blob: async () => new Blob([new Uint8Array([0xff, 0xd8, 0xff])]),
+      }
+    }
+
+    if (method === 'GET' && path.endsWith('/v1/fingerprints/browse')) {
+      // The root of the picker: a folder that has no photos directly in it.
+      return jsonResponse({
+        path: null,
+        parent: null,
+        photos: 0,
+        dirs: [{ name: '/home/alexice', path: '/home/alexice', photos: 0 }],
+      })
+    }
 
     if (method === 'GET' && path.endsWith('/v1/fingerprints/registry')) {
       return jsonResponse({ items: registry })
@@ -60,6 +85,7 @@ function mountWindow() {
 beforeEach(() => {
   syncCalls = []
   updates = []
+  imageCalls = []
   versions = [
     {
       version_id: 1,
@@ -109,10 +135,13 @@ beforeEach(() => {
   setActivePinia(createPinia())
   // The maintenance buttons are administrator-only.
   useSessionStore().user = { user_id: 1, name: 'Администратор', role: 'Администратор' }
+  // Images are fetched with the bearer token, so a session must exist.
+  setToken('test-token')
   installFetch()
 })
 
 afterEach(() => {
+  setToken(null)
   delete global.fetch
 })
 
@@ -148,7 +177,7 @@ describe('FingerprintsList.vue', () => {
     expect(wrapper.html()).toContain('photo_library')
   })
 
-  it('shows the saved preview in the edit dialog', async () => {
+  it('asks for the saved preview through the authenticated loader', async () => {
     const wrapper = mountWindow()
     await flushPromises()
 
@@ -158,14 +187,13 @@ describe('FingerprintsList.vue', () => {
       .trigger('click')
     await flushPromises()
 
-    const image = [...document.body.querySelectorAll('img')].find((node) =>
-      (node.getAttribute('src') || '').includes('/preview'),
-    )
+    const call = imageCalls.find((item) => item.url.includes('/preview'))
 
-    expect(image).toBeTruthy()
-    expect(image.getAttribute('src')).toBe(
-      '/api/v1/fingerprints/registry/78_v33/preview',
-    )
+    expect(call).toBeTruthy()
+    expect(call.url).toContain('/v1/fingerprints/registry/78_v33/preview')
+    // A plain <img> cannot carry the token, which is why this goes through
+    // AuthImage - the request must be authorised.
+    expect(call.auth).toContain('Bearer')
   })
 
   it('shows a dash when a fingerprint has no address yet', async () => {
@@ -191,6 +219,29 @@ describe('FingerprintsList.vue', () => {
 
     expect(syncCalls).toHaveLength(1)
     expect(Notify.create).toHaveBeenCalled()
+  })
+
+  it('lists folders without photos in the batch picker so it can be walked', async () => {
+    const wrapper = mountWindow()
+    await flushPromises()
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('Батч-сборка'))
+      .trigger('click')
+    await flushPromises()
+
+    // The dialog renders in a portal, so its buttons live in document.body.
+    const show = [...document.body.querySelectorAll('button')].find((button) =>
+      button.textContent.includes('Показать подпапки'),
+    )
+    show.click()
+    await flushPromises()
+
+    const dialog = document.body.textContent
+
+    expect(dialog).toContain('/home/alexice')
+    expect(dialog).toContain('0 фото')
   })
 
   it('opens the version journal of a fingerprint', async () => {

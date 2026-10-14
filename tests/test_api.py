@@ -204,11 +204,18 @@ def test_search_matches_filename_substring():
 def test_multiple_addresses_filter_or_semantics():
     """Several `address` params combine with OR (multi-select panels)."""
 
-    addresses = client.get("/api/v1/addresses").json()["items"]
-    if len(addresses) < 2:
-        pytest.skip("fewer than two addresses in the corpus")
+    # The panel lists every fingerprint, including ones the corpus has no
+    # recognised photo for; this test needs two that actually have photos.
+    with_photos = [
+        item
+        for item in client.get("/api/v1/addresses").json()["items"]
+        if item["count"] > 0
+    ]
 
-    first, second = addresses[0]["address"], addresses[1]["address"]
+    if len(with_photos) < 2:
+        pytest.skip("fewer than two addresses with photos in the corpus")
+
+    first, second = with_photos[0]["address"], with_photos[1]["address"]
     body = client.get(
         f"/api/v1/photos?address={first}&address={second}&limit=100"
     ).json()

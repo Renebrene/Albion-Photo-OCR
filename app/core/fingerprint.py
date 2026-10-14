@@ -24,7 +24,8 @@ from .scene_analyzer import CompactDescriptor
 PREVIEW_NAME = "preview.jpg"
 PREVIEW_COLUMNS = 4
 PREVIEW_ROWS = 3
-PREVIEW_CELL = (240, 180)
+PREVIEW_CELL = (160, 120)
+PREVIEW_QUALITY = 72
 
 
 def sample_paths(paths, count):
@@ -82,6 +83,7 @@ def build_preview(
     columns=PREVIEW_COLUMNS,
     rows=PREVIEW_ROWS,
     cell=PREVIEW_CELL,
+    quality=PREVIEW_QUALITY,
 ):
     """
     Compose a montage of up to columns*rows source photos into *output*.
@@ -126,7 +128,7 @@ def build_preview(
             ((index % columns) * cell[0], (index // columns) * cell[1]),
         )
 
-    canvas.save(output, format="JPEG", quality=82, optimize=True)
+    canvas.save(output, format="JPEG", quality=quality, optimize=True)
 
     return output
 

@@ -290,8 +290,12 @@ export function fetchFingerprintVersions(fingerprintId) {
 
 // Montage of the source photos, saved with the fingerprint at build time.
 // Older fingerprints have none until they are rebuilt (the request 404s).
-export function fingerprintPreviewUrl(fingerprintId) {
-  return `${BASE}/v1/fingerprints/registry/${encodeURIComponent(fingerprintId)}/preview`
+// `version` busts the image cache: a rebuild keeps the id, so without it the
+// browser would keep showing the montage of the previous build.
+export function fingerprintPreviewUrl(fingerprintId, version = '') {
+  const url = `${BASE}/v1/fingerprints/registry/${encodeURIComponent(fingerprintId)}/preview`
+
+  return version ? `${url}?v=${encodeURIComponent(version)}` : url
 }
 
 export function fetchAutomation() {

@@ -10,6 +10,10 @@ const props = defineProps({
   ratio: { type: [Number, String], default: undefined },
 })
 
+// The parent can react to a missing picture (e.g. a fingerprint built before
+// previews existed) instead of just showing the broken-image placeholder.
+const emit = defineEmits(['error', 'loaded'])
+
 const src = ref('')
 const failed = ref(false)
 
@@ -21,8 +25,10 @@ async function load(url) {
 
   try {
     src.value = await authImageUrl(url)
+    emit('loaded', url)
   } catch {
     failed.value = true
+    emit('error', url)
   }
 }
 

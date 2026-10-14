@@ -7,6 +7,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { Notify } from 'quasar'
 
+import AuthImage from './AuthImage.vue'
 import {
   browseFolders,
   buildFingerprint,
@@ -49,6 +50,8 @@ async function load() {
   loading.value = true
   try {
     items.value = (await fetchFingerprintRegistry()).items || []
+    // A rebuilt fingerprint gets a new montage: forget the old failures.
+    previewFailed.clear()
     error.value = null
   } catch (err) {
     error.value = err.message
@@ -218,6 +221,7 @@ async function cancelBuild() {
 const batchOpen = ref(false)
 const batchBusy = ref(false)
 const batchParent = ref('')
+const batchParentPath = ref('') // родитель текущего списка, для кнопки «вверх»
 const batchDirs = ref([])
 const batchSelected = ref([])
 const batchMaxPhotos = ref(30)
@@ -225,6 +229,7 @@ const batchState = ref(null) // агрегат от /v1/fingerprints/batch/{id}
 
 function openBatch() {
   batchParent.value = ''
+  batchParentPath.value = ''
   batchDirs.value = []
   batchSelected.value = []
   batchState.value = null
@@ -237,13 +242,23 @@ async function loadBatchDirs(path) {
   try {
     const result = await browseFolders(path || null)
     batchParent.value = result.path || ''
-    batchDirs.value = (result.dirs || []).filter((dir) => dir.photos > 0)
+    batchParentPath.value = result.parent || ''
+    // Every sub-folder is listed: folders without photos in them must stay
+    // visible, otherwise there is no way down to data/input/78.
+    batchDirs.value = result.dirs || []
     batchSelected.value = []
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   } finally {
     batchBusy.value = false
   }
+}
+
+// Folders with photos are the ones worth ticking; the rest are the path.
+function selectDirsWithPhotos() {
+  batchSelected.value = batchDirs.value
+    .filter((dir) => dir.photos > 0)
+    .map((dir) => dir.path)
 }
 
 async function pickBatchParent() {
@@ -462,12 +477,18 @@ function addressLabel(item) {
   return address.legal_address || address.simple_address || '—'
 }
 
-// Previews are written by the builder; a fingerprint built before that has
-// none and the request 404s, so the failure is remembered per fingerprint.
+// Previews are written by the builder; a fingerprint built before that has none
+// and the request fails, so it is remembered per fingerprint. The set is
+// cleared on every reload, so a rebuild picks the new picture up.
 const previewFailed = reactive(new Set())
 
-function previewSrc(fingerprintId) {
-  return fingerprintPreviewUrl(fingerprintId)
+function previewSrc(row) {
+  if (!row) return ''
+
+  const version =
+    (row.current_version && row.current_version.created_at) || row.updated_at || ''
+
+  return fingerprintPreviewUrl(row.fingerprint_id, version)
 }
 
 function markPreviewFailed(fingerprintId) {
@@ -540,11 +561,11 @@ function day(value) {
           <q-btn dense flat icon="photo_library" size="sm">
             <q-tooltip :delay="200" max-width="600px" class="bg-white text-dark shadow-4">
               <div class="text-caption q-mb-xs">Фото, из которых собран слепок</div>
-              <img
+              <AuthImage
                 v-if="!previewFailed.has(props.row.fingerprint_id)"
-                :src="previewSrc(props.row.fingerprint_id)"
-                style="width: 560px; display: block; border-radius: 4px"
-                alt="превью слепка"
+                :url="previewSrc(props.row)"
+                :ratio="16 / 9"
+                style="width: 560px; border-radius: 4px"
                 @error="markPreviewFailed(props.row.fingerprint_id)"
               />
               <div v-else class="text-caption text-grey-7">
@@ -661,11 +682,11 @@ function day(value) {
             <div class="text-caption text-grey-7 q-mb-xs">
               Фото, из которых собран слепок (сохранены вместе со слепком)
             </div>
-            <img
+            <AuthImage
               v-if="editTarget && !previewFailed.has(editTarget.fingerprint_id)"
-              :src="previewSrc(editTarget.fingerprint_id)"
-              style="width: 100%; border-radius: 4px"
-              alt="превью слепка"
+              :url="previewSrc(editTarget)"
+              :ratio="16 / 9"
+              style="border-radius: 4px"
               @error="markPreviewFailed(editTarget.fingerprint_id)"
             />
             <div v-else class="text-caption text-grey-7">
@@ -959,6 +980,14 @@ function day(value) {
             />
             <q-btn dense label="Показать подпапки" :loading="batchBusy"
               @click="loadBatchDirs(batchParent)" />
+            <q-btn
+              v-if="batchParentPath"
+              dense
+              flat
+              icon="arrow_upward"
+              label="Вверх"
+              @click="loadBatchDirs(batchParentPath)"
+            />
           </div>
 
           <div class="row items-center q-gutter-sm q-mt-sm">
@@ -978,7 +1007,7 @@ function day(value) {
               отмечено: {{ batchSelected.length }} из {{ batchDirs.length }}
             </q-badge>
             <q-space />
-            <q-btn dense flat label="Отметить все" @click="batchSelected = batchDirs.map((d) => d.path)" />
+            <q-btn dense flat label="Отметить все с фото" @click="selectDirsWithPhotos" />
             <q-btn dense flat label="Снять" @click="batchSelected = []" />
           </div>
 
@@ -1002,12 +1031,25 @@ function day(value) {
                 <q-item-label caption>{{ dir.path }}</q-item-label>
               </q-item-section>
               <q-item-section side>
-                <span class="text-caption text-grey">{{ dir.photos }} фото</span>
+                <div class="row items-center q-gutter-xs">
+                  <q-badge :color="dir.photos ? 'primary' : 'grey-5'">
+                    {{ dir.photos }} фото
+                  </q-badge>
+                  <q-btn
+                    dense
+                    flat
+                    icon="subdirectory_arrow_right"
+                    @click.stop="loadBatchDirs(dir.path)"
+                  >
+                    <q-tooltip>Войти в папку</q-tooltip>
+                  </q-btn>
+                </div>
               </q-item-section>
             </q-item>
             <q-item v-if="!batchDirs.length">
               <q-item-section class="text-caption text-grey">
-                Выберите папку и нажмите «Показать подпапки»
+                Пусто. Укажите папку с подпапками адресов (например data/input)
+                и нажмите «Показать подпапки», либо откройте системный диалог.
               </q-item-section>
             </q-item>
           </q-list>
