@@ -479,12 +479,28 @@ def update_fingerprint(
     return get_fingerprint(fingerprint_id)
 
 
+def address_label(simple_address: object, legal_address: object) -> str:
+    """The short name of a directory row: the alias, else the legal name."""
+
+    for value in (simple_address, legal_address):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    return ""
+
+
 def set_address(fingerprint_id: str, address_id: int | None) -> dict | None:
     """
     Map a fingerprint to an address from the directory, or clear the mapping.
 
     The fingerprint id is the primary key of address_fingerprints, so a
     fingerprint belongs to exactly one address: mapping it elsewhere moves it.
+
+    The name follows the address: picking one writes its alias into
+    display_name straight away, so the name is stored and not only resolved at
+    read time. A name typed by hand is left alone, and the mapping only clears
+    the name it wrote itself (the alias of the address being removed).
+
     Returns the refreshed registry row, or None when the fingerprint is unknown.
     """
 
@@ -493,12 +509,33 @@ def set_address(fingerprint_id: str, address_id: int | None) -> dict | None:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT 1 FROM public.fingerprints WHERE fingerprint_id = %s",
+                "SELECT display_name FROM public.fingerprints "
+                "WHERE fingerprint_id = %s",
                 (fingerprint_id,),
             )
+            row = cur.fetchone()
 
-            if cur.fetchone() is None:
+            if row is None:
                 return None
+
+            stored_name = (row[0] or "").strip()
+
+            # The alias of the address the fingerprint sits on now: that is the
+            # name we wrote last time, so replacing it loses nothing.
+            cur.execute(
+                """
+                SELECT d.simple_address, d.legal_address
+                FROM public.address_fingerprints AS af
+                JOIN public.address_directory AS d
+                  ON d.address_id = af.address_id
+                WHERE af.fingerprint_id = %s
+                """,
+                (fingerprint_id,),
+            )
+            previous = cur.fetchone()
+            previous_label = (
+                address_label(previous[0], previous[1]) if previous else ""
+            )
 
             if address_id is None:
                 cur.execute(
@@ -506,14 +543,19 @@ def set_address(fingerprint_id: str, address_id: int | None) -> dict | None:
                     "WHERE fingerprint_id = %s",
                     (fingerprint_id,),
                 )
+                new_label = ""
             else:
                 cur.execute(
-                    "SELECT 1 FROM public.address_directory WHERE address_id = %s",
+                    "SELECT simple_address, legal_address "
+                    "FROM public.address_directory WHERE address_id = %s",
                     (int(address_id),),
                 )
+                target = cur.fetchone()
 
-                if cur.fetchone() is None:
+                if target is None:
                     raise FingerprintError("адрес не найден")
+
+                new_label = address_label(target[0], target[1])
 
                 cur.execute(
                     """
@@ -525,6 +567,15 @@ def set_address(fingerprint_id: str, address_id: int | None) -> dict | None:
                            updated_at = CURRENT_TIMESTAMP
                     """,
                     (fingerprint_id, int(address_id)),
+                )
+
+            # Only a name we put there ourselves (or no name at all) is replaced.
+            if stored_name in ("", previous_label) and stored_name != new_label:
+                cur.execute(
+                    "UPDATE public.fingerprints "
+                    "SET display_name = %s, updated_at = CURRENT_TIMESTAMP "
+                    "WHERE fingerprint_id = %s",
+                    (new_label, fingerprint_id),
                 )
 
     return get_fingerprint(fingerprint_id)

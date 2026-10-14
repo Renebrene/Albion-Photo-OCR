@@ -233,10 +233,12 @@ def test_registry_rows_carry_disk_and_version_state():
 
 
 @requires_registry
-def test_name_comes_from_the_address_alias(restore_fingerprint):
+def test_mapping_an_address_names_the_fingerprint(restore_fingerprint):
     """
-    A fingerprint is shown by the alias of the address it is mapped to; a name
-    typed by hand wins, and without an address the technical id stays.
+    Choosing a legal address writes its alias into the fingerprint's name right
+    away, so the name is stored and not only resolved when the row is read. A
+    name typed by hand survives a later mapping, and removing the address
+    removes only the name the mapping itself wrote.
 
     The temporary address (and its mapping) is removed afterwards.
     """
@@ -253,8 +255,9 @@ def test_name_comes_from_the_address_alias(restore_fingerprint):
     fingerprint_id = target["fingerprint_id"]
     restore_fingerprint.append(fingerprint_id)
 
-    # Not mapped to an address: nothing to resolve the name from.
+    # No address yet: the name is the technical id.
     assert target["name"] == fingerprint_id
+    assert target["display_name"] == ""
 
     address = directory_mod.create_address(
         legal_address="Тестовая ул. 1, A",
@@ -262,26 +265,77 @@ def test_name_comes_from_the_address_alias(restore_fingerprint):
     )
 
     try:
-        fp.set_address(fingerprint_id, address["address_id"])
+        mapped = fp.set_address(fingerprint_id, address["address_id"])
 
-        named = fp.get_fingerprint(fingerprint_id)
+        assert mapped["display_name"] == "Тестовая 1"
+        assert mapped["name"] == "Тестовая 1"
 
-        assert named["name"] == "Тестовая 1"
-        # The alias is a fallback: the stored human field stays empty.
-        assert named["display_name"] == ""
+        # A name typed by hand is not replaced by re-mapping the same address.
+        fp.update_fingerprint(fingerprint_id, display_name="Своё имя")
+        again = fp.set_address(fingerprint_id, address["address_id"])
 
-        # A name typed by hand wins over the alias.
-        renamed = fp.update_fingerprint(fingerprint_id, display_name="Своё имя")
-        assert renamed["name"] == "Своё имя"
+        assert again["display_name"] == "Своё имя"
+        assert again["name"] == "Своё имя"
 
-        # No alias at all: the legal name is the next fallback.
+        # An address without an alias falls back to its legal name.
         directory_mod.update_address(address["address_id"], simple_address="")
-        assert fp.get_fingerprint(fingerprint_id)["name"] == "Своё имя"
-
         fp.update_fingerprint(fingerprint_id, display_name="")
-        assert (
-            fp.get_fingerprint(fingerprint_id)["name"] == "Тестовая ул. 1, A"
+
+        assert fp.get_fingerprint(fingerprint_id)["name"] == "Тестовая ул. 1, A"
+
+        # Unmapping clears the name the mapping wrote, leaving the id.
+        directory_mod.update_address(
+            address["address_id"], simple_address="Тестовая 1"
         )
+        fp.set_address(fingerprint_id, address["address_id"])
+        cleared = fp.set_address(fingerprint_id, None)
+
+        assert cleared["display_name"] == ""
+        assert cleared["name"] == fingerprint_id
+    finally:
+        fp.set_address(fingerprint_id, None)
+        directory_mod.delete_address(address["address_id"])
+
+
+@requires_registry
+def test_renaming_an_alias_renames_the_fingerprint(restore_fingerprint):
+    """
+    The name a fingerprint copied from its address follows the directory: the
+    alias is the single place to rename, a hand-typed name is never touched.
+    """
+
+    from app.api import directory as directory_mod
+
+    items = fp.list_registry()
+
+    target = next((item for item in items if item["address"] is None), None)
+
+    if target is None:
+        pytest.skip("every fingerprint already has an address")
+
+    fingerprint_id = target["fingerprint_id"]
+    restore_fingerprint.append(fingerprint_id)
+
+    address = directory_mod.create_address(
+        legal_address="Тестовая ул. 3, A",
+        simple_address="Тестовая 3",
+    )
+
+    try:
+        fp.set_address(fingerprint_id, address["address_id"])
+        assert fp.get_fingerprint(fingerprint_id)["display_name"] == "Тестовая 3"
+
+        directory_mod.update_address(
+            address["address_id"], simple_address="Тестовая 3А"
+        )
+        assert fp.get_fingerprint(fingerprint_id)["display_name"] == "Тестовая 3А"
+
+        # A hand-typed name is not dragged along.
+        fp.update_fingerprint(fingerprint_id, display_name="Своё имя")
+        directory_mod.update_address(
+            address["address_id"], simple_address="Тестовая 3Б"
+        )
+        assert fp.get_fingerprint(fingerprint_id)["display_name"] == "Своё имя"
     finally:
         fp.set_address(fingerprint_id, None)
         directory_mod.delete_address(address["address_id"])
