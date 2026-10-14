@@ -105,10 +105,11 @@ def test_preview_is_a_montage_of_the_sources(tmp_path):
     assert metadata["preview"] == "preview.jpg"
 
     with Image.open(preview) as image:
-        assert image.size == (640, 360)
+        # Four photos in one row.
+        assert image.size == (640, 120)
         assert image.format == "JPEG"
         # Small enough to be served on every hover.
-        assert preview.stat().st_size < 120 * 1024
+        assert preview.stat().st_size < 60 * 1024
 
 
 def test_preview_is_skipped_when_no_photo_can_be_read(tmp_path):

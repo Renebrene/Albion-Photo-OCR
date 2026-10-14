@@ -17,13 +17,14 @@ from app.ingest.integrity import read_taken_at
 from .image import image_files
 from .scene_analyzer import CompactDescriptor
 
-# A small composite of the source photos, published next to the vectors: the
-# originals are not kept, so this is the only picture of what a fingerprint was
-# built from once its source folder is gone. Additive - nothing reads the
-# vectors differently, and a fingerprint without it stays valid.
+# A small strip of source photos, published next to the vectors: the originals
+# are not kept, so this is the only picture of what a fingerprint was built from
+# once its source folder is gone. Four photos in one row is enough to recognise
+# an address and keeps the file tiny. Additive - nothing reads the vectors
+# differently, and a fingerprint without it stays valid.
 PREVIEW_NAME = "preview.jpg"
 PREVIEW_COLUMNS = 4
-PREVIEW_ROWS = 3
+PREVIEW_ROWS = 1
 PREVIEW_CELL = (160, 120)
 PREVIEW_QUALITY = 72
 

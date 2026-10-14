@@ -564,7 +564,7 @@ function day(value) {
               <AuthImage
                 v-if="!previewFailed.has(props.row.fingerprint_id)"
                 :url="previewSrc(props.row)"
-                :ratio="16 / 9"
+                :ratio="16 / 3"
                 style="width: 560px; border-radius: 4px"
                 @error="markPreviewFailed(props.row.fingerprint_id)"
               />
@@ -685,7 +685,7 @@ function day(value) {
             <AuthImage
               v-if="editTarget && !previewFailed.has(editTarget.fingerprint_id)"
               :url="previewSrc(editTarget)"
-              :ratio="16 / 9"
+              :ratio="16 / 3"
               style="border-radius: 4px"
               @error="markPreviewFailed(editTarget.fingerprint_id)"
             />
