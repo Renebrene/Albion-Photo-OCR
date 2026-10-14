@@ -105,6 +105,11 @@ export function fetchSystem() {
   return getJson(`${BASE}/v1/system`)
 }
 
+// Counts for the status bar: photos, addresses, clients, last upload.
+export function fetchStats() {
+  return getJson(`${BASE}/v1/stats`)
+}
+
 export function fetchFingerprints() {
   return getJson(`${BASE}/v1/fingerprints`)
 }
