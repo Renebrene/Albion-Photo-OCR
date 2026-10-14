@@ -233,6 +233,28 @@ export function cancelJob(jobId) {
   return postJson(`${BASE}/v1/jobs/${jobId}/cancel`, {})
 }
 
+// Fingerprint registry (schema/023): names, versions, archiving.
+export function fetchFingerprintRegistry() {
+  return getJson(`${BASE}/v1/fingerprints/registry`)
+}
+
+export function syncFingerprints() {
+  return postJson(`${BASE}/v1/fingerprints/sync`, {})
+}
+
+export function updateFingerprint(fingerprintId, payload) {
+  return putJson(
+    `${BASE}/v1/fingerprints/registry/${encodeURIComponent(fingerprintId)}`,
+    payload,
+  )
+}
+
+export function fetchFingerprintVersions(fingerprintId) {
+  return getJson(
+    `${BASE}/v1/fingerprints/registry/${encodeURIComponent(fingerprintId)}/versions`,
+  )
+}
+
 export function fetchAutomation() {
   return getJson(`${BASE}/v1/automation`)
 }

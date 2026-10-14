@@ -1,0 +1,417 @@
+"""
+Fingerprint registry (schema/023): names, descriptions, versions, archiving.
+
+The vectors stay where they are - data/fingerprints/<id>/, with metadata.json
+as the source of truth for what a fingerprint contains (photo count, saved file
+names, algorithm version). This module mirrors that into PostgreSQL so the UI
+can name a fingerprint, describe it, archive it and keep a version journal
+without the API re-reading the disk for every row.
+
+Nothing here writes vectors or changes recognition: sync_from_disk() only reads
+metadata.json, and the registry tables can be rebuilt from the disk at any
+time. The human fields (display_name, description, source_folder, active) live
+only in the database.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+from app.api.config import FINGERPRINTS_ROOT
+from app.ingest.database import get_connection
+
+FINGERPRINT_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+MAX_NAME_LENGTH = 200
+MAX_DESCRIPTION_LENGTH = 2000
+MAX_SOURCE_FOLDER_LENGTH = 1000
+
+
+class FingerprintError(ValueError):
+    """A request the registry refuses (bad id, unknown row, bad value)."""
+
+
+def _check_id(fingerprint_id: object) -> str:
+    if not isinstance(fingerprint_id, str) or not FINGERPRINT_ID_RE.match(
+        fingerprint_id
+    ):
+        raise FingerprintError("fingerprint id has an unexpected format")
+
+    return fingerprint_id
+
+
+def _text(value: object, *, field: str, limit: int) -> str:
+    if value is None:
+        return ""
+
+    if not isinstance(value, str):
+        raise FingerprintError(f"{field} must be a string")
+
+    text = " ".join(value.split())
+
+    if len(text) > limit:
+        raise FingerprintError(f"{field} is too long")
+
+    return text
+
+
+# ---------------------------------------------------------------------------
+# disk -> registry
+# ---------------------------------------------------------------------------
+
+
+def _read_metadata(directory: Path) -> dict | None:
+    metadata_file = directory / "metadata.json"
+
+    if not metadata_file.is_file():
+        return None
+
+    try:
+        metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+    if not isinstance(metadata, dict):
+        return None
+
+    names = metadata.get("image_names")
+    names = [str(name) for name in names] if isinstance(names, list) else []
+
+    return {
+        "fingerprint_id": directory.name,
+        "algorithm_version": metadata.get("version"),
+        "model": metadata.get("model"),
+        "dimension": metadata.get("dimension"),
+        "images_count": int(metadata.get("images") or len(names) or 0),
+        "image_names": names,
+    }
+
+
+def disk_inventory() -> list[dict]:
+    """Every fingerprint directory on disk that has a readable metadata.json."""
+
+    root = Path(FINGERPRINTS_ROOT)
+
+    if not root.is_dir():
+        return []
+
+    items: list[dict] = []
+
+    for directory in sorted(root.iterdir()):
+        if not directory.is_dir() or directory.name.startswith("."):
+            continue
+
+        metadata = _read_metadata(directory)
+
+        if metadata is not None:
+            items.append(metadata)
+
+    return items
+
+
+def sync_from_disk() -> dict:
+    """
+    Insert/refresh registry rows and append a version when a fingerprint was
+    rebuilt with a different set of photos.
+
+    Idempotent: running it twice in a row inserts nothing the second time. A
+    version row is added only when the photo count or the saved file names
+    differ from the current version, so a plain re-scan does not spam history.
+    """
+
+    inventory = disk_inventory()
+    added_versions: list[str] = []
+    created: list[str] = []
+    updated: list[str] = []
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            for item in inventory:
+                fingerprint_id = item["fingerprint_id"]
+
+                cur.execute(
+                    "SELECT 1 FROM public.fingerprints WHERE fingerprint_id = %s",
+                    (fingerprint_id,),
+                )
+                exists = cur.fetchone() is not None
+
+                if exists:
+                    cur.execute(
+                        """
+                        UPDATE public.fingerprints
+                        SET algorithm_version = COALESCE(%s, algorithm_version),
+                            model = COALESCE(%s, model),
+                            dimension = COALESCE(%s, dimension),
+                            images_count = %s,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE fingerprint_id = %s
+                        """,
+                        (
+                            item["algorithm_version"],
+                            item["model"],
+                            item["dimension"],
+                            item["images_count"],
+                            fingerprint_id,
+                        ),
+                    )
+                    updated.append(fingerprint_id)
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO public.fingerprints
+                            (fingerprint_id, algorithm_version, model,
+                             dimension, images_count)
+                        VALUES (%s, %s, %s, %s, %s)
+                        """,
+                        (
+                            fingerprint_id,
+                            item["algorithm_version"],
+                            item["model"],
+                            item["dimension"],
+                            item["images_count"],
+                        ),
+                    )
+                    created.append(fingerprint_id)
+
+                cur.execute(
+                    """
+                    SELECT images_count, image_names
+                    FROM public.fingerprint_versions
+                    WHERE fingerprint_id = %s AND is_current
+                    """,
+                    (fingerprint_id,),
+                )
+                current = cur.fetchone()
+
+                if current is not None:
+                    same_count = int(current[0]) == item["images_count"]
+                    stored_names = current[1] or []
+                    same_names = list(stored_names) == item["image_names"]
+
+                    if same_count and same_names:
+                        continue
+
+                    cur.execute(
+                        """
+                        UPDATE public.fingerprint_versions
+                        SET is_current = FALSE
+                        WHERE fingerprint_id = %s AND is_current
+                        """,
+                        (fingerprint_id,),
+                    )
+
+                cur.execute(
+                    """
+                    INSERT INTO public.fingerprint_versions
+                        (fingerprint_id, algorithm_version, images_count,
+                         image_names, is_current)
+                    VALUES (%s, %s, %s, %s, TRUE)
+                    """,
+                    (
+                        fingerprint_id,
+                        item["algorithm_version"],
+                        item["images_count"],
+                        json.dumps(item["image_names"]),
+                    ),
+                )
+                added_versions.append(fingerprint_id)
+
+    return {
+        "on_disk": len(inventory),
+        "created": created,
+        "updated": updated,
+        "versions_added": added_versions,
+    }
+
+
+# ---------------------------------------------------------------------------
+# registry reads
+# ---------------------------------------------------------------------------
+
+
+def _row_to_fingerprint(row) -> dict:
+    return {
+        "fingerprint_id": row[0],
+        "display_name": row[1],
+        "description": row[2],
+        "algorithm_version": row[3],
+        "model": row[4],
+        "dimension": row[5],
+        "images_count": int(row[6]),
+        "source_folder": row[7],
+        "active": bool(row[8]),
+        "created_at": row[9],
+        "updated_at": row[10],
+        "address": {
+            "address_id": row[11],
+            "legal_address": row[12],
+            "simple_address": row[13],
+        }
+        if row[11] is not None
+        else None,
+        "current_version": {
+            "images_count": int(row[14]) if row[14] is not None else None,
+            "created_at": row[15],
+        }
+        if row[14] is not None
+        else None,
+    }
+
+
+_REGISTRY_SELECT = """
+    SELECT
+        f.fingerprint_id, f.display_name, f.description, f.algorithm_version,
+        f.model, f.dimension, f.images_count, f.source_folder, f.active,
+        f.created_at, f.updated_at,
+        d.address_id, d.legal_address, d.simple_address,
+        v.images_count, v.created_at
+    FROM public.fingerprints AS f
+    LEFT JOIN public.address_fingerprints AS af
+           ON af.fingerprint_id = f.fingerprint_id AND af.active
+    LEFT JOIN public.address_directory AS d
+           ON d.address_id = af.address_id AND d.active
+    LEFT JOIN public.fingerprint_versions AS v
+           ON v.fingerprint_id = f.fingerprint_id AND v.is_current
+"""
+
+
+def list_registry() -> list[dict]:
+    """Registry rows with their address and current version."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(_REGISTRY_SELECT + " ORDER BY f.fingerprint_id")
+            rows = cur.fetchall()
+
+    on_disk = {item["fingerprint_id"] for item in disk_inventory()}
+
+    items = []
+
+    for row in rows:
+        item = _row_to_fingerprint(row)
+        item["on_disk"] = item["fingerprint_id"] in on_disk
+        items.append(item)
+
+    return items
+
+
+def get_fingerprint(fingerprint_id: str) -> dict | None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                _REGISTRY_SELECT + " WHERE f.fingerprint_id = %s",
+                (_check_id(fingerprint_id),),
+            )
+            row = cur.fetchone()
+
+    return _row_to_fingerprint(row) if row is not None else None
+
+
+def list_versions(fingerprint_id: str) -> list[dict] | None:
+    """Version journal, newest first; None when the fingerprint is unknown."""
+
+    fingerprint_id = _check_id(fingerprint_id)
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM public.fingerprints WHERE fingerprint_id = %s",
+                (fingerprint_id,),
+            )
+
+            if cur.fetchone() is None:
+                return None
+
+            cur.execute(
+                """
+                SELECT version_id, algorithm_version, images_count,
+                       image_names, source_folder, is_current, created_at,
+                       recreated_at
+                FROM public.fingerprint_versions
+                WHERE fingerprint_id = %s
+                ORDER BY created_at DESC, version_id DESC
+                """,
+                (fingerprint_id,),
+            )
+            rows = cur.fetchall()
+
+    return [
+        {
+            "version_id": int(row[0]),
+            "algorithm_version": row[1],
+            "images_count": int(row[2]),
+            "image_names": list(row[3] or []),
+            "source_folder": row[4],
+            "is_current": bool(row[5]),
+            "created_at": row[6],
+            "recreated_at": row[7],
+        }
+        for row in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
+# registry writes (human fields only)
+# ---------------------------------------------------------------------------
+
+
+def update_fingerprint(
+    fingerprint_id: str,
+    *,
+    display_name: object = None,
+    description: object = None,
+    active: object = None,
+    source_folder: object = None,
+) -> dict | None:
+    """Update the supplied human fields; None fields keep their value."""
+
+    fingerprint_id = _check_id(fingerprint_id)
+
+    assignments: list[str] = []
+    params: list[object] = []
+
+    if display_name is not None:
+        assignments.append("display_name = %s")
+        params.append(_text(display_name, field="display_name", limit=MAX_NAME_LENGTH))
+
+    if description is not None:
+        assignments.append("description = %s")
+        params.append(
+            _text(description, field="description", limit=MAX_DESCRIPTION_LENGTH)
+        )
+
+    if source_folder is not None:
+        assignments.append("source_folder = %s")
+        params.append(
+            _text(
+                source_folder,
+                field="source_folder",
+                limit=MAX_SOURCE_FOLDER_LENGTH,
+            )
+        )
+
+    if active is not None:
+        assignments.append("active = %s")
+        params.append(bool(active))
+
+    if not assignments:
+        return get_fingerprint(fingerprint_id)
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+    params.append(fingerprint_id)
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE public.fingerprints SET "
+                + ", ".join(assignments)
+                + " WHERE fingerprint_id = %s",
+                params,
+            )
+
+            if cur.rowcount != 1:
+                return None
+
+    return get_fingerprint(fingerprint_id)

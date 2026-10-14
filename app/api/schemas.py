@@ -192,6 +192,15 @@ class AddressFingerprintsRequest(BaseModel):
     fingerprints: list[str] = Field(default_factory=list, max_length=500)
 
 
+class FingerprintUpdate(BaseModel):
+    """Human fields of a fingerprint (schema/023); omitted keeps the value."""
+
+    display_name: str | None = Field(default=None, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+    source_folder: str | None = Field(default=None, max_length=1000)
+    active: bool | None = None
+
+
 class SelectionState(BaseModel):
     """Free-form per-manager GRID state blob."""
 

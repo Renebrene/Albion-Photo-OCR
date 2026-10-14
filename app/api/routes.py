@@ -25,6 +25,7 @@ from fastapi import (
 
 from app import settings_store
 from app.api import directory as directory_mod
+from app.api import fingerprints as fingerprints_mod
 from app.api import repository
 from app.api import data as data_mod
 from app.api import media_search
@@ -43,6 +44,7 @@ from app.api.schemas import (
     CollectionCreate,
     CollectionMembersRequest,
     DinoBatchRequest,
+    FingerprintUpdate,
     HybridRequest,
     LoginRequest,
     NlSearchRequest,
@@ -73,6 +75,7 @@ jobs_router = APIRouter()
 collections_router = APIRouter()
 searches_router = APIRouter()
 addresses_router = APIRouter()
+fingerprints_router = APIRouter()
 uploads_router = APIRouter()
 auth_router = APIRouter()
 users_router = APIRouter()
@@ -1287,3 +1290,103 @@ def set_address_fingerprints(
         raise HTTPException(status_code=404, detail="address not found")
 
     return updated
+
+
+# ---------------------------------------------------------------------------
+# Fingerprint registry (schema/023): names, versions, archiving
+# ---------------------------------------------------------------------------
+
+
+def _fingerprint_error(exc: fingerprints_mod.FingerprintError) -> HTTPException:
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+@fingerprints_router.get(
+    "/v1/fingerprints/registry",
+    response_model=None,
+    dependencies=[Depends(require_scope("read"))],
+)
+def list_fingerprint_registry():
+    """Registry rows for every known fingerprint, with address and version."""
+
+    return {"items": fingerprints_mod.list_registry()}
+
+
+@fingerprints_router.post(
+    "/v1/fingerprints/sync",
+    response_model=None,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def sync_fingerprint_registry():
+    """
+    Mirror data/fingerprints/*/metadata.json into the registry.
+
+    Idempotent: a second run in a row changes nothing. A new version row is
+    written only when a fingerprint was rebuilt with a different photo set.
+    """
+
+    return fingerprints_mod.sync_from_disk()
+
+
+@fingerprints_router.get(
+    "/v1/fingerprints/registry/{fingerprint_id}",
+    response_model=None,
+    dependencies=[Depends(require_scope("read"))],
+)
+def get_fingerprint_registry(fingerprint_id: str):
+    try:
+        item = fingerprints_mod.get_fingerprint(fingerprint_id)
+    except fingerprints_mod.FingerprintError as exc:
+        raise _fingerprint_error(exc) from exc
+
+    if item is None:
+        raise HTTPException(status_code=404, detail="fingerprint not found")
+
+    return item
+
+
+@fingerprints_router.put(
+    "/v1/fingerprints/registry/{fingerprint_id}",
+    response_model=None,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def update_fingerprint_registry(
+    fingerprint_id: str,
+    request: FingerprintUpdate,
+):
+    """Rename, describe, archive or point at a source folder."""
+
+    try:
+        updated = fingerprints_mod.update_fingerprint(
+            fingerprint_id,
+            display_name=request.display_name,
+            description=request.description,
+            source_folder=request.source_folder,
+            active=request.active,
+        )
+    except fingerprints_mod.FingerprintError as exc:
+        raise _fingerprint_error(exc) from exc
+
+    if updated is None:
+        raise HTTPException(status_code=404, detail="fingerprint not found")
+
+    return updated
+
+
+@fingerprints_router.get(
+    "/v1/fingerprints/registry/{fingerprint_id}/versions",
+    response_model=None,
+    dependencies=[Depends(require_scope("read"))],
+)
+def list_fingerprint_versions(fingerprint_id: str):
+    """Version journal of one fingerprint, newest first."""
+
+    try:
+        versions = fingerprints_mod.list_versions(fingerprint_id)
+    except fingerprints_mod.FingerprintError as exc:
+        raise _fingerprint_error(exc) from exc
+
+    if versions is None:
+        raise HTTPException(status_code=404, detail="fingerprint not found")
+
+    return {"items": versions}

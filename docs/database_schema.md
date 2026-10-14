@@ -44,6 +44,7 @@ PostgreSQL — источник истины для переходов межд�
 020_job_media_search.sql → ALTER job_queue: + job_type MEDIA_SEARCH
 021_job_cancel.sql → ALTER job_queue: + статус CANCELLED
 022_address_directory.sql → address_directory, address_fingerprints
+023_fingerprints.sql → fingerprints, fingerprint_versions
 ```
 
 **`004` теперь backfill-safe и идемпотентен (2026-10-12):** создаёт `dino_batches` при отсутствии, добавляет `dino_runs.batch_id` (nullable) при отсутствии, бэкфиллит существующие runs без batch (по одному legacy-batch на run, со статусом и счётчиками из run), затем ставит `NOT NULL` и создаёт индекс. Повторный прогон — no-op. Ранее файл делал `ADD COLUMN` и сразу `SET NOT NULL`, что падало на непустой `dino_runs`.
@@ -336,6 +337,17 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 - **Связь с выдачей.** Распознанный идентификатор не хранится в `photos` — он вычисляется (`hybrid_final_id`, иначе `dino_best_id`). Поэтому `app/api/repository.py` разрешает его в имена во внешнем запросе: базовый SELECT считает `address`, а внешний слой делает `LEFT JOIN address_fingerprints` по этому значению и `LEFT JOIN address_directory`. Фото без сопоставления читается с `NULL` в обоих полях; ничего не переписывается.
 - **API**: `GET /v1/addresses/directory` (scope `read`) — список адресов с их идентификаторами; `GET /v1/addresses/unassigned` — идентификаторы из `data/fingerprints/`, которым ещё не сопоставлен адрес; `POST/PUT/DELETE /v1/addresses/directory[/{id}]` и `PUT /v1/addresses/directory/{id}/fingerprints` (scope `addresses:write`). Модуль — `app/api/directory.py`; запросы параметризованы, идентификатор сверяется с `^[A-Za-z0-9._-]{1,64}$`, `sort_order` ограничен.
 - **Откат**: `DROP TABLE address_fingerprints; DROP TABLE address_directory;`
+
+### 4.22 `fingerprints` / `fingerprint_versions` — реестр слепков
+
+`schema/023_fingerprints.sql` (идемпотентно; аддитивно, векторы не трогаются).
+
+- `fingerprints`: `fingerprint_id` TEXT PK (технический id, `78_v33`), `display_name`, `description`, `algorithm_version` (из `metadata.json.version`), `model`, `dimension`, `images_count`, `source_folder` (папка эталонных фото, заполняется вручную), `active` (архив), метки времени. CHECK `images_count >= 0`.
+- `fingerprint_versions`: журнал пересборок — `version_id` SERIAL PK, `fingerprint_id` → `fingerprints` (`ON DELETE CASCADE`), `algorithm_version`, `images_count`, `image_names` JSONB (имена использованных файлов), `source_folder`, `is_current`, `created_at`, `recreated_at`. Частичный UNIQUE-индекс `uq_fingerprint_versions_current` гарантирует **ровно одну текущую версию** на слепок.
+- **Источник истины — диск.** `app/api/fingerprints.py` читает `data/fingerprints/<id>/metadata.json` (`sync_from_disk()`), заводит строку реестра и добавляет версию **только когда изменилось число фото или список имён** — повторная синхронизация ничего не пишет. Реестр можно пересобрать с диска в любой момент; человеческие поля (имя, описание, папка, архив) живут только в базе.
+- **API**: `GET /v1/fingerprints/registry` (scope `read`) — список с адресом (из `address_fingerprints`) и текущей версией; `GET /v1/fingerprints/registry/{id}` и `.../versions` (scope `read`); `POST /v1/fingerprints/sync` и `PUT /v1/fingerprints/registry/{id}` (scope `jobs:write`, то есть Администратор).
+- **UI**: вкладка «Слепки» в техразделе — синхронизация с диском, переименование/описание/папка-источник, архивация тумблером, журнал версий с именами файлов.
+- **Откат**: `DROP TABLE fingerprint_versions; DROP TABLE fingerprints;` (теряется только человеческая обвязка).
 
 ## 5. Локальная SQLite-очередь (не PostgreSQL)
 
