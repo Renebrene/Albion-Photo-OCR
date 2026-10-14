@@ -623,6 +623,34 @@ def remove_collection_members(
             return cur.rowcount
 
 
+def photo_sources(photo_ids: list[str]) -> dict[str, dict]:
+    """
+    {photo_id: {source_path, filename}} for the registered ids.
+
+    One query for a whole selection: the ZIP download needs many rows at once.
+    Unknown ids are simply absent from the result.
+    """
+
+    ids = [item for item in photo_ids if item]
+
+    if not ids:
+        return {}
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT photo_id, source_path, filename "
+                "FROM public.photos WHERE photo_id = ANY(%s)",
+                (ids,),
+            )
+            rows = cur.fetchall()
+
+    return {
+        row[0]: {"source_path": row[1], "filename": row[2]}
+        for row in rows
+    }
+
+
 def get_photo_source(photo_id: str) -> dict | None:
     """
     Return the registered source path/metadata for one photo.

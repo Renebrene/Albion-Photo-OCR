@@ -75,6 +75,39 @@ export async function downloadAuthenticated(url, filename) {
   URL.revokeObjectURL(objectUrl)
 }
 
+// ZIP of the selected photos: the server assembles it, the browser saves the
+// blob (a plain link could not carry the token).
+export async function downloadArchive(items, filename = 'photobase.zip') {
+  const response = await fetch(`${BASE}/v1/photos/archive`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ items }),
+  })
+
+  if (!response.ok) {
+    let detail = `ошибка ${response.status}`
+
+    try {
+      const body = await response.json()
+
+      if (body && body.detail) detail = body.detail
+    } catch {
+      // No body: the status code is all we have.
+    }
+
+    throw new Error(detail)
+  }
+
+  const objectUrl = URL.createObjectURL(await response.blob())
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
 async function getJson(url) {
   const response = await fetch(url, { headers: authHeaders() })
 

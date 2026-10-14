@@ -237,6 +237,19 @@ class SelectionState(BaseModel):
     state: dict = Field(default_factory=dict)
 
 
+class ArchiveItem(BaseModel):
+    """One file of a ZIP download: which photo, under which name."""
+
+    photo_id: str = Field(pattern=r"^PH_[0-9a-f]{24}$")
+    # The window sends the same name it would use for a single download; it is
+    # sanitised again on the server before it becomes an archive entry.
+    name: str | None = Field(default=None, max_length=300)
+
+
+class ArchiveRequest(BaseModel):
+    items: list[ArchiveItem] = Field(default_factory=list, max_length=500)
+
+
 class SourcePathRequest(BaseModel):
     """A server-side folder chosen in the UI (validated by the API)."""
 

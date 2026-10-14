@@ -26,11 +26,13 @@ from fastapi import (
     Response,
     UploadFile,
 )
+from fastapi.responses import StreamingResponse
 
 from app import settings_store
 from app.api import directory as directory_mod
 from app.api import fingerprints as fingerprints_mod
 from app.api import repository
+from app.api import archive as archive_mod
 from app.api import data as data_mod
 from app.api import media_search
 from app.api import sources
@@ -44,6 +46,7 @@ from app.api.schemas import (
     AddressCreate,
     AddressFingerprintsRequest,
     AddressUpdate,
+    ArchiveRequest,
     AutomationUpdate,
     ClientAliasRequest,
     CollectionCreate,
@@ -249,6 +252,32 @@ def get_preview(photo_id: str, size: str) -> Response:
     )
 
 
+def _allowed_original_path(source_path: str) -> Path | None:
+    """
+    Resolve a registered source path and require it inside the allowed roots.
+
+    Returns None when the file is gone or lies outside SCENE_ORIGINALS_ROOTS
+    (fail-closed: with no roots configured nothing is served). Shared by the
+    single-file download and the ZIP archive so the rule cannot drift.
+    """
+
+    try:
+        resolved = Path(source_path).resolve(strict=True)
+    except OSError:
+        return None
+
+    for root in ORIGINALS_ROOTS:
+        try:
+            root_resolved = root.resolve(strict=True)
+        except OSError:
+            continue
+
+        if resolved == root_resolved or root_resolved in resolved.parents:
+            return resolved if resolved.is_file() else None
+
+    return None
+
+
 @originals_router.get(
     "/v1/photos/{photo_id}/original",
     dependencies=[Depends(require_scope("originals"))],
@@ -257,8 +286,6 @@ def get_original(photo_id: str) -> Response:
     photo_id = _validate_photo_id(photo_id)
 
     # Path comes from the database registration, never from the client.
-    # It must resolve inside a configured allowed root (fail-closed when none
-    # is configured), which also blocks symlinks pointing outside the volume.
     if not ORIGINALS_ROOTS:
         raise HTTPException(
             status_code=503,
@@ -270,34 +297,100 @@ def get_original(photo_id: str) -> Response:
     if source is None:
         raise HTTPException(status_code=404, detail="photo not found")
 
-    try:
-        resolved = Path(source["source_path"]).resolve(strict=True)
-    except OSError:
-        raise HTTPException(status_code=404, detail="original not found")
+    resolved = _allowed_original_path(source["source_path"])
 
-    allowed = False
-
-    for root in ORIGINALS_ROOTS:
-        try:
-            root_resolved = root.resolve(strict=True)
-        except OSError:
-            continue
-
-        if resolved == root_resolved or root_resolved in resolved.parents:
-            allowed = True
-            break
-
-    if not allowed:
+    if resolved is None:
         # 404 (not 403) so we do not confirm a file exists outside the volume.
-        raise HTTPException(status_code=404, detail="original not found")
-
-    if not resolved.is_file():
         raise HTTPException(status_code=404, detail="original not found")
 
     return Response(
         content=resolved.read_bytes(),
         media_type="image/jpeg",
         headers={"Cache-Control": "private, max-age=300"},
+    )
+
+
+@originals_router.post(
+    "/v1/photos/archive",
+    dependencies=[Depends(require_scope("originals"))],
+)
+def download_archive(request: ArchiveRequest):
+    """
+    ZIP of the selected photos, assembled on the server.
+
+    The window sends, for each photo, the name it would use when downloading it
+    alone (original name or "<address>__<name>"); names are sanitised here so an
+    entry can never escape the extraction folder. Files themselves are read from
+    the registered source paths inside the allowed roots, as for a single
+    download - nothing comes from the request but the ids and the labels.
+    """
+
+    if not request.items:
+        raise HTTPException(status_code=400, detail="выбор пуст")
+
+    if len(request.items) > archive_mod.MAX_ITEMS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"в одном архиве не больше {archive_mod.MAX_ITEMS} файлов",
+        )
+
+    if not ORIGINALS_ROOTS:
+        raise HTTPException(
+            status_code=503,
+            detail="originals are not configured (SCENE_ORIGINALS_ROOTS)",
+        )
+
+    wanted: list[str] = []
+
+    for item in request.items:
+        try:
+            wanted.append(_validate_photo_id(item.photo_id))
+        except HTTPException:
+            # A malformed id never comes from the window; skip it instead of
+            # failing the whole archive.
+            continue
+
+    if not wanted:
+        raise HTTPException(status_code=404, detail="подходящих файлов не найдено")
+
+    sources = repository.photo_sources(wanted)
+
+    entries: list[tuple[Path, str]] = []
+
+    for item in request.items:
+        source = sources.get(item.photo_id)
+
+        if source is None:
+            continue
+
+        path = _allowed_original_path(source["source_path"])
+
+        if path is None:
+            continue
+
+        name = archive_mod.safe_archive_name(
+            item.name,
+            source.get("filename") or f"{item.photo_id}.jpg",
+        )
+
+        entries.append((path, name))
+
+    if not entries:
+        raise HTTPException(status_code=404, detail="подходящих файлов не найдено")
+
+    try:
+        buffer, _total = archive_mod.build_archive(entries)
+    except archive_mod.ArchiveError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": 'attachment; filename="photobase.zip"',
+            # Built per request, possibly large: never cached.
+            "Cache-Control": "no-store",
+        },
     )
 
 

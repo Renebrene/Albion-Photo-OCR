@@ -6,6 +6,7 @@ import { Notify } from 'quasar'
 import {
   authImageUrl,
   cancelJob,
+  downloadArchive,
   downloadAuthenticated,
   fetchMediaSearchJob,
   fetchPhotoDetails,
@@ -458,6 +459,39 @@ async function saveToBucket() {
   }
 }
 
+// ZIP: one server-built archive instead of a file per photo.
+const zipBusy = ref(false)
+
+async function downloadZip() {
+  if (!store.selectedCount) return
+
+  zipBusy.value = true
+
+  try {
+    const items = [...store.selected].map((photoId) => ({
+      photo_id: photoId,
+      // The same name the single-file download would use.
+      name: downloadFileName(
+        items.value.find((photo) => photo.photo_id === photoId) || {
+          photo_id: photoId,
+        },
+        display.downloadNameMode,
+      ),
+    }))
+
+    await downloadArchive(items)
+
+    Notify.create({
+      type: 'positive',
+      message: `Архив собран: ${items.length} фото`,
+    })
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    zipBusy.value = false
+  }
+}
+
 async function downloadSelected() {
   if (!store.selectedCount) {
     Notify.create({ type: 'info', message: 'Сначала выберите фото' })
@@ -791,18 +825,25 @@ function tagList(meta) {
           </q-badge>
           <q-btn
             dense
-            color="secondary"
-            icon="bookmark_add"
-            label="Портфель"
-            @click="openBucketDialog"
-          />
-          <q-btn
-            dense
             flat
             icon="download"
             label="Скачать"
+            :disable="!store.selectedCount"
             @click="downloadSelected"
-          />
+          >
+            <q-tooltip>Скачать выбранные фото по одному</q-tooltip>
+          </q-btn>
+          <q-btn
+            dense
+            color="secondary"
+            icon="folder_zip"
+            label="ZIP"
+            :disable="!store.selectedCount"
+            :loading="zipBusy"
+            @click="downloadZip"
+          >
+            <q-tooltip>Скачать выбранные фото одним архивом</q-tooltip>
+          </q-btn>
 
           <q-space />
 
