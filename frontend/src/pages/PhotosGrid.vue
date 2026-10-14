@@ -943,6 +943,9 @@ function tagList(meta) {
           <q-banner class="bg-red-1 text-negative">Ошибка: {{ error }}</q-banner>
         </div>
 
+        <!-- Полоса-разделитель: фильтры сверху, сетка фото под ней. -->
+        <div class="grid-divider" />
+
         <div ref="gridScrollEl" class="col grid-scroll">
           <q-infinite-scroll @load="onLoad" :offset="600">
             <div v-if="viewMode === 'tiles'" class="photo-grid" :style="gridStyle">
@@ -1452,10 +1455,32 @@ function tagList(meta) {
 
 <style scoped>
 /* The page itself does not scroll: the filter column is sticky and the grid
-   scrolls inside its own container, so the toolbars stay in place. */
+   scrolls inside its own container, so the toolbars stay in place.
+   50px — панель в шапке, 35px — подвал-статусбар: без вычитания подвала
+   нижний ряд фото уходил бы под него. */
 .photos-page {
-  height: calc(100vh - 50px);
+  height: calc(100vh - 85px);
   overflow: hidden;
+}
+
+/* Полоса-разделитель между блоком фильтров и сеткой фотографий. */
+.grid-divider {
+  height: 3px;
+  margin-bottom: 10px;
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.12),
+    rgba(0, 0, 0, 0.04)
+  );
+}
+
+body.body--dark .grid-divider {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.18),
+    rgba(255, 255, 255, 0.06)
+  );
 }
 
 .left-panel,
