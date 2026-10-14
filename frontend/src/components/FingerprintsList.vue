@@ -509,7 +509,7 @@ function day(value) {
       :pagination="{ rowsPerPage: 0 }"
       :columns="[
         { name: 'id', label: 'ID', field: 'fingerprint_id', align: 'left', sortable: true },
-        { name: 'name', label: 'Имя', field: 'display_name', align: 'left' },
+        { name: 'name', label: 'Имя', field: 'name', align: 'left', sortable: true },
         { name: 'address', label: 'Адрес', field: (row) => addressLabel(row), align: 'left' },
         { name: 'images', label: 'Фото', field: 'images_count', align: 'right', sortable: true },
         { name: 'version', label: 'Версия', field: 'algorithm_version', align: 'left' },
@@ -578,6 +578,7 @@ function day(value) {
             dense
             outlined
             label="Имя слепка"
+            hint="Пусто — слепок называется по алиасу своего адреса (или по своему ID, если адрес не назначен)"
           />
           <q-select
             v-model="editAddressId"

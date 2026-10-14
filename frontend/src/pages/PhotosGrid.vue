@@ -635,7 +635,12 @@ function tagList(meta) {
                 active-class="bg-primary text-white"
                 @click="pickAddress(item.address)"
               >
-                <q-item-section>{{ item.address }}</q-item-section>
+                <q-item-section>
+                  {{ item.simple_address || item.address }}
+                  <q-tooltip v-if="item.simple_address">
+                    {{ item.address }}
+                  </q-tooltip>
+                </q-item-section>
                 <q-item-section side>{{ item.count }}</q-item-section>
               </q-item>
               <q-item v-if="!addresses.length">
@@ -971,7 +976,10 @@ function tagList(meta) {
                     v-if="photo.address"
                     class="ellipsis text-caption text-grey-8"
                   >
-                    {{ photo.address }}
+                    {{ photo.simple_address || photo.address }}
+                    <q-tooltip v-if="photo.simple_address">
+                      {{ photo.address }}
+                    </q-tooltip>
                   </div>
                   <div
                     v-if="photo.client"
@@ -1191,7 +1199,7 @@ function tagList(meta) {
           <!-- Simplified recognition address, with the position in the gallery. -->
           <div class="col ellipsis">
             <div class="text-subtitle1 ellipsis">
-              {{ current?.address || 'адрес не определён' }}
+              {{ current?.simple_address || current?.address || 'адрес не определён' }}
               <span v-if="viewerIndex >= 0" class="text-grey-7">
                 ({{ viewerIndex + 1 }})
               </span>

@@ -267,10 +267,30 @@ def sync_from_disk() -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _fingerprint_name(row) -> str:
+    """
+    The name a fingerprint is shown by.
+
+    A name typed by hand wins; otherwise the alias of the address the
+    fingerprint is mapped to is used - that is where people keep the short name
+    of an address. Without an alias the legal address is the fallback, and a
+    fingerprint with no address at all keeps its technical id.
+    """
+
+    for value in (row[1], row[13], row[12]):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    return row[0]
+
+
 def _row_to_fingerprint(row) -> dict:
     return {
         "fingerprint_id": row[0],
         "display_name": row[1],
+        # display_name resolved against the address directory (see above); the
+        # window shows this, display_name stays the stored human field.
+        "name": _fingerprint_name(row),
         "description": row[2],
         "algorithm_version": row[3],
         "model": row[4],

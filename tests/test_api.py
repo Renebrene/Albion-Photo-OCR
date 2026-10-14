@@ -137,7 +137,14 @@ def test_address_and_client_facets():
     assert "items" in clients
 
     for item in addresses["items"]:
-        assert set(item) == {"address", "count"}
+        # The recognised id is what the filter sends; the directory names are
+        # what the panel shows (None until the id is mapped to an address).
+        assert set(item) == {
+            "address",
+            "count",
+            "simple_address",
+            "legal_address",
+        }
     for item in clients["items"]:
         assert set(item) == {"client", "count"}
 

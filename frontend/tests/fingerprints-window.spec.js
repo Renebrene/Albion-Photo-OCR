@@ -76,6 +76,8 @@ beforeEach(() => {
     {
       fingerprint_id: '78_v33',
       display_name: '',
+      // Name resolved by the API: no manual name, so the address alias.
+      name: 'Мира 1',
       description: '',
       algorithm_version: '3.3',
       model: 'dinov2_vitb14',
@@ -90,6 +92,8 @@ beforeEach(() => {
     {
       fingerprint_id: '90_v33',
       display_name: 'Малая подборка',
+      // A name typed by hand wins over the alias.
+      name: 'Малая подборка',
       description: '',
       algorithm_version: '3.3',
       model: 'dinov2_vitb14',
@@ -122,6 +126,18 @@ describe('FingerprintsList.vue', () => {
     expect(wrapper.text()).toContain('Мира 1')
     expect(wrapper.text()).toContain('Малая подборка')
     expect(wrapper.text()).toContain('19')
+  })
+
+  it('shows the address alias in the name column', async () => {
+    const wrapper = mountWindow()
+    await flushPromises()
+
+    // Columns: ID, Имя, Адрес, Фото, ...
+    const cells = wrapper.findAll('tbody tr').at(0).findAll('td')
+
+    expect(cells.at(0).text()).toContain('78_v33')
+    expect(cells.at(1).text()).toBe('Мира 1')
+    expect(cells.at(2).text()).toContain('Мира 1')
   })
 
   it('shows a dash when a fingerprint has no address yet', async () => {

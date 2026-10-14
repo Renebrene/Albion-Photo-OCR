@@ -221,6 +221,61 @@ def test_registry_rows_carry_disk_and_version_state():
         assert "address" in item
 
 
+@requires_registry
+def test_name_comes_from_the_address_alias(restore_fingerprint):
+    """
+    A fingerprint is shown by the alias of the address it is mapped to; a name
+    typed by hand wins, and without an address the technical id stays.
+
+    The temporary address (and its mapping) is removed afterwards.
+    """
+
+    from app.api import directory as directory_mod
+
+    items = fp.list_registry()
+
+    target = next((item for item in items if item["address"] is None), None)
+
+    if target is None:
+        pytest.skip("every fingerprint already has an address")
+
+    fingerprint_id = target["fingerprint_id"]
+    restore_fingerprint.append(fingerprint_id)
+
+    # Not mapped to an address: nothing to resolve the name from.
+    assert target["name"] == fingerprint_id
+
+    address = directory_mod.create_address(
+        legal_address="Тестовая ул. 1, A",
+        simple_address="Тестовая 1",
+    )
+
+    try:
+        fp.set_address(fingerprint_id, address["address_id"])
+
+        named = fp.get_fingerprint(fingerprint_id)
+
+        assert named["name"] == "Тестовая 1"
+        # The alias is a fallback: the stored human field stays empty.
+        assert named["display_name"] == ""
+
+        # A name typed by hand wins over the alias.
+        renamed = fp.update_fingerprint(fingerprint_id, display_name="Своё имя")
+        assert renamed["name"] == "Своё имя"
+
+        # No alias at all: the legal name is the next fallback.
+        directory_mod.update_address(address["address_id"], simple_address="")
+        assert fp.get_fingerprint(fingerprint_id)["name"] == "Своё имя"
+
+        fp.update_fingerprint(fingerprint_id, display_name="")
+        assert (
+            fp.get_fingerprint(fingerprint_id)["name"] == "Тестовая ул. 1, A"
+        )
+    finally:
+        fp.set_address(fingerprint_id, None)
+        directory_mod.delete_address(address["address_id"])
+
+
 # ---- endpoints ----
 
 

@@ -275,7 +275,10 @@ def list_addresses(*, limit: int = 1000) -> list[dict]:
     """
 
     sql = (
-        "SELECT address, count(*) AS count FROM (" + _PHOTO_SELECT + ") AS t "
+        "SELECT address, count(*) AS count, "
+        "max(simple_address) AS simple_address, "
+        "max(legal_address) AS legal_address "
+        "FROM (" + _PHOTO_SELECT + ") AS t "
         "WHERE address IS NOT NULL AND address <> '' "
         "GROUP BY address ORDER BY address LIMIT %s"
     )
@@ -284,7 +287,14 @@ def list_addresses(*, limit: int = 1000) -> list[dict]:
         with conn.cursor() as cur:
             cur.execute(sql, (limit,))
             return [
-                {"address": row[0], "count": int(row[1])}
+                {
+                    # The recognised fingerprint id is what the filter sends;
+                    # the directory names are what the panel shows.
+                    "address": row[0],
+                    "count": int(row[1]),
+                    "simple_address": row[2],
+                    "legal_address": row[3],
+                }
                 for row in cur.fetchall()
             ]
 
