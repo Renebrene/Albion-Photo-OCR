@@ -1,16 +1,24 @@
 #!/usr/bin/env python
 """
-How many photos does a fingerprint need? (backlog item 4)
+How many photos does a fingerprint need, and which ones? (backlog item 4)
 
-Builds, for every address, an alternative fingerprint from a subset of 20/30/40
-source photos and compares what recognition says about a held-out corpus with
-what the production fingerprint set says.
+Builds, for every address, an alternative fingerprint from a subset of source
+photos and compares what recognition says about a held-out corpus with what the
+production fingerprint set says.
+
+Two ways to pick the subset:
+
+  * `--select stride` (default) - every Nth photo from the sorted list, which is
+    how the 10/15/20/30/40 measurement was run;
+  * `--select scene` - `app/core/scene_select.py`: 20-30 photos from different
+    shooting conditions (pHash/dHash/colour/brightness, one medoid per cluster),
+    built as `<address>_v34` (dHash on) and `<address>_v34nd` (off).
 
 Nothing in the working set is touched:
 
   * the variant fingerprints are written under --scratch (SCENE_DATA is pointed
     there for both `create` and `recognize`), so data/fingerprints keeps its
-    18 production fingerprints;
+    production fingerprints;
   * recognition is run through the CLI (`app.cli recognize`), which only reads
     fingerprints and images - no PostgreSQL, no job queue;
   * the source photos are only read, then copied into the scratch input folder
@@ -19,6 +27,7 @@ Nothing in the working set is touched:
 Usage:
     python scripts/fingerprint_size_experiment.py --dry-run
     python scripts/fingerprint_size_experiment.py
+    python scripts/fingerprint_size_experiment.py --select scene
     python scripts/fingerprint_size_experiment.py --variants 20,30 --limit 3
 
 Output: a JSON + Markdown report under --report-dir (default
@@ -36,8 +45,18 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parents[1]
+
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from app.core.scene_select import (  # noqa: E402
+    DEFAULT_SELECT_MAX,
+    DEFAULT_SELECT_MIN,
+    select_scene_photos,
+)
 
 DEFAULT_SOURCE_ROOT = ROOT / "data" / "input"
 DEFAULT_CORPUS = Path("/home/alexice/Desktop/test")
@@ -104,6 +123,67 @@ def planned_variants(count: int, variants: list[int]) -> list[int]:
     """
 
     return sorted({effective_size(count, size) for size in variants})
+
+
+class Variant(NamedTuple):
+    """One fingerprint set of the comparison."""
+
+    name: str  # v20 / v34 / v34nd - used as the scratch folder name
+    mode: str  # stride (every Nth photo) | scene (app/core/scene_select.py)
+    size: int | None  # requested size, stride only
+    use_dhash: bool  # feature composition, scene only
+
+    def label(self) -> str:
+        """Human label for the report table."""
+
+        if self.mode == "stride":
+            return f"{self.size} фото шагом"
+
+        return "сцены, dHash" if self.use_dhash else "сцены, без dHash"
+
+    def fingerprint_id(self, address_id: str, selected: int) -> str:
+        """Id of the built fingerprint; the size is visible for stride runs."""
+
+        if self.mode == "stride":
+            return f"{address_id}_v33_s{selected}"
+
+        return f"{address_id}_v34" if self.use_dhash else f"{address_id}_v34nd"
+
+
+def scene_variants(names: str) -> list[Variant]:
+    """Scene sets to build: with dHash (v34) and/or without it (v34nd)."""
+
+    known = {
+        "v34": Variant("v34", "scene", None, True),
+        "v34nd": Variant("v34nd", "scene", None, False),
+    }
+
+    chosen = [
+        known[item.strip()] for item in str(names).split(",") if item.strip() in known
+    ]
+
+    return chosen or [known["v34"]]
+
+
+def scene_subset(
+    photos: list[Path],
+    *,
+    workers: int,
+    use_dhash: bool,
+    select_min: int,
+    select_max: int,
+) -> tuple[list[Path], dict]:
+    """Pick 20-30 photos from different shooting conditions, plus diagnostics."""
+
+    result = select_scene_photos(
+        photos,
+        workers=workers,
+        select_min=select_min,
+        select_max=select_max,
+        use_dhash=use_dhash,
+    )
+
+    return [Path(path) for path in result["picked"]], result
 
 
 def production_addresses(fingerprints_root: Path) -> set[str]:
@@ -245,19 +325,21 @@ def best_id(row: dict | None) -> str | None:
     return None
 
 
-def strip_variant(fingerprint_id: str | None) -> str | None:
-    """78_v33_s20 -> 78_v33 (so variants compare against the production ids)."""
+def address_key(fingerprint_id: str | None) -> str | None:
+    """
+    Verdicts are compared by address, not by fingerprint version.
+
+    78_v33, 78_v33_s20 and 78_v34 all mean address 78: the run being measured
+    differs in which photos went into the fingerprint, not in which address it
+    describes.
+    """
 
     if not fingerprint_id:
         return None
 
-    marker = "_s"
-    head, sep, tail = fingerprint_id.rpartition(marker)
+    head, sep, _tail = str(fingerprint_id).partition("_")
 
-    if sep and tail.isdigit():
-        return head
-
-    return fingerprint_id
+    return head if sep else str(fingerprint_id)
 
 
 def compare(
@@ -271,8 +353,8 @@ def compare(
     changed: list[dict] = []
 
     for name in shared:
-        want = strip_variant(best_id(baseline[name]))
-        got = strip_variant(best_id(variant[name]))
+        want = address_key(best_id(baseline[name]))
+        got = address_key(best_id(variant[name]))
 
         if want == got:
             same += 1
@@ -298,7 +380,40 @@ def main() -> int:
     parser.add_argument(
         "--variants",
         default="20,30,40",
-        help="Subset sizes to test (comma separated)",
+        help="Subset sizes to test (comma separated, stride mode only)",
+    )
+    parser.add_argument(
+        "--select",
+        choices=["stride", "scene"],
+        default="stride",
+        help=(
+            "How the subset is picked: 'stride' - every Nth photo (the original "
+            "size measurement); 'scene' - 20-30 photos from different shooting "
+            "conditions (app/core/scene_select.py)"
+        ),
+    )
+    parser.add_argument(
+        "--scene-sets",
+        default="v34,v34nd",
+        help="Scene sets to build: v34 (with dHash) and/or v34nd (without)",
+    )
+    parser.add_argument(
+        "--select-min",
+        type=int,
+        default=DEFAULT_SELECT_MIN,
+        help="Scene mode: fewest photos per fingerprint",
+    )
+    parser.add_argument(
+        "--select-max",
+        type=int,
+        default=DEFAULT_SELECT_MAX,
+        help="Scene mode: most photos per fingerprint",
+    )
+    parser.add_argument(
+        "--decode-workers",
+        type=int,
+        default=0,
+        help="Scene mode: processes hashing the photos (0 - all cores)",
     )
     parser.add_argument(
         "--build-workers",
@@ -344,7 +459,14 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    variants = [int(item) for item in str(args.variants).split(",") if item.strip()]
+    if args.select == "scene":
+        variants = scene_variants(args.scene_sets)
+    else:
+        variants = [
+            Variant(f"v{int(item)}", "stride", int(item), False)
+            for item in str(args.variants).split(",")
+            if item.strip()
+        ]
 
     if not args.source_root.is_dir():
         print(f"source root not found: {args.source_root}", file=sys.stderr)
@@ -374,13 +496,20 @@ def main() -> int:
     plan = []
 
     for address_id, folder, photos in addresses:
-        plan.append(
-            {
-                "address": address_id,
-                "photos": len(photos),
-                "variant_sizes": planned_variants(len(photos), variants),
-            }
-        )
+        entry = {
+            "address": address_id,
+            "photos": len(photos),
+            "sets": [variant.name for variant in variants],
+        }
+
+        if args.select == "stride":
+            entry["variant_sizes"] = planned_variants(
+                len(photos), [variant.size for variant in variants]
+            )
+        else:
+            entry["select_range"] = [args.select_min, args.select_max]
+
+        plan.append(entry)
 
     if args.dry_run:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
@@ -389,41 +518,60 @@ def main() -> int:
     started = time.time()
     report: dict = {
         "corpus": str(args.corpus),
-        "variants": variants,
+        "mode": args.select,
+        "variants": [variant.name for variant in variants],
         "plan": plan,
         "runs": {},
+        "selections": {},
     }
 
     # ---- 1. build the variant fingerprint sets -------------------------------
     threads = max(1, (os.cpu_count() or 1) // max(1, args.build_workers))
+    decode_workers = max(1, args.decode_workers or (os.cpu_count() or 1))
 
-    for size in variants:
-        data_dir = args.scratch / f"v{size}" / "data"
+    for variant in variants:
+        data_dir = args.scratch / variant.name / "data"
 
         if args.skip_build and (data_dir / "fingerprints").is_dir():
-            log(f"v{size}: reusing {data_dir / 'fingerprints'}")
+            log(f"{variant.name}: reusing {data_dir / 'fingerprints'}")
             continue
 
         jobs = []
 
         for address_id, folder, photos in addresses:
-            subset_size = effective_size(len(photos), size)
+            if variant.mode == "scene":
+                subset, diagnostics = scene_subset(
+                    photos,
+                    workers=decode_workers,
+                    use_dhash=variant.use_dhash,
+                    select_min=args.select_min,
+                    select_max=args.select_max,
+                )
 
-            if subset_size not in planned_variants(len(photos), variants):
-                continue
+                if not subset:
+                    log(f"  {address_id}: no readable photos, skipped")
+                    continue
 
-            subset = sample(photos, subset_size)
-            # The id carries the size actually used, so a 19-photo address is
-            # never labelled as a 20-photo build.
-            fingerprint_id = f"{address_id}_v33_s{subset_size}"
+                report["selections"].setdefault(variant.name, {})[address_id] = {
+                    "photos": len(photos),
+                    "series": diagnostics["series"],
+                    "natural_scenes": diagnostics["natural_scenes"],
+                    "scenes": diagnostics["scenes"],
+                    "picked": len(subset),
+                }
+            else:
+                # An address with fewer photos than requested keeps all of them;
+                # the id carries the size actually used.
+                subset = sample(photos, effective_size(len(photos), variant.size))
 
-            input_dir = args.scratch / f"v{size}" / "input" / fingerprint_id
+            fingerprint_id = variant.fingerprint_id(address_id, len(subset))
+            input_dir = args.scratch / variant.name / "input" / fingerprint_id
             write_source_subset(subset, input_dir)
 
-            jobs.append((fingerprint_id, input_dir, len(subset), len(photos)))
+            jobs.append((fingerprint_id, input_dir))
 
         log(
-            f"v{size}: building {len(jobs)} fingerprints "
+            f"{variant.name} ({variant.label()}): building {len(jobs)} fingerprints "
             f"({args.build_workers} at a time, {threads} threads each)"
         )
 
@@ -435,7 +583,7 @@ def main() -> int:
                     env_data_dir=data_dir,
                     threads=threads,
                 ): fingerprint_id
-                for fingerprint_id, input_dir, _subset, _all in jobs
+                for fingerprint_id, input_dir in jobs
             }
 
             for future in as_completed(futures):
@@ -457,34 +605,36 @@ def main() -> int:
     )
 
     report["runs"]["production"] = {
+        "label": "текущие",
         "fingerprints": sorted(
             path.name for path in (ROOT / "data" / "fingerprints").iterdir() if path.is_dir()
         ),
         "recognised": len(baseline),
-        "best": {name: strip_variant(best_id(row)) for name, row in baseline.items()},
+        "best": {name: address_key(best_id(row)) for name, row in baseline.items()},
     }
 
-    for size in variants:
-        data_dir = args.scratch / f"v{size}" / "data"
+    for variant in variants:
+        data_dir = args.scratch / variant.name / "data"
 
-        log(f"recognising the corpus with the {size}-photo fingerprints")
-        variant = recognize_corpus(
+        log(f"recognising the corpus with {variant.name} ({variant.label()})")
+        verdicts = recognize_corpus(
             args.corpus,
             data_dir=data_dir,
             top_k=args.top_k,
             workers=args.workers,
         )
 
-        report["runs"][f"v{size}"] = {
-            "recognised": len(variant),
-            "comparison": compare(baseline, variant),
-            "best": {name: strip_variant(best_id(row)) for name, row in variant.items()},
+        report["runs"][variant.name] = {
+            "label": variant.label(),
+            "recognised": len(verdicts),
+            "comparison": compare(baseline, verdicts),
+            "best": {name: address_key(best_id(row)) for name, row in verdicts.items()},
         }
 
     report["seconds"] = round(time.time() - started, 1)
     report["build_workers"] = args.build_workers
     report["baseline_verdicts"] = {
-        name: strip_variant(best_id(row)) for name, row in baseline.items()
+        name: address_key(best_id(row)) for name, row in baseline.items()
     }
 
     args.report_dir.mkdir(parents=True, exist_ok=True)
@@ -500,15 +650,15 @@ def main() -> int:
     lines.append("| Набор слепков | Совпало с рабочим | Доля | Изменилось |")
     lines.append("|---|---|---|---|")
 
-    for size in variants:
-        run = report["runs"].get(f"v{size}")
+    for variant in variants:
+        run = report["runs"].get(variant.name)
 
         if not run:
             continue
 
         comparison = run["comparison"]
         lines.append(
-            f"| {size} фото на адрес | {comparison['same']} | "
+            f"| {run['label']} ({variant.name}) | {comparison['same']} | "
             f"{comparison['share']} | {len(comparison['changed'])} |"
         )
 
@@ -533,11 +683,18 @@ def main() -> int:
                 result[value] += 1
         return result
 
-    columns = ["production"] + [f"v{size}" for size in variants if report["runs"].get(f"v{size}")]
+    columns = ["production"] + [
+        variant.name for variant in variants if report["runs"].get(variant.name)
+    ]
     per_address = {name: counts(name) for name in columns}
 
     header = "| Адрес | " + " | ".join(
-        ("текущее" if name == "production" else name[1:] + " фото") for name in columns
+        (
+            "текущее"
+            if name == "production"
+            else report["runs"][name].get("label", name)
+        )
+        for name in columns
     ) + " |"
     lines.append(header)
     lines.append("|" + "---|" * (len(columns) + 1))
@@ -550,6 +707,28 @@ def main() -> int:
             delta = "" if name == "production" or value == base else f" ({value - base:+d})"
             row.append(f"{value}{delta}")
         lines.append("| " + " | ".join(row) + " |")
+
+    if report["selections"]:
+        lines.append("")
+        lines.append("## Состав слепка по сценам (что выбрано из папки)")
+        lines.append("")
+        lines.append("| Адрес | Фото в папке | Серий | Сцен нашлось | Сцен взято | В слепке |")
+        lines.append("|---|---|---|---|---|---|")
+
+        for variant in variants:
+            selection = report["selections"].get(variant.name) or {}
+
+            if not selection:
+                continue
+
+            lines.append(f"| **{variant.label()}** | | | | | |")
+
+            for address in sorted(selection):
+                cell = selection[address]
+                lines.append(
+                    f"| {address} | {cell['photos']} | {cell['series']} | "
+                    f"{cell['natural_scenes']} | {cell['scenes']} | {cell['picked']} |"
+                )
 
     lines.append("")
     lines.append(f"Время: {report['seconds']} с")
