@@ -621,8 +621,26 @@ function tagList(meta) {
         >
           <q-card-section class="q-pb-xs row items-center">
             <div class="text-subtitle2 col">Адреса</div>
-            <q-btn dense flat size="sm" label="Все" @click="selectAllAddresses" />
-            <q-btn dense flat size="sm" label="Снять" @click="clearAddresses" />
+            <!-- Одна кнопка: пока ничего не выбрано — «Все», иначе «Снять». -->
+            <q-btn
+              dense
+              flat
+              size="sm"
+              :label="store.selectedAddresses.length ? 'Снять' : 'Все'"
+              @click="
+                store.selectedAddresses.length
+                  ? clearAddresses()
+                  : selectAllAddresses()
+              "
+            >
+              <q-tooltip>
+                {{
+                  store.selectedAddresses.length
+                    ? 'Снять выделение адресов'
+                    : 'Выбрать все адреса'
+                }}
+              </q-tooltip>
+            </q-btn>
           </q-card-section>
           <q-separator />
           <q-scroll-area class="col">
@@ -752,31 +770,10 @@ function tagList(meta) {
           </q-btn>
         </div>
 
-        <!-- active filters, sorting, view mode and display settings in one row -->
+        <!-- sorting, view mode and display settings in one row.
+             Chosen addresses and clients are not repeated here as chips: the
+             left and right panels highlight them. -->
         <div class="row items-center q-gutter-xs q-mb-sm">
-          <q-chip
-            v-for="value in store.selectedAddresses"
-            :key="`a-${value}`"
-            removable
-            dense
-            color="primary"
-            text-color="white"
-            @remove="pickAddress(value)"
-          >
-            Адрес: {{ value }}
-          </q-chip>
-          <q-chip
-            v-for="value in store.selectedClients"
-            :key="`c-${value}`"
-            removable
-            dense
-            color="secondary"
-            text-color="white"
-            @remove="pickClient(value)"
-          >
-            Клиент: {{ value }}
-          </q-chip>
-
           <q-space />
 
           <!-- дата: источник фильтра и периода — выпадающим списком -->
@@ -1122,8 +1119,26 @@ function tagList(meta) {
         >
           <q-card-section class="q-pb-xs row items-center">
             <div class="text-subtitle2 col">Клиенты</div>
-            <q-btn dense flat size="sm" label="Все" @click="selectAllClients" />
-            <q-btn dense flat size="sm" label="Снять" @click="clearClients" />
+            <!-- Одна кнопка: пока ничего не выбрано — «Все», иначе «Снять». -->
+            <q-btn
+              dense
+              flat
+              size="sm"
+              :label="store.selectedClients.length ? 'Снять' : 'Все'"
+              @click="
+                store.selectedClients.length
+                  ? clearClients()
+                  : selectAllClients()
+              "
+            >
+              <q-tooltip>
+                {{
+                  store.selectedClients.length
+                    ? 'Снять выделение клиентов'
+                    : 'Выбрать всех клиентов'
+                }}
+              </q-tooltip>
+            </q-btn>
           </q-card-section>
           <q-separator />
           <q-scroll-area class="col">
