@@ -56,3 +56,6 @@ test/
 # Local backup copies of edited files
 *.before_*
 *.bak
+
+# Scratch of scripts/fingerprint_size_experiment.py (photos + numpy artifacts)
+data/output/fingerprint_size_experiment/
