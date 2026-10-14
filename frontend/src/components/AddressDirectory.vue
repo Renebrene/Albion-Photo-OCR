@@ -239,7 +239,7 @@ async function saveMap() {
 
     <q-card flat bordered>
       <q-card-section class="row items-center q-pb-xs">
-        <div class="text-subtitle2 col">Адреса ({{ items.length }})</div>
+        <div class="panel-title col">Адреса ({{ items.length }})</div>
         <q-btn dense flat icon="refresh" :loading="busy" @click="load">
           <q-tooltip>Обновить</q-tooltip>
         </q-btn>

@@ -620,7 +620,7 @@ function tagList(meta) {
           :style="{ height: display.sideListHeight + 'px' }"
         >
           <q-card-section class="q-pb-xs row items-center">
-            <div class="text-subtitle2 col">Адреса</div>
+            <div class="panel-title col">Адреса</div>
             <!-- Одна кнопка: пока ничего не выбрано — «Все», иначе «Снять». -->
             <q-btn
               dense
@@ -737,7 +737,7 @@ function tagList(meta) {
             dense
             color="negative"
             icon="stop"
-            label="СТОП"
+            label="Стоп"
             @click="stopMediaSearch"
           />
           <q-btn
@@ -745,7 +745,7 @@ function tagList(meta) {
             dense
             color="teal"
             icon="auto_awesome"
-            label="ИИ-ПОИСК"
+            label="ИИ-поиск"
             @click="runMediaSearch"
           />
           <q-btn
@@ -753,7 +753,7 @@ function tagList(meta) {
             dense
             color="primary"
             icon="search"
-            label="ПОИСК"
+            label="Поиск"
             @click="apply"
           />
 
@@ -1118,7 +1118,7 @@ function tagList(meta) {
           :style="{ height: display.sideListHeight + 'px' }"
         >
           <q-card-section class="q-pb-xs row items-center">
-            <div class="text-subtitle2 col">Клиенты</div>
+            <div class="panel-title col">Клиенты</div>
             <!-- Одна кнопка: пока ничего не выбрано — «Все», иначе «Снять». -->
             <q-btn
               dense

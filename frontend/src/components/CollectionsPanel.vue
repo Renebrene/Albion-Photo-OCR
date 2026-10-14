@@ -33,7 +33,7 @@ async function remove(collection) {
 <template>
   <q-card flat bordered class="column" style="flex: 1; min-height: 140px">
     <q-card-section class="q-pb-xs row items-center">
-      <div class="text-subtitle2 col">Подборки</div>
+      <div class="panel-title col">Подборки</div>
       <q-btn dense flat icon="add" size="sm" @click="emit('create')">
         <q-tooltip>Сохранить выбранное в подборку</q-tooltip>
       </q-btn>

@@ -4,6 +4,8 @@ import { Quasar, Notify } from 'quasar'
 
 import '@quasar/extras/material-icons/material-icons.css'
 import 'quasar/dist/quasar.css'
+// Loaded after Quasar so the calmer look wins (presentation only).
+import './css/app.css'
 
 import App from './App.vue'
 import router from './router'
