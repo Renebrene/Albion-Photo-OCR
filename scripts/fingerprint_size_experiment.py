@@ -461,6 +461,7 @@ def main() -> int:
             path.name for path in (ROOT / "data" / "fingerprints").iterdir() if path.is_dir()
         ),
         "recognised": len(baseline),
+        "best": {name: strip_variant(best_id(row)) for name, row in baseline.items()},
     }
 
     for size in variants:
@@ -477,6 +478,7 @@ def main() -> int:
         report["runs"][f"v{size}"] = {
             "recognised": len(variant),
             "comparison": compare(baseline, variant),
+            "best": {name: strip_variant(best_id(row)) for name, row in variant.items()},
         }
 
     report["seconds"] = round(time.time() - started, 1)
@@ -509,6 +511,45 @@ def main() -> int:
             f"| {size} фото на адрес | {comparison['same']} | "
             f"{comparison['share']} | {len(comparison['changed'])} |"
         )
+
+    lines.append("")
+    lines.append("## Сколько фото попадает на каждый адрес")
+    lines.append("")
+
+    addresses = sorted(
+        {
+            value
+            for run in report["runs"].values()
+            for value in (run.get("best") or {}).values()
+            if value
+        }
+    )
+
+    def counts(run_name):
+        best = report["runs"][run_name].get("best") or {}
+        result = {address: 0 for address in addresses}
+        for value in best.values():
+            if value in result:
+                result[value] += 1
+        return result
+
+    columns = ["production"] + [f"v{size}" for size in variants if report["runs"].get(f"v{size}")]
+    per_address = {name: counts(name) for name in columns}
+
+    header = "| Адрес | " + " | ".join(
+        ("текущее" if name == "production" else name[1:] + " фото") for name in columns
+    ) + " |"
+    lines.append(header)
+    lines.append("|" + "---|" * (len(columns) + 1))
+
+    for address in addresses:
+        row = [f"{address}"]
+        for name in columns:
+            value = per_address[name][address]
+            base = per_address["production"][address]
+            delta = "" if name == "production" or value == base else f" ({value - base:+d})"
+            row.append(f"{value}{delta}")
+        lines.append("| " + " | ".join(row) + " |")
 
     lines.append("")
     lines.append(f"Время: {report['seconds']} с")
