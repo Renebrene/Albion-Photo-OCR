@@ -42,9 +42,15 @@ class FingerprintManager:
         self,
         settings,
         embedder,
+        descriptor_workers=None,
     ):
         self.settings = settings
         self.embedder = embedder
+
+        # Threads for the CPU descriptor pass (one image load per worker).
+        # Default 6 as before; a caller that already runs several builders in
+        # parallel passes a smaller number so the cores are not oversubscribed.
+        self.descriptor_workers = descriptor_workers
 
         self.settings.fingerprints_dir.mkdir(
             parents=True,
@@ -302,7 +308,7 @@ class FingerprintManager:
         # --------------------------------------------------
 
         workers = min(
-            6,
+            self.descriptor_workers or 6,
             max(
                 1,
                 len(paths),

@@ -34,6 +34,7 @@ import shutil
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -86,10 +87,23 @@ def sample(photos: list[Path], count: int) -> list[Path]:
     return [photos[int(index * stride)] for index in range(count)]
 
 
-def planned_variants(count: int, variants: list[int]) -> list[int]:
-    """Variants that fit: never more photos than the address actually has."""
+def effective_size(count: int, size: int) -> int:
+    """Photos actually used for a variant: never more than the address has."""
 
-    return [size for size in variants if size <= count]
+    return min(size, count)
+
+
+def planned_variants(count: int, variants: list[int]) -> list[int]:
+    """
+    The subset size each variant really uses for this address.
+
+    An address with fewer photos than the requested size keeps *all* of them
+    instead of dropping out of the set: a set missing whole addresses would
+    measure the effect of absent fingerprints, not the effect of a smaller
+    fingerprint. The returned values are the effective sizes.
+    """
+
+    return sorted({effective_size(count, size) for size in variants})
 
 
 def production_addresses(fingerprints_root: Path) -> set[str]:
@@ -113,11 +127,23 @@ def production_addresses(fingerprints_root: Path) -> set[str]:
     return result
 
 
-def run_cli(args: list[str], *, env_data_dir: Path, timeout: int = 3600) -> str:
+def run_cli(
+    args: list[str],
+    *,
+    env_data_dir: Path,
+    timeout: int = 3600,
+    threads: int | None = None,
+) -> str:
     """Run `python -m app.cli ...` with SCENE_DATA pointed at the scratch root."""
 
     env = dict(os.environ)
     env["SCENE_DATA"] = str(env_data_dir)
+
+    if threads:
+        # Building is CPU-bound; several builders at once must not each grab
+        # every core, so the pool hands each child its own budget.
+        env["OMP_NUM_THREADS"] = str(threads)
+        env["MKL_NUM_THREADS"] = str(threads)
 
     completed = subprocess.run(
         [sys.executable, "-m", "app.cli", *args],
@@ -274,6 +300,15 @@ def main() -> int:
         default="20,30,40",
         help="Subset sizes to test (comma separated)",
     )
+    parser.add_argument(
+        "--build-workers",
+        type=int,
+        default=max(1, (os.cpu_count() or 1) // 2),
+        help=(
+            "fingerprints built at once; each child gets cores/workers torch "
+            "threads (default: half the cores)"
+        ),
+    )
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument(
@@ -286,6 +321,11 @@ def main() -> int:
         "--dry-run",
         action="store_true",
         help="Print the plan (addresses, subsets, variants) and stop",
+    )
+    parser.add_argument(
+        "--build-only",
+        action="store_true",
+        help="Build the variant fingerprints and stop (no recognition runs)",
     )
     parser.add_argument(
         "--skip-build",
@@ -338,7 +378,7 @@ def main() -> int:
             {
                 "address": address_id,
                 "photos": len(photos),
-                "variants": planned_variants(len(photos), variants),
+                "variant_sizes": planned_variants(len(photos), variants),
             }
         )
 
@@ -355,6 +395,8 @@ def main() -> int:
     }
 
     # ---- 1. build the variant fingerprint sets -------------------------------
+    threads = max(1, (os.cpu_count() or 1) // max(1, args.build_workers))
+
     for size in variants:
         data_dir = args.scratch / f"v{size}" / "data"
 
@@ -362,24 +404,48 @@ def main() -> int:
             log(f"v{size}: reusing {data_dir / 'fingerprints'}")
             continue
 
-        log(f"v{size}: building fingerprints")
+        jobs = []
 
         for address_id, folder, photos in addresses:
-            if size not in planned_variants(len(photos), variants):
+            subset_size = effective_size(len(photos), size)
+
+            if subset_size not in planned_variants(len(photos), variants):
                 continue
 
-            subset = sample(photos, size)
-            fingerprint_id = f"{address_id}_v33_s{size}"
+            subset = sample(photos, subset_size)
+            # The id carries the size actually used, so a 19-photo address is
+            # never labelled as a 20-photo build.
+            fingerprint_id = f"{address_id}_v33_s{subset_size}"
 
             input_dir = args.scratch / f"v{size}" / "input" / fingerprint_id
             write_source_subset(subset, input_dir)
 
-            log(f"  {fingerprint_id}: {len(subset)}/{len(photos)} photos")
+            jobs.append((fingerprint_id, input_dir, len(subset), len(photos)))
 
-            run_cli(
-                ["create", fingerprint_id, str(input_dir)],
-                env_data_dir=data_dir,
-            )
+        log(
+            f"v{size}: building {len(jobs)} fingerprints "
+            f"({args.build_workers} at a time, {threads} threads each)"
+        )
+
+        with ThreadPoolExecutor(max_workers=max(1, args.build_workers)) as pool:
+            futures = {
+                pool.submit(
+                    run_cli,
+                    ["create", fingerprint_id, str(input_dir)],
+                    env_data_dir=data_dir,
+                    threads=threads,
+                ): fingerprint_id
+                for fingerprint_id, input_dir, _subset, _all in jobs
+            }
+
+            for future in as_completed(futures):
+                fingerprint_id = futures[future]
+                future.result()  # re-raise a builder failure
+                log(f"  built {fingerprint_id}")
+
+    if args.build_only:
+        log(f"build only: {round(time.time() - started, 1)} s")
+        return 0
 
     # ---- 2. recognition runs -------------------------------------------------
     log("recognising the corpus with the production fingerprints")
@@ -414,6 +480,7 @@ def main() -> int:
         }
 
     report["seconds"] = round(time.time() - started, 1)
+    report["build_workers"] = args.build_workers
     report["baseline_verdicts"] = {
         name: strip_variant(best_id(row)) for name, row in baseline.items()
     }
