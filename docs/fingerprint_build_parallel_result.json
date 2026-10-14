@@ -1,0 +1,686 @@
+{
+  "machine": "AMD Ryzen 5 5600 (6C/12T), 31 GB RAM, NVIDIA RTX 3060 12 GB",
+  "photos_per_build": 25,
+  "builds_per_config": 6,
+  "note": "per-build = wall time of one build inside the batch; server also runs scene-api/scene-worker (idle)",
+  "gpu_no_cache": [
+    {
+      "parallel": 1,
+      "threads_each": 12,
+      "device": "cuda",
+      "builds": 6,
+      "wall_sec": 33.53,
+      "per_build_median": 4.69,
+      "per_build_min": 4.21,
+      "per_build_max": 6.52,
+      "model_load_median": 1.1,
+      "sec_per_build_throughput": 5.59,
+      "builds_per_hour": 644.2,
+      "phases": {
+        "bench_p1_0_v33": {
+          "эмбеддинги": 0.77,
+          "дескрипторы": 0.39
+        },
+        "bench_p1_1_v33": {
+          "эмбеддинги": 0.62,
+          "дескрипторы": 0.35
+        },
+        "bench_p1_2_v33": {
+          "эмбеддинги": 0.59,
+          "дескрипторы": 0.27
+        },
+        "bench_p1_3_v33": {
+          "эмбеддинги": 0.7,
+          "дескрипторы": 0.27
+        },
+        "bench_p1_4_v33": {
+          "эмбеддинги": 0.66,
+          "дескрипторы": 0.21
+        },
+        "bench_p1_5_v33": {
+          "эмбеддинги": 0.78,
+          "дескрипторы": 0.35
+        }
+      }
+    },
+    {
+      "parallel": 2,
+      "threads_each": 6,
+      "device": "cuda",
+      "builds": 6,
+      "wall_sec": 21.84,
+      "per_build_median": 5.21,
+      "per_build_min": 4.33,
+      "per_build_max": 7.11,
+      "model_load_median": 1.18,
+      "sec_per_build_throughput": 3.64,
+      "builds_per_hour": 989.1,
+      "phases": {
+        "bench_p2_0_v33": {
+          "эмбеддинги": 0.84,
+          "дескрипторы": 0.64
+        },
+        "bench_p2_1_v33": {
+          "эмбеддинги": 0.73,
+          "дескрипторы": 0.68
+        },
+        "bench_p2_2_v33": {
+          "эмбеддинги": 0.59,
+          "дескрипторы": 0.42
+        },
+        "bench_p2_3_v33": {
+          "эмбеддинги": 0.66,
+          "дескрипторы": 0.44
+        },
+        "bench_p2_4_v33": {
+          "эмбеддинги": 0.61,
+          "дескрипторы": 0.44
+        },
+        "bench_p2_5_v33": {
+          "эмбеддинги": 0.69,
+          "дескрипторы": 0.56
+        }
+      }
+    },
+    {
+      "parallel": 3,
+      "threads_each": 4,
+      "device": "cuda",
+      "builds": 6,
+      "wall_sec": 19.29,
+      "per_build_median": 6.5,
+      "per_build_min": 4.91,
+      "per_build_max": 8.35,
+      "model_load_median": 1.56,
+      "sec_per_build_throughput": 3.22,
+      "builds_per_hour": 1119.7,
+      "phases": {
+        "bench_p3_0_v33": {
+          "эмбеддинги": 0.97,
+          "дескрипторы": 0.95
+        },
+        "bench_p3_1_v33": {
+          "эмбеддинги": 0.98,
+          "дескрипторы": 1.01
+        },
+        "bench_p3_2_v33": {
+          "эмбеддинги": 0.79,
+          "дескрипторы": 0.57
+        },
+        "bench_p3_3_v33": {
+          "эмбеддинги": 0.76,
+          "дескрипторы": 0.61
+        },
+        "bench_p3_4_v33": {
+          "эмбеддинги": 0.61,
+          "дескрипторы": 0.65
+        },
+        "bench_p3_5_v33": {
+          "эмбеддинги": 0.72,
+          "дескрипторы": 0.76
+        }
+      }
+    },
+    {
+      "parallel": 4,
+      "threads_each": 3,
+      "device": "cuda",
+      "builds": 6,
+      "wall_sec": 20.39,
+      "per_build_median": 9.0,
+      "per_build_min": 5.35,
+      "per_build_max": 10.96,
+      "model_load_median": 2.02,
+      "sec_per_build_throughput": 3.4,
+      "builds_per_hour": 1059.3,
+      "phases": {
+        "bench_p4_0_v33": {
+          "эмбеддинги": 1.02,
+          "дескрипторы": 1.18
+        },
+        "bench_p4_1_v33": {
+          "эмбеддинги": 1.21,
+          "дескрипторы": 1.09
+        },
+        "bench_p4_2_v33": {
+          "эмбеддинги": 1.93,
+          "дескрипторы": 0.85
+        },
+        "bench_p4_3_v33": {
+          "эмбеддинги": 1.35,
+          "дескрипторы": 0.81
+        },
+        "bench_p4_4_v33": {
+          "эмбеддинги": 0.68,
+          "дескрипторы": 0.65
+        },
+        "bench_p4_5_v33": {
+          "эмбеддинги": 0.76,
+          "дескрипторы": 0.89
+        }
+      }
+    },
+    {
+      "parallel": 5,
+      "threads_each": 2,
+      "device": "cuda",
+      "builds": 6,
+      "wall_sec": 23.98,
+      "per_build_median": 12.79,
+      "per_build_min": 6.52,
+      "per_build_max": 14.58,
+      "model_load_median": 2.08,
+      "sec_per_build_throughput": 4.0,
+      "builds_per_hour": 900.6,
+      "phases": {
+        "bench_p5_0_v33": {
+          "эмбеддинги": 1.38,
+          "дескрипторы": 1.58
+        },
+        "bench_p5_1_v33": {
+          "эмбеддинги": 1.32,
+          "дескрипторы": 1.42
+        },
+        "bench_p5_2_v33": {
+          "эмбеддинги": 2.94,
+          "дескрипторы": 1.2
+        },
+        "bench_p5_3_v33": {
+          "эмбеддинги": 2.51,
+          "дескрипторы": 1.35
+        },
+        "bench_p5_4_v33": {
+          "эмбеддинги": 2.57,
+          "дескрипторы": 1.4
+        },
+        "bench_p5_5_v33": {
+          "эмбеддинги": 0.77,
+          "дескрипторы": 1.27
+        }
+      }
+    },
+    {
+      "parallel": 6,
+      "threads_each": 2,
+      "device": "cuda",
+      "builds": 6,
+      "wall_sec": 22.5,
+      "per_build_median": 15.54,
+      "per_build_min": 12.21,
+      "per_build_max": 17.14,
+      "model_load_median": 2.17,
+      "sec_per_build_throughput": 3.75,
+      "builds_per_hour": 960.0,
+      "phases": {
+        "bench_p6_0_v33": {
+          "эмбеддинги": 1.23,
+          "дескрипторы": 1.59
+        },
+        "bench_p6_1_v33": {
+          "эмбеддинги": 1.34,
+          "дескрипторы": 1.48
+        },
+        "bench_p6_2_v33": {
+          "эмбеддинги": 5.65,
+          "дескрипторы": 1.34
+        },
+        "bench_p6_3_v33": {
+          "эмбеддинги": 5.24,
+          "дескрипторы": 1.36
+        },
+        "bench_p6_4_v33": {
+          "эмбеддинги": 4.28,
+          "дескрипторы": 0.98
+        },
+        "bench_p6_5_v33": {
+          "эмбеддинги": 1.4,
+          "дескрипторы": 1.55
+        }
+      }
+    }
+  ],
+  "gpu_cached_embedder": [
+    {
+      "parallel": 1,
+      "threads_each": 12,
+      "device": "cuda",
+      "cached_embedder": true,
+      "builds": 6,
+      "wall_sec": 28.21,
+      "per_build_median": 3.46,
+      "per_build_min": 2.97,
+      "per_build_max": 6.55,
+      "model_load_median": 0.0,
+      "sec_per_build_throughput": 4.7,
+      "builds_per_hour": 765.6,
+      "phases": {
+        "bench_p1_0_v33": {
+          "эмбеддинги": 0.79,
+          "дескрипторы": 0.42
+        },
+        "bench_p1_1_v33": {
+          "эмбеддинги": 0.63,
+          "дескрипторы": 0.4
+        },
+        "bench_p1_2_v33": {
+          "эмбеддинги": 0.55,
+          "дескрипторы": 0.29
+        },
+        "bench_p1_3_v33": {
+          "эмбеддинги": 0.63,
+          "дескрипторы": 0.28
+        },
+        "bench_p1_4_v33": {
+          "эмбеддинги": 0.63,
+          "дескрипторы": 0.23
+        },
+        "bench_p1_5_v33": {
+          "эмбеддинги": 0.82,
+          "дескрипторы": 0.47
+        }
+      }
+    },
+    {
+      "parallel": 2,
+      "threads_each": 6,
+      "device": "cuda",
+      "cached_embedder": true,
+      "builds": 6,
+      "wall_sec": 19.99,
+      "per_build_median": 4.21,
+      "per_build_min": 3.48,
+      "per_build_max": 7.35,
+      "model_load_median": 0.0,
+      "sec_per_build_throughput": 3.33,
+      "builds_per_hour": 1080.4,
+      "phases": {
+        "bench_p2_0_v33": {
+          "эмбеддинги": 0.8,
+          "дескрипторы": 0.7
+        },
+        "bench_p2_1_v33": {
+          "эмбеддинги": 0.76,
+          "дескрипторы": 0.71
+        },
+        "bench_p2_2_v33": {
+          "эмбеддинги": 0.6,
+          "дескрипторы": 0.38
+        },
+        "bench_p2_3_v33": {
+          "эмбеддинги": 0.66,
+          "дескрипторы": 0.49
+        },
+        "bench_p2_4_v33": {
+          "эмбеддинги": 0.71,
+          "дескрипторы": 0.36
+        },
+        "bench_p2_5_v33": {
+          "эмбеддинги": 0.7,
+          "дескрипторы": 0.54
+        }
+      }
+    },
+    {
+      "parallel": 3,
+      "threads_each": 4,
+      "device": "cuda",
+      "cached_embedder": true,
+      "builds": 6,
+      "wall_sec": 18.37,
+      "per_build_median": 6.16,
+      "per_build_min": 4.37,
+      "per_build_max": 8.29,
+      "model_load_median": 0.77,
+      "sec_per_build_throughput": 3.06,
+      "builds_per_hour": 1175.6,
+      "phases": {
+        "bench_p3_0_v33": {
+          "эмбеддинги": 0.92,
+          "дескрипторы": 1.06
+        },
+        "bench_p3_1_v33": {
+          "эмбеддинги": 1.0,
+          "дескрипторы": 0.93
+        },
+        "bench_p3_2_v33": {
+          "эмбеддинги": 0.85,
+          "дескрипторы": 0.62
+        },
+        "bench_p3_3_v33": {
+          "эмбеддинги": 0.81,
+          "дескрипторы": 0.6
+        },
+        "bench_p3_4_v33": {
+          "эмбеддинги": 0.81,
+          "дескрипторы": 0.66
+        },
+        "bench_p3_5_v33": {
+          "эмбеддинги": 0.82,
+          "дескрипторы": 0.8
+        }
+      }
+    },
+    {
+      "parallel": 4,
+      "threads_each": 3,
+      "device": "cuda",
+      "cached_embedder": true,
+      "builds": 6,
+      "wall_sec": 18.49,
+      "per_build_median": 7.78,
+      "per_build_min": 3.77,
+      "per_build_max": 9.79,
+      "model_load_median": 1.89,
+      "sec_per_build_throughput": 3.08,
+      "builds_per_hour": 1168.4,
+      "phases": {
+        "bench_p4_0_v33": {
+          "эмбеддинги": 1.16,
+          "дескрипторы": 1.34
+        },
+        "bench_p4_1_v33": {
+          "эмбеддинги": 1.09,
+          "дескрипторы": 1.22
+        },
+        "bench_p4_2_v33": {
+          "эмбеддинги": 1.0,
+          "дескрипторы": 0.86
+        },
+        "bench_p4_3_v33": {
+          "эмбеддинги": 0.89,
+          "дескрипторы": 1.01
+        },
+        "bench_p4_4_v33": {
+          "эмбеддинги": 0.52,
+          "дескрипторы": 0.72
+        },
+        "bench_p4_5_v33": {
+          "эмбеддинги": 0.71,
+          "дескрипторы": 0.9
+        }
+      }
+    },
+    {
+      "parallel": 6,
+      "threads_each": 2,
+      "device": "cuda",
+      "cached_embedder": true,
+      "builds": 6,
+      "wall_sec": 19.85,
+      "per_build_median": 12.85,
+      "per_build_min": 11.37,
+      "per_build_max": 13.94,
+      "model_load_median": 2.33,
+      "sec_per_build_throughput": 3.31,
+      "builds_per_hour": 1088.2,
+      "phases": {
+        "bench_p6_0_v33": {
+          "эмбеддинги": 1.33,
+          "дескрипторы": 1.61
+        },
+        "bench_p6_1_v33": {
+          "эмбеддинги": 1.5,
+          "дескрипторы": 1.59
+        },
+        "bench_p6_2_v33": {
+          "эмбеддинги": 3.46,
+          "дескрипторы": 1.42
+        },
+        "bench_p6_3_v33": {
+          "эмбеддинги": 2.33,
+          "дескрипторы": 1.49
+        },
+        "bench_p6_4_v33": {
+          "эмбеддинги": 2.82,
+          "дескрипторы": 1.47
+        },
+        "bench_p6_5_v33": {
+          "эмбеддинги": 1.31,
+          "дескрипторы": 1.58
+        }
+      }
+    }
+  ],
+  "cpu_cached_embedder": [
+    {
+      "parallel": 1,
+      "threads_each": 12,
+      "device": "cpu",
+      "cached_embedder": true,
+      "builds": 6,
+      "wall_sec": 64.22,
+      "per_build_median": 9.57,
+      "per_build_min": 8.78,
+      "per_build_max": 12.52,
+      "model_load_median": 0.0,
+      "sec_per_build_throughput": 10.7,
+      "builds_per_hour": 336.3,
+      "phases": {
+        "bench_p1_0_v33": {
+          "эмбеддинги": 3.34,
+          "дескрипторы": 0.42
+        },
+        "bench_p1_1_v33": {
+          "эмбеддинги": 3.18,
+          "дескрипторы": 0.33
+        },
+        "bench_p1_2_v33": {
+          "эмбеддинги": 3.0,
+          "дескрипторы": 0.3
+        },
+        "bench_p1_3_v33": {
+          "эмбеддинги": 2.99,
+          "дескрипторы": 0.27
+        },
+        "bench_p1_4_v33": {
+          "эмбеддинги": 3.13,
+          "дескрипторы": 0.23
+        },
+        "bench_p1_5_v33": {
+          "эмбеддинги": 3.31,
+          "дескрипторы": 0.37
+        }
+      }
+    },
+    {
+      "parallel": 2,
+      "threads_each": 6,
+      "device": "cpu",
+      "cached_embedder": true,
+      "builds": 6,
+      "wall_sec": 40.46,
+      "per_build_median": 10.96,
+      "per_build_min": 9.98,
+      "per_build_max": 14.3,
+      "model_load_median": 0.0,
+      "sec_per_build_throughput": 6.74,
+      "builds_per_hour": 533.9,
+      "phases": {
+        "bench_p2_0_v33": {
+          "эмбеддинги": 3.7,
+          "дескрипторы": 0.62
+        },
+        "bench_p2_1_v33": {
+          "эмбеддинги": 3.21,
+          "дескрипторы": 0.71
+        },
+        "bench_p2_2_v33": {
+          "эмбеддинги": 3.27,
+          "дескрипторы": 0.54
+        },
+        "bench_p2_3_v33": {
+          "эмбеддинги": 3.22,
+          "дескрипторы": 0.41
+        },
+        "bench_p2_4_v33": {
+          "эмбеддинги": 3.2,
+          "дескрипторы": 0.44
+        },
+        "bench_p2_5_v33": {
+          "эмбеддинги": 2.5,
+          "дескрипторы": 0.51
+        }
+      }
+    },
+    {
+      "parallel": 3,
+      "threads_each": 4,
+      "device": "cpu",
+      "cached_embedder": true,
+      "builds": 6,
+      "wall_sec": 37.64,
+      "per_build_median": 15.2,
+      "per_build_min": 14.16,
+      "per_build_max": 17.94,
+      "model_load_median": 0.67,
+      "sec_per_build_throughput": 6.27,
+      "builds_per_hour": 573.9,
+      "phases": {
+        "bench_p3_0_v33": {
+          "эмбеддинги": 4.51,
+          "дескрипторы": 0.84
+        },
+        "bench_p3_1_v33": {
+          "эмбеддинги": 4.56,
+          "дескрипторы": 0.97
+        },
+        "bench_p3_2_v33": {
+          "эмбеддинги": 4.18,
+          "дескрипторы": 0.76
+        },
+        "bench_p3_3_v33": {
+          "эмбеддинги": 4.95,
+          "дескрипторы": 0.74
+        },
+        "bench_p3_4_v33": {
+          "эмбеддинги": 3.66,
+          "дескрипторы": 0.6
+        },
+        "bench_p3_5_v33": {
+          "эмбеддинги": 3.25,
+          "дескрипторы": 0.69
+        }
+      }
+    },
+    {
+      "parallel": 4,
+      "threads_each": 3,
+      "device": "cpu",
+      "cached_embedder": true,
+      "builds": 6,
+      "wall_sec": 37.69,
+      "per_build_median": 19.52,
+      "per_build_min": 11.86,
+      "per_build_max": 21.46,
+      "model_load_median": 1.44,
+      "sec_per_build_throughput": 6.28,
+      "builds_per_hour": 573.2,
+      "phases": {
+        "bench_p4_0_v33": {
+          "эмбеддинги": 5.5,
+          "дескрипторы": 1.16
+        },
+        "bench_p4_1_v33": {
+          "эмбеддинги": 5.93,
+          "дескрипторы": 1.15
+        },
+        "bench_p4_2_v33": {
+          "эмбеддинги": 5.37,
+          "дескрипторы": 1.0
+        },
+        "bench_p4_3_v33": {
+          "эмбеддинги": 5.6,
+          "дескрипторы": 1.07
+        },
+        "bench_p4_4_v33": {
+          "эмбеддинги": 3.32,
+          "дескрипторы": 0.7
+        },
+        "bench_p4_5_v33": {
+          "эмбеддинги": 3.34,
+          "дескрипторы": 0.85
+        }
+      }
+    },
+    {
+      "parallel": 6,
+      "threads_each": 2,
+      "device": "cpu",
+      "cached_embedder": true,
+      "builds": 6,
+      "wall_sec": 34.42,
+      "per_build_median": 28.02,
+      "per_build_min": 26.86,
+      "per_build_max": 29.31,
+      "model_load_median": 1.49,
+      "sec_per_build_throughput": 5.74,
+      "builds_per_hour": 627.6,
+      "phases": {
+        "bench_p6_0_v33": {
+          "эмбеддинги": 8.1,
+          "дескрипторы": 1.53
+        },
+        "bench_p6_1_v33": {
+          "эмбеддинги": 7.62,
+          "дескрипторы": 1.34
+        },
+        "bench_p6_2_v33": {
+          "эмбеддинги": 7.56,
+          "дескрипторы": 1.55
+        },
+        "bench_p6_3_v33": {
+          "эмбеддинги": 8.06,
+          "дескрипторы": 1.69
+        },
+        "bench_p6_4_v33": {
+          "эмбеддинги": 8.17,
+          "дескрипторы": 1.69
+        },
+        "bench_p6_5_v33": {
+          "эмбеддинги": 7.62,
+          "дескрипторы": 1.48
+        }
+      }
+    },
+    {
+      "parallel": 12,
+      "threads_each": 1,
+      "device": "cpu",
+      "cached_embedder": true,
+      "builds": 6,
+      "wall_sec": 36.18,
+      "per_build_median": 29.59,
+      "per_build_min": 26.65,
+      "per_build_max": 31.11,
+      "model_load_median": 1.48,
+      "sec_per_build_throughput": 6.03,
+      "builds_per_hour": 597.0,
+      "phases": {
+        "bench_p12_0_v33": {
+          "эмбеддинги": 8.6,
+          "дескрипторы": 2.8
+        },
+        "bench_p12_1_v33": {
+          "эмбеддинги": 8.19,
+          "дескрипторы": 2.44
+        },
+        "bench_p12_2_v33": {
+          "эмбеддинги": 6.82,
+          "дескрипторы": 2.04
+        },
+        "bench_p12_3_v33": {
+          "эмбеддинги": 8.08,
+          "дескрипторы": 2.18
+        },
+        "bench_p12_4_v33": {
+          "эмбеддинги": 7.86,
+          "дескрипторы": 2.26
+        },
+        "bench_p12_5_v33": {
+          "эмбеддинги": 8.55,
+          "дескрипторы": 2.64
+        }
+      }
+    }
+  ]
+}

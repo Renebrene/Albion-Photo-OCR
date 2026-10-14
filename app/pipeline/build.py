@@ -22,10 +22,38 @@ from app.core.embedder import SceneEmbedder
 from app.core.fingerprint import FingerprintManager
 
 
-def default_descriptor_workers() -> int:
-    """Half the cores, at least one - a single build should not grab them all."""
+# One DINOv2 per process. The worker builds many fingerprints in its lifetime
+# and loading the model costs over a second, so it is loaded once and reused
+# (the SQLite worker in app/pipeline/worker.py loads it once in __init__ too).
+_EMBEDDER_CACHE: dict[tuple[str, str], SceneEmbedder] = {}
 
-    return max(1, (os.cpu_count() or 1) // 2)
+
+def get_embedder() -> SceneEmbedder:
+    """The process-wide embedder for the current model/device."""
+
+    key = (settings.model_name, settings.device)
+
+    embedder = _EMBEDDER_CACHE.get(key)
+
+    if embedder is None:
+        embedder = SceneEmbedder(settings)
+        _EMBEDDER_CACHE[key] = embedder
+
+    return embedder
+
+
+def default_descriptor_workers() -> int:
+    """
+    Half the cores, at least one - a single build should not grab them all.
+
+    Several builders run at once (worker --parallel), so the share is divided
+    by that number: otherwise N builders each take half the cores and the
+    descriptor pass oversubscribes the machine N times over.
+    """
+
+    parallel = max(1, int(os.getenv("SCENE_BUILD_PARALLEL", "1") or 1))
+
+    return max(1, (os.cpu_count() or 1) // parallel // 2)
 
 
 def build_fingerprint(
@@ -55,7 +83,7 @@ def build_fingerprint(
 
     settings.fingerprints_dir.mkdir(parents=True, exist_ok=True)
 
-    embedder = SceneEmbedder(settings)
+    embedder = get_embedder()
     manager = FingerprintManager(
         settings,
         embedder,

@@ -10,7 +10,10 @@ EnvironmentFile=/home/alexice/.config/scene-fingerprint.env
 # Only fingerprint builds, several at once: each process claims its own job
 # (claim_next is atomic), so a batch of builds is distributed over them.
 # --parallel sets how many; torch threads per process are cores/parallel.
-ExecStart=/home/alexice/scene-fingerprint/.venv/bin/python -m app.jobs.worker --watch --only FINGERPRINT_BUILD --parallel 6 --interval 2
+# Measured on this machine (RTX 3060, 12 threads): 3 is the throughput peak
+# (~1180 builds/h of 25 photos), 2-4 are equal within noise and 6 is no faster
+# because the builders share one GPU. See docs/fingerprint_build_performance.md.
+ExecStart=/home/alexice/scene-fingerprint/.venv/bin/python -m app.jobs.worker --watch --only FINGERPRINT_BUILD --parallel 3 --interval 2
 Restart=always
 RestartSec=10
 

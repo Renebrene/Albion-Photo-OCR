@@ -236,12 +236,16 @@ def _builder_worker(
     types: list[str],
     interval: float,
     threads: int,
+    parallel: int,
     label: str,
 ) -> None:
     """One worker process in --parallel mode: claims its own jobs."""
 
     os.environ.setdefault("OMP_NUM_THREADS", str(threads))
     os.environ.setdefault("MKL_NUM_THREADS", str(threads))
+    # The builder sizes its descriptor thread pool from this: N builders must
+    # not each claim half the cores (see default_descriptor_workers).
+    os.environ["SCENE_BUILD_PARALLEL"] = str(parallel)
 
     try:
         import torch
@@ -335,7 +339,13 @@ def main() -> None:
         processes = [
             context.Process(
                 target=_builder_worker,
-                args=(types, args.interval, threads, f"{index + 1}/{parallel}"),
+                args=(
+                    types,
+                    args.interval,
+                    threads,
+                    parallel,
+                    f"{index + 1}/{parallel}",
+                ),
             )
             for index in range(parallel)
         ]

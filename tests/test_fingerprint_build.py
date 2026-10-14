@@ -180,6 +180,56 @@ def test_build_does_not_mark_the_qwen_model_busy():
     assert "FINGERPRINT_BUILD" not in worker._MODEL_JOB_TYPES
 
 
+# ---- builder sizing and the embedding cache ----
+
+def test_descriptor_workers_split_between_builders(monkeypatch):
+    """
+    N builders must not each take half the cores: the share is divided, so the
+    descriptor thread pools together add up to at most half of them.
+    """
+
+    from app.pipeline import build
+
+    monkeypatch.setattr(build.os, "cpu_count", lambda: 12)
+
+    monkeypatch.delenv("SCENE_BUILD_PARALLEL", raising=False)
+    assert build.default_descriptor_workers() == 6
+
+    monkeypatch.setenv("SCENE_BUILD_PARALLEL", "3")
+    assert build.default_descriptor_workers() == 2
+
+    monkeypatch.setenv("SCENE_BUILD_PARALLEL", "6")
+    assert build.default_descriptor_workers() == 1
+
+    # A nonsensical value must not crash or produce zero workers.
+    monkeypatch.setenv("SCENE_BUILD_PARALLEL", "0")
+    assert build.default_descriptor_workers() >= 1
+
+
+def test_get_embedder_loads_the_model_once(monkeypatch):
+    """A builder process serves many jobs; DINOv2 is loaded once, not per job."""
+
+    from app.pipeline import build
+
+    calls = []
+
+    class FakeEmbedder:
+        def __init__(self, settings):
+            calls.append(settings)
+
+    build._EMBEDDER_CACHE.clear()
+    monkeypatch.setattr(build, "SceneEmbedder", FakeEmbedder)
+
+    try:
+        first = build.get_embedder()
+        second = build.get_embedder()
+    finally:
+        build._EMBEDDER_CACHE.clear()
+
+    assert first is second
+    assert len(calls) == 1
+
+
 # ---- endpoints ----
 
 
