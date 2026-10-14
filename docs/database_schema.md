@@ -228,6 +228,13 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 
 Индекс `idx_job_queue_status(status, id)`. Забор задания — `SELECT … FOR UPDATE SKIP LOCKED` + `UPDATE … status='RUNNING'` (атомарно). `payload` для `DINO_BATCH` = `{batch_id}`, для `HYBRID_RUN` = `{hybrid_run_id}`, для `QWEN_PHOTO` = `{photo_id}`.
 
+### 4.8.1 Прогресс, пауза и батчи заданий (schema 025)
+
+- `job_queue.progress` JSONB — `{done, total, stage, percent}`, пишет воркер во время длинных заданий (сборка слепка); окно рисует по нему прогресс-бар.
+- Статус `PAUSED` — задание в очереди не забирается (`claim_next` берёт только `PENDING`), работающее замечает паузу между батчами и ждёт; ожидание ограничено `SCENE_PAUSE_MAX_SECONDS` (по умолчанию 300 с), иначе одна пауза блокировала бы однопоточную очередь.
+- `claim_next(types=[...])` — выборка только нужных типов: так работает выделенный воркер сборки (`app.jobs.worker --only FINGERPRINT_BUILD --parallel N`).
+- Батч: задания с общим `payload->>'batch_id'`; `GET /v1/fingerprints/batch/{id}` агрегирует их (проценты взвешены по числу фото).
+
 ### 4.9 `photo_qwen` — текстовые метаданные (QWEN)
 
 Создаёт `schema/007_qwen.sql`; пишет `app/qwen` (через worker). Параллельный процесс, независимый от DINO/HYBRID; на идентичность и распознавание не влияет.

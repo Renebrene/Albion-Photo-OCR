@@ -127,12 +127,20 @@ def test_worker_maps_the_build_payload(monkeypatch):
 
     seen: dict = {}
 
-    def fake_build(fingerprint_id, folder, *, max_photos=None, replace=True):
+    def fake_build(
+        fingerprint_id,
+        folder,
+        *,
+        max_photos=None,
+        replace=True,
+        progress=None,
+    ):
         seen.update(
             fingerprint_id=fingerprint_id,
             folder=folder,
             max_photos=max_photos,
             replace=replace,
+            has_progress=callable(progress),
         )
         return {"fingerprint_id": fingerprint_id, "images": 20}
 
@@ -140,6 +148,9 @@ def test_worker_maps_the_build_payload(monkeypatch):
 
     result = worker._execute(
         {
+            # A real job row always carries its id; the build reports progress
+            # and checks pause/cancel through it.
+            "id": 1,
             "job_type": "FINGERPRINT_BUILD",
             "payload": {
                 "fingerprint_id": "78_v33",
@@ -155,6 +166,8 @@ def test_worker_maps_the_build_payload(monkeypatch):
         "folder": "/photos/78",
         "max_photos": 30,
         "replace": True,
+        # The worker hands the builder a progress callback it can report with.
+        "has_progress": True,
     }
     assert result["images"] == 20
 

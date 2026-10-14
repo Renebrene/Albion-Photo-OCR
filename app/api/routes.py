@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import uuid
 import shutil
 import subprocess
 from pathlib import Path
@@ -49,6 +50,7 @@ from app.api.schemas import (
     CollectionMembersRequest,
     DinoBatchRequest,
     FingerprintAddressRequest,
+    FingerprintBatchRequest,
     FingerprintBuildRequest,
     FingerprintUpdate,
     HybridRequest,
@@ -558,6 +560,54 @@ def get_job(job_id: int):
         raise HTTPException(status_code=404, detail="job not found")
 
     return job
+
+
+@jobs_router.post(
+    "/v1/jobs/{job_id}/pause",
+    response_model=None,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def pause_job(job_id: int):
+    """
+    Hold a job.
+
+    A PENDING job is not claimed while it is held; one that is already RUNNING
+    notices between batches and waits. The wait is bounded by the worker
+    (SCENE_PAUSE_MAX_SECONDS), after which the job fails rather than blocking
+    the queue forever.
+    """
+
+    job = jobs_db.get_job(job_id)
+
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+
+    if not jobs_db.mark_paused(job_id):
+        raise HTTPException(
+            status_code=409,
+            detail="job is not pending or running",
+        )
+
+    return {"job_id": job_id, "status": "PAUSED"}
+
+
+@jobs_router.post(
+    "/v1/jobs/{job_id}/resume",
+    response_model=None,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def resume_job(job_id: int):
+    """Release a held job back to the worker."""
+
+    job = jobs_db.get_job(job_id)
+
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+
+    if not jobs_db.mark_resumed(job_id):
+        raise HTTPException(status_code=409, detail="job is not paused")
+
+    return {"job_id": job_id, "status": jobs_db.job_status(job_id)}
 
 
 @jobs_router.post(
@@ -1676,3 +1726,126 @@ def import_address_directory(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return {"rows": len(items), **result}
+
+
+@fingerprints_router.post(
+    "/v1/fingerprints/build-batch",
+    status_code=202,
+    response_model=None,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def build_fingerprint_batch(request: FingerprintBatchRequest):
+    """
+    Queue several fingerprint builds at once.
+
+    Every item becomes its own job, so any number of builder workers can take
+    them in parallel (`app.jobs.worker --only FINGERPRINT_BUILD --parallel N`).
+    All jobs share a batch id, which the window uses to draw one progress bar;
+    GET /v1/fingerprints/batch/{id} reports the aggregate.
+    """
+
+    batch_id = uuid.uuid4().hex
+    jobs_out = []
+    errors = []
+
+    for item in request.items:
+        try:
+            fingerprint_id = fingerprints_mod._check_id(item.fingerprint_id)
+            folder = sources.resolve_directory(item.folder)
+        except fingerprints_mod.FingerprintError as exc:
+            errors.append({"fingerprint_id": item.fingerprint_id, "error": str(exc)})
+            continue
+        except HTTPException as exc:
+            errors.append(
+                {"fingerprint_id": item.fingerprint_id, "error": str(exc.detail)}
+            )
+            continue
+
+        stats = sources.folder_stats(folder)
+
+        if not stats["files"]:
+            errors.append(
+                {
+                    "fingerprint_id": fingerprint_id,
+                    "error": "в папке нет фотографий",
+                }
+            )
+            continue
+
+        job_id = jobs_db.enqueue_fingerprint_build(
+            fingerprint_id,
+            str(folder),
+            max_photos=request.max_photos,
+            replace=request.replace,
+            batch_id=batch_id,
+        )
+
+        jobs_out.append(
+            {
+                "fingerprint_id": fingerprint_id,
+                "job_id": job_id,
+                "skipped": job_id is None,
+                "photos": stats["files"],
+            }
+        )
+
+    return {
+        "batch_id": batch_id,
+        "jobs": jobs_out,
+        "errors": errors,
+    }
+
+
+@fingerprints_router.get(
+    "/v1/fingerprints/batch/{batch_id}",
+    response_model=None,
+    dependencies=[Depends(require_scope("read"))],
+)
+def get_fingerprint_batch(batch_id: str):
+    """
+    Aggregate state of a batch: per-job status and one percentage.
+
+    The percentage is weighted by photos: finished jobs count as complete, so
+    the bar moves smoothly even while other jobs are still starting.
+    """
+
+    if not re.match(r"^[0-9a-f]{8,64}$", batch_id):
+        raise HTTPException(status_code=400, detail="bad batch id")
+
+    batch_jobs = jobs_db.list_batch(batch_id)
+
+    total_units = 0
+    done_units = 0
+    counts: dict[str, int] = {}
+
+    for job in batch_jobs:
+        counts[job["status"]] = counts.get(job["status"], 0) + 1
+
+        progress = job.get("progress") or {}
+        units = int(progress.get("total") or 0) or 2
+        total_units += units
+
+        if job["status"] == "DONE":
+            done_units += units
+        elif job["status"] == "RUNNING":
+            done_units += int(progress.get("done") or 0)
+
+    percent = round(done_units / total_units * 100, 1) if total_units else 0.0
+
+    return {
+        "batch_id": batch_id,
+        "total": len(batch_jobs),
+        "counts": counts,
+        "percent": percent,
+        "jobs": [
+            {
+                "job_id": job["id"],
+                "fingerprint_id": (job.get("payload") or {}).get("fingerprint_id"),
+                "status": job["status"],
+                "progress": job.get("progress"),
+                "result": job.get("result"),
+                "error_message": job.get("error_message"),
+            }
+            for job in batch_jobs
+        ],
+    }

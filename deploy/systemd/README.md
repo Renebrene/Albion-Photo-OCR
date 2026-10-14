@@ -6,6 +6,7 @@ Two long-running services cover the web app:
 |---|---|---|
 | `scene-api.service` | FastAPI app + built Quasar SPA (`app.api.main:app`) | `dashboard.service` |
 | `scene-worker.service` | deferred job worker (`app.jobs.worker`) | `lora.service` (worker) |
+| `scene-builder.service` (user unit) | parallel fingerprint builder (`app.jobs.worker --watch --only FINGERPRINT_BUILD --parallel 3`) | — |
 
 Inference (DINO/HYBRID) and QWEN run **only** in the worker — never inside the
 API process. The API serves `frontend/dist` statically, so there is no separate
@@ -90,6 +91,22 @@ Notes that matter:
 - The frontend is served by the API process (built `frontend/dist`), so there
   is **no separate frontend unit**.
 - Inspect logs with `journalctl --user -u scene-api -f`.
+
+## Parallel fingerprint building
+
+Building a fingerprint is CPU-bound, so a batch of them is spread over several
+processes of the same unit:
+
+```bash
+# in the unit: ExecStart=... app.jobs.worker --watch --only FINGERPRINT_BUILD --parallel 3
+```
+
+`--only` keeps these workers from taking QWEN/DINO jobs, and each of the N
+processes claims its own job atomically (`claim_next` with a type filter), so a
+batch of builds runs N at a time. Each process gets `cores / parallel` torch
+threads. A **pause** is honoured between batches; the worker waits for the
+resume at most `SCENE_PAUSE_MAX_SECONDS` (default 300) and then fails the job
+rather than blocking the queue, because one worker handles one job at a time.
 
 ## Operating notes
 

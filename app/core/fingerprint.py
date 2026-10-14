@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -217,6 +218,7 @@ class FingerprintManager:
         max_photos=None,
         replace=False,
         source_folder=None,
+        progress=None,
     ):
         """
         Build one fingerprint from every image in *folder* (recursively).
@@ -224,6 +226,9 @@ class FingerprintManager:
         max_photos  - use at most this many photos, spread across the folder
                       (the subset rule for new fingerprints). No file is copied:
                       the builder reads the sources where they are.
+        progress    - progress(done, total, stage) called between batches; the
+                      worker turns it into the job's progress bar and uses the
+                      pauses between calls to notice a pause/cancel request.
         replace     - overwrite an existing fingerprint. The previous vectors are
                       moved aside first and only deleted once the new ones are
                       published, so a failed rebuild leaves the old fingerprint
@@ -287,6 +292,7 @@ class FingerprintManager:
                 paths,
                 embedder,
                 source_folder=source_folder,
+                progress=progress,
             )
 
             # Move the old vectors aside only now that the new ones exist.
@@ -325,6 +331,7 @@ class FingerprintManager:
         paths,
         embedder,
         source_folder=None,
+        progress=None,
     ):
         print(
             f"[Fingerprint v3.3] "
@@ -337,8 +344,16 @@ class FingerprintManager:
             "Building compact descriptors..."
         )
 
+        # The build has two equal halves: embeddings, then CPU descriptors.
+        total_units = max(1, len(paths) * 2)
+
+        def report(done, total, stage):
+            if progress is not None:
+                progress(done, total, stage)
+
         embeddings = embedder.embed_paths(
-            paths
+            paths,
+            on_batch=lambda done, total: report(done, total_units, "эмбеддинги"),
         )
 
         embeddings = np.asarray(
@@ -412,12 +427,23 @@ class FingerprintManager:
             f"CPU workers={workers}"
         )
 
+        descriptor_done = 0
+        descriptor_lock = threading.Lock()
+
         def calculate_descriptors(path):
+            nonlocal descriptor_done
+
             path = Path(path)
 
-            return CompactDescriptor.all(
+            descriptor = CompactDescriptor.all(
                 path
             )
+
+            with descriptor_lock:
+                descriptor_done += 1
+                report(len(paths) + descriptor_done, total_units, "дескрипторы")
+
+            return descriptor
 
         with ThreadPoolExecutor(
             max_workers=workers

@@ -262,6 +262,22 @@ export function pickFolderNative() {
   return postJson(`${BASE}/v1/fingerprints/pick-folder`, {})
 }
 
+export function pauseJob(jobId) {
+  return postJson(`${BASE}/v1/jobs/${jobId}/pause`, {})
+}
+
+export function resumeJob(jobId) {
+  return postJson(`${BASE}/v1/jobs/${jobId}/resume`, {})
+}
+
+export function buildFingerprintBatch(payload) {
+  return postJson(`${BASE}/v1/fingerprints/build-batch`, payload)
+}
+
+export function fetchFingerprintBatch(batchId) {
+  return getJson(`${BASE}/v1/fingerprints/batch/${batchId}`)
+}
+
 export function fetchJob(jobId) {
   return getJson(`${BASE}/v1/jobs/${jobId}`)
 }

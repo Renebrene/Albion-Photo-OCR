@@ -192,6 +192,21 @@ class AddressFingerprintsRequest(BaseModel):
     fingerprints: list[str] = Field(default_factory=list, max_length=500)
 
 
+class FingerprintBatchItem(BaseModel):
+    """One fingerprint to build inside a batch."""
+
+    fingerprint_id: str = Field(min_length=1, max_length=64)
+    folder: str = Field(min_length=1, max_length=4096)
+
+
+class FingerprintBatchRequest(BaseModel):
+    """Build several fingerprints from folders, distributed over the workers."""
+
+    items: list[FingerprintBatchItem] = Field(min_length=1, max_length=200)
+    max_photos: int | None = Field(default=None, ge=1, le=5000)
+    replace: bool = True
+
+
 class FingerprintAddressRequest(BaseModel):
     """Address from the directory to map a fingerprint to (None clears it)."""
 

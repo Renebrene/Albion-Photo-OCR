@@ -26,7 +26,7 @@ JOB_TYPES = {
 
 _JOB_COLUMNS = (
     "id, job_type, payload, status, attempts, "
-    "result, error_message, created_at, started_at, finished_at"
+    "result, error_message, created_at, started_at, finished_at, progress"
 )
 
 
@@ -42,6 +42,7 @@ def _row_to_job(row) -> dict:
         "created_at": row[7],
         "started_at": row[8],
         "finished_at": row[9],
+        "progress": row[10] if len(row) > 10 else None,
     }
 
 
@@ -100,6 +101,7 @@ def enqueue_fingerprint_build(
     *,
     max_photos: int | None = None,
     replace: bool = True,
+    batch_id: str | None = None,
 ) -> int | None:
     """
     Queue one fingerprint build (or rebuild).
@@ -117,6 +119,9 @@ def enqueue_fingerprint_build(
 
     if max_photos:
         payload["max_photos"] = int(max_photos)
+
+    if batch_id:
+        payload["batch_id"] = str(batch_id)
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -213,12 +218,23 @@ def list_jobs(
     return items, next_cursor
 
 
-def claim_next() -> dict | None:
+def claim_next(types: list[str] | None = None) -> dict | None:
     """
     Atomically move the oldest PENDING job to RUNNING.
 
-    Returns the claimed job, or None when the queue is empty.
+    `types` restricts the claim to those job types, which is how dedicated
+    builder workers take only FINGERPRINT_BUILD and leave the rest of the queue
+    to the main worker. Returns the claimed job, or None when nothing matches.
+
+    A PAUSED job is never claimed: pausing a queued job is a way to hold it.
     """
+
+    clause = ""
+    params: list[object] = []
+
+    if types:
+        clause = " AND job_type = ANY(%s)"
+        params.append(list(types))
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -227,10 +243,14 @@ def claim_next() -> dict | None:
                 SELECT id, job_type, payload
                 FROM public.job_queue
                 WHERE status = 'PENDING'
+                """
+                + clause
+                + """
                 ORDER BY id
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
-                """
+                """,
+                params,
             )
             row = cur.fetchone()
 
@@ -278,6 +298,113 @@ def mark_done(job_id: int, result: dict[str, Any] | None = None) -> None:
                 raise ValueError(
                     f"Cannot complete job {job_id}: not RUNNING"
                 )
+
+
+def list_batch(batch_id: str) -> list[dict]:
+    """
+    Every job of one batch, oldest first, with its progress.
+
+    Used by the window to draw a single bar for a batch of fingerprint builds.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT {_JOB_COLUMNS}
+                FROM public.job_queue
+                WHERE payload ->> 'batch_id' = %s
+                ORDER BY id
+                """,
+                (str(batch_id),),
+            )
+            rows = cur.fetchall()
+
+    return [_row_to_job(row) for row in rows]
+
+
+def set_progress(job_id: int, progress: dict[str, Any]) -> bool:
+    """
+    Record what a running job has done so far (percent/done/total/stage).
+
+    Called by the worker between batches; the job window polls the row and
+    draws the bar from it. Returns False when the job is gone.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.job_queue
+                SET progress = %s
+                WHERE id = %s
+                """,
+                (Json(progress), job_id),
+            )
+
+            return cur.rowcount == 1
+
+
+def job_status(job_id: int) -> str | None:
+    """Current status of a job, or None when it does not exist."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT status FROM public.job_queue WHERE id = %s",
+                (job_id,),
+            )
+            row = cur.fetchone()
+
+    return str(row[0]) if row is not None else None
+
+
+def mark_paused(job_id: int) -> bool:
+    """
+    Hold a job: PENDING or RUNNING becomes PAUSED.
+
+    A PAUSED job is not claimed (claim_next only takes PENDING); one that is
+    already running notices between batches and waits for the resume.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.job_queue
+                SET status = 'PAUSED',
+                    progress = COALESCE(progress, '{}'::jsonb)
+                        || jsonb_build_object('paused', TRUE)
+                WHERE id = %s
+                  AND status IN ('PENDING', 'RUNNING')
+                """,
+                (job_id,),
+            )
+
+            return cur.rowcount == 1
+
+
+def mark_resumed(job_id: int) -> bool:
+    """Release a held job back to the worker."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.job_queue
+                SET status = CASE
+                        WHEN started_at IS NULL THEN 'PENDING'
+                        ELSE 'RUNNING'
+                    END,
+                    progress = COALESCE(progress, '{}'::jsonb)
+                        || jsonb_build_object('paused', FALSE)
+                WHERE id = %s
+                  AND status = 'PAUSED'
+                """,
+                (job_id,),
+            )
+
+            return cur.rowcount == 1
 
 
 def mark_cancelled(job_id: int) -> bool:

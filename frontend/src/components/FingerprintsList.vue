@@ -10,11 +10,16 @@ import { Notify } from 'quasar'
 import {
   browseFolders,
   buildFingerprint,
+  buildFingerprintBatch,
+  cancelJob,
   fetchAddressDirectory,
+  fetchFingerprintBatch,
   fetchFingerprintRegistry,
   fetchFingerprintVersions,
   fetchJob,
+  pauseJob,
   pickFolderNative,
+  resumeJob,
   setFingerprintAddress,
   syncFingerprints,
   updateFingerprint,
@@ -68,6 +73,11 @@ const browseOpen = ref(false)
 const browseBusy = ref(false)
 const browsed = ref({ path: null, parent: null, dirs: [], photos: 0 })
 const browseError = ref('')
+
+// Сборка идёт прямо сейчас: показываем паузу/отмену вместо кнопки запуска.
+const runningBuild = computed(() =>
+  ['PENDING', 'RUNNING', 'PAUSED'].includes(buildJob.value?.status),
+)
 
 const PHOTO_CHOICES = [
   { label: '30 фото (норма 20–30)', value: 30 },
@@ -164,6 +174,158 @@ async function startBuild() {
   } finally {
     buildBusy.value = false
   }
+}
+
+// ---- pause / resume / cancel of a running build --------------------------
+
+async function pauseBuild() {
+  if (!buildJob.value?.id) return
+
+  try {
+    await pauseJob(buildJob.value.id)
+    Notify.create({ type: 'info', message: 'Сборка поставлена на паузу' })
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
+async function resumeBuild() {
+  if (!buildJob.value?.id) return
+
+  try {
+    await resumeJob(buildJob.value.id)
+    Notify.create({ type: 'info', message: 'Сборка продолжена' })
+    await pollBuild(buildJob.value.id)
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
+async function cancelBuild() {
+  if (!buildJob.value?.id) return
+
+  try {
+    await cancelJob(buildJob.value.id)
+    Notify.create({ type: 'info', message: 'Сборка отменена' })
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
+// ---- batch: many fingerprints over several workers -----------------------
+
+const batchOpen = ref(false)
+const batchBusy = ref(false)
+const batchParent = ref('')
+const batchDirs = ref([])
+const batchSelected = ref([])
+const batchMaxPhotos = ref(30)
+const batchState = ref(null) // агрегат от /v1/fingerprints/batch/{id}
+
+function openBatch() {
+  batchParent.value = ''
+  batchDirs.value = []
+  batchSelected.value = []
+  batchState.value = null
+  batchOpen.value = true
+}
+
+async function loadBatchDirs(path) {
+  batchBusy.value = true
+
+  try {
+    const result = await browseFolders(path || null)
+    batchParent.value = result.path || ''
+    batchDirs.value = (result.dirs || []).filter((dir) => dir.photos > 0)
+    batchSelected.value = []
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+async function pickBatchParent() {
+  try {
+    const result = await pickFolderNative()
+    await loadBatchDirs(result.path)
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
+function toggleBatchDir(path) {
+  const index = batchSelected.value.indexOf(path)
+
+  if (index === -1) batchSelected.value.push(path)
+  else batchSelected.value.splice(index, 1)
+}
+
+async function startBatch() {
+  if (!batchSelected.value.length) {
+    Notify.create({ type: 'warning', message: 'Отметьте папки' })
+    return
+  }
+
+  batchBusy.value = true
+
+  try {
+    const items = batchSelected.value.map((path) => ({
+      fingerprint_id: `${path.split('/').filter(Boolean).pop()}_v33`,
+      folder: path,
+    }))
+
+    const started = await buildFingerprintBatch({
+      items,
+      max_photos: batchMaxPhotos.value || null,
+      replace: true,
+    })
+
+    Notify.create({
+      type: started.errors.length ? 'warning' : 'positive',
+      message:
+        `Заданий поставлено: ${started.jobs.length}` +
+        (started.errors.length ? `, отклонено: ${started.errors.length}` : ''),
+    })
+
+    await pollBatch(started.batch_id)
+    await load()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    batchBusy.value = false
+  }
+}
+
+async function pollBatch(batchId) {
+  for (let attempt = 0; attempt < 600; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+    batchState.value = await fetchFingerprintBatch(batchId)
+
+    const active = (batchState.value.counts.PENDING || 0) +
+      (batchState.value.counts.RUNNING || 0) +
+      (batchState.value.counts.PAUSED || 0)
+
+    if (!active) break
+  }
+
+  await load()
+}
+
+async function cancelBatch() {
+  if (!batchState.value) return
+
+  for (const job of batchState.value.jobs) {
+    if (['PENDING', 'RUNNING', 'PAUSED'].includes(job.status)) {
+      try {
+        await cancelJob(job.job_id)
+      } catch {
+        // задание могло уже завершиться — это не ошибка для «отменить все»
+      }
+    }
+  }
+
+  Notify.create({ type: 'info', message: 'Батч отменён' })
 }
 
 async function pollBuild(jobId) {
@@ -313,6 +475,13 @@ function day(value) {
         @click="openBuild()">
         <q-tooltip>
           Выбрать папку с фотографиями и собрать (или пересобрать) слепок
+        </q-tooltip>
+      </q-btn>
+      <q-btn v-if="isAdmin" dense flat icon="library_add" label="Батч-сборка"
+        @click="openBatch">
+        <q-tooltip>
+          Собрать слепки по всем папкам адреса за раз — задания разберут
+          параллельные воркеры сборки
         </q-tooltip>
       </q-btn>
       <q-btn v-if="isAdmin" dense flat icon="sync" label="Синхронизировать с диском"
@@ -577,23 +746,68 @@ function day(value) {
             фото и даты съёмок.
           </div>
 
-          <div v-if="buildJob" class="q-mt-sm">
-            <q-banner :class="buildJob.status === 'DONE' ? 'bg-green-1' : (buildJob.error ? 'bg-red-1 text-negative' : 'bg-blue-1')">
-              Задание №{{ buildJob.id }}: {{ buildJob.status }}
-              <template v-if="buildJob.result">
-                · собрано из {{ buildJob.result.images }} фото
-              </template>
-              <template v-if="buildJob.error"> · {{ buildJob.error }}</template>
+          <div v-if="buildJob" class="q-mt-md">
+            <div class="row items-center q-gutter-sm">
+              <div class="text-caption col">
+                Задание №{{ buildJob.id }}: {{ buildJob.status }}
+                <template v-if="buildJob.progress">
+                  · {{ buildJob.progress.stage }}
+                  {{ buildJob.progress.done }}/{{ buildJob.progress.total }}
+                </template>
+              </div>
+              <div class="text-caption text-grey">
+                {{ buildJob.progress?.percent ?? 0 }} %
+              </div>
+            </div>
+
+            <q-linear-progress
+              :value="(buildJob.progress?.percent ?? 0) / 100"
+              :color="buildJob.error ? 'negative' : 'primary'"
+              track-color="grey-3"
+              size="18px"
+              rounded
+              class="q-mt-xs"
+            />
+
+            <q-banner
+              v-if="buildJob.error"
+              class="bg-red-1 text-negative q-mt-sm"
+            >
+              {{ buildJob.error }}
             </q-banner>
+
+            <div
+              v-else-if="buildJob.status === 'DONE' && buildJob.result"
+              class="text-caption text-grey q-mt-xs"
+            >
+              Собрано из {{ buildJob.result.images }} фото
+            </div>
           </div>
         </q-card-section>
         <q-card-actions align="right">
+          <template v-if="runningBuild">
+            <q-btn
+              v-if="buildJob.status === 'PAUSED'"
+              flat
+              icon="play_arrow"
+              label="Продолжить"
+              @click="resumeBuild"
+            />
+            <q-btn
+              v-else
+              flat
+              icon="pause"
+              label="Пауза"
+              @click="pauseBuild"
+            />
+            <q-btn flat color="negative" icon="stop" label="Отменить" @click="cancelBuild" />
+          </template>
           <q-btn flat label="Закрыть" v-close-popup />
           <q-btn
             color="primary"
             label="Собрать"
             :loading="buildBusy"
-            :disable="!buildForm.fingerprint_id.trim() || !buildForm.folder.trim()"
+            :disable="runningBuild || !buildForm.fingerprint_id.trim() || !buildForm.folder.trim()"
             @click="startBuild"
           />
         </q-card-actions>
@@ -662,6 +876,137 @@ function day(value) {
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Отмена" v-close-popup />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+  
+
+    <!-- батч-сборка: папки -> задания, их разбирают воркеры -->
+    <q-dialog v-model="batchOpen">
+      <q-card style="min-width: 620px; max-width: 94vw; max-height: 90vh">
+        <q-card-section class="row items-center">
+          <div class="text-subtitle1 col">Батч-сборка слепков</div>
+          <q-btn dense flat icon="desktop_windows" label="Системный диалог"
+            :loading="batchBusy" @click="pickBatchParent" />
+        </q-card-section>
+        <q-separator />
+
+        <q-card-section style="max-height: 60vh; overflow: auto">
+          <div class="row items-center q-gutter-sm">
+            <q-input
+              v-model="batchParent"
+              dense
+              outlined
+              class="col"
+              label="Папка с подпапками адресов"
+              hint="например data/input — вложенные папки станут слепками"
+              @keyup.enter="loadBatchDirs(batchParent)"
+            />
+            <q-btn dense label="Показать подпапки" :loading="batchBusy"
+              @click="loadBatchDirs(batchParent)" />
+          </div>
+
+          <div class="row items-center q-gutter-sm q-mt-sm">
+            <q-select
+              v-model="batchMaxPhotos"
+              :options="PHOTO_CHOICES"
+              dense
+              outlined
+              emit-value
+              map-options
+              option-label="label"
+              option-value="value"
+              label="Фото на слепок"
+              style="min-width: 220px"
+            />
+            <q-badge color="grey-7">
+              отмечено: {{ batchSelected.length }} из {{ batchDirs.length }}
+            </q-badge>
+            <q-space />
+            <q-btn dense flat label="Отметить все" @click="batchSelected = batchDirs.map((d) => d.path)" />
+            <q-btn dense flat label="Снять" @click="batchSelected = []" />
+          </div>
+
+          <q-list dense separator class="q-mt-sm">
+            <q-item
+              v-for="dir in batchDirs"
+              :key="dir.path"
+              clickable
+              @click="toggleBatchDir(dir.path)"
+            >
+              <q-item-section side>
+                <q-checkbox
+                  :model-value="batchSelected.includes(dir.path)"
+                  dense
+                  @click.stop
+                  @update:model-value="toggleBatchDir(dir.path)"
+                />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>{{ dir.name }}_v33</q-item-label>
+                <q-item-label caption>{{ dir.path }}</q-item-label>
+              </q-item-section>
+              <q-item-section side>
+                <span class="text-caption text-grey">{{ dir.photos }} фото</span>
+              </q-item-section>
+            </q-item>
+            <q-item v-if="!batchDirs.length">
+              <q-item-section class="text-caption text-grey">
+                Выберите папку и нажмите «Показать подпапки»
+              </q-item-section>
+            </q-item>
+          </q-list>
+
+          <div v-if="batchState" class="q-mt-md">
+            <div class="row items-center q-gutter-sm">
+              <div class="text-caption col">
+                Итог: {{ batchState.counts.DONE || 0 }}/{{ batchState.total }} готово
+                <template v-if="batchState.counts.FAILED">
+                  · ошибок {{ batchState.counts.FAILED }}
+                </template>
+                <template v-if="batchState.counts.PAUSED">
+                  · на паузе {{ batchState.counts.PAUSED }}
+                </template>
+              </div>
+              <div class="text-caption text-grey">{{ batchState.percent }} %</div>
+            </div>
+            <q-linear-progress
+              :value="batchState.percent / 100"
+              color="primary"
+              track-color="grey-3"
+              size="18px"
+              rounded
+              class="q-mt-xs"
+            />
+            <q-list dense class="q-mt-sm">
+              <q-item v-for="job in batchState.jobs" :key="job.job_id">
+                <q-item-section>
+                  <q-item-label>{{ job.fingerprint_id }}</q-item-label>
+                </q-item-section>
+                <q-item-section side>
+                  <q-badge
+                    :color="job.status === 'DONE' ? 'positive' : (job.status === 'FAILED' ? 'negative' : 'grey-7')"
+                  >
+                    {{ job.status }}
+                    <template v-if="job.progress">· {{ job.progress.percent }} %</template>
+                  </q-badge>
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </div>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn v-if="batchState" flat color="negative" icon="stop" label="Отменить все"
+            @click="cancelBatch" />
+          <q-btn flat label="Закрыть" v-close-popup />
+          <q-btn
+            color="primary"
+            label="Запустить батч"
+            :loading="batchBusy"
+            :disable="!batchSelected.length"
+            @click="startBatch"
+          />
         </q-card-actions>
       </q-card>
     </q-dialog>

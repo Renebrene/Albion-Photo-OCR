@@ -19,13 +19,19 @@ from app.core.fingerprint import FingerprintManager
 
 
 class _StubEmbedder:
-    def embed_paths(self, paths):
+    def embed_paths(self, paths, on_batch=None):
         count = len(list(paths))
+
+        # The builder reports progress through on_batch; a double must accept
+        # it the same way the real embedder does.
+        if on_batch is not None:
+            on_batch(count, count)
+
         return np.random.default_rng(0).random((count, 768), dtype=np.float32)
 
 
 class _FailingEmbedder:
-    def embed_paths(self, paths):
+    def embed_paths(self, paths, on_batch=None):
         raise RuntimeError("embedding failed")
 
 

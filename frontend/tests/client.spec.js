@@ -4,7 +4,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  buildFingerprintBatch,
   cancelJob,
+  fetchFingerprintBatch,
+  pauseJob,
+  resumeJob,
   fetchMediaSearchJob,
   fetchPhotos,
   getToken,
@@ -167,5 +171,42 @@ describe('api client', () => {
     const [url, options] = global.fetch.mock.calls[0]
     expect(url).toContain('/v1/jobs/12/cancel')
     expect(options.method).toBe('POST')
+  })
+})
+
+
+describe('fingerprint batch and job control', () => {
+  it('queues a batch of builds', async () => {
+    mockFetchOnce(okJson({ batch_id: 'abc', jobs: [{ job_id: 1 }], errors: [] }))
+
+    const result = await buildFingerprintBatch({
+      items: [{ fingerprint_id: '78_v33', folder: '/photos/78' }],
+      max_photos: 30,
+    })
+
+    const [url, options] = global.fetch.mock.calls[0]
+    expect(url).toContain('/v1/fingerprints/build-batch')
+    expect(options.method).toBe('POST')
+    expect(JSON.parse(options.body).max_photos).toBe(30)
+    expect(result.batch_id).toBe('abc')
+  })
+
+  it('reads the batch state', async () => {
+    mockFetchOnce(okJson({ total: 2, percent: 50 }))
+
+    const state = await fetchFingerprintBatch('abc')
+
+    expect(global.fetch.mock.calls[0][0]).toContain('/v1/fingerprints/batch/abc')
+    expect(state.percent).toBe(50)
+  })
+
+  it('pauses and resumes one job', async () => {
+    mockFetchOnce(okJson({ job_id: 7, status: 'PAUSED' }))
+    await pauseJob(7)
+    expect(global.fetch.mock.calls[0][0]).toContain('/v1/jobs/7/pause')
+
+    mockFetchOnce(okJson({ job_id: 7, status: 'RUNNING' }))
+    await resumeJob(7)
+    expect(global.fetch.mock.calls[0][0]).toContain('/v1/jobs/7/resume')
   })
 })

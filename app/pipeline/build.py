@@ -34,12 +34,16 @@ def build_fingerprint(
     *,
     max_photos: int | None = None,
     replace: bool = True,
+    progress=None,
 ) -> dict:
     """
     Build one fingerprint and refresh the registry.
 
     Returns a JSON-serialisable summary for the job row: the id, how many photos
     were used, the folder and the algorithm version.
+
+    `progress(done, total, stage)` is handed to the builder; the worker uses it
+    both for the progress bar and to notice a pause/cancel request.
     """
 
     from app.api import fingerprints as registry
@@ -65,6 +69,7 @@ def build_fingerprint(
         max_photos=max_photos,
         replace=replace,
         source_folder=str(folder_path),
+        progress=progress,
     )
 
     # The registry mirrors metadata.json; syncing here means the new version is

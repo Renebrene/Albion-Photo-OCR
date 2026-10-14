@@ -66,7 +66,15 @@ class SceneEmbedder:
         self,
         images: list[Image.Image],
         batch_size=None,
+        on_batch=None,
     ):
+        """
+        Embed a list of images.
+
+        on_batch(done, total) is called after every batch so a long build can
+        report progress (the callback must be cheap - it runs in the loop).
+        """
+
         batch_size = (
             batch_size
             or self.settings.batch_size
@@ -112,6 +120,9 @@ class SceneEmbedder:
                 .numpy()
             )
 
+            if on_batch is not None:
+                on_batch(min(i + batch_size, len(images)), len(images))
+
         if not vectors:
             return np.empty(
                 (0, self.dimension),
@@ -123,7 +134,7 @@ class SceneEmbedder:
             axis=0,
         ).astype("float32")
 
-    def embed_paths(self, paths):
+    def embed_paths(self, paths, on_batch=None):
         from .image import load_image
 
         images = [
@@ -131,4 +142,4 @@ class SceneEmbedder:
             for path in paths
         ]
 
-        return self.embed_images(images)
+        return self.embed_images(images, on_batch=on_batch)

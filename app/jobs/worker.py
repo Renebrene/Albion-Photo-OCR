@@ -13,11 +13,88 @@ API request handlers. Jobs are claimed atomically from public.job_queue.
 from __future__ import annotations
 
 import argparse
+import multiprocessing as mp
+import os
 import time
 
 from app.core.errors import redact_absolute_paths
 from app.jobs import automation
 from app.jobs import database as jobs
+
+# A paused job keeps the worker busy, so the wait is bounded: if nobody resumes
+# it in time the job fails instead of blocking the whole queue forever.
+PAUSE_MAX_SECONDS = float(os.getenv("SCENE_PAUSE_MAX_SECONDS", "300"))
+
+# Progress/control round trips to the database are throttled.
+CONTROL_INTERVAL = 1.0
+
+
+class JobCancelled(RuntimeError):
+    """The job was cancelled while it ran; the result must be dropped."""
+
+
+class JobPausedTooLong(RuntimeError):
+    """Nobody resumed a paused job within PAUSE_MAX_SECONDS."""
+
+
+def job_control(job_id: int):
+    """
+    Build the progress callback for one job.
+
+    It writes {done, total, stage, percent} to the job row (at most once per
+    second) and checks the row's status: CANCELLED stops the build at once,
+    PAUSED waits for a resume (bounded by PAUSE_MAX_SECONDS).
+    """
+
+    state = {"last": 0.0}
+
+    def callback(done: int, total: int, stage: str) -> None:
+        now = time.monotonic()
+
+        if now - state["last"] < CONTROL_INTERVAL and done < total:
+            return
+
+        state["last"] = now
+
+        percent = round(done / total * 100, 1) if total else 0.0
+
+        jobs.set_progress(
+            job_id,
+            {
+                "done": done,
+                "total": total,
+                "stage": stage,
+                "percent": percent,
+            },
+        )
+
+        status = jobs.job_status(job_id)
+
+        if status == "CANCELLED":
+            raise JobCancelled("задание отменено")
+
+        if status == "PAUSED":
+            waited = 0.0
+            print(f"[worker] job {job_id} paused", flush=True)
+
+            while waited < PAUSE_MAX_SECONDS:
+                time.sleep(2.0)
+                waited += 2.0
+
+                status = jobs.job_status(job_id)
+
+                if status == "CANCELLED":
+                    raise JobCancelled("задание отменено во время паузы")
+
+                if status == "RUNNING":
+                    print(f"[worker] job {job_id} resumed", flush=True)
+                    break
+            else:
+                raise JobPausedTooLong(
+                    f"пауза длилась больше {PAUSE_MAX_SECONDS:.0f} с"
+                )
+
+    return callback
 
 
 def _execute(job: dict) -> dict:
@@ -62,6 +139,7 @@ def _execute(job: dict) -> dict:
             str(payload["folder"]),
             max_photos=payload.get("max_photos"),
             replace=bool(payload.get("replace", True)),
+            progress=job_control(int(job["id"])),
         )
 
     if job_type == "MEDIA_SEARCH":
@@ -99,15 +177,16 @@ def _unload_on_idle() -> bool:
         return False
 
 
-def run_once() -> str | None:
+def run_once(types: list[str] | None = None) -> str | None:
     """
     Claim and execute one job.
 
-    Returns the executed job_type, or None when the queue is empty (so a
+    `types` limits which job types this worker takes (see claim_next). Returns
+    the executed job_type, or None when nothing was claimed (so a
     `while run_once():` loop still works and callers can inspect the type).
     """
 
-    job = jobs.claim_next()
+    job = jobs.claim_next(types)
 
     if job is None:
         return None
@@ -120,6 +199,10 @@ def run_once() -> str | None:
 
     try:
         result = _execute(job)
+    except JobCancelled as exc:
+        # The row is already CANCELLED; the result is dropped, nothing to report.
+        print(f"[worker] job {job['id']} cancelled: {exc}", flush=True)
+        return str(job["job_type"])
     except Exception as exc:  # noqa: BLE001 - reported to the queue
         # A job cancelled while it ran keeps its CANCELLED status: the failure
         # is not published (mark_failed refuses to touch a non-RUNNING row).
@@ -147,6 +230,33 @@ def run_once() -> str | None:
 
     print(f"[worker] job {job['id']} DONE {result}", flush=True)
     return str(job["job_type"])
+
+
+def _builder_worker(
+    types: list[str],
+    interval: float,
+    threads: int,
+    label: str,
+) -> None:
+    """One worker process in --parallel mode: claims its own jobs."""
+
+    os.environ.setdefault("OMP_NUM_THREADS", str(threads))
+    os.environ.setdefault("MKL_NUM_THREADS", str(threads))
+
+    try:
+        import torch
+
+        torch.set_num_threads(threads)
+    except Exception:  # noqa: BLE001 - reported by the job itself
+        pass
+
+    print(f"[worker {label}] watching {types}", flush=True)
+
+    while True:
+        job_type = run_once(types)
+
+        if job_type is None:
+            time.sleep(interval)
 
 
 def main() -> None:
@@ -180,10 +290,68 @@ def main() -> None:
             "Off by default; implies --watch."
         ),
     )
+    parser.add_argument(
+        "--only",
+        default=None,
+        metavar="TYPES",
+        help=(
+            "Only claim these job types (comma separated), e.g. "
+            "FINGERPRINT_BUILD - this is how a dedicated builder worker is run."
+        ),
+    )
+    parser.add_argument(
+        "--parallel",
+        type=int,
+        default=1,
+        help=(
+            "Run N workers in this process, each claiming its own job. Use it "
+            "with --only FINGERPRINT_BUILD to build several fingerprints at "
+            "once (each gets cores/N torch threads)."
+        ),
+    )
     args = parser.parse_args()
 
     if args.automation:
         args.watch = True
+
+    types = (
+        [item.strip() for item in args.only.split(",") if item.strip()]
+        if args.only
+        else None
+    )
+
+    parallel = max(1, args.parallel)
+
+    if parallel > 1 and args.watch and types:
+        threads = max(1, (os.cpu_count() or 1) // parallel)
+
+        print(
+            f"[worker] {parallel} builder processes, types={types}, "
+            f"{threads} torch threads each",
+            flush=True,
+        )
+
+        context = mp.get_context("spawn")
+        processes = [
+            context.Process(
+                target=_builder_worker,
+                args=(types, args.interval, threads, f"{index + 1}/{parallel}"),
+            )
+            for index in range(parallel)
+        ]
+
+        for process in processes:
+            process.start()
+
+        for process in processes:
+            process.join()
+
+        failed = [process.exitcode for process in processes if process.exitcode]
+
+        if failed:
+            raise SystemExit(f"builder(s) failed with exit codes: {failed}")
+
+        return
 
     if args.requeue_stale is not None:
         from app.dino import database as dino_db
@@ -205,7 +373,7 @@ def main() -> None:
         model_used = False
 
         while True:
-            job_type = run_once()
+            job_type = run_once(types)
 
             if job_type is None:
                 break
@@ -231,7 +399,7 @@ def main() -> None:
             except Exception as exc:  # noqa: BLE001 - keep the loop alive
                 print(f"[worker] automation tick failed: {exc}", flush=True)
 
-        job_type = run_once()
+        job_type = run_once(types)
 
         if job_type is None:
             # Queue is empty: free the local model if it was used.
