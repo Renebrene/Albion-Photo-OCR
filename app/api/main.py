@@ -21,6 +21,13 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.auth import validate_token_config
 from app.api.config import API_HOST, API_PORT, CORS_ORIGINS
+from app.api.videos import (
+    originals_router as video_originals_router,
+    public_router as video_public_router,
+    playback_router as video_playback_router,
+    read_router as video_read_router,
+    write_router as video_write_router,
+)
 from app.api.routes import (
     addresses_router,
     auth_router,
@@ -73,6 +80,11 @@ def create_app() -> FastAPI:
     app.include_router(uploads_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
     app.include_router(users_router, prefix="/api")
+    app.include_router(video_public_router, prefix="/api")
+    app.include_router(video_read_router, prefix="/api")
+    app.include_router(video_originals_router, prefix="/api")
+    app.include_router(video_write_router, prefix="/api")
+    app.include_router(video_playback_router, prefix="/api")
 
     _mount_spa(app)
 

@@ -31,6 +31,7 @@ from fastapi.responses import StreamingResponse
 from app import settings_store
 from app.api import directory as directory_mod
 from app.api import fingerprints as fingerprints_mod
+from app.api import file_access
 from app.api import repository
 from app.api import archive as archive_mod
 from app.api import data as data_mod
@@ -253,29 +254,9 @@ def get_preview(photo_id: str, size: str) -> Response:
 
 
 def _allowed_original_path(source_path: str) -> Path | None:
-    """
-    Resolve a registered source path and require it inside the allowed roots.
+    """Shared fail-closed check used by photo archive/download routes."""
 
-    Returns None when the file is gone or lies outside SCENE_ORIGINALS_ROOTS
-    (fail-closed: with no roots configured nothing is served). Shared by the
-    single-file download and the ZIP archive so the rule cannot drift.
-    """
-
-    try:
-        resolved = Path(source_path).resolve(strict=True)
-    except OSError:
-        return None
-
-    for root in ORIGINALS_ROOTS:
-        try:
-            root_resolved = root.resolve(strict=True)
-        except OSError:
-            continue
-
-        if resolved == root_resolved or root_resolved in resolved.parents:
-            return resolved if resolved.is_file() else None
-
-    return None
+    return file_access.allowed_media_path(source_path, ORIGINALS_ROOTS)
 
 
 @originals_router.get(

@@ -173,8 +173,9 @@ def test_address_filter_is_built_from_the_fingerprints():
 
 
 @requires_db
+@requires_db
 def test_stats_for_the_status_bar():
-    """Counts for the footer: photos, addresses, clients, last upload."""
+    """Counts for the footer: photos/videos, facets and latest upload times."""
 
     response = client.get("/api/v1/stats")
 
@@ -182,8 +183,9 @@ def test_stats_for_the_status_bar():
 
     body = response.json()
 
-    assert set(body) == {"photos", "addresses", "clients", "last_photo_at"}
+    assert set(body) == {"photos", "videos", "addresses", "clients", "last_photo_at", "last_video_at"}
     assert body["photos"] >= 1
+    assert body["videos"] >= 0
     assert body["addresses"] >= 0
     assert body["clients"] >= 0
     # The corpus has photos, so there is a date of the last one.

@@ -24,6 +24,7 @@ from app.ingest.database import (
 from app.ingest.pipeline import DEFAULT_WORKERS, run
 from app.ingest.video_integrity import check_video_file, discover_video_files
 from app.ingest.video_register import VideoRecord, register_video, register_video_records
+from app.preview.video import build_video_poster, default_video_preview_root
 
 
 def _check_video(path: Path) -> tuple[Path, dict]:
@@ -66,6 +67,29 @@ def _ingest_videos(directory: str | Path, *, workers: int, recursive: bool) -> d
             errors.append({"filename": path.name, "error": str(exc)})
 
     classification = register_video_records(records)
+    preview_root = default_video_preview_root().resolve()
+    source_root = Path(directory).resolve()
+    posters_created = 0
+    poster_errors = 0
+    if preview_root == source_root or source_root in preview_root.parents:
+        # Never publish generated posters inside the source tree.
+        poster_errors = len(classification["NEW"])
+    else:
+        for record in classification["NEW"] + classification["EXISTING"]:
+            poster = preview_root / f"{record.video_id}.jpg"
+            if poster.is_file():
+                continue
+            try:
+                build_video_poster(
+                    record.video_id,
+                    record.source_path,
+                    preview_root,
+                    duration_seconds=record.duration_seconds,
+                )
+                posters_created += 1
+            except Exception:  # noqa: BLE001 - poster is non-critical to registration
+                poster_errors += 1
+
     return {
         "discovered": len(paths),
         "valid": len(records),
@@ -73,6 +97,8 @@ def _ingest_videos(directory: str | Path, *, workers: int, recursive: bool) -> d
         "registered": len(classification["NEW"]),
         "existing": len(classification["EXISTING"]),
         "conflicts": [record.video_id for record in classification["CONFLICT"]],
+        "posters_created": posters_created,
+        "poster_errors": poster_errors,
         "errors": errors[:20],
     }
 

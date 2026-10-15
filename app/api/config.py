@@ -15,6 +15,9 @@ from pathlib import Path
 PREVIEW_ROOT = Path(
     os.getenv("SCENE_PREVIEW_ROOT", "data/preview")
 )
+VIDEO_PREVIEW_ROOT = Path(
+    os.getenv("SCENE_VIDEO_PREVIEW_ROOT", str(PREVIEW_ROOT / "videos"))
+)
 
 # Fingerprint artifacts (FAISS + metadata) live next to the data directory.
 FINGERPRINTS_ROOT = Path(

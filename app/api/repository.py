@@ -369,12 +369,21 @@ def stats() -> dict:
                 """
             )
             row = cur.fetchone()
+            cur.execute("SELECT to_regclass('public.video_assets')")
+            has_video_table = cur.fetchone()[0] is not None
+            if has_video_table:
+                cur.execute("SELECT count(*), max(created_at) FROM public.video_assets")
+                video_count, last_video_at = cur.fetchone()
+            else:
+                video_count, last_video_at = 0, None
 
     return {
         "photos": int(row[0]),
+        "videos": int(video_count),
         "addresses": int(row[1]),
         "clients": int(row[2]),
         "last_photo_at": row[3],
+        "last_video_at": last_video_at,
     }
 
 

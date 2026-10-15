@@ -44,6 +44,31 @@ class PhotoPage(BaseModel):
     next_cursor: str | None = None
 
 
+class VideoSummary(BaseModel):
+    video_id: str = Field(pattern=r"^VI_[0-9a-f]{24}$")
+    filename: str
+    display_title: str = ""
+    container_format: str
+    video_codec: str
+    width: int
+    height: int
+    duration_seconds: float
+    fps: float | None = None
+    frame_count: int | None = None
+    size_bytes: int
+    taken_at: datetime | None = None
+    created_at: datetime | None = None
+
+
+class VideoPage(BaseModel):
+    items: list[VideoSummary]
+    next_cursor: str | None = None
+
+
+class VideoTitleUpdate(BaseModel):
+    display_title: str = Field(max_length=300)
+
+
 class DinoBatchSummary(BaseModel):
     batch_id: int
     run_type: str

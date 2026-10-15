@@ -84,6 +84,7 @@ def test_repo_schema_files_are_discoverable():
     assert versions[0] == "001_ingest"
     assert "017_job_dedup" in versions
     assert "026_video_assets" in versions
+    assert "027_video_playback_tickets" in versions
     # 000 is the superuser bootstrap step, never a migration.
     assert not any(v.startswith("000_") for v in versions)
     # Every file has a 64-char sha256 checksum.

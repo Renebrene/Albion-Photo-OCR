@@ -48,6 +48,7 @@ PostgreSQL — источник истины для зарегистрирова
 024_fingerprint_build.sql → ALTER job_queue: + FINGERPRINT_BUILD; fingerprint_versions.images_meta
 025_job_progress.sql → job_queue.progress + PAUSED status
 026_video_assets.sql → отдельный реестр durable source videos (`video_assets`)
+027_video_playback_tickets.sql → short-lived HttpOnly playback/download tickets
 ```
 
 **`004` теперь backfill-safe и идемпотентен (2026-10-12):** создаёт `dino_batches` при отсутствии, добавляет `dino_runs.batch_id` (nullable) при отсутствии, бэкфиллит существующие runs без batch (по одному legacy-batch на run, со статусом и счётчиками из run), затем ставит `NOT NULL` и создаёт индекс. Повторный прогон — no-op. Ранее файл делал `ADD COLUMN` и сразу `SET NOT NULL`, что падало на непустой `dino_runs`.
@@ -384,6 +385,8 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 | `taken_at` | TIMESTAMPTZ | NULL, creation_time из metadata без догадки |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT CURRENT_TIMESTAMP (время регистрации) |
 | `display_title` | TEXT | NOT NULL DEFAULT ''; пользовательское имя для UI, максимум 300 знаков |
+
+`video_playback_tickets` (`schema/027_video_playback_tickets.sql`) хранит только SHA-256 короткоживущего HttpOnly cookie, `video_id`, тип действия и expiry (5 минут). Это даёт HTML `<video>`/Range download доступ без bearer-токена в URL и без полного чтения ролика в память. Обе миграции 026/027 только в репозитории; к рабочей БД не применялись.
 
 Путь, контейнер и MIME не приходят от клиента API для download: читаются по зарегистрированному `video_id`, затем проверяются внутри `SCENE_ORIGINALS_ROOTS`. `schema/026` добавлена в репозиторий, но не применена к рабочей БД.
 

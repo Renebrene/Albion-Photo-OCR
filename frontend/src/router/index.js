@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import PhotosGrid from '../pages/PhotosGrid.vue'
+import VideosGrid from '../pages/VideosGrid.vue'
 import Technical from '../pages/Technical.vue'
 import Help from '../pages/Help.vue'
 import { useSessionStore } from '../stores/session'
@@ -16,6 +17,11 @@ const router = createRouter({
       path: '/',
       name: 'photos',
       component: PhotosGrid,
+    },
+    {
+      path: '/videos',
+      name: 'videos',
+      component: VideosGrid,
     },
     {
       path: '/technical',

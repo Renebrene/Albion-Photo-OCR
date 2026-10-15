@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Dark, Notify } from 'quasar'
 import { useRouter } from 'vue-router'
 
-import { fetchStats } from './api/client'
+import { fetchMediaStatistics, fetchStats } from './api/client'
 import { useDisplayStore } from './stores/display'
 import { usePhotosStore } from './stores/photos'
 import { useSessionStore } from './stores/session'
@@ -41,6 +41,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', measureChrome)
+  if (statsTimer !== null) window.clearInterval(statsTimer)
 })
 
 async function afterAuth() {
@@ -48,6 +49,7 @@ async function afterAuth() {
   // The display settings follow the user, not the browser.
   await display.loadFromServer()
   await loadStats()
+  if (statsTimer === null) statsTimer = window.setInterval(loadStats, 60_000)
   booted.value = true
 
   // Шапка и подвал уже отрисованы: измеряем их и отдаём размер странице фото,
@@ -78,7 +80,11 @@ function measureChrome() {
 // тесты), обычное обращение обрушило бы всё приложение, а не подпись в подвале.
 const build = typeof __APP_BUILD__ === 'string' ? __APP_BUILD__ : '—'
 
-const stats = ref({ photos: null, addresses: null, clients: null, last_photo_at: null })
+const stats = ref({ photos: null, videos: null, addresses: null, clients: null, last_photo_at: null, last_video_at: null })
+const statsDialogOpen = ref(false)
+const mediaStats = ref(null)
+const mediaStatsLoading = ref(false)
+let statsTimer = null
 
 async function loadStats() {
   try {
@@ -106,6 +112,31 @@ const lastPhotoFull = computed(() => {
 
   return value ? String(value).replace('T', ' ').slice(0, 19) : 'нет данных'
 })
+
+const lastVideo = computed(() => {
+  const value = stats.value.last_video_at
+  if (!value) return '—'
+  const [date] = String(value).split(/[T ]/)
+  const [year, month, day] = date.split('-')
+  return year && month && day ? `${day}.${month}.${year}` : date
+})
+
+const lastVideoFull = computed(() => {
+  const value = stats.value.last_video_at
+  return value ? String(value).replace('T', ' ').slice(0, 19) : 'нет данных'
+})
+
+async function openStats() {
+  statsDialogOpen.value = true
+  mediaStatsLoading.value = true
+  try {
+    mediaStats.value = await fetchMediaStatistics()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message || 'Не удалось загрузить статистику' })
+  } finally {
+    mediaStatsLoading.value = false
+  }
+}
 
 // Auth is required and nobody is logged in: show the login screen.
 function needsLogin() {
@@ -150,6 +181,7 @@ function toggleDark() {
         <!-- Главный экран выделен плашкой, как блок пользователя. -->
         <q-tabs v-if="session.user" align="right" shrink class="header-gallery">
           <q-route-tab to="/" icon="photo_library" label="Фотогалерея" exact />
+          <q-route-tab to="/videos" icon="movie" label="Видео" exact />
         </q-tabs>
 
         <!-- Технический раздел: шестерёнка вместо вкладки. Доступен только
@@ -254,6 +286,10 @@ function toggleDark() {
         </span>
         <span class="footer-dot">·</span>
         <span class="footer-item">
+          Видео: <b>{{ stats.videos === null || stats.videos === undefined ? '—' : stats.videos }}</b>
+        </span>
+        <span class="footer-dot">·</span>
+        <span class="footer-item">
           Адреса: <b>{{ stats.addresses === null ? '—' : stats.addresses }}</b>
         </span>
         <span class="footer-dot">·</span>
@@ -262,10 +298,15 @@ function toggleDark() {
         </span>
         <span class="footer-dot">·</span>
         <span class="footer-item">
-          Последнее фото добавлено:
-          <b class="footer-last">{{ lastPhoto }}</b>
+          Последнее фото: <b class="footer-last">{{ lastPhoto }}</b>
           <q-tooltip>{{ lastPhotoFull }}</q-tooltip>
         </span>
+        <span class="footer-dot">·</span>
+        <span class="footer-item">
+          Последнее видео: <b class="footer-last">{{ lastVideo }}</b>
+          <q-tooltip>{{ lastVideoFull }}</q-tooltip>
+        </span>
+        <q-btn flat dense no-caps label="Статистика" class="q-ml-sm" @click="openStats" />
 
         <span class="footer-dot">·</span>
         <span class="footer-item text-grey-6">
@@ -277,10 +318,52 @@ function toggleDark() {
         </span>
       </div>
     </q-footer>
+
+    <q-dialog v-model="statsDialogOpen">
+      <q-card class="media-stats-dialog">
+        <q-card-section class="panel-head row items-center">
+          <div class="panel-title col">Статистика медиатеки</div>
+          <q-btn flat round dense icon="refresh" :loading="mediaStatsLoading" @click="openStats" />
+          <q-btn flat round dense icon="close" v-close-popup />
+        </q-card-section>
+        <q-separator />
+        <q-card-section v-if="mediaStatsLoading && !mediaStats" class="flex flex-center q-pa-xl">
+          <q-spinner-dots size="32px" color="primary" />
+        </q-card-section>
+        <q-card-section v-else-if="mediaStats" class="q-gutter-md">
+          <div class="row q-col-gutter-md">
+            <div class="col-6"><b>Всего файлов:</b> {{ mediaStats.photos }} фото / {{ mediaStats.videos }} видео</div>
+            <div class="col-6"><b>Период базы:</b> {{ mediaStats.period_start ? String(mediaStats.period_start).slice(0, 10) : '—' }} — {{ mediaStats.period_end ? String(mediaStats.period_end).slice(0, 10) : '—' }}</div>
+            <div class="col-6"><b>Этот месяц:</b> {{ mediaStats.this_month_photos }} фото / {{ mediaStats.this_month_videos }} видео</div>
+            <div class="col-6"><b>Последние 7 дней:</b> {{ mediaStats.last_7_days_photos }} фото / {{ mediaStats.last_7_days_videos }} видео</div>
+            <div class="col-4"><b>Сегодня:</b> {{ mediaStats.today_photos }} / {{ mediaStats.today_videos }}</div>
+            <div class="col-4"><b>Вчера:</b> {{ mediaStats.yesterday_photos }} / {{ mediaStats.yesterday_videos }}</div>
+            <div class="col-4"><b>Позавчера:</b> {{ mediaStats.day_before_photos }} / {{ mediaStats.day_before_videos }}</div>
+          </div>
+          <q-separator />
+          <div class="text-subtitle2">По месяцам</div>
+          <q-scroll-area style="height: 280px">
+            <q-markup-table dense flat bordered>
+              <thead><tr><th class="text-left">Месяц</th><th class="text-right">Фото</th><th class="text-right">Видео</th></tr></thead>
+              <tbody>
+                <tr v-for="month in mediaStats.months" :key="month.month">
+                  <td>{{ String(month.month).slice(0, 7) }}</td>
+                  <td class="text-right">{{ month.photos }}</td>
+                  <td class="text-right">{{ month.videos }}</td>
+                </tr>
+                <tr v-if="!mediaStats.months.length"><td colspan="3" class="text-center text-grey">Нет данных</td></tr>
+              </tbody>
+            </q-markup-table>
+          </q-scroll-area>
+        </q-card-section>
+      </q-card>
+    </q-dialog>
   </q-layout>
 </template>
 
 <style scoped>
+.media-stats-dialog { width: min(760px, 94vw); max-width: 94vw; }
+
 /* Пользователь и выход выделены плашкой справа от шестерёнки. */
 .header-user {
   background: rgba(255, 255, 255, 0.18);

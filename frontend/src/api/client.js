@@ -203,6 +203,42 @@ export function fetchPhotoDetails(photoId) {
   return getJson(`${BASE}/v1/photos/${photoId}/details`)
 }
 
+// Durable video library (separate from photo-only DINO/HYBRID/QWEN).
+export function fetchVideos({ limit = 50, cursor = null, q = null, date_from = null, date_to = null, date_mode = 'upload' } = {}) {
+  const params = new URLSearchParams()
+  params.set('limit', String(limit))
+  params.set('date_mode', date_mode)
+  if (cursor) params.set('cursor', cursor)
+  if (q) params.set('q', q)
+  if (date_from) params.set('date_from', date_from)
+  if (date_to) params.set('date_to', date_to)
+  return getJson(`${BASE}/v1/videos?${params.toString()}`)
+}
+
+export function fetchVideo(videoId) {
+  return getJson(`${BASE}/v1/videos/${encodeURIComponent(videoId)}`)
+}
+
+export function updateVideoTitle(videoId, display_title) {
+  return putJson(`${BASE}/v1/videos/${encodeURIComponent(videoId)}/title`, { display_title })
+}
+
+export function requestVideoPlayback(videoId) {
+  return postJson(`${BASE}/v1/videos/${encodeURIComponent(videoId)}/playback-ticket`, {})
+}
+
+export function requestVideoDownload(videoId) {
+  return postJson(`${BASE}/v1/videos/${encodeURIComponent(videoId)}/download-ticket`, {})
+}
+
+export function videoPosterUrl(videoId) {
+  return `${BASE}/v1/videos/${encodeURIComponent(videoId)}/poster`
+}
+
+export function fetchMediaStatistics() {
+  return getJson(`${BASE}/v1/media/statistics`)
+}
+
 export async function uploadPhotos(files) {
   const form = new FormData()
   for (const file of files) form.append('files', file)

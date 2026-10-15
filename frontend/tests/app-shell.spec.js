@@ -12,6 +12,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import App from '../src/App.vue'
 import Help from '../src/pages/Help.vue'
 import PhotosGrid from '../src/pages/PhotosGrid.vue'
+import VideosGrid from '../src/pages/VideosGrid.vue'
 import Technical from '../src/pages/Technical.vue'
 import { setToken } from '../src/api/client'
 
@@ -70,9 +71,17 @@ function installFetch({ loggedIn = true } = {}) {
 
     if (path.endsWith('/v1/selection')) return json({ state: {} })
 
-    if (path.endsWith('/v1/stats')) {
-      return json({ photos: 1, addresses: 1, clients: 0, last_photo_at: null })
+    if (path.endsWith('/v1/videos')) return json({ items: [], next_cursor: null })
+
+    if (path.endsWith('/v1/media/statistics')) {
+      return json({ photos: 1, videos: 0, months: [] })
     }
+
+    if (path.endsWith('/v1/stats')) {
+      return json({ photos: 1, videos: 0, addresses: 1, clients: 0, last_photo_at: null, last_video_at: null })
+    }
+
+    if (path.endsWith('/v1/media/statistics')) return json({ photos: 1, videos: 0, months: [] })
 
     return json({ items: [] })
   })
@@ -102,6 +111,7 @@ describe('оболочка приложения', () => {
       history: createMemoryHistory(),
       routes: [
         { path: '/', component: PhotosGrid },
+        { path: '/videos', component: VideosGrid },
         { path: '/technical', component: Technical },
         { path: '/help', component: Help },
       ],
@@ -167,6 +177,19 @@ describe('оболочка приложения', () => {
     expect(text).toContain('Комарова 13 · 17.07.2025 · 4.0 МБ')
     expect(text).toContain('photo.jpg, Клиент А, Бренд Б')
 
+    wrapper.unmount()
+  })
+
+  it('переключает верхнюю кнопку на отдельную видеогалерею', async () => {
+    const wrapper = await mountShell()
+    const videosTab = wrapper.findAll('a').find((item) => item.text().includes('Видео'))
+
+    expect(videosTab).toBeTruthy()
+    await videosTab.trigger('click')
+    await flushPromises()
+
+    expect(calls.some((path) => path.endsWith('/v1/videos'))).toBe(true)
+    expect(wrapper.text()).toContain('Видео не найдено')
     wrapper.unmount()
   })
 

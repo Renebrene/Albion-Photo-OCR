@@ -178,6 +178,8 @@ def test_ingest_directory_keeps_video_out_of_photo_records(tmp_path, monkeypatch
         "register_video_records",
         lambda records: {"NEW": records, "EXISTING": [], "CONFLICT": []},
     )
+    monkeypatch.setattr(runner, "default_video_preview_root", lambda: tmp_path / "posters")
+    monkeypatch.setattr(runner, "build_video_poster", lambda *_args, **_kwargs: tmp_path / "poster.jpg")
 
     result = runner.ingest_directory(tmp_path, workers=1)
 

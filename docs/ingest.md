@@ -555,4 +555,6 @@ DATABASE IDENTITY CHECK и последующая регистрация нов�
 
 Сводка `ingest_directory()` сохраняет прежние photo-поля и добавляет `videos` со счётчиками `discovered/valid/invalid/registered/existing`, конфликтами и ограниченным списком ошибок. Повторное сканирование использует полную SHA-256 identity для видео (без filename+size short-cut). Ни `VIDEO` записи, ни derivatives не вставляются в `photos`; DINO, HYBRID, QWEN, photo-preview и fingerprint-build jobs для видео не создаются.
 
-Для запуска нужен установленный runtime `ffmpeg`/`ffprobe`, видимый сервисам systemd. Если бинарь отсутствует, видео попадёт в INVALID с понятной ошибкой, фото-ingest продолжится. В этом этапе миграция 026 только добавлена в репозиторий; её не применяли к рабочей БД.
+Для запуска нужен установленный runtime `ffmpeg`/`ffprobe`, видимый сервисам systemd. Если бинарь отсутствует, видео попадёт в INVALID с понятной ошибкой, фото-ingest продолжится. Для зарегистрированного видео INGEST best-effort создаёт poster JPEG по `video_id` в `SCENE_VIDEO_PREVIEW_ROOT` (по умолчанию `<SCENE_PREVIEW_ROOT>/videos`); это производный файл, оригинал не меняется. Ошибка poster не отменяет регистрацию видео.
+
+В этом этапе миграции 026/027 только добавлены в репозиторий; их не применяли к рабочей БД.
