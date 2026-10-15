@@ -533,6 +533,26 @@ JPEG decode verification успешно пройдена для всех 256 ф�
 
 Физические исходные фотографии при выполнении INGEST не изменяются.
 
-Текущий pipeline не выполняет автоматическую запись в PostgreSQL.
+Текущий photo pipeline не выполняет автоматическую запись в PostgreSQL.
 
 DATABASE IDENTITY CHECK и последующая регистрация новых объектов являются отдельным слоем.
+
+## 7. INGEST видео (новый отдельный домен)
+
+Папочный `INGEST_DIR` теперь дополнительно находит video-файлы и обрабатывает их отдельной веткой; JPEG/MPO pipeline и таблица `public.photos` остаются без изменений.
+
+Поддерживаемые расширения: `.mp4`, `.m4v`, `.mov`, `.mpeg`, `.mpg` (регистр не важен). Расширение служит только предварительным фильтром: содержимое проверяется `ffprobe`, затем полностью декодируется `ffmpeg -xerror` без записи в источник. SHA-256 вычисляется по всему физическому файлу; `video_id = VI_ + первые 24 hex SHA-256`, полный digest хранится и проверяется для identity.
+
+Начальные пределы конфигурируются через environment file:
+
+- `SCENE_INGEST_MAX_VIDEO_BYTES=314572800` (300 MiB);
+- `SCENE_INGEST_MAX_VIDEO_SECONDS=20`;
+- `SCENE_INGEST_PROBE_TIMEOUT=30`;
+- `SCENE_INGEST_DECODE_TIMEOUT=180`;
+- `SCENE_FFPROBE_BIN=/usr/bin/ffprobe`, `SCENE_FFMPEG_BIN=/usr/bin/ffmpeg`.
+
+`video_assets` (`schema/026_video_assets.sql`) хранит отдельную video identity, контейнер/кодек, разрешение, длительность, fps, число кадров (NULL, если источник не сообщает), размер файла, best-effort `taken_at` из creation_time и `created_at` как время регистрации. При отсутствии creation_time `taken_at` остаётся NULL; файл не получает выдуманную дату съёмки.
+
+Сводка `ingest_directory()` сохраняет прежние photo-поля и добавляет `videos` со счётчиками `discovered/valid/invalid/registered/existing`, конфликтами и ограниченным списком ошибок. Повторное сканирование использует полную SHA-256 identity для видео (без filename+size short-cut). Ни `VIDEO` записи, ни derivatives не вставляются в `photos`; DINO, HYBRID, QWEN, photo-preview и fingerprint-build jobs для видео не создаются.
+
+Для запуска нужен установленный runtime `ffmpeg`/`ffprobe`, видимый сервисам systemd. Если бинарь отсутствует, видео попадёт в INVALID с понятной ошибкой, фото-ingest продолжится. В этом этапе миграция 026 только добавлена в репозиторий; её не применяли к рабочей БД.

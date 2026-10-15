@@ -12,10 +12,10 @@
 
 | Хранилище | Назначение | Где создаётся |
 |---|---|---|
-| PostgreSQL | физическая идентичность фото, preview, DINO/HYBRID результаты | `schema/001…005.sql` |
+| PostgreSQL | физическая идентичность фото/видео, preview, DINO/HYBRID результаты | `schema/001…026.sql` |
 | SQLite (`data/jobs.db`) | очередь заданий создания эталонных fingerprint-слепков | `app/pipeline/queue.py` |
 
-PostgreSQL — источник истины для переходов между этапами DINO → HYBRID → PREVIEW. Слепки (FAISS-артефакты) живут на диске в `data/fingerprints/<id>`, а не в БД.
+PostgreSQL — источник истины для зарегистрированных фото и видео и для переходов photo-пайплайна DINO → HYBRID → PREVIEW. Видео хранится отдельно в `video_assets` и не участвует в этих photo-only стадиях. Слепки (FAISS-артефакты) живут на диске в `data/fingerprints/<id>`, а не в БД.
 
 ## 2. Порядок применения схем
 
@@ -45,9 +45,14 @@ PostgreSQL — источник истины для переходов межд�
 021_job_cancel.sql → ALTER job_queue: + статус CANCELLED
 022_address_directory.sql → address_directory, address_fingerprints
 023_fingerprints.sql → fingerprints, fingerprint_versions
+024_fingerprint_build.sql → ALTER job_queue: + FINGERPRINT_BUILD; fingerprint_versions.images_meta
+025_job_progress.sql → job_queue.progress + PAUSED status
+026_video_assets.sql → отдельный реестр durable source videos (`video_assets`)
 ```
 
 **`004` теперь backfill-safe и идемпотентен (2026-10-12):** создаёт `dino_batches` при отсутствии, добавляет `dino_runs.batch_id` (nullable) при отсутствии, бэкфиллит существующие runs без batch (по одному legacy-batch на run, со статусом и счётчиками из run), затем ставит `NOT NULL` и создаёт индекс. Повторный прогон — no-op. Ранее файл делал `ADD COLUMN` и сразу `SET NOT NULL`, что падало на непустой `dino_runs`.
+
+`026_video_assets.sql` — новая аддитивная миграция. На момент реализации она только добавлена в репозиторий: **не применялась к рабочей БД**. Сначала миграция должна быть проверена на disposable PostgreSQL.
 
 **Остальные файлы (001–003, 005) не идемпотентны:** `CREATE TABLE` без `IF NOT EXISTS`; повторный прогон на существующей БД упадёт. Для этого есть версионированный раннер `scripts/migrate.py`: он ведёт `public.schema_migrations` (version + sha256) и применяет каждый файл ровно один раз; повторный запуск — no-op, а изменение уже применённого файла обнаруживается как checksum-drift и останавливает работу. Существующая БД «усыновляется» командой `--baseline` (записи без выполнения). `db_bootstrap.sh` теперь применяет схему через этот раннер (для существующей БД — `--baseline`). `000_bootstrap.sql` раннером не применяется (это шаг суперпользователя).
 
@@ -68,6 +73,8 @@ erDiagram
     dino_runs ||--o{ hybrid_results : "based on"
     photos ||--o{ hybrid_results : "verdict for"
 ```
+
+`video_assets` — отдельная source registry и не связана с фото-pipeline.
 
 ## 4. Таблицы
 
@@ -358,6 +365,27 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 - **UI**: вкладка «Слепки» в техразделе — синхронизация с диском, переименование/описание/папка-источник, архивация тумблером, журнал версий с именами файлов.
 - **Сборка из окна** (`schema/024`): тип задания `FINGERPRINT_BUILD` в `job_queue` (выполняет scene-worker, как `INGEST_DIR`); `fingerprint_versions.images_meta` хранит `[{name, taken_at}]` — имена и **даты съёмок** использованных фото, потому что оригиналы после сборки не сохраняются. `fingerprints.source_folder` заполняется из `metadata.json` только если пуст (ручная правка в окне приоритетнее). Бэкфилл для слепков старого формата: `scripts/backfill_fingerprint_meta.py`.
 - **Откат**: `DROP TABLE fingerprint_versions; DROP TABLE fingerprints;` (теряется только человеческая обвязка).
+
+### 4.23 `video_assets` — identity durable source video
+
+Создаёт `schema/026_video_assets.sql`; записывает только video-specific INGEST (`app/ingest/video_register.py`). Таблица намеренно не связана с `photos`, `photo_previews`, `dino_runs`, `hybrid_results` или `photo_qwen`.
+
+| Колонка | Тип | Ограничения |
+|---|---|---|
+| `video_id` | TEXT | PK, `VI_` + первые 24 hex SHA-256 |
+| `source_path`, `filename` | TEXT | NOT NULL; источник только читается |
+| `sha256` | CHAR(64) | NOT NULL UNIQUE; полный физический файл |
+| `container_format`, `video_codec` | TEXT | NOT NULL, метаданные ffprobe |
+| `width`, `height` | INTEGER | NOT NULL, > 0 |
+| `duration_seconds` | DOUBLE PRECISION | NOT NULL, > 0 |
+| `fps` | DOUBLE PRECISION | NULL если не удалось определить |
+| `frame_count` | BIGINT | NULL если не сообщён/не выведен из fps |
+| `size_bytes` | BIGINT | NOT NULL, > 0 |
+| `taken_at` | TIMESTAMPTZ | NULL, creation_time из metadata без догадки |
+| `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT CURRENT_TIMESTAMP (время регистрации) |
+| `display_title` | TEXT | NOT NULL DEFAULT ''; пользовательское имя для UI, максимум 300 знаков |
+
+Путь, контейнер и MIME не приходят от клиента API для download: читаются по зарегистрированному `video_id`, затем проверяются внутри `SCENE_ORIGINALS_ROOTS`. `schema/026` добавлена в репозиторий, но не применена к рабочей БД.
 
 ## 5. Локальная SQLite-очередь (не PostgreSQL)
 

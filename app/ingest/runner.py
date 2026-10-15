@@ -13,6 +13,7 @@ handler: the API only enqueues the job.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from app.ingest.database import (
@@ -21,6 +22,59 @@ from app.ingest.database import (
     known_source_files,
 )
 from app.ingest.pipeline import DEFAULT_WORKERS, run
+from app.ingest.video_integrity import check_video_file, discover_video_files
+from app.ingest.video_register import VideoRecord, register_video, register_video_records
+
+
+def _check_video(path: Path) -> tuple[Path, dict]:
+    return path, check_video_file(path)
+
+
+def _ingest_videos(directory: str | Path, *, workers: int, recursive: bool) -> dict:
+    """Probe and register source videos separately from the photo pipeline."""
+
+    paths = discover_video_files(directory, recursive=recursive)
+    if not paths:
+        return {
+            "discovered": 0,
+            "valid": 0,
+            "invalid": 0,
+            "registered": 0,
+            "existing": 0,
+            "conflicts": [],
+            "errors": [],
+        }
+
+    checked: list[tuple[Path, dict]] = []
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        # executor.map preserves the sorted discovery order and bounds the
+        # number of concurrent ffprobe/decoder processes to INGEST workers.
+        checked.extend(pool.map(_check_video, paths))
+
+    records: list[VideoRecord] = []
+    errors: list[dict[str, str]] = []
+    invalid = 0
+    for path, facts in checked:
+        if facts["integrity_status"] != "VALID":
+            invalid += 1
+            errors.append({"filename": path.name, "error": facts.get("error") or "не удалось проверить видео"})
+            continue
+        try:
+            records.append(register_video(**facts))
+        except (TypeError, ValueError) as exc:
+            invalid += 1
+            errors.append({"filename": path.name, "error": str(exc)})
+
+    classification = register_video_records(records)
+    return {
+        "discovered": len(paths),
+        "valid": len(records),
+        "invalid": invalid,
+        "registered": len(classification["NEW"]),
+        "existing": len(classification["EXISTING"]),
+        "conflicts": [record.video_id for record in classification["CONFLICT"]],
+        "errors": errors[:20],
+    }
 
 
 def ingest_directory(
@@ -59,6 +113,11 @@ def ingest_directory(
     if classification["NEW"]:
         insert_photos(classification["NEW"])
 
+    # Video validation/registration is a separate branch: video IDs live in a
+    # distinct table and are never sent to the photo preview/DINO/HYBRID/QWEN
+    # pipelines. Photo counters keep their existing shape for old clients.
+    videos = _ingest_videos(directory, workers=workers, recursive=recursive)
+
     return {
         "directory": str(directory),
         "discovered": result.discovered,
@@ -71,4 +130,5 @@ def ingest_directory(
             for item in result.results
             if item.status == "INVALID"
         ][:20],
+        "videos": videos,
     }
