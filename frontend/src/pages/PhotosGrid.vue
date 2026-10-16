@@ -1152,6 +1152,7 @@ function tagList(meta) {
             выбрано: {{ store.selectedCount }}
           </q-badge>
           <q-btn
+            v-if="canUseCollective"
             dense
             flat
             icon="download"
@@ -1162,6 +1163,7 @@ function tagList(meta) {
             <q-tooltip>Скачать выбранные фото по одному</q-tooltip>
           </q-btn>
           <q-btn
+            v-if="canUseCollective"
             dense
             color="secondary"
             icon="folder_zip"
@@ -1625,7 +1627,13 @@ function tagList(meta) {
           <q-btn dense flat icon="open_in_new" @click="openOriginal(current)">
             <q-tooltip>Открыть оригинал</q-tooltip>
           </q-btn>
-          <q-btn dense flat icon="download" @click="saveOriginal(current)">
+          <q-btn
+            v-if="canUseCollective"
+            dense
+            flat
+            icon="download"
+            @click="saveOriginal(current)"
+          >
             <q-tooltip>Сохранить оригинал</q-tooltip>
           </q-btn>
           <q-btn dense flat icon="close" v-close-popup />
