@@ -557,7 +557,7 @@ def enqueue_qwen(request: QwenJobRequest):
 
     for photo_id in photo_ids:
         # Deduplicated: a photo with an active QWEN job is skipped.
-        job_id = jobs_db.enqueue_qwen(photo_id)
+        job_id = jobs_db.enqueue_qwen(photo_id, source="manual")
 
         if job_id is None:
             skipped += 1
@@ -1371,10 +1371,18 @@ def update_user(user_id: int, request: UserUpdate):
 
 @read_router.get("/v1/qwen/stats", response_model=None)
 def qwen_stats():
-    return {
-        "counts": repository.qwen_status_counts(),
-        "failed_photo_ids": repository.photo_ids_with_qwen_status("FAILED"),
-    }
+    """
+    QWEN card: base size + statuses + last run per trigger.
+
+    `photos` is the base (a photo never described has no photo_qwen row, so the
+    status counts alone cannot say how much is left); `runs` gives the last
+    finished run of each trigger (manual / automation / pipeline).
+    """
+
+    result = repository.qwen_stats()
+    result["failed_photo_ids"] = repository.photo_ids_with_qwen_status("FAILED")
+
+    return result
 
 
 @read_router.get("/v1/qwen/settings", response_model=None)

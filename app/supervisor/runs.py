@@ -547,7 +547,7 @@ def _stage_qwen(run: dict, stage: dict) -> dict:
         photo_ids = _photos_without_qwen(cutoff)
 
         for photo_id in photo_ids:
-            jobs_db.enqueue_qwen(photo_id)
+            jobs_db.enqueue_qwen(photo_id, source="pipeline")
 
         _set_stage(
             run["run_id"], "QWEN",

@@ -95,6 +95,37 @@ describe('Settings.vue', () => {
     expect(wrapper.text()).toContain('FAILED: 1')
   })
 
+  it('shows the base size, what is left and the last runs', async () => {
+    stats = {
+      photos: 260,
+      processed: 250,
+      remaining: 10,
+      counts: { DONE: 250, FAILED: 3, PENDING: 4 },
+      runs: [
+        { source: 'manual', jobs: 12, last_finished_at: '2026-10-16T09:05:00', failed: 1 },
+        { source: 'pipeline', jobs: 260, last_finished_at: '2026-10-15T22:10:00', failed: 0 },
+      ],
+      failed_photo_ids: [],
+    }
+
+    const wrapper = mountSettings()
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('ВСЕГО ФОТО: 260')
+    expect(text).toContain('РАСПОЗНАНО: 250')
+    expect(text).toContain('осталось 10')
+    expect(text).toContain('В ОЧЕРЕДИ: 4')
+    // Триггеры подписаны по-русски, дата — без «T».
+    expect(text).toContain('ручной: 2026-10-16 09:05')
+    expect(text).toContain('внеочередной: 2026-10-15 22:10')
+
+    // Очередь непустая — карточка сама себя обновляет; размонтирование
+    // должно остановить таймер, иначе он переживёт тест.
+    expect(text).toContain('обновляется автоматически')
+    wrapper.unmount()
+  })
+
   it('disables retry when there are no failed photos', async () => {
     const wrapper = mountSettings()
     await flushPromises()

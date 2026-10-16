@@ -184,7 +184,7 @@ def _run_tick_locked(settings: dict) -> dict:
         created = 0
 
         for photo_id in _photos_without_qwen():
-            if jobs_db.enqueue_qwen(photo_id) is not None:
+            if jobs_db.enqueue_qwen(photo_id, source="automation") is not None:
                 created += 1
 
         result["qwen_jobs"] = created

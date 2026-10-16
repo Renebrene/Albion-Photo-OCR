@@ -66,6 +66,63 @@ def _cleanup() -> None:
             )
 
 
+def test_enqueue_qwen_rejects_an_unknown_source():
+    # Проверка идёт до обращения к БД: мусорный источник — ошибка вызывающего.
+    with pytest.raises(ValueError):
+        jobs_db.enqueue_qwen(PROBE_PHOTO, source="somewhere")
+
+
+@requires_db
+def test_enqueue_qwen_records_the_source():
+    created = []
+
+    try:
+        job_id = jobs_db.enqueue_qwen(PROBE_PHOTO, source="automation")
+        assert job_id is not None
+        created.append(job_id)
+
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT payload ->> 'source' FROM public.job_queue "
+                    "WHERE id = %s",
+                    (job_id,),
+                )
+                assert cur.fetchone()[0] == "automation"
+    finally:
+        if created:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "DELETE FROM public.job_queue WHERE id = ANY(%s)",
+                        (created,),
+                    )
+
+
+@requires_db
+def test_qwen_stats_reports_base_size_and_runs():
+    from app.api import repository
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("select to_regclass('public.photo_qwen')")
+
+            if cur.fetchone()[0] is None:
+                pytest.skip("photo_qwen not available (schema 007)")
+
+    stats = repository.qwen_stats()
+
+    assert stats["photos"] >= 1
+    assert stats["processed"] == stats["counts"].get("DONE", 0)
+    assert stats["remaining"] == max(0, stats["photos"] - stats["processed"])
+    assert isinstance(stats["runs"], list)
+
+    for run in stats["runs"]:
+        assert run["source"] in jobs_db.QWEN_SOURCES
+        assert run["jobs"] >= 1
+        assert run["failed"] >= 0
+
+
 @requires_db
 def test_enqueue_qwen_is_deduplicated():
     created = []

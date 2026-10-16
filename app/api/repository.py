@@ -267,6 +267,63 @@ def qwen_status_counts() -> dict:
             return {row[0]: int(row[1]) for row in cur.fetchall()}
 
 
+def qwen_stats() -> dict:
+    """
+    One snapshot for the QWEN card: base size, statuses and last runs.
+
+    `photo_qwen` only has a row per described photo, so its status counts are
+    *not* the base size: a photo that was never queued has no row at all. The
+    card needs both numbers, hence `photos` (registered photos) next to
+    `counts`, with `processed`/`remaining` derived from them.
+
+    `runs` groups finished QWEN jobs by the trigger recorded in the payload
+    ("manual" / "automation" / "pipeline"; older rows default to "manual"),
+    so the window can show when each kind last ran.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM public.photos")
+            photos = int(cur.fetchone()[0])
+
+            cur.execute(
+                "SELECT status, count(*) FROM public.photo_qwen GROUP BY status"
+            )
+            counts = {row[0]: int(row[1]) for row in cur.fetchall()}
+
+            cur.execute(
+                """
+                SELECT COALESCE(payload ->> 'source', 'manual') AS source,
+                       count(*) AS jobs,
+                       max(finished_at) AS last_finished_at,
+                       count(*) FILTER (WHERE status = 'FAILED') AS failed
+                FROM public.job_queue
+                WHERE job_type = 'QWEN_PHOTO'
+                GROUP BY 1
+                ORDER BY 1
+                """
+            )
+            runs = [
+                {
+                    "source": row[0],
+                    "jobs": int(row[1]),
+                    "last_finished_at": row[2],
+                    "failed": int(row[3]),
+                }
+                for row in cur.fetchall()
+            ]
+
+    done = counts.get("DONE", 0)
+
+    return {
+        "photos": photos,
+        "counts": counts,
+        "processed": done,
+        "remaining": max(0, photos - done),
+        "runs": runs,
+    }
+
+
 def photo_ids_with_qwen_status(status: str) -> list[str]:
     """photo_ids whose QWEN row has the given status (ordered)."""
 

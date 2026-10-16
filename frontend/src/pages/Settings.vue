@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Notify } from 'quasar'
 
 import {
@@ -77,6 +77,50 @@ async function loadStats() {
   } catch {
     stats.value = null
   }
+
+  // Распознавание идёт в воркере: пока очередь не пуста, карточка должна
+  // обновляться сама, иначе счётчики «застывают» до ручного перезахода.
+  if (qwenQueue.value) startStatsPolling()
+  else stopStatsPolling()
+}
+
+// Показ триггера запуска: он записан в payload задания.
+const SOURCE_LABELS = {
+  manual: 'ручной',
+  automation: 'плановый',
+  pipeline: 'внеочередной',
+}
+
+function sourceLabel(source) {
+  return SOURCE_LABELS[source] || source
+}
+
+function fmtDate(value) {
+  if (!value) return '—'
+  return String(value).replace('T', ' ').slice(0, 16)
+}
+
+const qwenQueue = computed(
+  () => (stats.value?.counts?.PENDING || 0) + (stats.value?.counts?.RUNNING || 0),
+)
+
+// ref, а не обычная переменная: окно показывает «обновляется автоматически».
+const statsTimer = ref(null)
+
+function stopStatsPolling() {
+  if (statsTimer.value !== null) {
+    window.clearInterval(statsTimer.value)
+    statsTimer.value = null
+  }
+}
+
+function startStatsPolling() {
+  if (statsTimer.value !== null) return
+
+  statsTimer.value = window.setInterval(async () => {
+    await loadStats()
+    if (!qwenQueue.value) stopStatsPolling()
+  }, 5000)
 }
 
 async function retryFailed() {
@@ -158,6 +202,8 @@ onMounted(async () => {
   await loadModels()
   loadStats()
 })
+
+onBeforeUnmount(stopStatsPolling)
 </script>
 
 <template>
@@ -272,13 +318,14 @@ onMounted(async () => {
         <div class="text-subtitle1 q-mb-sm">Метаданные QWEN</div>
 
         <div class="text-caption text-grey-8 q-mb-sm">
-          ВСЕГО: {{ Object.values(stats.counts).reduce((a, b) => a + b, 0) }} ·
-          УСПЕШНО: {{ stats.counts.DONE || 0 }} ·
-          В ОЧЕРЕДИ: {{ (stats.counts.PENDING || 0) + (stats.counts.RUNNING || 0) }} ·
+          ВСЕГО ФОТО: {{ stats.photos ?? '—' }} ·
+          РАСПОЗНАНО: {{ stats.processed ?? 0 }}
+          <template v-if="stats.remaining">(осталось {{ stats.remaining }})</template> ·
+          В ОЧЕРЕДИ: {{ qwenQueue }} ·
           С ОШИБКОЙ: {{ stats.counts.FAILED || 0 }}
         </div>
 
-        <div class="row q-gutter-sm q-mb-md">
+        <div class="row items-center q-gutter-sm q-mb-md">
           <q-chip
             v-for="(count, status) in stats.counts"
             :key="status"
@@ -288,6 +335,24 @@ onMounted(async () => {
           >
             {{ status }}: {{ count }}
           </q-chip>
+          <span v-if="statsTimer" class="text-caption text-grey-7">
+            обновляется автоматически…
+          </span>
+        </div>
+
+        <div v-if="stats.runs && stats.runs.length" class="q-mb-md">
+          <div class="text-caption text-grey-8 q-mb-xs">
+            Последние запуски (по источнику):
+          </div>
+          <div
+            v-for="run in stats.runs"
+            :key="run.source"
+            class="text-caption text-grey-8"
+          >
+            {{ sourceLabel(run.source) }}: {{ fmtDate(run.last_finished_at) }}
+            · заданий {{ run.jobs }}
+            <template v-if="run.failed">(ошибок {{ run.failed }})</template>
+          </div>
         </div>
 
         <div class="row q-gutter-sm">

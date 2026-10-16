@@ -92,7 +92,13 @@ def enqueue_photo_preview(photo_id: str) -> int | None:
             return int(row[0]) if row is not None else None
 
 
-def enqueue_qwen(photo_id: str) -> int | None:
+# Who asked for a QWEN job. Recorded in the payload so the statistics card can
+# show the last run per trigger: the "Настройки" button (manual), the scheduler
+# (automation) and the full "Обновление базы" run (pipeline).
+QWEN_SOURCES = ("manual", "automation", "pipeline")
+
+
+def enqueue_qwen(photo_id: str, *, source: str = "manual") -> int | None:
     """
     Enqueue a QWEN job for one photo, deduplicated while active.
 
@@ -100,6 +106,9 @@ def enqueue_qwen(photo_id: str) -> int | None:
     exists for that photo (checked in the same statement, so two concurrent
     callers cannot both insert).
     """
+
+    if source not in QWEN_SOURCES:
+        raise ValueError(f"unknown QWEN source: {source}")
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -115,7 +124,7 @@ def enqueue_qwen(photo_id: str) -> int | None:
                 )
                 RETURNING id
                 """,
-                (Json({"photo_id": photo_id}), photo_id),
+                (Json({"photo_id": photo_id, "source": source}), photo_id),
             )
             row = cur.fetchone()
 
