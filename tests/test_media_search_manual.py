@@ -55,6 +55,43 @@ def test_describe_mode_does_not_search(monkeypatch, tmp_path):
     assert out["qwen"]["description"] == "щит с врачом"
 
 
+def test_search_ranks_by_number_of_matched_terms(monkeypatch):
+    from app.api import repository
+
+    class Item:
+        def __init__(self, photo_id):
+            self.photo_id = photo_id
+
+    def fake_list_photos(limit, query):
+        # "щит" → A,B ; "Яндекс" → A ; "KVAS" → C
+        return {
+            "щит": [Item("A"), Item("B")],
+            "Яндекс": [Item("A")],
+            "KVAS": [Item("C")],
+        }.get(query, []), None
+
+    monkeypatch.setattr(repository, "list_photos", fake_list_photos)
+
+    out = media_search.search(
+        {"q": "щит", "client": "Яндекс", "brand": "KVAS", "category": None}
+    )
+
+    # A matched description (+1) and client (+2) → first.
+    assert out["photo_ids"][0] == "A"
+    assert out["scores"]["A"] == 3
+    assert set(out["photo_ids"]) == {"A", "B", "C"}
+
+
+def test_search_with_no_terms_is_empty(monkeypatch):
+    from app.api import repository
+
+    monkeypatch.setattr(repository, "list_photos", lambda **kw: ([], None))
+
+    out = media_search.search({"q": None, "client": None, "brand": None, "category": None})
+    assert out["photo_ids"] == []
+    assert out["count"] == 0
+
+
 def test_describe_mode_with_frame_seconds_extracts_one_frame(monkeypatch, tmp_path):
     seen = {}
 
@@ -163,3 +200,40 @@ def test_describe_endpoint_requires_write_scope(monkeypatch):
         headers={"Authorization": "Bearer tok"},
     )
     assert response.status_code == 403
+
+
+def _ids_db_available() -> bool:
+    import os
+
+    if not os.getenv("INGEST_DB_PASSWORD"):
+        return False
+    try:
+        from app.ingest.database import get_connection
+
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("select to_regclass('public.photos')")
+                return cur.fetchone()[0] is not None
+    except Exception:
+        return False
+
+
+requires_ids_db = pytest.mark.skipif(
+    not _ids_db_available(),
+    reason="photos table not available",
+)
+
+
+@requires_ids_db
+def test_list_photos_preserves_the_given_id_order():
+    from app.api import repository
+
+    all_ids = repository.all_photo_ids()
+
+    if len(all_ids) < 3:
+        pytest.skip("needs at least three photos")
+
+    wanted = [all_ids[2], all_ids[0], all_ids[1]]
+    items, _ = repository.list_photos(limit=10, ids=wanted)
+
+    assert [item.photo_id for item in items][:3] == wanted

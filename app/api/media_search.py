@@ -407,43 +407,53 @@ def description_filters(fields: dict) -> dict:
 
 
 def search(filters: dict, *, limit: int = MAX_PER_TERM) -> dict:
-    """Run the photo search for already-built filters (read-only)."""
+    """
+    Run the photo search for already-built filters (read-only).
+
+    Photos are ranked by how many query terms they match, so the most relevant
+    come first: an exact metadata field (client/brand/category) weighs more than
+    the free-text description. Ties keep the order in which the terms were
+    scanned, which keeps the result stable for equal scores.
+    """
 
     from app.api import repository
 
-    terms = [
-        term
-        for term in (
-            filters.get("q"),
-            filters.get("client"),
-            filters.get("brand"),
-            filters.get("category"),
-        )
-        if term
-    ]
+    weighted = (
+        (filters.get("q"), 1),
+        (filters.get("client"), 2),
+        (filters.get("brand"), 2),
+        (filters.get("category"), 2),
+    )
 
-    seen: dict[str, None] = {}
+    scores: dict[str, int] = {}
     truncated = False
 
-    for term in terms:
+    for term, weight in weighted:
+        if not term:
+            continue
+
         items, next_cursor = repository.list_photos(limit=limit, query=term)
 
         if next_cursor is not None:
             truncated = True
 
         for item in items:
-            seen.setdefault(item.photo_id, None)
+            scores[item.photo_id] = scores.get(item.photo_id, 0) + weight
 
-            if len(seen) >= MAX_TOTAL:
+            if len(scores) >= MAX_TOTAL:
                 truncated = True
                 break
 
-        if len(seen) >= MAX_TOTAL:
+        if len(scores) >= MAX_TOTAL:
             break
 
+    # Stable sort: equal scores keep insertion order.
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+
     return {
-        "photo_ids": list(seen),
-        "count": len(seen),
+        "photo_ids": [photo_id for photo_id, _ in ranked],
+        "scores": {photo_id: score for photo_id, score in ranked},
+        "count": len(ranked),
         "truncated": truncated,
     }
 

@@ -196,14 +196,24 @@ def list_photos(
         )
         params.append(collection_id)
 
+    order_param: list[str] | None = None
+
     if ids:
         clauses.append("t.photo_id = ANY(%s)")
         params.append(list(ids))
+        # Preserve the caller's order (e.g. a ranked search result) instead of
+        # re-sorting by photo_id: the array position is the intended rank.
+        order_param = list(ids)
 
     if clauses:
         sql += " WHERE " + " AND ".join(clauses)
 
-    sql += " ORDER BY t.photo_id LIMIT %s"
+    if order_param is not None:
+        sql += " ORDER BY array_position(%s::text[], t.photo_id) LIMIT %s"
+        params.append(order_param)
+    else:
+        sql += " ORDER BY t.photo_id LIMIT %s"
+
     params.append(limit + 1)
 
     with get_connection() as conn:

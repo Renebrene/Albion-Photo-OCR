@@ -199,8 +199,8 @@ def test_description_filters_without_any_text_are_empty():
     assert all(value is None for value in filters.values())
 
 
-def test_search_unions_terms_and_reports_truncation(monkeypatch):
-    """The search asks the repository per term and de-duplicates the ids."""
+def test_search_ranks_terms_and_reports_truncation(monkeypatch):
+    """The search asks the repository per term, de-duplicates and ranks."""
 
     class Item:
         def __init__(self, photo_id: str):
@@ -220,9 +220,10 @@ def test_search_unions_terms_and_reports_truncation(monkeypatch):
 
     result = media_search.search({"q": "щит", "brand": "KVAS"})
 
-    # Terms are searched in order and the ids are de-duplicated (PH_b appears
-    # in both term results).
-    assert result["photo_ids"] == ["PH_b", "PH_c", "PH_a"]
+    # PH_b matched both terms (1 + 2 = 3), PH_a matched the brand (2), PH_c the
+    # description (1) — so the order is by score, not by scan order.
+    assert result["photo_ids"] == ["PH_b", "PH_a", "PH_c"]
+    assert result["scores"] == {"PH_b": 3, "PH_a": 2, "PH_c": 1}
     assert result["count"] == 3
     assert result["truncated"] is True
     assert calls == [
