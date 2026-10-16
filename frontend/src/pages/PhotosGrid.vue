@@ -30,6 +30,7 @@ import {
   useDisplayStore,
 } from '../stores/display'
 import { usePhotosStore } from '../stores/photos'
+import { PERIODS, periodRange } from '../utils/periodRange'
 
 const store = usePhotosStore()
 const display = useDisplayStore()
@@ -183,12 +184,7 @@ const dateModes = [
   { label: 'Дата съёмки', value: 'capture' },
 ]
 
-const periods = [
-  { label: 'Все даты', value: 'all' },
-  { label: 'Текущий месяц', value: 'month' },
-  { label: 'Предыдущий месяц', value: 'prev_month' },
-  { label: 'Период…', value: 'custom' },
-]
+const periods = PERIODS
 
 // "Выбрать / снять" is one button: it flips between the two states.
 const allLoadedSelected = computed(
@@ -205,28 +201,12 @@ function toggleSelectAll() {
   }
 }
 
-function iso(date) {
-  return date.toISOString().slice(0, 10)
-}
-
-function monthRange(offset) {
-  const now = new Date()
-  const first = new Date(now.getFullYear(), now.getMonth() + offset, 1)
-  const last = new Date(now.getFullYear(), now.getMonth() + offset + 1, 0)
-  return [iso(first), iso(last)]
-}
-
+// Диапазоны дат считает общий модуль (локальный календарь, см. его шапку).
 function currentDates() {
-  switch (period.value) {
-    case 'month':
-      return monthRange(0)
-    case 'prev_month':
-      return monthRange(-1)
-    case 'custom':
-      return [customFrom.value || null, customTo.value || null]
-    default:
-      return [null, null]
-  }
+  return periodRange(period.value, {
+    customFrom: customFrom.value,
+    customTo: customTo.value,
+  })
 }
 
 onMounted(async () => {

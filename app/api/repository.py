@@ -121,8 +121,9 @@ def list_photos(
     `addresses` are recognition results (HYBRID/DINO) and `clients` are the
     QWEN metadata; both accept several values with OR semantics (matching the
     legacy multi-select panels). `query` searches several fields at once
-    (filename, client, brand, category, description, tags, address), mirroring
-    the legacy global search. date_from/date_to filter by the upload date
+    (filename, client, brand, category, description, tags, address) and also
+    resolves client/brand through the alias dictionary, so the canonical name
+    finds the raw spellings QWEN produced. date_from/date_to filter by the upload date
     (photos.created_at) or, with date_mode="capture", by the EXIF capture
     date (photos.taken_at; photos without one are not matched). Fetches
     limit + 1 rows to detect a further page.
@@ -155,19 +156,28 @@ def list_photos(
         # stays as a plain ILIKE on the outer query. `tags` is a JSONB array
         # (schema/007); the CASE keeps jsonb_array_elements_text from raising
         # on a NULL or a non-array value that a manual edit could leave behind.
+        #
+        # Client and brand are also matched through the alias dictionary
+        # (schema/035): typing the canonical name finds the raw spellings QWEN
+        # invented (and vice versa is not needed - the raw value is stored).
         clauses.append(
             "(t.photo_id IN ("
             "  SELECT photo_id FROM public.photos WHERE filename ILIKE %s "
             "  UNION "
             "  SELECT photo_id FROM public.photo_qwen "
-            "  WHERE (client ILIKE %s OR brand ILIKE %s "
+            "  WHERE (client ILIKE %s "
+            "         OR client IN (SELECT alias FROM public.client_aliases "
+            "                       WHERE kind = 'client' AND canonical ILIKE %s)"
+            "         OR brand ILIKE %s "
+            "         OR brand IN (SELECT alias FROM public.client_aliases "
+            "                      WHERE kind = 'brand' AND canonical ILIKE %s)"
             "         OR category ILIKE %s OR description ILIKE %s "
             "         OR EXISTS (SELECT 1 FROM jsonb_array_elements_text("
             "              CASE WHEN jsonb_typeof(tags) = 'array' THEN tags END"
             "            ) AS tag WHERE tag ILIKE %s))"
             ") OR t.address ILIKE %s)"
         )
-        params.extend([like] * 7)
+        params.extend([like] * 9)
 
     if addresses:
         likes = [f"%{value}%" for value in addresses]

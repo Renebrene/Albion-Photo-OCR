@@ -40,8 +40,40 @@ PROBE_ID = "PH_" + "9" * 24
 PROBE_RAW = "__alias_probe_raw__"
 PROBE_CANON = "__alias_probe_canonical__"
 
+# Отдельное фото для проверок бренд-алиасов в строке поиска.
+PROBE_BRAND_ID = "PH_" + "8" * 24
+
+
+def _insert_photo(photo_id: str, *, brand: str | None = None) -> None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO public.photos (
+                    photo_id, source_path, filename, sha256,
+                    container_format, frame_count, width, height
+                )
+                VALUES (%s, %s, %s, %s, 'JPEG', 1, 10, 10)
+                """,
+                (
+                    photo_id,
+                    f"/tmp/{photo_id}.jpg",
+                    f"{photo_id}.jpg",
+                    hashlib.sha256(photo_id.encode()).hexdigest(),
+                ),
+            )
+            cur.execute(
+                """
+                INSERT INTO public.photo_qwen (photo_id, status, brand)
+                VALUES (%s, 'DONE', %s)
+                """,
+                (photo_id, brand),
+            )
+
 
 def _cleanup() -> None:
+    ids = [PROBE_ID, PROBE_BRAND_ID]
+
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -53,10 +85,10 @@ def _cleanup() -> None:
                 ("__alias_probe%",),
             )
             cur.execute(
-                "DELETE FROM public.photo_qwen WHERE photo_id = %s", (PROBE_ID,)
+                "DELETE FROM public.photo_qwen WHERE photo_id = ANY(%s)", (ids,)
             )
             cur.execute(
-                "DELETE FROM public.photos WHERE photo_id = %s", (PROBE_ID,)
+                "DELETE FROM public.photos WHERE photo_id = ANY(%s)", (ids,)
             )
 
 
@@ -230,6 +262,61 @@ def test_brand_aliases_live_apart_from_clients():
             ).status_code
             == 200
         )
+    finally:
+        _cleanup()
+
+
+@requires_kinds
+def test_brand_alias_is_found_by_the_search_string():
+    """Строка поиска по каноническому бренду находит «сырое» написание QWEN."""
+
+    _cleanup()
+
+    try:
+        _insert_photo(PROBE_BRAND_ID, brand=BRAND_RAW)
+
+        before = client.get(
+            "/api/v1/photos", params={"q": BRAND_CANON}
+        ).json()["items"]
+        assert PROBE_BRAND_ID not in {item["photo_id"] for item in before}
+
+        saved = client.put(
+            "/api/v1/client-aliases",
+            json={"alias": BRAND_RAW, "canonical": BRAND_CANON},
+            params={"kind": "brand"},
+        )
+        assert saved.status_code == 200
+
+        # Ищем по каноническому имени — фото с «сырым» брендом должно найтись.
+        found = client.get(
+            "/api/v1/photos", params={"q": BRAND_CANON}
+        ).json()["items"]
+        assert PROBE_BRAND_ID in {item["photo_id"] for item in found}
+    finally:
+        _cleanup()
+
+
+@requires_kinds
+def test_client_alias_does_not_resolve_a_brand():
+    """Словарь клиентов не подставляет бренд: виды не смешиваются."""
+
+    _cleanup()
+
+    try:
+        _insert_photo(PROBE_BRAND_ID, brand=BRAND_RAW)
+
+        # Алиас того же «сырого» текста, но вида client.
+        saved = client.put(
+            "/api/v1/client-aliases",
+            json={"alias": BRAND_RAW, "canonical": BRAND_CANON},
+            params={"kind": "client"},
+        )
+        assert saved.status_code == 200
+
+        found = client.get(
+            "/api/v1/photos", params={"q": BRAND_CANON}
+        ).json()["items"]
+        assert PROBE_BRAND_ID not in {item["photo_id"] for item in found}
     finally:
         _cleanup()
 
