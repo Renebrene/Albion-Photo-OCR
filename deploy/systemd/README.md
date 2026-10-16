@@ -7,6 +7,8 @@ Two long-running services cover the web app:
 | `scene-api.service` | FastAPI app + built Quasar SPA (`app.api.main:app`) | `dashboard.service` |
 | `scene-worker.service` | deferred job worker (`app.jobs.worker`) | `lora.service` (worker) |
 | `scene-builder.service` (user unit) | parallel fingerprint builder (`app.jobs.worker --watch --only FINGERPRINT_BUILD --parallel 3`) | — |
+| `scene-video-worker.service` (user unit) | isolated `VIDEO_TRANSCODE` / `VIDEO_TRIM` / `VIDEO_STORYBOARD` jobs; smoke-gated NVENC or CPU | — |
+| `scene-preview-worker.service` (user unit) | isolated `PHOTO_PREVIEW` queue poller; parallel CPU work runs in `app.preview.pipeline` | — |
 
 Inference (DINO/HYBRID) and QWEN run **only** in the worker — never inside the
 API process. The API serves `frontend/dist` statically, so there is no separate
@@ -23,7 +25,8 @@ frontend unit.
    ```
 3. PostgreSQL reachable and the schema applied (`scripts/db_bootstrap.sh`).
 4. Ollama running with the QWEN model (worker only).
-5. Build the SPA once so the API can serve it:
+5. For video INGEST/transcode, install a trusted FFmpeg build that includes both `ffmpeg` and `ffprobe` and the H.264 encoder/decoder. Set `SCENE_FFMPEG_BIN` / `SCENE_FFPROBE_BIN` in the environment file. `scene-video-worker` is separate and must not be enabled before FFmpeg/FFprobe paths are readable from the user-service context, schema/030 is applied, output roots are writable/outside source roots, and the synthetic CPU smoke passes. NVENC is used only if its runtime test succeeds in that context; otherwise auto mode falls back to CPU.
+6. Build the SPA once so the API can serve it:
    ```bash
    cd frontend && bun install --frozen-lockfile && bun run build
    ```
@@ -74,11 +77,15 @@ install the same two services as **user** units instead of system ones:
 mkdir -p ~/.config/systemd/user
 # units (WorkingDirectory must have no spaces -> use a symlink):
 ln -sfn "/path/to/scene_fingerprint_RELEASE_v38_1_v33 (2)" ~/scene-fingerprint
-cp deploy/systemd/user/scene-api.service deploy/systemd/user/scene-worker.service ~/.config/systemd/user/
+cp deploy/systemd/user/scene-api.service deploy/systemd/user/scene-worker.service deploy/systemd/user/scene-video-worker.service deploy/systemd/user/scene-preview-worker.service ~/.config/systemd/user/
 install -m 600 deploy/systemd/user/scene.env.example ~/.config/scene-fingerprint.env
 # edit ~/scene-fingerprint paths + DB password, then:
 systemctl --user daemon-reload
 systemctl --user enable --now scene-api scene-worker
+# Enable only after FFmpeg/FFprobe service-context smoke passes and schema 030 is applied:
+systemctl --user enable --now scene-video-worker
+# Enable after schema 029 is applied; this worker is the only queue consumer of PHOTO_PREVIEW:
+systemctl --user enable --now scene-preview-worker
 ```
 
 Notes that matter:
@@ -91,6 +98,35 @@ Notes that matter:
 - The frontend is served by the API process (built `frontend/dist`), so there
   is **no separate frontend unit**.
 - Inspect logs with `journalctl --user -u scene-api -f`.
+
+## Early photo previews
+
+Photo registration in directory INGEST and upload enqueues one `PHOTO_PREVIEW`
+job per newly registered photo. The general worker excludes this type by default;
+`scene-preview-worker.service` claims only it, so older DINO/QWEN work cannot hold
+preview generation behind its FIFO position. Preview files remain independent
+of DINO/HYBRID/QWEN results.
+The photo preview pipeline itself uses a bounded process pool; configure
+`SCENE_PREVIEW_WORKERS` (default: half of logical CPU cores). Keep only one
+preview queue poller, since its one job invocation already parallelizes images.
+The API and worker must share `SCENE_PREVIEW_ROOT`, which must be writable by
+the worker and readable by the API.
+
+After applying schema/029 to the intended database and deploying the code,
+enable the unit. A bounded backfill can enqueue missing preview rows without
+blocking the request or touching originals:
+
+```bash
+curl -X POST 'http://127.0.0.1:8010/api/v1/previews/backfill?limit=500' \
+  -H 'Authorization: Bearer <token-with-jobs:write>'
+```
+
+The endpoint schedules at most 5000 photo jobs per call (default 500). Existing
+active jobs are deduplicated by a PostgreSQL partial unique index. Failed jobs
+remain visible in the queue; an explicit backfill can enqueue them again for
+photos that still have no preview row. Valid SMALL/MIDDLE outputs are skipped
+by the existing generator on retry. Do not enable the preview worker before
+schema/029 has been applied.
 
 ## Parallel fingerprint building
 
@@ -107,6 +143,19 @@ batch of builds runs N at a time. Each process gets `cores / parallel` torch
 threads. A **pause** is honoured between batches; the worker waits for the
 resume at most `SCENE_PAUSE_MAX_SECONDS` (default 300) and then fails the job
 rather than blocking the queue, because one worker handles one job at a time.
+
+## Video runtime and trim editor
+
+The video worker is user-only in the local setup and accepts `VIDEO_TRANSCODE`,
+`VIDEO_TRIM`, and `VIDEO_STORYBOARD`; the general worker excludes these types.
+The trim-only editor creates a new derivative under `SCENE_VIDEO_DERIVATIVES_ROOT`
+and the storyboard uses `SCENE_VIDEO_STORYBOARD_ROOT`. Originals stay read-only.
+Before enabling `scene-video-worker`, apply schema/030 through `scripts/migrate.py`,
+verify the FFmpeg binaries are readable by the user systemd service, and run a
+synthetic trim/storyboard smoke. Keep `SCENE_VIDEO_ENCODER=cpu` if NVENC has not
+passed a runtime encode under the same service environment. The checked-in
+Cherry-managed FFmpeg path in `scene.env.example` is specific to this workstation;
+replace it with a trusted service-accessible path on other installations.
 
 ## Operating notes
 

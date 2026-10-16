@@ -122,6 +122,51 @@ def test_claim_returns_none_when_empty():
     assert jobs_db.claim_next() is None
 
 
+def test_claim_next_supports_include_and_exclude_filters(monkeypatch):
+    from contextlib import contextmanager
+
+    statements = []
+
+    class Cursor:
+        def execute(self, sql, params):
+            statements.append((sql, params))
+
+        def fetchone(self):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class Connection:
+        def cursor(self):
+            return Cursor()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    @contextmanager
+    def fake_connection():
+        yield Connection()
+
+    monkeypatch.setattr(jobs_db, "get_connection", fake_connection)
+    assert jobs_db.claim_next() is None
+    sql, params = statements[0]
+    assert "NOT (job_type = ANY(%s))" in sql
+    assert params == [["PHOTO_PREVIEW", "VIDEO_TRANSCODE", "VIDEO_TRIM", "VIDEO_STORYBOARD"]]
+
+    statements.clear()
+    assert jobs_db.claim_next(types=["PHOTO_PREVIEW"]) is None
+    sql, params = statements[0]
+    assert "job_type = ANY(%s)" in sql
+    assert params == [["PHOTO_PREVIEW"]]
+
+
 def test_rejects_unknown_job_type():
     with pytest.raises(ValueError):
         jobs_db.enqueue("NOPE", {})

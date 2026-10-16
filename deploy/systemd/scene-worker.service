@@ -25,7 +25,7 @@ EnvironmentFile=/etc/scene-fingerprint.env
 # --requeue-stale returns jobs left RUNNING by a crashed worker to PENDING.
 # Add --automation to drive the interval scheduler (automation_settings).
 ExecStart=/opt/scene-fingerprint/.venv/bin/python -m app.jobs.worker \
-    --watch --requeue-stale 30 --interval 5
+    --watch --requeue-stale 30 --exclude PHOTO_PREVIEW,VIDEO_TRANSCODE,VIDEO_TRIM,VIDEO_STORYBOARD --interval 5
 
 Restart=on-failure
 RestartSec=10

@@ -21,6 +21,7 @@ import re
 import tempfile
 from pathlib import Path
 
+from app.core.errors import redact_absolute_paths
 from app.ingest.database import register_new_photos
 from app.ingest.pipeline import process_file
 
@@ -147,8 +148,16 @@ def ingest_upload(filename: str | None, stream) -> dict:
     else:
         status = "CONFLICT"
 
-    return {
+    result = {
         "filename": path.name,
         "photo_id": record.photo_id,
         "status": status,
     }
+    if status == "NEW":
+        try:
+            from app.jobs.database import enqueue_photo_preview
+
+            result["preview_job_id"] = enqueue_photo_preview(record.photo_id)
+        except Exception as exc:  # noqa: BLE001 - photo registration already committed
+            result["preview_enqueue_error"] = redact_absolute_paths(str(exc))
+    return result

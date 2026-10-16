@@ -231,6 +231,45 @@ export function requestVideoDownload(videoId) {
   return postJson(`${BASE}/v1/videos/${encodeURIComponent(videoId)}/download-ticket`, {})
 }
 
+export function enqueueVideoTranscode(videoId, profile) {
+  return postJson(`${BASE}/v1/videos/${encodeURIComponent(videoId)}/transcodes`, { profile })
+}
+
+export function fetchVideoTranscode(videoId, profile) {
+  return getJson(`${BASE}/v1/videos/${encodeURIComponent(videoId)}/transcodes/${encodeURIComponent(profile)}`)
+}
+
+export function requestVideoDerivativeIdDownload(videoId, derivativeId) {
+  return postJson(
+    `${BASE}/v1/videos/${encodeURIComponent(videoId)}/derivatives/${Number(derivativeId)}/download-ticket`,
+    {},
+  )
+}
+
+export function requestVideoDerivativeDownload(videoId, profile) {
+  return postJson(
+    `${BASE}/v1/videos/${encodeURIComponent(videoId)}/transcodes/${encodeURIComponent(profile)}/download-ticket`,
+    {},
+  )
+}
+
+export function enqueueVideoStoryboard(videoId) {
+  return postJson(`${BASE}/v1/videos/${encodeURIComponent(videoId)}/storyboard`, {})
+}
+
+export function videoStoryboardFrameUrl(videoId, index) {
+  return `${BASE}/v1/videos/${encodeURIComponent(videoId)}/storyboard/${Number(index)}`
+}
+
+export function enqueueVideoTrim(videoId, start_seconds, end_seconds) {
+  return postJson(`${BASE}/v1/videos/${encodeURIComponent(videoId)}/trim`, { start_seconds, end_seconds })
+}
+
+export function fetchVideoTrim(videoId, start_seconds, end_seconds) {
+  const params = new URLSearchParams({ start_seconds: String(start_seconds), end_seconds: String(end_seconds) })
+  return getJson(`${BASE}/v1/videos/${encodeURIComponent(videoId)}/trim?${params}`)
+}
+
 export function videoPosterUrl(videoId) {
   return `${BASE}/v1/videos/${encodeURIComponent(videoId)}/poster`
 }

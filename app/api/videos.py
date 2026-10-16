@@ -14,11 +14,13 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, R
 from fastapi.responses import StreamingResponse
 
 from app.api import video_repository
-from app.api.config import ORIGINALS_ROOTS, VIDEO_PREVIEW_ROOT
+from app.api.config import ORIGINALS_ROOTS, VIDEO_PREVIEW_ROOT, VIDEO_STORYBOARD_ROOT
 from app.api.file_access import allowed_media_path
-from app.api.schemas import VideoSummary, VideoTitleUpdate
+from app.api.schemas import VideoSummary, VideoTitleUpdate, VideoTranscodeRequest, VideoTrimRequest
 from app.api.auth import require_scope
 from app.preview.video import VIDEO_ID_RE
+from app.video.profiles import PROFILES
+from app.video.transcode import derivatives_root
 
 read_router = APIRouter(dependencies=[Depends(require_scope("read"))])
 playback_router = APIRouter(dependencies=[Depends(require_scope("videos:read"))])
@@ -240,6 +242,164 @@ def download_video(
         raise HTTPException(status_code=401, detail="download ticket required or expired")
     path, row = _source(video_id)
     return _stream_file(path, row["filename"], "attachment", range_header)
+
+
+@write_router.post("/v1/videos/{video_id}/transcodes", status_code=202, response_model=None)
+def enqueue_video_transcode(video_id: str, request: VideoTranscodeRequest):
+    video_id = _video_id(video_id)
+    try:
+        result = video_repository.enqueue_transcode(video_id, request.profile)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="video not found")
+    return {**result, "profile": request.profile, "profile_label": PROFILES[request.profile]["label"]}
+
+
+@write_router.post("/v1/videos/{video_id}/storyboard", status_code=202, response_model=None)
+def enqueue_video_storyboard(video_id: str):
+    video_id = _video_id(video_id)
+    result = video_repository.enqueue_storyboard(video_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="video not found")
+    return {**result, "frame_count": 8}
+
+
+@playback_router.get("/v1/videos/{video_id}/storyboard/{frame_index}", response_model=None)
+def get_video_storyboard_frame(video_id: str, frame_index: int):
+    video_id = _video_id(video_id)
+    if not 0 <= frame_index < 8:
+        raise HTTPException(status_code=404, detail="storyboard frame not found")
+    row = video_repository.video_source(video_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="video not found")
+    if not video_repository.storyboard_ready(video_id, row["sha256"]):
+        raise HTTPException(status_code=404, detail="storyboard frame not found")
+    from app.video.transcode import _valid_storyboard_frame, storyboard_frame_path
+
+    raw_path = storyboard_frame_path(video_id, row["sha256"], frame_index)
+    root = VIDEO_STORYBOARD_ROOT.expanduser().resolve()
+    if not _valid_storyboard_frame(raw_path, root):
+        raise HTTPException(status_code=404, detail="storyboard frame not found")
+    path = raw_path.resolve()
+    if root not in path.parents:
+        raise HTTPException(status_code=404, detail="storyboard frame not found")
+    return Response(path.read_bytes(), media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
+
+
+@write_router.post("/v1/videos/{video_id}/trim", status_code=202, response_model=None)
+def enqueue_video_trim(video_id: str, request: VideoTrimRequest):
+    video_id = _video_id(video_id)
+    try:
+        result = video_repository.enqueue_trim(video_id, request.start_seconds, request.end_seconds)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="video not found")
+    return result
+
+
+@read_router.get("/v1/videos/{video_id}/trim", response_model=None)
+def get_video_trim(video_id: str, start_seconds: float = Query(ge=0), end_seconds: float = Query(gt=0)):
+    video_id = _video_id(video_id)
+    try:
+        result = video_repository.trim_state(video_id, start_seconds, end_seconds)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="trim derivative not found")
+    return result
+
+
+@read_router.get("/v1/videos/{video_id}/transcodes/{profile}", response_model=None)
+def get_video_transcode(video_id: str, profile: str):
+    video_id = _video_id(video_id)
+    if profile not in PROFILES:
+        raise HTTPException(status_code=404, detail="video derivative not found")
+    result = video_repository.transcode_state(video_id, profile)
+    if result is None:
+        raise HTTPException(status_code=404, detail="video derivative not found")
+    return {**result, "profile": profile, "profile_label": PROFILES[profile]["label"]}
+
+
+@originals_router.post(
+    "/v1/videos/{video_id}/derivatives/{derivative_id}/download-ticket",
+    dependencies=[Depends(require_scope("videos:download"))],
+    response_model=None,
+)
+def derivative_id_download_ticket(video_id: str, derivative_id: int, request: Request, response: Response):
+    video_id = _video_id(video_id)
+    try:
+        token, expires = video_repository.issue_playback_ticket(
+            video_id, "derivative_attachment", derivative_id=derivative_id,
+            ttl_seconds=TICKET_TTL_SECONDS,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="video derivative not found") from exc
+    cookie_path = f"/api/v1/videos/{video_id}/derivatives/{derivative_id}/download"
+    response.set_cookie(
+        key=_cookie_name(video_id, "derivative_attachment"), value=token,
+        max_age=TICKET_TTL_SECONDS, expires=expires, httponly=True,
+        secure=_cookie_secure(request), samesite="strict", path=cookie_path,
+    )
+    return {"url": cookie_path, "expires_at": expires.astimezone(timezone.utc).isoformat()}
+
+
+@originals_router.post(
+    "/v1/videos/{video_id}/transcodes/{profile}/download-ticket",
+    dependencies=[Depends(require_scope("videos:download"))],
+    response_model=None,
+)
+def derivative_download_ticket(video_id: str, profile: str, request: Request, response: Response):
+    video_id = _video_id(video_id)
+    if profile not in PROFILES:
+        raise HTTPException(status_code=404, detail="video derivative not found")
+    state = video_repository.transcode_state(video_id, profile)
+    if state is None or state["status"] != "DONE":
+        raise HTTPException(status_code=409, detail="video derivative is not ready")
+    derivative_id = state["derivative_id"]
+    try:
+        token, expires = video_repository.issue_playback_ticket(
+            video_id, "derivative_attachment", derivative_id=derivative_id,
+            ttl_seconds=TICKET_TTL_SECONDS,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="video derivative not found") from exc
+    cookie_path = f"/api/v1/videos/{video_id}/derivatives/{derivative_id}/download"
+    response.set_cookie(
+        key=_cookie_name(video_id, "derivative_attachment"),
+        value=token,
+        max_age=TICKET_TTL_SECONDS,
+        expires=expires,
+        httponly=True,
+        secure=_cookie_secure(request),
+        samesite="strict",
+        path=cookie_path,
+    )
+    return {"url": cookie_path, "expires_at": expires.astimezone(timezone.utc).isoformat()}
+
+
+@public_router.get("/v1/videos/{video_id}/derivatives/{derivative_id}/download", include_in_schema=False)
+def download_video_derivative(
+    video_id: str,
+    derivative_id: int,
+    request: Request,
+    range_header: str | None = Header(default=None, alias="Range"),
+):
+    video_id = _video_id(video_id)
+    ticket = _request_ticket(request, video_id, "derivative_attachment")
+    if not ticket or not video_repository.validate_playback_ticket(
+        video_id, ticket, "derivative_attachment", derivative_id=derivative_id
+    ):
+        raise HTTPException(status_code=401, detail="download ticket required or expired")
+    output = video_repository.derivative_source(video_id, derivative_id)
+    if output is None:
+        raise HTTPException(status_code=404, detail="video derivative not found")
+    path = allowed_media_path(output["source_path"], [derivatives_root()])
+    if path is None:
+        raise HTTPException(status_code=404, detail="video derivative not found")
+    filename = f"{video_id}_{derivative_id}.mp4"
+    return _stream_file(path, filename, "attachment", range_header)
 
 
 @read_router.get("/v1/media/statistics", response_model=None)

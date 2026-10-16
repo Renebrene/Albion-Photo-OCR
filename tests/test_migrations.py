@@ -85,7 +85,24 @@ def test_repo_schema_files_are_discoverable():
     assert "017_job_dedup" in versions
     assert "026_video_assets" in versions
     assert "027_video_playback_tickets" in versions
+    assert "028_video_transcodes" in versions
+    assert "029_photo_preview_jobs" in versions
+    assert "030_video_trim" in versions
     # 000 is the superuser bootstrap step, never a migration.
     assert not any(v.startswith("000_") for v in versions)
     # Every file has a 64-char sha256 checksum.
     assert all(len(m.checksum) == 64 for m in migrations)
+
+
+def test_video_trim_migration_preserves_job_types_and_operation_uniqueness():
+    sql = (REPO_ROOT / "schema/030_video_trim.sql").read_text(encoding="utf-8")
+    assert "DROP CONSTRAINT IF EXISTS video_derivatives_video_id_profile_source_sha256_key" in sql
+    assert "CREATE UNIQUE INDEX ix_video_derivatives_operation" in sql
+    assert "CREATE UNIQUE INDEX ix_video_trim_active_dedup" in sql
+    assert "CREATE UNIQUE INDEX ix_video_storyboard_active_dedup" in sql
+    for job_type in (
+        "DINO_BATCH", "HYBRID_RUN", "QWEN_PHOTO", "NL_SEARCH", "INGEST_DIR",
+        "MEDIA_SEARCH", "FINGERPRINT_BUILD", "VIDEO_TRANSCODE", "PHOTO_PREVIEW",
+        "VIDEO_TRIM", "VIDEO_STORYBOARD",
+    ):
+        assert f"'{job_type}'" in sql

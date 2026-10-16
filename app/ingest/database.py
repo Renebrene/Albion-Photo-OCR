@@ -261,6 +261,29 @@ def insert_photos(records: list[PhotoRecord]) -> None:
             )
 
 
+def get_registered_photo(photo_id: str) -> PhotoRecord | None:
+    """Read one persisted photo record for deferred PREVIEW work."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT photo_id, source_path, filename, sha256, container_format,
+                          frame_count, width, height, size_bytes, taken_at
+                   FROM public.photos WHERE photo_id=%s""",
+                (photo_id,),
+            )
+            row = cur.fetchone()
+    if row is None:
+        return None
+    return PhotoRecord(
+        photo_id=str(row[0]), source_path=str(row[1]), filename=str(row[2]),
+        sha256=str(row[3]), container_format=str(row[4]), frame_count=int(row[5]),
+        width=int(row[6]), height=int(row[7]),
+        size_bytes=int(row[8]) if row[8] is not None else None,
+        taken_at=row[9].isoformat(sep=" ") if hasattr(row[9], "isoformat") else row[9],
+    )
+
+
 def insert_photo(record: PhotoRecord) -> None:
     """
     Insert one PhotoRecord into the PostgreSQL photos table.

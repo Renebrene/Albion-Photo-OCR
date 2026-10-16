@@ -131,6 +131,11 @@ def _execute(job: dict) -> dict:
 
         return ingest_directory(str(payload["directory"]))
 
+    if job_type == "PHOTO_PREVIEW":
+        from app.preview.queue import run_photo_preview
+
+        return run_photo_preview(str(payload["photo_id"]))
+
     if job_type == "FINGERPRINT_BUILD":
         from app.pipeline.build import build_fingerprint
 
@@ -161,6 +166,80 @@ def _execute(job: dict) -> dict:
             # for the duration of the job (frames of a video go with it).
             delete_query(path)
 
+    if job_type == "VIDEO_STORYBOARD":
+        from app.video.transcode import generate_storyboard
+
+        return generate_storyboard(
+            video_id=str(payload["video_id"]),
+            source_sha256=str(payload["source_sha256"]),
+            progress=job_control(int(job["id"])),
+        )
+
+    if job_type == "VIDEO_TRIM":
+        from app.api import video_repository
+        from app.video.transcode import VideoTranscodeCancelled, run_trim
+
+        derivative_id = int(payload["derivative_id"])
+        try:
+            return run_trim(
+                video_id=str(payload["video_id"]),
+                derivative_id=derivative_id,
+                source_sha256=str(payload["source_sha256"]),
+                start_seconds=float(payload["start_seconds"]),
+                end_seconds=float(payload["end_seconds"]),
+                job_id=int(job["id"]),
+                progress=job_control(int(job["id"])),
+            )
+        except VideoTranscodeCancelled as exc:
+            video_repository.update_derivative(
+                derivative_id, status="CANCELLED", job_id=int(job["id"]), error_message=str(exc)
+            )
+            raise JobCancelled(str(exc)) from exc
+        except JobCancelled:
+            video_repository.update_derivative(
+                derivative_id, status="CANCELLED", job_id=int(job["id"]), error_message="задание отменено"
+            )
+            raise
+        except Exception as exc:
+            video_repository.update_derivative(
+                derivative_id, status="FAILED", job_id=int(job["id"]),
+                error_message=redact_absolute_paths(str(exc)),
+            )
+            raise
+
+    if job_type == "VIDEO_TRANSCODE":
+        from app.api import video_repository
+        from app.video.transcode import VideoTranscodeCancelled, run_transcode
+
+        derivative_id = int(payload["derivative_id"])
+        try:
+            return run_transcode(
+                video_id=str(payload["video_id"]),
+                derivative_id=derivative_id,
+                profile=str(payload["profile"]),
+                source_sha256=str(payload["source_sha256"]),
+                job_id=int(job["id"]),
+                progress=job_control(int(job["id"])),
+            )
+        except VideoTranscodeCancelled as exc:
+            video_repository.update_derivative(
+                derivative_id, status="CANCELLED", job_id=int(job["id"]),
+                error_message=str(exc),
+            )
+            raise JobCancelled(str(exc)) from exc
+        except JobCancelled:
+            video_repository.update_derivative(
+                derivative_id, status="CANCELLED", job_id=int(job["id"]),
+                error_message="задание отменено",
+            )
+            raise
+        except Exception as exc:
+            video_repository.update_derivative(
+                derivative_id, status="FAILED", job_id=int(job["id"]),
+                error_message=redact_absolute_paths(str(exc)),
+            )
+            raise
+
     raise ValueError(f"Unsupported job type: {job_type}")
 
 
@@ -183,7 +262,11 @@ def _unload_on_idle() -> bool:
         return False
 
 
-def run_once(types: list[str] | None = None) -> str | None:
+def run_once(
+    types: list[str] | None = None,
+    *,
+    exclude_types: list[str] | None = None,
+) -> str | None:
     """
     Claim and execute one job.
 
@@ -192,7 +275,7 @@ def run_once(types: list[str] | None = None) -> str | None:
     `while run_once():` loop still works and callers can inspect the type).
     """
 
-    job = jobs.claim_next(types)
+    job = jobs.claim_next(types, exclude_types=exclude_types)
 
     if job is None:
         return None
@@ -244,6 +327,7 @@ def _builder_worker(
     threads: int,
     parallel: int,
     label: str,
+    exclude_types: list[str] | None = None,
 ) -> None:
     """One worker process in --parallel mode: claims its own jobs."""
 
@@ -263,10 +347,60 @@ def _builder_worker(
     print(f"[worker {label}] watching {types}", flush=True)
 
     while True:
-        job_type = run_once(types)
+        job_type = run_once(types, exclude_types=exclude_types)
 
         if job_type is None:
             time.sleep(interval)
+
+
+def _video_worker(
+    types: list[str],
+    interval: float,
+    threads: int,
+    label: str,
+    exclude_types: list[str] | None = None,
+) -> None:
+    """Video transcodes use their own CPU budget and never import torch."""
+
+    os.environ["SCENE_VIDEO_TRANSCODE_THREADS"] = str(threads)
+    os.environ.setdefault("OMP_NUM_THREADS", str(threads))
+    os.environ.setdefault("MKL_NUM_THREADS", str(threads))
+    print(f"[video-worker {label}] watching {types}; ffmpeg threads={threads}", flush=True)
+    while True:
+        job_type = run_once(types, exclude_types=exclude_types)
+        if job_type is None:
+            time.sleep(interval)
+
+
+def _requeue_stale_jobs(minutes: int, *, video_only: bool, preview_only: bool = False) -> dict:
+    if preview_only:
+        return {"jobs": jobs.requeue_stale(older_than_minutes=minutes, types=["PHOTO_PREVIEW"])}
+    if video_only:
+        from app.ingest.database import get_connection
+
+        result = {"jobs": jobs.requeue_stale(
+            older_than_minutes=minutes,
+            types=["VIDEO_TRANSCODE", "VIDEO_TRIM", "VIDEO_STORYBOARD"],
+        )}
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """UPDATE public.video_derivatives AS d
+                       SET status='PENDING', started_at=NULL, finished_at=NULL,
+                           error_message='requeued (stale RUNNING)'
+                       FROM public.job_queue AS j
+                       WHERE d.job_id=j.id AND j.job_type IN ('VIDEO_TRANSCODE','VIDEO_TRIM')
+                         AND j.status='PENDING' AND d.status='RUNNING'"""
+                )
+        return result
+
+    result = {"jobs": jobs.requeue_stale(older_than_minutes=minutes)}
+    from app.dino import database as dino_db
+    from app.hybrid import database as hybrid_db
+
+    result["dino_runs"] = dino_db.requeue_stale_runs(older_than_minutes=minutes)
+    result["hybrid_runs"] = hybrid_db.requeue_stale_runs(older_than_minutes=minutes)
+    return result
 
 
 def main() -> None:
@@ -310,13 +444,19 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--exclude",
+        default=None,
+        metavar="TYPES",
+        help="Never claim these job types (comma separated).",
+    )
+    parser.add_argument(
         "--parallel",
         type=int,
         default=1,
         help=(
-            "Run N workers in this process, each claiming its own job. Use it "
-            "with --only FINGERPRINT_BUILD to build several fingerprints at "
-            "once (each gets cores/N torch threads)."
+            "Run N workers in this process, each claiming its own job. "
+            "For --only VIDEO_TRANSCODE, 0 auto-selects one verified NVENC worker "
+            "or half the logical CPU cores for CPU encoding."
         ),
     )
     args = parser.parse_args()
@@ -329,30 +469,86 @@ def main() -> None:
         if args.only
         else None
     )
+    excluded_types = (
+        [item.strip() for item in args.exclude.split(",") if item.strip()]
+        if args.exclude
+        else None
+    )
+    if types is None:
+        excluded_types = sorted(set(excluded_types or []) | {
+            "PHOTO_PREVIEW", "VIDEO_TRANSCODE", "VIDEO_TRIM", "VIDEO_STORYBOARD",
+        })
 
-    parallel = max(1, args.parallel)
+    video_only = bool(types) and all(item in {"VIDEO_TRANSCODE", "VIDEO_TRIM", "VIDEO_STORYBOARD"} for item in types)
+    preview_only = types == ["PHOTO_PREVIEW"]
+    if video_only:
+        from app.video.transcode import choose_worker_mode
+
+        encoder, automatic_parallel = choose_worker_mode()
+        os.environ["SCENE_VIDEO_ENCODER_RESOLVED"] = encoder
+        requested_parallel = args.parallel
+        parallel = automatic_parallel if requested_parallel == 0 else max(1, requested_parallel)
+        if encoder == "h264_nvenc":
+            parallel = min(parallel, 2)
+    else:
+        parallel = max(1, args.parallel)
+
+    video_threads = max(1, (os.cpu_count() or 1) // parallel)
+    if video_only:
+        os.environ["SCENE_VIDEO_TRANSCODE_THREADS"] = str(video_threads)
+
+    if preview_only and args.watch and args.requeue_stale is not None:
+        _requeue_stale_jobs(args.requeue_stale, video_only=False, preview_only=True)
+
+    if preview_only and args.watch:
+        print(f"[preview-worker] watching {types}; preview pool is controlled by SCENE_PREVIEW_WORKERS", flush=True)
+        while True:
+            job_type = run_once(types, exclude_types=excluded_types)
+            if job_type is None:
+                time.sleep(args.interval)
+        return
+
+    if video_only and args.watch and args.requeue_stale is not None:
+        _requeue_stale_jobs(args.requeue_stale, video_only=True)
+
+    if video_only and args.watch and parallel == 1:
+        _video_worker(
+            types,
+            args.interval,
+            video_threads,
+            "1/1",
+            excluded_types,
+        )
+        return
 
     if parallel > 1 and args.watch and types:
         threads = max(1, (os.cpu_count() or 1) // parallel)
-
-        print(
-            f"[worker] {parallel} builder processes, types={types}, "
-            f"{threads} torch threads each",
-            flush=True,
-        )
+        if video_only:
+            print(
+                f"[worker] {parallel} video transcode workers, encoder={os.environ['SCENE_VIDEO_ENCODER_RESOLVED']}, "
+                f"{threads} CPU threads per worker",
+                flush=True,
+            )
+            target = _video_worker
+            process_args = [
+                (types, args.interval, threads, f"{index + 1}/{parallel}")
+                for index in range(parallel)
+            ]
+        else:
+            print(
+                f"[worker] {parallel} builder processes, types={types}, "
+                f"{threads} torch threads each",
+                flush=True,
+            )
+            target = _builder_worker
+            process_args = [
+                (types, args.interval, threads, parallel, f"{index + 1}/{parallel}", excluded_types)
+                for index in range(parallel)
+            ]
 
         context = mp.get_context("spawn")
         processes = [
-            context.Process(
-                target=_builder_worker,
-                args=(
-                    types,
-                    args.interval,
-                    threads,
-                    parallel,
-                    f"{index + 1}/{parallel}",
-                ),
-            )
+            context.Process(target=target, args=process_args[index])
             for index in range(parallel)
         ]
 
@@ -370,26 +566,27 @@ def main() -> None:
         return
 
     if args.requeue_stale is not None:
-        from app.dino import database as dino_db
-        from app.hybrid import database as hybrid_db
-
-        minutes = args.requeue_stale
-        requeued = jobs.requeue_stale(older_than_minutes=minutes)
-        dino_runs = dino_db.requeue_stale_runs(older_than_minutes=minutes)
-        hybrid_runs = hybrid_db.requeue_stale_runs(older_than_minutes=minutes)
-
-        print(
-            "[worker] requeued stale: "
-            f"jobs={requeued} dino_runs={dino_runs} hybrid_runs={hybrid_runs}",
-            flush=True,
+        recovered = _requeue_stale_jobs(
+            args.requeue_stale,
+            video_only=video_only,
+            preview_only=preview_only,
         )
+        if video_only or preview_only:
+            print(f"[worker] requeued stale jobs={recovered['jobs']}", flush=True)
+        else:
+            print(
+                "[worker] requeued stale: "
+                f"jobs={recovered['jobs']} dino_runs={recovered['dino_runs']} "
+                f"hybrid_runs={recovered['hybrid_runs']}",
+                flush=True,
+            )
 
     if not args.watch:
         processed = 0
         model_used = False
 
         while True:
-            job_type = run_once(types)
+            job_type = run_once(types, exclude_types=excluded_types)
 
             if job_type is None:
                 break
@@ -415,7 +612,7 @@ def main() -> None:
             except Exception as exc:  # noqa: BLE001 - keep the loop alive
                 print(f"[worker] automation tick failed: {exc}", flush=True)
 
-        job_type = run_once(types)
+        job_type = run_once(types, exclude_types=excluded_types)
 
         if job_type is None:
             # Queue is empty: free the local model if it was used.

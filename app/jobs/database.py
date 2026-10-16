@@ -22,6 +22,10 @@ JOB_TYPES = {
     "INGEST_DIR",
     "MEDIA_SEARCH",
     "FINGERPRINT_BUILD",
+    "VIDEO_TRANSCODE",
+    "VIDEO_TRIM",
+    "VIDEO_STORYBOARD",
+    "PHOTO_PREVIEW",
 }
 
 _JOB_COLUMNS = (
@@ -63,6 +67,29 @@ def enqueue(job_type: str, payload: dict[str, Any]) -> int:
                 (job_type, Json(payload)),
             )
             return int(cur.fetchone()[0])
+
+
+def enqueue_photo_preview(photo_id: str) -> int | None:
+    """Atomically enqueue one active preview job per registered photo id."""
+
+    if not photo_id:
+        raise ValueError("photo_id is required")
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM public.photos WHERE photo_id=%s FOR KEY SHARE", (photo_id,))
+            if cur.fetchone() is None:
+                return None
+            cur.execute(
+                """INSERT INTO public.job_queue(job_type, payload, status)
+                   VALUES ('PHOTO_PREVIEW', %s, 'PENDING')
+                   ON CONFLICT ((payload ->> 'photo_id'))
+                   WHERE job_type='PHOTO_PREVIEW' AND status IN ('PENDING', 'RUNNING')
+                   DO NOTHING
+                   RETURNING id""",
+                (Json({"photo_id": photo_id}),),
+            )
+            row = cur.fetchone()
+            return int(row[0]) if row is not None else None
 
 
 def enqueue_qwen(photo_id: str) -> int | None:
@@ -218,7 +245,11 @@ def list_jobs(
     return items, next_cursor
 
 
-def claim_next(types: list[str] | None = None) -> dict | None:
+def claim_next(
+    types: list[str] | None = None,
+    *,
+    exclude_types: list[str] | None = None,
+) -> dict | None:
     """
     Atomically move the oldest PENDING job to RUNNING.
 
@@ -229,12 +260,18 @@ def claim_next(types: list[str] | None = None) -> dict | None:
     A PAUSED job is never claimed: pausing a queued job is a way to hold it.
     """
 
-    clause = ""
+    clauses = []
     params: list[object] = []
 
     if types:
-        clause = " AND job_type = ANY(%s)"
+        clauses.append("job_type = ANY(%s)")
         params.append(list(types))
+    if exclude_types is None and types is None:
+        exclude_types = ["PHOTO_PREVIEW", "VIDEO_TRANSCODE", "VIDEO_TRIM", "VIDEO_STORYBOARD"]
+    if exclude_types:
+        clauses.append("NOT (job_type = ANY(%s))")
+        params.append(list(exclude_types))
+    where = " AND " + " AND ".join(clauses) if clauses else ""
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -244,7 +281,7 @@ def claim_next(types: list[str] | None = None) -> dict | None:
                 FROM public.job_queue
                 WHERE status = 'PENDING'
                 """
-                + clause
+                + where
                 + """
                 ORDER BY id
                 FOR UPDATE SKIP LOCKED
@@ -437,6 +474,7 @@ def mark_cancelled(job_id: int) -> bool:
 def requeue_stale(
     *,
     older_than_minutes: int = 30,
+    types: list[str] | None = None,
 ) -> int:
     """
     Return jobs stuck in RUNNING (older than the threshold) to PENDING.
@@ -449,6 +487,10 @@ def requeue_stale(
     if older_than_minutes < 0:
         raise ValueError("older_than_minutes must be >= 0")
 
+    type_clause = " AND job_type = ANY(%s)" if types else ""
+    params: list[object] = [str(int(older_than_minutes))]
+    if types:
+        params.append(list(types))
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -463,8 +505,8 @@ def requeue_stale(
                   AND started_at IS NOT NULL
                   AND started_at < CURRENT_TIMESTAMP
                         - (%s || ' minutes')::interval
-                """,
-                (str(int(older_than_minutes)),),
+                """ + type_clause,
+                params,
             )
             return cur.rowcount
 

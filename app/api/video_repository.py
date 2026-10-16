@@ -3,10 +3,19 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import secrets
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
 
+from psycopg.types.json import Json
+
+from app.api.config import VIDEO_STORYBOARD_ROOT
 from app.ingest.database import get_connection
+from app.video.profiles import PROFILES
+
+STORYBOARD_FRAME_COUNT = 8
 
 _VIDEO_FIELDS = """
     video_id, filename, display_title, container_format, video_codec,
@@ -85,13 +94,13 @@ def video_source(video_id: str) -> dict | None:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT source_path, filename, size_bytes FROM public.video_assets WHERE video_id = %s",
+                "SELECT source_path, filename, size_bytes, sha256, duration_seconds FROM public.video_assets WHERE video_id = %s",
                 (video_id,),
             )
             row = cur.fetchone()
     if row is None:
         return None
-    return {"source_path": row[0], "filename": row[1], "size_bytes": int(row[2])}
+    return {"source_path": row[0], "filename": row[1], "size_bytes": int(row[2]), "sha256": row[3], "duration_seconds": float(row[4])}
 
 
 def update_display_title(video_id: str, title: str) -> dict | None:
@@ -226,29 +235,362 @@ def media_statistics() -> dict:
     return result
 
 
-def issue_playback_ticket(video_id: str, action: str, *, ttl_seconds: int = 300) -> tuple[str, datetime]:
-    if action not in {"inline", "attachment"}:
+
+def enqueue_transcode(video_id: str, profile: str) -> dict | None:
+    """Create or reuse an active/completed derivative and its worker job atomically."""
+
+    if profile not in PROFILES:
+        raise ValueError("unsupported transcode profile")
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT sha256 FROM public.video_assets WHERE video_id=%s FOR UPDATE",
+                (video_id,),
+            )
+            asset = cur.fetchone()
+            if asset is None:
+                return None
+            source_sha256 = str(asset[0])
+            cur.execute(
+                """SELECT derivative_id, status, job_id, output_path
+                   FROM public.video_derivatives
+                   WHERE video_id=%s AND profile=%s AND source_sha256=%s
+                   FOR UPDATE""",
+                (video_id, profile, source_sha256),
+            )
+            row = cur.fetchone()
+            if row and row[1] in {"PENDING", "RUNNING"}:
+                return {"derivative_id": int(row[0]), "job_id": row[2], "status": row[1], "reused": True}
+            if row and row[1] == "DONE" and row[3] and Path(row[3]).is_file():
+                return {"derivative_id": int(row[0]), "job_id": row[2], "status": "DONE", "reused": True}
+
+            if row:
+                derivative_id = int(row[0])
+                cur.execute(
+                    """UPDATE public.video_derivatives SET status='PENDING', job_id=NULL,
+                       output_path=NULL, output_sha256=NULL, output_size_bytes=NULL,
+                       width=NULL, height=NULL, duration_seconds=NULL, fps=NULL,
+                       video_codec=NULL, encoder=NULL, error_message=NULL,
+                       started_at=NULL, finished_at=NULL WHERE derivative_id=%s""",
+                    (derivative_id,),
+                )
+            else:
+                cur.execute(
+                    """INSERT INTO public.video_derivatives(video_id, profile, source_sha256, status)
+                       VALUES (%s, %s, %s, 'PENDING') RETURNING derivative_id""",
+                    (video_id, profile, source_sha256),
+                )
+                derivative_id = int(cur.fetchone()[0])
+
+            payload = {"video_id": video_id, "profile": profile,
+                       "source_sha256": source_sha256, "derivative_id": derivative_id}
+            cur.execute(
+                """INSERT INTO public.job_queue(job_type, payload, status)
+                   VALUES ('VIDEO_TRANSCODE', %s, 'PENDING') RETURNING id""",
+                (Json(payload),),
+            )
+            job_id = int(cur.fetchone()[0])
+            cur.execute(
+                "UPDATE public.video_derivatives SET job_id=%s WHERE derivative_id=%s",
+                (job_id, derivative_id),
+            )
+            return {"derivative_id": derivative_id, "job_id": job_id, "status": "PENDING", "reused": False}
+
+
+def normalize_trim_range(start_seconds: float, end_seconds: float) -> tuple[float, float, str]:
+    """Millisecond precision keeps request identity and FFmpeg arguments stable."""
+
+    if not math.isfinite(float(start_seconds)) or not math.isfinite(float(end_seconds)):
+        raise ValueError("trim times must be finite")
+    start = round(float(start_seconds), 3)
+    end = round(float(end_seconds), 3)
+    if start < 0 or end - start < 0.25:
+        raise ValueError("trim range must be at least 0.25 seconds")
+    return start, end, f"trim:{start:.3f}:{end:.3f}"
+
+
+def enqueue_storyboard(video_id: str) -> dict | None:
+    """Queue a bounded source-hash-keyed storyboard generation job."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT sha256 FROM public.video_assets WHERE video_id=%s FOR UPDATE", (video_id,))
+            asset = cur.fetchone()
+            if asset is None:
+                return None
+            source_sha256 = str(asset[0])
+            cur.execute(
+                """SELECT id,status FROM public.job_queue
+                   WHERE job_type='VIDEO_STORYBOARD' AND status IN ('PENDING','RUNNING','PAUSED')
+                     AND payload ->> 'video_id'=%s AND payload ->> 'source_sha256'=%s
+                   ORDER BY id DESC LIMIT 1""",
+                (video_id, source_sha256),
+            )
+            active = cur.fetchone()
+            if active:
+                return {"job_id": int(active[0]), "status": active[1], "reused": True}
+            cur.execute(
+                """SELECT id,result FROM public.job_queue
+                   WHERE job_type='VIDEO_STORYBOARD' AND status='DONE'
+                     AND payload ->> 'video_id'=%s AND payload ->> 'source_sha256'=%s
+                   ORDER BY id DESC LIMIT 1""",
+                (video_id, source_sha256),
+            )
+            completed = cur.fetchone()
+            if completed and int((completed[1] or {}).get("frames", 0)) == STORYBOARD_FRAME_COUNT:
+                from app.video.transcode import _valid_storyboard_frame, storyboard_frame_path
+
+                root = VIDEO_STORYBOARD_ROOT.expanduser().resolve()
+                if all(
+                    _valid_storyboard_frame(storyboard_frame_path(video_id, source_sha256, index), root)
+                    for index in range(STORYBOARD_FRAME_COUNT)
+                ):
+                    return {"job_id": int(completed[0]), "status": "DONE", "reused": True}
+            payload = {"video_id": video_id, "source_sha256": source_sha256}
+            cur.execute(
+                """INSERT INTO public.job_queue(job_type,payload,status)
+                   VALUES ('VIDEO_STORYBOARD',%s,'PENDING')
+                   ON CONFLICT ((payload ->> 'video_id'),(payload ->> 'source_sha256'))
+                   WHERE job_type='VIDEO_STORYBOARD' AND status IN ('PENDING','RUNNING','PAUSED')
+                   DO NOTHING RETURNING id""",
+                (Json(payload),),
+            )
+            row = cur.fetchone()
+            if row:
+                return {"job_id": int(row[0]), "status": "PENDING", "reused": False}
+            cur.execute(
+                """SELECT id,status FROM public.job_queue
+                   WHERE job_type='VIDEO_STORYBOARD' AND status IN ('PENDING','RUNNING','PAUSED')
+                     AND payload ->> 'video_id'=%s AND payload ->> 'source_sha256'=%s
+                   ORDER BY id DESC LIMIT 1""",
+                (video_id, source_sha256),
+            )
+            active = cur.fetchone()
+            return {"job_id": int(active[0]), "status": active[1], "reused": True} if active else None
+
+
+def storyboard_ready(video_id: str, source_sha256: str) -> bool:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT result FROM public.job_queue
+                   WHERE job_type='VIDEO_STORYBOARD' AND status='DONE'
+                     AND payload ->> 'video_id'=%s AND payload ->> 'source_sha256'=%s
+                   ORDER BY id DESC LIMIT 1""",
+                (video_id, source_sha256),
+            )
+            row = cur.fetchone()
+    return bool(row and int((row[0] or {}).get("frames", 0)) == STORYBOARD_FRAME_COUNT)
+
+
+def enqueue_trim(video_id: str, start_seconds: float, end_seconds: float) -> dict | None:
+    start, end, operation_key = normalize_trim_range(start_seconds, end_seconds)
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT sha256, duration_seconds FROM public.video_assets WHERE video_id=%s FOR UPDATE",
+                (video_id,),
+            )
+            asset = cur.fetchone()
+            if asset is None:
+                return None
+            source_sha256 = str(asset[0])
+            if end > float(asset[1]):
+                raise ValueError("trim end exceeds source duration")
+            cur.execute(
+                """SELECT derivative_id,status,job_id,output_path
+                   FROM public.video_derivatives
+                   WHERE video_id=%s AND source_sha256=%s AND operation_key=%s
+                   FOR UPDATE""",
+                (video_id, source_sha256, operation_key),
+            )
+            row = cur.fetchone()
+            if row and row[1] in {"PENDING", "RUNNING"}:
+                return {"derivative_id": int(row[0]), "job_id": row[2], "status": row[1], "reused": True,
+                        "start_seconds": start, "end_seconds": end}
+            if row and row[1] == "DONE" and row[3] and Path(row[3]).is_file():
+                return {"derivative_id": int(row[0]), "job_id": row[2], "status": "DONE", "reused": True,
+                        "start_seconds": start, "end_seconds": end}
+            if row:
+                derivative_id = int(row[0])
+                cur.execute(
+                    """UPDATE public.video_derivatives SET status='PENDING',job_id=NULL,
+                       output_path=NULL,output_sha256=NULL,output_size_bytes=NULL,
+                       width=NULL,height=NULL,duration_seconds=NULL,fps=NULL,
+                       video_codec=NULL,encoder=NULL,error_message=NULL,
+                       started_at=NULL,finished_at=NULL WHERE derivative_id=%s""",
+                    (derivative_id,),
+                )
+            else:
+                cur.execute(
+                    """INSERT INTO public.video_derivatives(
+                           video_id,profile,source_sha256,status,operation_kind,start_seconds,end_seconds,operation_key
+                       ) VALUES (%s,'trim',%s,'PENDING','TRIM',%s,%s,%s) RETURNING derivative_id""",
+                    (video_id, source_sha256, start, end, operation_key),
+                )
+                derivative_id = int(cur.fetchone()[0])
+            payload = {
+                "video_id": video_id,
+                "derivative_id": derivative_id,
+                "source_sha256": source_sha256,
+                "start_seconds": start,
+                "end_seconds": end,
+                "operation_key": operation_key,
+            }
+            cur.execute(
+                """INSERT INTO public.job_queue(job_type,payload,status)
+                   VALUES ('VIDEO_TRIM',%s,'PENDING') RETURNING id""",
+                (Json(payload),),
+            )
+            job_id = int(cur.fetchone()[0])
+            cur.execute("UPDATE public.video_derivatives SET job_id=%s WHERE derivative_id=%s", (job_id, derivative_id))
+            return {"derivative_id": derivative_id, "job_id": job_id, "status": "PENDING", "reused": False,
+                    "start_seconds": start, "end_seconds": end}
+
+
+def trim_state(video_id: str, start_seconds: float, end_seconds: float) -> dict | None:
+    _start, _end, operation_key = normalize_trim_range(start_seconds, end_seconds)
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT d.derivative_id,d.status,d.job_id,j.progress,d.start_seconds,d.end_seconds,
+                          d.width,d.height,d.duration_seconds,d.fps,d.video_codec,d.encoder,d.error_message,d.finished_at
+                   FROM public.video_derivatives d
+                   LEFT JOIN public.job_queue j ON j.id=d.job_id
+                   WHERE d.video_id=%s AND d.operation_key=%s""",
+                (video_id, operation_key),
+            )
+            row = cur.fetchone()
+    if row is None:
+        return None
+    return {
+        "derivative_id": int(row[0]), "status": row[1],
+        "job_id": int(row[2]) if row[2] is not None else None,
+        "progress": row[3], "start_seconds": row[4], "end_seconds": row[5],
+        "width": row[6], "height": row[7], "duration_seconds": row[8], "fps": row[9],
+        "video_codec": row[10], "encoder": row[11], "error_message": row[12], "finished_at": row[13],
+    }
+
+
+def transcode_state(video_id: str, profile: str) -> dict | None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT d.derivative_id, d.status, d.job_id, j.progress,
+                          d.width, d.height, d.duration_seconds, d.fps,
+                          d.video_codec, d.encoder, d.error_message, d.finished_at
+                   FROM public.video_derivatives d
+                   LEFT JOIN public.job_queue j ON j.id=d.job_id
+                   WHERE d.video_id=%s AND d.profile=%s
+                   ORDER BY d.created_at DESC LIMIT 1""",
+                (video_id, profile),
+            )
+            row = cur.fetchone()
+    if row is None:
+        return None
+    return {
+        "derivative_id": int(row[0]), "status": row[1],
+        "job_id": int(row[2]) if row[2] is not None else None,
+        "progress": row[3], "width": row[4], "height": row[5],
+        "duration_seconds": row[6], "fps": row[7], "video_codec": row[8],
+        "encoder": row[9], "error_message": row[10], "finished_at": row[11],
+    }
+
+
+def derivative_source(video_id: str, derivative_id: int) -> dict | None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT output_path, output_sha256, output_size_bytes
+                   FROM public.video_derivatives
+                   WHERE video_id=%s AND derivative_id=%s AND status='DONE'""",
+                (video_id, derivative_id),
+            )
+            row = cur.fetchone()
+    if row is None:
+        return None
+    return {"source_path": row[0], "sha256": row[1], "size_bytes": int(row[2])}
+
+
+def update_derivative(
+    derivative_id: int,
+    *,
+    status: str,
+    job_id: int | None = None,
+    error_message: str | None = None,
+    result: dict | None = None,
+) -> None:
+    fields = result or {}
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE public.video_derivatives SET status=%s,
+                     job_id=COALESCE(%s, job_id), error_message=%s,
+                     output_path=%s, output_sha256=%s, output_size_bytes=%s,
+                     width=%s, height=%s, duration_seconds=%s, fps=%s,
+                     video_codec=%s, encoder=%s,
+                     operation_kind=COALESCE(%s, operation_kind),
+                     start_seconds=COALESCE(%s, start_seconds),
+                     end_seconds=COALESCE(%s, end_seconds),
+                     started_at=CASE WHEN %s THEN CURRENT_TIMESTAMP ELSE started_at END,
+                     finished_at=CASE WHEN %s THEN CURRENT_TIMESTAMP ELSE finished_at END
+                   WHERE derivative_id=%s""",
+                (
+                    status, job_id, error_message,
+                    fields.get("output_path"), fields.get("output_sha256"), fields.get("output_size_bytes"),
+                    fields.get("width"), fields.get("height"), fields.get("duration_seconds"),
+                    fields.get("fps"), fields.get("video_codec"), fields.get("encoder"),
+                    fields.get("operation_kind"), fields.get("start_seconds"), fields.get("end_seconds"),
+                    status == "RUNNING", status in {"DONE", "FAILED", "CANCELLED"}, derivative_id,
+                ),
+            )
+            if cur.rowcount != 1:
+                raise LookupError("video derivative not found")
+
+
+def issue_playback_ticket(
+    video_id: str,
+    action: str,
+    *,
+    derivative_id: int | None = None,
+    ttl_seconds: int = 300,
+) -> tuple[str, datetime]:
+    if action not in {"inline", "attachment", "derivative_attachment"}:
         raise ValueError("unsupported ticket action")
+    if (action == "derivative_attachment") != (derivative_id is not None):
+        raise ValueError("derivative ticket target is required")
     token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     expires = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM public.video_playback_tickets WHERE expires_at <= CURRENT_TIMESTAMP")
-            cur.execute(
-                """INSERT INTO public.video_playback_tickets
-                   (ticket_sha256, video_id, action, expires_at)
-                   SELECT %s, %s, %s, %s
-                   WHERE EXISTS (SELECT 1 FROM public.video_assets WHERE video_id = %s)""",
-                (token_hash, video_id, action, expires, video_id),
-            )
+            if derivative_id is None:
+                cur.execute(
+                    """INSERT INTO public.video_playback_tickets
+                       (ticket_sha256, video_id, action, expires_at)
+                       SELECT %s, %s, %s, %s
+                       WHERE EXISTS (SELECT 1 FROM public.video_assets WHERE video_id = %s)""",
+                    (token_hash, video_id, action, expires, video_id),
+                )
+            else:
+                cur.execute(
+                    """INSERT INTO public.video_playback_tickets
+                       (ticket_sha256, video_id, action, derivative_id, expires_at)
+                       SELECT %s, %s, %s, derivative_id, %s
+                       FROM public.video_derivatives
+                       WHERE derivative_id = %s AND video_id = %s AND status = 'DONE'""",
+                    (token_hash, video_id, action, expires, derivative_id, video_id),
+                )
             if cur.rowcount != 1:
-                raise LookupError("video not found")
+                raise LookupError("video or derivative not found")
     return token, expires
 
 
-def validate_playback_ticket(video_id: str, token: str, action: str) -> bool:
-    if action not in {"inline", "attachment"} or not token:
+def validate_playback_ticket(
+    video_id: str, token: str, action: str, *, derivative_id: int | None = None
+) -> bool:
+    if action not in {"inline", "attachment", "derivative_attachment"} or not token:
         return False
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     with get_connection() as conn:
@@ -256,7 +598,8 @@ def validate_playback_ticket(video_id: str, token: str, action: str) -> bool:
             cur.execute(
                 """SELECT 1 FROM public.video_playback_tickets
                    WHERE ticket_sha256=%s AND video_id=%s AND action=%s
+                     AND derivative_id IS NOT DISTINCT FROM %s
                      AND expires_at > CURRENT_TIMESTAMP""",
-                (token_hash, video_id, action),
+                (token_hash, video_id, action, derivative_id),
             )
             return cur.fetchone() is not None

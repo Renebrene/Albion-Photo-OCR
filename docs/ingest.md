@@ -398,6 +398,8 @@ Read-only правило:
 - поэтому текущий `run()` завершается формированием `IngestResult`, а не регистрацией в PostgreSQL;
 - PostgreSQL DATABASE IDENTITY CHECK является отдельным слоем `app/ingest/database.py`.
 
+После регистрации `NEW` записей общий `ingest_directory()` ставит отдельный `PHOTO_PREVIEW` job на каждый `photo_id`. Он использует уже зарегистрированную строку, а CPU-генерация выполняется выделенным `scene-preview-worker` через существующий `app/preview/pipeline.py`; `INGEST_DIR` не ждёт генерацию, и PREVIEW не ждёт DINO/HYBRID/QWEN. Синхронный upload также ставит PREVIEW job после успешной регистрации. Ошибка постановки задания возвращается в ingest summary/upload result, но не отменяет уже подтверждённую регистрацию. Смотрите `docs/preview.txt` и `deploy/systemd/README.md` для настройки воркера и ограниченного backfill.
+
 Итоговая фактическая архитектура текущего INGEST:
 
     DISCOVER

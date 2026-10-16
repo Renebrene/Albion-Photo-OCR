@@ -18,6 +18,9 @@ PREVIEW_ROOT = Path(
 VIDEO_PREVIEW_ROOT = Path(
     os.getenv("SCENE_VIDEO_PREVIEW_ROOT", str(PREVIEW_ROOT / "videos"))
 )
+VIDEO_STORYBOARD_ROOT = Path(
+    os.getenv("SCENE_VIDEO_STORYBOARD_ROOT", str(VIDEO_PREVIEW_ROOT / "storyboards"))
+)
 
 # Fingerprint artifacts (FAISS + metadata) live next to the data directory.
 FINGERPRINTS_ROOT = Path(

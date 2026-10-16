@@ -5,10 +5,20 @@ import { Notify } from 'quasar'
 
 import AuthImage from '../components/AuthImage.vue'
 import {
+  cancelJob,
+  enqueueVideoStoryboard,
+  enqueueVideoTranscode,
+  enqueueVideoTrim,
+  fetchJob,
+  fetchVideoTranscode,
+  fetchVideoTrim,
+  requestVideoDerivativeDownload,
+  requestVideoDerivativeIdDownload,
   requestVideoDownload,
   requestVideoPlayback,
   updateVideoTitle,
   videoPosterUrl,
+  videoStoryboardFrameUrl,
 } from '../api/client'
 import { useDisplayStore } from '../stores/display'
 import { useVideosStore } from '../stores/videos'
@@ -24,11 +34,37 @@ const playbackError = ref('')
 const titleDraft = ref('')
 const savingTitle = ref(false)
 const downloading = ref(false)
+const transcodeSubmitting = ref(false)
+const transcodeVideoId = ref(null)
+const transcodeProfile = ref(null)
+const transcodeInfo = ref(null)
+const transcodeError = ref('')
+const trimMode = ref(false)
+const trimStart = ref(0)
+const trimEnd = ref(0)
+const trimSubmitting = ref(false)
+const trimInfo = ref(null)
+const trimError = ref('')
+const trimStoryboardJobId = ref(null)
+const trimStoryboardStatus = ref('IDLE')
+const trimFrameCount = 8
+const trimPlayer = ref(null)
 const scrollElement = ref(null)
 let scrollListener = null
 let searchTimer = null
+let transcodeTimer = null
+let trimTimer = null
+let storyboardTimer = null
 
 const selectedVideo = computed(() => store.selectedVideo)
+const activeTranscode = computed(() =>
+  transcodeVideoId.value === selectedVideo.value?.video_id ? transcodeInfo.value : null,
+)
+const transcodeProfiles = [
+  { label: 'Сильно · 720p', value: 'strong_720p' },
+  { label: 'Стандартно · 1080p', value: 'standard_1080p' },
+  { label: 'Легко · 1440p', value: 'light_1440p' },
+]
 const gridStyle = computed(() => {
   if (display.tileColumns === 'auto') {
     return { gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))' }
@@ -51,6 +87,7 @@ function applyFilters() {
 
 function selectVideo(video) {
   store.selectVideo(video.video_id)
+  transcodeError.value = ''
 }
 
 async function openDetails(video) {
@@ -71,6 +108,8 @@ async function openDetails(video) {
 }
 
 function closeDetails() {
+  stopTrimTimers()
+  trimMode.value = false
   detailsOpen.value = false
   // Drop the source immediately so the browser releases its streaming ticket.
   playbackUrl.value = ''
@@ -105,6 +144,226 @@ async function downloadOriginal() {
   } finally {
     downloading.value = false
   }
+}
+
+function stopTranscodePolling() {
+  if (transcodeTimer !== null) {
+    clearInterval(transcodeTimer)
+    transcodeTimer = null
+  }
+}
+
+async function pollTranscode() {
+  if (!transcodeVideoId.value || !transcodeProfile.value) return
+  try {
+    transcodeInfo.value = await fetchVideoTranscode(transcodeVideoId.value, transcodeProfile.value)
+    if (['DONE', 'FAILED', 'CANCELLED'].includes(transcodeInfo.value.status)) {
+      stopTranscodePolling()
+      if (transcodeInfo.value.status === 'DONE') {
+        Notify.create({ type: 'positive', message: 'Сжатая копия готова' })
+      } else if (transcodeInfo.value.status === 'FAILED') {
+        transcodeError.value = transcodeInfo.value.error_message || 'Конвертация завершилась ошибкой'
+      }
+    }
+  } catch (err) {
+    transcodeError.value = err.message || 'Не удалось проверить конвертацию'
+    stopTranscodePolling()
+  }
+}
+
+async function startTranscode(profile) {
+  if (!selectedVideo.value || transcodeSubmitting.value) return
+  transcodeSubmitting.value = true
+  transcodeError.value = ''
+  transcodeInfo.value = null
+  transcodeVideoId.value = selectedVideo.value.video_id
+  transcodeProfile.value = profile
+  try {
+    const result = await enqueueVideoTranscode(selectedVideo.value.video_id, profile)
+    transcodeInfo.value = await fetchVideoTranscode(selectedVideo.value.video_id, profile)
+    if (result.status === 'DONE' || transcodeInfo.value.status === 'DONE') {
+      Notify.create({ type: 'positive', message: 'Сжатая копия уже готова' })
+    } else {
+      stopTranscodePolling()
+      transcodeTimer = setInterval(pollTranscode, 1500)
+      await pollTranscode()
+    }
+  } catch (err) {
+    transcodeError.value = err.message || 'Не удалось поставить видео на конвертацию'
+    Notify.create({ type: 'negative', message: transcodeError.value })
+  } finally {
+    transcodeSubmitting.value = false
+  }
+}
+
+async function cancelTranscode() {
+  if (!transcodeInfo.value?.job_id) return
+  try {
+    await cancelJob(transcodeInfo.value.job_id)
+    await pollTranscode()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message || 'Не удалось отменить конвертацию' })
+  }
+}
+
+async function downloadTranscoded() {
+  if (!selectedVideo.value || !transcodeProfile.value || activeTranscode.value?.status !== 'DONE') return
+  try {
+    const ticket = await requestVideoDerivativeDownload(selectedVideo.value.video_id, transcodeProfile.value)
+    window.location.assign(ticket.url)
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message || 'Не удалось скачать сжатую копию' })
+  }
+}
+
+function stopTrimTimers() {
+  if (trimTimer !== null) clearInterval(trimTimer)
+  if (storyboardTimer !== null) clearInterval(storyboardTimer)
+  trimTimer = null
+  storyboardTimer = null
+}
+
+async function enterTrimMode() {
+  if (!currentVideo.value) return
+  stopTrimTimers()
+  trimMode.value = true
+  trimStart.value = 0
+  trimEnd.value = Number(currentVideo.value.duration_seconds || 0)
+  trimInfo.value = null
+  trimError.value = ''
+  trimStoryboardStatus.value = 'PENDING'
+  try {
+    const result = await enqueueVideoStoryboard(currentVideo.value.video_id)
+    trimStoryboardJobId.value = result.job_id
+    if (result.status === 'DONE') {
+      trimStoryboardStatus.value = 'DONE'
+    } else {
+      await pollStoryboard()
+      if (trimStoryboardStatus.value === 'PENDING' || trimStoryboardStatus.value === 'RUNNING') {
+        storyboardTimer = setInterval(pollStoryboard, 1500)
+      }
+    }
+  } catch (err) {
+    trimStoryboardStatus.value = 'FAILED'
+    trimError.value = err.message || 'Не удалось подготовить ленту кадров'
+  }
+}
+
+async function pollStoryboard() {
+  if (!trimStoryboardJobId.value) return
+  try {
+    const job = await fetchJob(trimStoryboardJobId.value)
+    trimStoryboardStatus.value = job.status
+    if (['DONE', 'FAILED', 'CANCELLED'].includes(job.status)) {
+      if (storyboardTimer !== null) clearInterval(storyboardTimer)
+      storyboardTimer = null
+      if (job.status === 'FAILED') trimError.value = job.error_message || 'Не удалось построить ленту кадров'
+    }
+  } catch (err) {
+    trimStoryboardStatus.value = 'FAILED'
+    trimError.value = err.message || 'Не удалось проверить ленту кадров'
+    if (storyboardTimer !== null) clearInterval(storyboardTimer)
+    storyboardTimer = null
+  }
+}
+
+function onTrimLoaded() {
+  if (trimPlayer.value) trimPlayer.value.currentTime = Number(trimStart.value)
+}
+
+async function startTrimPreview() {
+  if (!trimPlayer.value) return
+  trimPlayer.value.currentTime = Number(trimStart.value)
+  try { await trimPlayer.value.play() } catch { /* user can press play in controls */ }
+}
+
+function trimTimeUpdate() {
+  if (!trimMode.value || !trimPlayer.value) return
+  if (trimPlayer.value.currentTime >= Number(trimEnd.value)) trimPlayer.value.pause()
+}
+
+function setTrimStartFromPlayer() {
+  if (!trimPlayer.value) return
+  trimStart.value = Math.max(0, Math.min(Number(trimPlayer.value.currentTime.toFixed(3)), Number(trimEnd.value) - 0.25))
+}
+
+function setTrimEndFromPlayer() {
+  if (!trimPlayer.value) return
+  trimEnd.value = Math.min(Number(currentVideo.value?.duration_seconds || 0), Math.max(Number(trimPlayer.value.currentTime.toFixed(3)), Number(trimStart.value) + 0.25))
+}
+
+async function submitTrim() {
+  const video = currentVideo.value
+  const start = Number(trimStart.value)
+  const end = Number(trimEnd.value)
+  if (!video || trimSubmitting.value || !Number.isFinite(start) || !Number.isFinite(end) || end - start < 0.25) {
+    trimError.value = 'Выберите интервал не короче 0,25 секунды'
+    return
+  }
+  trimSubmitting.value = true
+  trimError.value = ''
+  stopTrimTimers()
+  try {
+    const result = await enqueueVideoTrim(video.video_id, start, end)
+    trimInfo.value = await fetchVideoTrim(video.video_id, start, end)
+    if (result.status !== 'DONE' && trimInfo.value.status !== 'DONE') {
+      trimTimer = setInterval(pollTrim, 1500)
+      await pollTrim()
+    }
+  } catch (err) {
+    trimError.value = err.message || 'Не удалось поставить обрезку в очередь'
+  } finally {
+    trimSubmitting.value = false
+  }
+}
+
+async function pollTrim() {
+  if (!currentVideo.value) return
+  try {
+    trimInfo.value = await fetchVideoTrim(currentVideo.value.video_id, Number(trimStart.value), Number(trimEnd.value))
+    if (['DONE', 'FAILED', 'CANCELLED'].includes(trimInfo.value.status)) {
+      if (trimTimer !== null) clearInterval(trimTimer)
+      trimTimer = null
+      if (trimInfo.value.status === 'DONE') Notify.create({ type: 'positive', message: 'Обрезанный клип готов' })
+      if (trimInfo.value.status === 'FAILED') trimError.value = trimInfo.value.error_message || 'Обрезка завершилась ошибкой'
+    }
+  } catch (err) {
+    trimError.value = err.message || 'Не удалось проверить обрезку'
+    if (trimTimer !== null) clearInterval(trimTimer)
+    trimTimer = null
+  }
+}
+
+async function cancelTrim() {
+  if (!trimInfo.value?.job_id) return
+  try {
+    await cancelJob(trimInfo.value.job_id)
+    await pollTrim()
+  } catch (err) {
+    trimError.value = err.message || 'Не удалось отменить обрезку'
+  }
+}
+
+async function downloadTrim() {
+  if (!currentVideo.value || trimInfo.value?.status !== 'DONE') return
+  try {
+    const ticket = await requestVideoDerivativeIdDownload(currentVideo.value.video_id, trimInfo.value.derivative_id)
+    window.location.assign(ticket.url)
+  } catch (err) {
+    trimError.value = err.message || 'Не удалось скачать обрезанный клип'
+  }
+}
+
+function leaveTrimMode() {
+  stopTrimTimers()
+  trimMode.value = false
+  if (trimPlayer.value) trimPlayer.value.pause()
+}
+
+function formatSeconds(value) {
+  const seconds = Math.max(0, Number(value) || 0)
+  const mins = Math.floor(seconds / 60)
+  return `${mins}:${(seconds % 60).toFixed(1).padStart(4, '0')}`
 }
 
 function formatCapture(value) {
@@ -142,6 +401,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearTimeout(searchTimer)
+  stopTranscodePolling()
+  stopTrimTimers()
   if (scrollElement.value && scrollListener) {
     scrollElement.value.removeEventListener('scroll', scrollListener)
   }
@@ -185,9 +446,24 @@ onBeforeUnmount(() => {
       <q-space />
       <span v-if="selectedVideo" class="text-caption ellipsis">Выбрано: {{ selectedVideo.filename }}</span>
       <q-btn color="primary" icon="download" label="Скачать" :disable="!selectedVideo" :loading="downloading" @click="downloadOriginal" />
-      <q-btn color="secondary" icon="compress" label="Сжать" :disable="!selectedVideo" disable>
-        <q-tooltip>Конвертация появится в следующем этапе</q-tooltip>
+      <q-btn color="secondary" icon="compress" label="Сжать" :disable="!selectedVideo" :loading="transcodeSubmitting">
+        <q-menu anchor="bottom right" self="top right">
+          <q-list dense style="min-width: 210px">
+            <q-item v-for="profile in transcodeProfiles" :key="profile.value" clickable v-close-popup @click="startTranscode(profile.value)">
+              <q-item-section>{{ profile.label }}</q-item-section>
+            </q-item>
+          </q-list>
+        </q-menu>
+        <q-tooltip>Сделать H.264/MP4 копию, оригинал останется без изменений</q-tooltip>
       </q-btn>
+      <q-btn v-if="activeTranscode?.status === 'DONE'" outline color="positive" icon="download" label="Скачать сжатое" @click="downloadTranscoded" />
+    </div>
+    <div v-if="activeTranscode || transcodeError" class="video-transcode-status row items-center q-gutter-sm q-mb-sm">
+      <span v-if="activeTranscode" class="text-caption">{{ transcodeProfile }}: {{ activeTranscode.status }}</span>
+      <q-linear-progress v-if="activeTranscode && ['PENDING', 'RUNNING'].includes(activeTranscode.status)" class="col" :value="Number(activeTranscode.progress?.percent || 0) / 100" />
+      <span v-if="activeTranscode?.status === 'FAILED'" class="text-negative text-caption">{{ activeTranscode.error_message || 'Ошибка конвертации' }}</span>
+      <span v-if="transcodeError" class="text-negative text-caption">{{ transcodeError }}</span>
+      <q-btn v-if="activeTranscode && ['PENDING', 'RUNNING'].includes(activeTranscode.status)" dense flat color="negative" label="Отмена" @click="cancelTranscode" />
     </div>
 
     <div ref="scrollElement" class="video-scroll">
@@ -243,7 +519,7 @@ onBeforeUnmount(() => {
           <q-toolbar-title class="ellipsis">{{ currentVideo?.filename }}</q-toolbar-title>
           <q-btn flat round dense icon="close" v-close-popup />
         </q-toolbar>
-        <div class="video-details-layout q-pa-md">
+        <div v-if="!trimMode" class="video-details-layout q-pa-md">
           <div class="video-player-wrap">
             <video v-if="playbackUrl" :src="playbackUrl" controls playsinline preload="metadata" class="video-player" />
             <div v-else class="flex flex-center bg-grey-2 video-player"><q-spinner-dots v-if="!playbackError" size="36px" color="primary" /><span v-else>{{ playbackError }}</span></div>
@@ -260,8 +536,75 @@ onBeforeUnmount(() => {
               <div><b>Загружено:</b> {{ formatCapture(currentVideo?.created_at) }}</div>
               <q-input v-model="titleDraft" outlined dense maxlength="300" label="Название" />
               <q-btn color="primary" label="Сохранить название" :loading="savingTitle" @click="saveTitle" />
+              <q-separator />
+              <q-btn outline color="secondary" icon="content_cut" label="Обрезать фрагмент" @click="enterTrimMode" />
             </q-card-section>
           </q-card>
+        </div>
+        <div v-else class="trim-editor q-pa-md">
+          <div class="row items-center q-gutter-sm q-mb-sm">
+            <q-btn flat icon="arrow_back" label="К сведениям" @click="leaveTrimMode" />
+            <div class="text-subtitle1">Обрезать фрагмент</div>
+            <q-space />
+            <span class="text-caption">Оригинал не изменяется</span>
+          </div>
+          <div class="trim-editor-layout">
+            <div class="trim-main">
+              <div class="video-player-wrap trim-player-wrap">
+                <video
+                  v-if="playbackUrl"
+                  ref="trimPlayer"
+                  :src="playbackUrl"
+                  controls
+                  playsinline
+                  preload="metadata"
+                  class="video-player trim-player"
+                  @loadedmetadata="onTrimLoaded"
+                  @timeupdate="trimTimeUpdate"
+                />
+              </div>
+              <div class="trim-controls q-mt-md">
+                <div class="row items-center q-gutter-sm">
+                  <q-input v-model.number="trimStart" type="number" min="0" :max="trimEnd - 0.25" step="0.1" dense outlined label="Начало, с" class="col" :disable="trimSubmitting || ['PENDING','RUNNING'].includes(trimInfo?.status)" />
+                  <q-btn dense outline label="Текущая → начало" @click="setTrimStartFromPlayer" />
+                  <q-input v-model.number="trimEnd" type="number" :min="trimStart + 0.25" :max="currentVideo?.duration_seconds" step="0.1" dense outlined label="Конец, с" class="col" :disable="trimSubmitting || ['PENDING','RUNNING'].includes(trimInfo?.status)" />
+                  <q-btn dense outline label="Текущая → конец" @click="setTrimEndFromPlayer" />
+                </div>
+                <div class="row q-col-gutter-md q-mt-xs">
+                  <div class="col-12 col-md-6">
+                    <div class="text-caption">Начало: {{ formatSeconds(trimStart) }}</div>
+                    <q-slider v-model="trimStart" :min="0" :max="Math.max(0, Number(trimEnd) - 0.25)" :step="0.1" label color="primary" :disable="trimSubmitting || ['PENDING','RUNNING'].includes(trimInfo?.status)" />
+                  </div>
+                  <div class="col-12 col-md-6">
+                    <div class="text-caption">Конец: {{ formatSeconds(trimEnd) }} / {{ formatSeconds(currentVideo?.duration_seconds) }}</div>
+                    <q-slider v-model="trimEnd" :min="Number(trimStart) + 0.25" :max="Number(currentVideo?.duration_seconds || 0)" :step="0.1" label color="primary" :disable="trimSubmitting || ['PENDING','RUNNING'].includes(trimInfo?.status)" />
+                  </div>
+                </div>
+                <div class="row items-center q-gutter-sm q-mt-sm">
+                  <q-btn outline color="primary" icon="play_arrow" label="Предпросмотр фрагмента" @click="startTrimPreview" />
+                  <q-btn color="primary" icon="save" label="Сохранить как новый клип" :loading="trimSubmitting" :disable="['PENDING','RUNNING'].includes(trimInfo?.status)" @click="submitTrim" />
+                  <q-btn v-if="trimInfo?.status === 'DONE'" color="positive" icon="download" label="Скачать клип" @click="downloadTrim" />
+                  <q-btn v-if="['PENDING','RUNNING'].includes(trimInfo?.status)" flat color="negative" label="Отмена" @click="cancelTrim" />
+                  <span v-if="trimInfo" class="text-caption">{{ trimInfo.status }} · {{ trimInfo.progress?.percent ?? 0 }}%</span>
+                </div>
+                <q-linear-progress v-if="['PENDING','RUNNING'].includes(trimInfo?.status)" class="q-mt-sm" :value="Number(trimInfo.progress?.percent || 0) / 100" />
+                <div v-if="trimError" class="text-negative q-mt-sm">{{ trimError }}</div>
+              </div>
+            </div>
+            <q-card flat bordered class="storyboard-card">
+              <q-card-section class="panel-head"><div class="panel-title">Ключевые кадры</div></q-card-section>
+              <q-card-section>
+                <div v-if="['PENDING','RUNNING'].includes(trimStoryboardStatus)" class="text-caption row items-center q-gutter-sm"><q-spinner-dots /> Подготавливаю кадры…</div>
+                <div v-else-if="trimStoryboardStatus === 'FAILED'" class="text-negative text-caption">{{ trimError || 'Кадры недоступны' }}</div>
+                <div v-else class="storyboard-grid">
+                  <button v-for="index in trimFrameCount" :key="index - 1" class="storyboard-frame" type="button" @click="trimPlayer && (trimPlayer.currentTime = (Number(currentVideo?.duration_seconds || 0) * (index - 0.5) / trimFrameCount))">
+                    <AuthImage :url="videoStoryboardFrameUrl(currentVideo.video_id, index - 1)" ratio="16/9" />
+                    <span>{{ formatSeconds(Number(currentVideo?.duration_seconds || 0) * (index - 0.5) / trimFrameCount) }}</span>
+                  </button>
+                </div>
+              </q-card-section>
+            </q-card>
+          </div>
         </div>
       </q-card>
     </q-dialog>
@@ -286,8 +629,17 @@ onBeforeUnmount(() => {
 .video-list-title { font-weight: 700; padding-top: 3px; }
 .video-details-page { display: flex; flex-direction: column; min-height: 0; }
 .video-details-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); gap: 16px; min-height: 0; flex: 1; overflow: auto; }
+.trim-editor { min-height: 0; flex: 1; overflow: auto; }
+.trim-editor-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 16px; min-height: 0; }
+.trim-main { min-width: 0; }
+.trim-player-wrap { min-height: 240px; }
+.trim-player { background: #111; }
+.storyboard-card { align-self: start; }
+.storyboard-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: calc(100vh - 190px); overflow: auto; }
+.storyboard-frame { border: 0; padding: 0; background: transparent; cursor: pointer; text-align: left; min-width: 0; }
+.storyboard-frame span { display: block; padding: 2px 4px; color: #666; font-size: 0.75rem; }
 .video-player-wrap { background: #111; min-height: 0; display: flex; align-items: center; justify-content: center; }
 .video-player { width: 100%; max-height: calc(100vh - 100px); aspect-ratio: 16 / 9; }
 .video-detail-card { align-self: start; }
-@media (max-width: 850px) { .video-details-layout { grid-template-columns: 1fr; } .video-list-first { gap: 6px 12px; } }
+@media (max-width: 850px) { .video-details-layout, .trim-editor-layout { grid-template-columns: 1fr; } .video-list-first { gap: 6px 12px; } .storyboard-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: none; } }
 </style>

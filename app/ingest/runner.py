@@ -24,6 +24,8 @@ from app.ingest.database import (
 from app.ingest.pipeline import DEFAULT_WORKERS, run
 from app.ingest.video_integrity import check_video_file, discover_video_files
 from app.ingest.video_register import VideoRecord, register_video, register_video_records
+from app.core.errors import redact_absolute_paths
+from app.preview.queue import enqueue_registered_photo
 from app.preview.video import build_video_poster, default_video_preview_root
 
 
@@ -139,6 +141,19 @@ def ingest_directory(
     if classification["NEW"]:
         insert_photos(classification["NEW"])
 
+    preview_queued = 0
+    preview_active = 0
+    preview_enqueue_errors: list[dict[str, str]] = []
+    for record in classification["NEW"]:
+        try:
+            job_id = enqueue_registered_photo(record.photo_id)
+            if job_id is None:
+                preview_active += 1
+            else:
+                preview_queued += 1
+        except Exception as exc:  # noqa: BLE001 - registration remains successful
+            preview_enqueue_errors.append({"photo_id": record.photo_id, "error": redact_absolute_paths(str(exc))})
+
     # Video validation/registration is a separate branch: video IDs live in a
     # distinct table and are never sent to the photo preview/DINO/HYBRID/QWEN
     # pipelines. Photo counters keep their existing shape for old clients.
@@ -157,4 +172,9 @@ def ingest_directory(
             if item.status == "INVALID"
         ][:20],
         "videos": videos,
+        "preview": {
+            "queued": preview_queued,
+            "already_active": preview_active,
+            "enqueue_errors": preview_enqueue_errors[:20],
+        },
     }

@@ -666,6 +666,12 @@ def pause_job(job_id: int):
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
 
+    if job["job_type"] in {"VIDEO_TRANSCODE", "VIDEO_TRIM", "VIDEO_STORYBOARD", "PHOTO_PREVIEW"}:
+        raise HTTPException(
+            status_code=409,
+            detail="this job cannot be paused; cancel it instead",
+        )
+
     if not jobs_db.mark_paused(job_id):
         raise HTTPException(
             status_code=409,
@@ -1321,6 +1327,18 @@ def scan_ingest_folder(request: SourcePathRequest):
     """Count photos and total size of a folder without saving or ingesting it."""
 
     return sources.folder_stats(sources.resolve_directory(request.path))
+
+
+@jobs_router.post(
+    "/v1/previews/backfill",
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def queue_missing_previews(limit: int = Query(500, ge=1, le=5000)):
+    """Queue a bounded page of registered photos without a preview record."""
+
+    from app.preview.queue import enqueue_missing_previews
+
+    return enqueue_missing_previews(limit=limit)
 
 
 @jobs_router.post(

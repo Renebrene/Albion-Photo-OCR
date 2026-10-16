@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class HealthResponse(BaseModel):
@@ -67,6 +67,23 @@ class VideoPage(BaseModel):
 
 class VideoTitleUpdate(BaseModel):
     display_title: str = Field(max_length=300)
+
+
+class VideoTranscodeRequest(BaseModel):
+    profile: str = Field(pattern=r"^(strong_720p|standard_1080p|light_1440p)$")
+
+
+class VideoTrimRequest(BaseModel):
+    start_seconds: float = Field(ge=0, allow_inf_nan=False)
+    end_seconds: float = Field(gt=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_range(self):
+        if self.end_seconds <= self.start_seconds:
+            raise ValueError("end_seconds must be greater than start_seconds")
+        if self.end_seconds - self.start_seconds < 0.25:
+            raise ValueError("trim range must be at least 0.25 seconds")
+        return self
 
 
 class DinoBatchSummary(BaseModel):

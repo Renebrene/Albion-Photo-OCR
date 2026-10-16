@@ -49,6 +49,27 @@ beforeEach(() => {
     if (path.endsWith('/title') && method === 'PUT') {
       return response({ ...item, display_title: JSON.parse(options.body).display_title })
     }
+    if (path.endsWith('/transcodes/strong_720p') && method === 'GET') {
+      return response({ derivative_id: 12, status: 'DONE', profile: 'strong_720p', progress: { percent: 100 } })
+    }
+    if (path.endsWith('/transcodes') && method === 'POST') {
+      return response({ derivative_id: 12, job_id: 34, status: 'DONE', profile: 'strong_720p' }, 202)
+    }
+    if (path.endsWith('/storyboard') && method === 'POST') {
+      return response({ job_id: 45, status: 'PENDING', frame_count: 8 }, 202)
+    }
+    if (path.endsWith('/jobs/45') && method === 'GET') {
+      return response({ id: 45, status: 'DONE', result: { frames: 8 } })
+    }
+    if (path.endsWith('/trim') && method === 'POST') {
+      return response({ derivative_id: 31, job_id: 55, status: 'PENDING', start_seconds: 0, end_seconds: 12.5 }, 202)
+    }
+    if (path.endsWith('/trim') && method === 'GET') {
+      return response({ derivative_id: 31, job_id: 55, status: 'DONE', start_seconds: 0, end_seconds: 12.5, progress: { percent: 100 } })
+    }
+    if (path.endsWith('/derivatives/31/download-ticket') && method === 'POST') {
+      return response({ url: '/api/v1/videos/trim-download' })
+    }
     return response({ detail: `no mock for ${method} ${path}` }, 500)
   })
 })
@@ -122,6 +143,59 @@ describe('видеогалерея', () => {
     expect(row.text()).toContain('5.0 МБ')
     expect(row.find('.video-list-title').text()).toBe('У входа')
 
+    wrapper.unmount()
+  })
+
+  it('opens trim editor, queues a selected range and offers the new clip', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const detailsButton = wrapper.findAll('button').find((button) => button.html().includes('more_horiz'))
+    await detailsButton.trigger('click')
+    await flushPromises()
+
+    const trimButton = Array.from(document.body.querySelectorAll('button')).find((button) => button.textContent.includes('Обрезать фрагмент'))
+    expect(trimButton).toBeTruthy()
+    trimButton.click()
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('Ключевые кадры')
+    expect(calls.some((call) => call.path.endsWith('/storyboard') && call.method === 'POST')).toBe(true)
+    expect(document.body.textContent).toContain('Сохранить как новый клип')
+
+    // Slider defaults are 0..duration and remain valid.
+    const startField = Array.from(document.body.querySelectorAll('.q-field')).find((field) => field.textContent.includes('Начало'))
+    expect(startField).toBeTruthy()
+    const saveTrim = Array.from(document.body.querySelectorAll('button')).find((button) => button.textContent.includes('Сохранить как новый клип'))
+    saveTrim.click()
+    await flushPromises()
+
+    const trimCall = calls.find((call) => call.path.endsWith('/trim') && call.method === 'POST')
+    expect(trimCall).toBeTruthy()
+    expect(JSON.parse(trimCall.body)).toEqual({ start_seconds: 0, end_seconds: 12.5 })
+    expect(document.body.textContent).toContain('Скачать клип')
+    wrapper.unmount()
+  })
+
+  it('queues one H.264 profile and offers its completed derivative', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.find('.video-card .q-checkbox').trigger('click')
+    await flushPromises()
+
+    const compress = wrapper.findAll('button').find((button) => button.text().includes('Сжать'))
+    expect(compress).toBeTruthy()
+    await compress.trigger('click')
+    await flushPromises()
+
+    const strong = Array.from(document.body.querySelectorAll('.q-item')).find((row) => row.textContent.includes('Сильно'))
+    expect(strong).toBeTruthy()
+    strong.click()
+    await flushPromises()
+
+    const queued = calls.find((call) => call.path.endsWith('/transcodes') && call.method === 'POST')
+    expect(JSON.parse(queued.body)).toEqual({ profile: 'strong_720p' })
+    expect(wrapper.text()).toContain('Скачать сжатое')
     wrapper.unmount()
   })
 })

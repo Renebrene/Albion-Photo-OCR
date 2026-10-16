@@ -3,7 +3,7 @@ PREVIEW MAKER
 
 1. НАЗНАЧЕНИЕ
 
-PREVIEW Maker — отдельный слой pipeline, который после INGEST создаёт производные изображения для последующего отображения фотографий.
+PREVIEW Maker — отдельный CPU-процессный слой pipeline, который после регистрации фотографии создаёт производные изображения для последующего отображения. Фото PREVIEW job ставится в отдельную PostgreSQL queue сразу после успешной регистрации, а не ждёт DINO, HYBRID или QWEN. Выделенный `scene-preview-worker` запускает существующий `ProcessPoolExecutor` (`SCENE_PREVIEW_WORKERS`, по умолчанию половина логических CPU-ядер).
 
 PREVIEW Maker НЕ выполняет распознавание сцены, НЕ определяет адрес и НЕ принимает решений DINO/HYBRID.
 
@@ -329,23 +329,27 @@ PREVIEW не зависит от результата распознавания
 
 Общая архитектура:
 
-                         +--> PREVIEW
-                         |      |
-                         |   SMALL / MIDDLE
-                         |      |
-ORIGINAL -> INGEST ------+   PostgreSQL
+                         +--> PHOTO_PREVIEW queue -> CPU workers
+                         |                              |
+                         |                           SMALL / MIDDLE
+                         |                              |
+ORIGINAL -> INGEST ------+------------------------------+--> grid image ready
                          |
-                         +--> DINO -> HYBRID
-                                  |
-                               address
-                                  |
-                             GRID доступен
+                         +--> DINO -> HYBRID -> address / recognition metadata
+                                                   |
+                                                   +--> grid recognition data
 
 PREVIEW создаётся независимо от назначения адреса.
 
 Наличие preview само по себе не означает, что фотография распознана.
 
-GRID использует preview только после того, как отдельный слой распознавания установит необходимые данные, включая адрес.
+GRID использует SMALL preview для изображения плитки; поля распознавания/address могут заполниться позже отдельным DINO/HYBRID pipeline. Само наличие preview не означает, что адрес уже распознан. API списка фото опирается на registered `photos`, а не на наличие `photo_previews`.
+
+Актуальная очередь выполнения: после успешного commit новой строки `public.photos` INGEST ставит `PHOTO_PREVIEW` job с одним `photo_id`. Synchronous upload использует тот же принцип. API request не генерирует изображения. `scene-preview-worker.service` claim-ит только `PHOTO_PREVIEW`; обычный worker по умолчанию исключает этот тип, поэтому старые DINO/QWEN jobs в общей FIFO queue его не задерживают. Внутри одного preview job вызывается существующий `ProcessPoolExecutor`; число CPU процессов задаётся `SCENE_PREVIEW_WORKERS` (0/по умолчанию — половина логических CPU). Запускается один queue poller, не несколько вложенных half-CPU pools.
+
+Активные preview jobs атомарно дедуплицируются PostgreSQL partial unique index по `photo_id`. FAILED/CANCELLED jobs остаются историей и могут быть поставлены заново; генератор повторно валидирует и пропускает уже готовые SMALL/MIDDLE. Сбой постановки job не отменяет регистрацию фото, но отражается в ingest summary/upload result. Пропущенные (например, зарегистрированные до внедрения очереди) фото можно планово ставить ограниченными порциями через `POST /v1/previews/backfill?limit=500` (scope `jobs:write`, максимум 5000 за вызов).
+
+PREVIEW file и DB row появляются после успешной валидации обоих размеров. До этого grid tile показывает skeleton/ошибку image load; PREVIEW не меняет recognition/address gating списка фото и не запускает DINO/HYBRID/QWEN. Схема/029 должна применяться до включения enqueue-кода и preview unit; миграцию не запускать на рабочей БД без согласованного rollout.
 
 
 16. ПРОВЕРЕННЫЙ РЕЗУЛЬТАТ

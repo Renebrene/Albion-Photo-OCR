@@ -85,6 +85,32 @@ def test_upload_requires_scope(monkeypatch):
     assert response.status_code == 403
 
 
+def test_upload_preview_queue_error_is_redacted_after_registration(monkeypatch, inbox):
+    from app.ingest.register import PhotoRecord
+
+    record = PhotoRecord(
+        photo_id="PH_" + "12" * 12,
+        source_path=str(inbox / "source.jpg"),
+        filename="source.jpg",
+        sha256="ab" * 32,
+        container_format="JPEG",
+        frame_count=1,
+        width=10,
+        height=8,
+        size_bytes=100,
+    )
+    monkeypatch.setattr(upload_mod, "process_file", lambda _path: record)
+    monkeypatch.setattr(upload_mod, "register_new_photos", lambda _records: {"NEW": [record], "EXISTING": [], "CONFLICT": []})
+    from app.jobs import database as jobs_db
+    monkeypatch.setattr(jobs_db, "enqueue_photo_preview", lambda _photo_id: (_ for _ in ()).throw(RuntimeError(f"failed at {inbox}/private")))
+
+    result = upload_mod.ingest_upload("source.jpg", io.BytesIO(_jpeg_bytes()))
+
+    assert result["status"] == "NEW"
+    assert "preview_enqueue_error" in result
+    assert str(inbox) not in result["preview_enqueue_error"]
+
+
 def test_upload_rejects_non_image(inbox):
     response = client.post(
         "/api/v1/upload",
