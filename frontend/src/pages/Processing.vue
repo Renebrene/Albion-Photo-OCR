@@ -5,7 +5,7 @@ import { Notify } from 'quasar'
 import {
   createDinoBatch,
   createHybridRun,
-  enqueueQwen,
+  fetchCurrentPipeline,
   fetchDinoBatchRuns,
   fetchDinoBatches,
   fetchHybridRuns,
@@ -16,6 +16,10 @@ const tab = ref('dino')
 const loading = ref(false)
 const error = ref(null)
 const starting = ref(false)
+
+// Ручной запуск сортировки запрещён, пока идёт полный прогон «Обновление базы»
+// (он сам ведёт DINO → HYBRID), иначе две волны работы пересекутся.
+const pipelineActive = ref(false)
 
 const dinoBatches = ref([])
 const hybridRuns = ref([])
@@ -139,20 +143,6 @@ async function startNormalBatch() {
   }
 }
 
-async function startQwen() {
-  starting.value = true
-
-  try {
-    const result = await enqueueQwen()
-    Notify.create({ type: 'positive', message: `QWEN заданий: ${result.jobs}` })
-    await loadJobs()
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  } finally {
-    starting.value = false
-  }
-}
-
 async function startHybrid(batch) {
   try {
     const result = await createHybridRun(batch.batch_id)
@@ -184,7 +174,21 @@ async function openBatch(batch) {
   }
 }
 
-onMounted(loadDino)
+async function loadPipelineState() {
+  try {
+    const data = await fetchCurrentPipeline()
+    const status = data?.run?.status
+    pipelineActive.value = ['PENDING', 'RUNNING'].includes(status)
+  } catch {
+    // Супервизор не развёрнут: ручные действия доступны как раньше.
+    pipelineActive.value = false
+  }
+}
+
+onMounted(() => {
+  loadDino()
+  loadPipelineState()
+})
 </script>
 
 <template>
@@ -194,19 +198,26 @@ onMounted(loadDino)
       <q-btn
         color="primary"
         icon="play_arrow"
-        label="Запустить DINO (NORMAL)"
+        label="Запустить виртуальную сортировку"
         :loading="starting"
+        :disable="starting || pipelineActive"
         @click="startNormalBatch"
-      />
-      <q-btn
-        color="secondary"
-        icon="auto_awesome"
-        label="Запустить QWEN (все фото)"
-        :loading="starting"
-        @click="startQwen"
-      />
+      >
+        <q-tooltip>
+          Запускает вне очереди процесс виртуальной сортировки / пересчёт
+          имеющейся сортировки файлов на основании алгоритмов Dino/Hybrid
+          сопоставления адресов слепкам.
+          <template v-if="pipelineActive">
+            <br />Недоступно, пока идёт «Обновление базы».
+          </template>
+        </q-tooltip>
+      </q-btn>
       <q-btn icon="refresh" flat dense @click="reload" />
       <q-space />
+    </div>
+
+    <div v-if="pipelineActive" class="text-caption text-orange-8 q-mb-sm">
+      Идёт «Обновление базы»: ручной запуск сортировки временно недоступен.
     </div>
 
     <div v-if="error" class="q-mb-md">

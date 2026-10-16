@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 
 import { fetchLastRun } from '../api/client'
+import PipelineRunsPanel from './PipelineRunsPanel.vue'
 
 const data = ref(null)
 const loading = ref(false)
@@ -32,6 +33,9 @@ onMounted(load)
     <div v-if="error" class="q-mb-md">
       <q-banner class="bg-red-1 text-negative">{{ error }}</q-banner>
     </div>
+
+    <!-- Прогоны «Обновления базы» идут первыми: это то, за чем следят. -->
+    <PipelineRunsPanel class="q-mb-md" />
 
     <div v-if="data" class="row q-col-gutter-md">
       <q-card flat bordered class="col-12 col-md-6">

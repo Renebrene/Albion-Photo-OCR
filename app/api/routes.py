@@ -1440,7 +1440,12 @@ def current_pipeline_run():
 def list_pipeline_runs(limit: int = Query(20, ge=1, le=100)):
     from app.supervisor import runs as pipeline_runs
 
-    return {"items": pipeline_runs.list_runs(limit=limit)}
+    items = [
+        pipeline_runs.get_run_with_stages(run["run_id"])
+        for run in pipeline_runs.list_runs(limit=limit)
+    ]
+
+    return {"items": items}
 
 
 @read_router.get("/v1/pipeline/{run_id}", response_model=None)

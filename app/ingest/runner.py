@@ -131,6 +131,7 @@ def ingest_directory(
     skip_known: bool = True,
     recursive: bool = True,
     only_files: list[str] | None = None,
+    progress=None,
 ) -> dict:
     """
     Run INGEST over *directory* and register the photos that are new.
@@ -141,6 +142,9 @@ def ingest_directory(
 
     *only_files* restricts photos *and* videos to a frozen snapshot (relative
     names), used when a pipeline run is resumed after being stopped.
+
+    *progress* is an optional `(done, total)` callback for photo files (video
+    probing is a separate branch and is not counted here).
     """
 
     subset = set(only_files) if only_files is not None else None
@@ -151,6 +155,7 @@ def ingest_directory(
         recursive=recursive,
         skip_known=known_source_files if skip_known else None,
         only_files=subset,
+        progress=progress,
     )
 
     records = [

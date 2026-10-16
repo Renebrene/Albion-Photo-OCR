@@ -129,9 +129,12 @@ def _execute(job: dict) -> dict:
     if job_type == "INGEST_DIR":
         from app.ingest.runner import ingest_directory
 
+        control = job_control(int(job["id"]))
+
         return ingest_directory(
             str(payload["directory"]),
             only_files=payload.get("only_files"),
+            progress=lambda done, total: control(done, total, "ingest"),
         )
 
     if job_type == "PHOTO_PREVIEW":

@@ -159,6 +159,10 @@ export function fetchCurrentPipeline() {
   return getJson(`${BASE}/v1/pipeline/current`)
 }
 
+export function fetchPipelineRuns(limit = 20) {
+  return getJson(`${BASE}/v1/pipeline?limit=${limit}`)
+}
+
 export function startPipeline(payload = {}) {
   return postJson(`${BASE}/v1/pipeline/start`, payload)
 }

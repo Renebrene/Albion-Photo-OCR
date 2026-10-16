@@ -63,8 +63,11 @@ const statusText = computed(() => {
   const row = stageRow(current.stage)
 
   switch (current.stage) {
-    case 'INGEST':
-      return `Медиа в папке: ${(current.manifest?.files || []).length}`
+    case 'INGEST': {
+      const total = row?.total_count || (current.manifest?.files || []).length
+      const done = row?.done_count ?? 0
+      return total ? `Обработано медиа ${done}/${total}` : 'Обновление базы…'
+    }
     case 'PREVIEW':
       return `Превью: ${row?.done_count ?? 0}/${row?.total_count ?? 0}`
     case 'DINO':

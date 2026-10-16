@@ -96,15 +96,10 @@ onMounted(load)
             :disable="busy"
             @update:model-value="(v) => save({ auto_qwen: v })"
           />
-          <q-toggle
-            :model-value="settings.auto_dino"
-            label="Автоматически создавать DINO batch для новых фото"
-            :disable="busy"
-            @update:model-value="(v) => save({ auto_dino: v })"
-          />
 
           <div class="text-caption text-grey">
-            Последний тик: {{ settings.last_tick || '—' }}
+            Фоновый вотчер папки не реализуется; полный прогон запускается
+            кнопкой «Обновление базы». Последний тик: {{ settings.last_tick || '—' }}
           </div>
         </q-card-section>
       </q-card>

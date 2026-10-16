@@ -413,6 +413,14 @@ def _stage_ingest(run: dict, stage: dict) -> dict:
     if job["status"] in ("FAILED", "CANCELLED"):
         return {"outcome": "FAILED", "message": job.get("error_message") or job["status"]}
 
+    # Surface the child job's live progress so the UI can show "обработано x/y".
+    prog = job.get("progress") or {}
+    done = prog.get("done")
+    total = prog.get("total")
+
+    if isinstance(done, int) and isinstance(total, int):
+        return {"outcome": "WAIT", "done_count": done, "total_count": total}
+
     return {"outcome": "WAIT"}
 
 

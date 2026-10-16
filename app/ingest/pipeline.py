@@ -81,6 +81,7 @@ def run(
     recursive: bool = True,
     skip_known=None,
     only_files: set[str] | None = None,
+    progress=None,
 ) -> IngestResult:
     """
     Run INGEST in parallel over every supported file in *directory*.
@@ -95,6 +96,10 @@ def run(
 
     *only_files* restricts the scan to a frozen set of relative paths (as used
     by a resumed pipeline run); a file outside the set is ignored.
+
+    *progress* is an optional `(done, total)` callback invoked as each file is
+    accounted for (skipped or processed); the caller turns it into a job
+    progress record.
     """
 
     if workers < 1:
@@ -115,9 +120,19 @@ def run(
         files = [path for path in files if _selected(path)]
 
     if not files:
+        if progress is not None:
+            progress(0, 0)
         return create_ingest_result([])
 
+    total = len(files)
+    done = 0
     results = []
+
+    def _tick() -> None:
+        nonlocal done
+        done += 1
+        if progress is not None:
+            progress(done, total)
 
     if skip_known is not None:
         known = skip_known(known_pairs(files))
@@ -134,6 +149,7 @@ def run(
                 results.append(
                     skipped_result(source_path=str(path), filename=path.name)
                 )
+                _tick()
             else:
                 pending.append(path)
 
@@ -159,5 +175,6 @@ def run(
                             error=redact_paths(str(exc), path),
                         )
                     )
+                _tick()
 
     return create_ingest_result(results)

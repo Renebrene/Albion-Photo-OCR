@@ -92,6 +92,16 @@ async function retryFailed() {
   }
 }
 
+async function runAll() {
+  try {
+    const result = await enqueueQwen(null, false)
+    Notify.create({ type: 'positive', message: `QWEN заданий: ${result.jobs}` })
+    await loadStats()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
 async function save() {
   saving.value = true
 
@@ -261,6 +271,13 @@ onMounted(async () => {
       <q-card-section>
         <div class="text-subtitle1 q-mb-sm">Метаданные QWEN</div>
 
+        <div class="text-caption text-grey-8 q-mb-sm">
+          ВСЕГО: {{ Object.values(stats.counts).reduce((a, b) => a + b, 0) }} ·
+          УСПЕШНО: {{ stats.counts.DONE || 0 }} ·
+          В ОЧЕРЕДИ: {{ (stats.counts.PENDING || 0) + (stats.counts.RUNNING || 0) }} ·
+          С ОШИБКОЙ: {{ stats.counts.FAILED || 0 }}
+        </div>
+
         <div class="row q-gutter-sm q-mb-md">
           <q-chip
             v-for="(count, status) in stats.counts"
@@ -273,14 +290,22 @@ onMounted(async () => {
           </q-chip>
         </div>
 
-        <q-btn
-          flat
-          color="teal"
-          icon="replay"
-          :label="`Повторить для упавших (${stats.failed_photo_ids.length})`"
-          :disable="!stats.failed_photo_ids.length"
-          @click="retryFailed"
-        />
+        <div class="row q-gutter-sm">
+          <q-btn
+            color="secondary"
+            icon="auto_awesome"
+            label="Запустить QWEN (все фото)"
+            @click="runAll"
+          />
+          <q-btn
+            flat
+            color="teal"
+            icon="replay"
+            :label="`Повторить для упавших (${stats.failed_photo_ids.length})`"
+            :disable="!stats.failed_photo_ids.length"
+            @click="retryFailed"
+          />
+        </div>
       </q-card-section>
     </q-card>
 

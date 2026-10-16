@@ -90,6 +90,21 @@ def test_only_files_with_no_match_processes_nothing(tmp_path):
     assert result.results == []
 
 
+def test_run_reports_done_over_total_progress(tmp_path):
+    _make_jpeg(tmp_path / "a.jpg")
+    _make_jpeg(tmp_path / "b.jpg")
+
+    seen = []
+    ingest_pipeline.run(
+        tmp_path, workers=1,
+        progress=lambda done, total: seen.append((done, total)),
+    )
+
+    assert seen[0] == (1, 2)
+    assert seen[-1] == (2, 2)
+    assert all(total == 2 for _, total in seen)
+
+
 # ---------------------------------------------------------------------------
 # API routes (supervisor stubbed)
 # ---------------------------------------------------------------------------

@@ -65,6 +65,18 @@ describe('Обновление базы', () => {
     wrapper.unmount()
   })
 
+  it('показывает живой прогресс INGEST «обработано x/y»', async () => {
+    setPipeline({
+      run: {
+        run_id: 1, status: 'RUNNING', stage: 'INGEST', manifest: { files: ['a.jpg', 'b.jpg', 'c.jpg'] },
+        stages: [{ stage: 'INGEST', done_count: 1, failed_count: 0, total_count: 3 }],
+      },
+    })
+    const wrapper = await mountButton()
+    expect(wrapper.text()).toContain('Обработано медиа 1/3')
+    wrapper.unmount()
+  })
+
   it('показывает прогресс стадии QWEN', async () => {
     setPipeline({
       run: {
