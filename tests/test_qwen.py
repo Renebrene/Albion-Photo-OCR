@@ -166,6 +166,10 @@ def _cleanup_probe_photo() -> None:
     with qwen_db.get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
+                "DELETE FROM public.photo_qwen_history WHERE photo_id = %s",
+                (PROBE_PHOTO_ID,),
+            )
+            cur.execute(
                 "DELETE FROM public.photo_qwen WHERE photo_id = %s",
                 (PROBE_PHOTO_ID,),
             )
@@ -173,6 +177,85 @@ def _cleanup_probe_photo() -> None:
                 "DELETE FROM public.photos WHERE photo_id = %s",
                 (PROBE_PHOTO_ID,),
             )
+
+
+def test_token_usage_reads_the_provider_counters():
+    """Облако отдаёт usage; локальная Ollama — нет, там остаются None."""
+
+    assert qwen_db.token_usage(
+        {"usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14}}
+    ) == (10, 4, 14)
+    assert qwen_db.token_usage({"usage": {"total_tokens": "7"}}) == (None, None, 7)
+    assert qwen_db.token_usage({"choices": []}) == (None, None, None)
+    assert qwen_db.token_usage(None) == (None, None, None)
+
+
+def _history_available() -> bool:
+    if not os.getenv("INGEST_DB_PASSWORD"):
+        return False
+    try:
+        with qwen_db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("select to_regclass('public.photo_qwen_history')")
+                return cur.fetchone()[0] is not None
+    except Exception:
+        return False
+
+
+requires_history = pytest.mark.skipif(
+    not _history_available(),
+    reason="photo_qwen_history not available (INGEST_DB_* / schema 036)",
+)
+
+
+@requires_db
+@requires_history
+def test_overwrite_keeps_the_previous_result_in_history():
+    """
+    Полная перезапись — да, но прежний результат остаётся.
+
+    Владелец: «полная перезапись + история версий», чтобы смена модели не
+    стирала то, что было, и результаты можно было сравнить.
+    """
+
+    photo_id = _make_probe_photo()
+
+    try:
+        qwen_db.save_success(
+            photo_id,
+            fields={"description": "первое описание", "client": "Яндекс"},
+            raw={"usage": {"prompt_tokens": 10, "completion_tokens": 4,
+                           "total_tokens": 14}},
+            model="model-a",
+            time_sec=1.0,
+        )
+
+        first = qwen_db.get(photo_id)
+        assert first["description"] == "первое описание"
+        assert first["total_tokens"] == 14
+        assert qwen_db.list_history(photo_id) == []
+
+        qwen_db.save_success(
+            photo_id,
+            fields={"description": "второе описание"},
+            raw={"usage": {"prompt_tokens": 20, "completion_tokens": 6,
+                           "total_tokens": 26}},
+            model="model-b",
+            time_sec=2.0,
+        )
+
+        current = qwen_db.get(photo_id)
+        assert current["description"] == "второе описание"
+        assert current["qwen_model"] == "model-b"
+        assert current["total_tokens"] == 26
+
+        history = qwen_db.list_history(photo_id)
+        assert len(history) == 1
+        assert history[0]["description"] == "первое описание"
+        assert history[0]["qwen_model"] == "model-a"
+        assert history[0]["replaced_by_model"] == "model-b"
+    finally:
+        _cleanup_probe_photo()
 
 
 @requires_db

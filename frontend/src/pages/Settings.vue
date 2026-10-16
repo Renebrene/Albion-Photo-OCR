@@ -399,6 +399,16 @@ onBeforeUnmount(stopStatsPolling)
           >
             {{ item.model }} — {{ item.photos }}
           </div>
+          <div
+            v-if="stats.tokens && stats.tokens.total"
+            class="text-caption text-grey-8 q-mt-xs"
+          >
+            Токенов облака: {{ stats.tokens.total }}
+            (запрос {{ stats.tokens.prompt }} / ответ {{ stats.tokens.completion }})
+          </div>
+          <div v-if="stats.history_rows" class="text-caption text-grey-8">
+            Прежних результатов в истории: {{ stats.history_rows }}
+          </div>
         </div>
 
         <div v-if="stats.runs && stats.runs.length" class="q-mb-md">

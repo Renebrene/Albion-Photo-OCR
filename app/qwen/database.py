@@ -15,7 +15,7 @@ from app.ingest.database import get_connection
 _COLUMNS = (
     "photo_id, status, description, address, client, brand, category, "
     "tags, raw, qwen_model, qwen_time_sec, error_message, "
-    "created_at, finished_at"
+    "created_at, finished_at, prompt_tokens, completion_tokens, total_tokens"
 )
 
 
@@ -35,7 +35,118 @@ def _row_to_dict(row) -> dict:
         "error_message": row[11],
         "created_at": row[12],
         "finished_at": row[13],
+        "prompt_tokens": row[14],
+        "completion_tokens": row[15],
+        "total_tokens": row[16],
     }
+
+
+def token_usage(raw: dict | None) -> tuple[int | None, int | None, int | None]:
+    """
+    Расход токенов из ответа провайдера, если он его сообщает.
+
+    Облако отдаёт OpenAI-совместимый `usage`; локальная Ollama счётчиков не
+    возвращает, поэтому там остаются NULL.
+    """
+
+    if not isinstance(raw, dict):
+        return (None, None, None)
+
+    usage = raw.get("usage")
+
+    if not isinstance(usage, dict):
+        return (None, None, None)
+
+    def number(key: str) -> int | None:
+        value = usage.get(key)
+        try:
+            return int(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    return (
+        number("prompt_tokens"),
+        number("completion_tokens"),
+        number("total_tokens"),
+    )
+
+
+def _archive_previous(cur, photo_id: str, replaced_by_model: str) -> None:
+    """
+    Сложить прежний результат в историю перед перезаписью.
+
+    Владелец выбрал «полная перезапись + история версий»: смена модели не
+    должна стирать то, что было, чтобы результаты можно было сравнить и
+    вернуть.
+    """
+
+    cur.execute(
+        """
+        INSERT INTO public.photo_qwen_history (
+            photo_id, status, description, address, client, brand, category,
+            tags, raw, qwen_model, qwen_time_sec, error_message,
+            prompt_tokens, completion_tokens, total_tokens, finished_at,
+            replaced_by_model
+        )
+        SELECT
+            photo_id, status, description, address, client, brand, category,
+            tags, raw, qwen_model, qwen_time_sec, error_message,
+            prompt_tokens, completion_tokens, total_tokens, finished_at,
+            %s
+        FROM public.photo_qwen
+        WHERE photo_id = %s
+          AND (
+              COALESCE(description, '') <> ''
+              OR COALESCE(client, '') <> ''
+              OR COALESCE(brand, '') <> ''
+              OR COALESCE(category, '') <> ''
+          )
+        """,
+        (replaced_by_model, photo_id),
+    )
+
+
+def list_history(photo_id: str, *, limit: int = 20) -> list[dict]:
+    """Прежние результаты распознавания этого фото, новые сверху."""
+
+    limit = max(1, min(int(limit), 100))
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT history_id, status, description, client, brand,
+                       category, tags, qwen_model, qwen_time_sec,
+                       error_message, total_tokens, finished_at, replaced_at,
+                       replaced_by_model
+                FROM public.photo_qwen_history
+                WHERE photo_id = %s
+                ORDER BY history_id DESC
+                LIMIT %s
+                """,
+                (photo_id, limit),
+            )
+            rows = cur.fetchall()
+
+    return [
+        {
+            "history_id": int(row[0]),
+            "status": row[1],
+            "description": row[2],
+            "client": row[3],
+            "brand": row[4],
+            "category": row[5],
+            "tags": row[6],
+            "qwen_model": row[7],
+            "qwen_time_sec": row[8],
+            "error_message": row[9],
+            "total_tokens": row[10],
+            "finished_at": row[11],
+            "replaced_at": row[12],
+            "replaced_by_model": row[13],
+        }
+        for row in rows
+    ]
 
 
 def get_photo_source(photo_id: str) -> str | None:
@@ -77,18 +188,24 @@ def save_success(
     model: str,
     time_sec: float,
 ) -> None:
+    prompt_tokens, completion_tokens, total_tokens = token_usage(raw)
+
     with get_connection() as conn:
         with conn.cursor() as cur:
+            # Полная перезапись — но прежний результат остаётся в истории.
+            _archive_previous(cur, photo_id, model)
+
             cur.execute(
                 """
                 INSERT INTO public.photo_qwen (
                     photo_id, status, description, address, client,
                     brand, category, tags, raw, qwen_model,
-                    qwen_time_sec, finished_at
+                    qwen_time_sec, finished_at,
+                    prompt_tokens, completion_tokens, total_tokens
                 )
                 VALUES (
                     %s, 'DONE', %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    CURRENT_TIMESTAMP
+                    CURRENT_TIMESTAMP, %s, %s, %s
                 )
                 ON CONFLICT (photo_id)
                 DO UPDATE SET
@@ -103,7 +220,10 @@ def save_success(
                     qwen_model = EXCLUDED.qwen_model,
                     qwen_time_sec = EXCLUDED.qwen_time_sec,
                     error_message = NULL,
-                    finished_at = CURRENT_TIMESTAMP
+                    finished_at = CURRENT_TIMESTAMP,
+                    prompt_tokens = EXCLUDED.prompt_tokens,
+                    completion_tokens = EXCLUDED.completion_tokens,
+                    total_tokens = EXCLUDED.total_tokens
                 """,
                 (
                     photo_id,
@@ -116,6 +236,9 @@ def save_success(
                     Json(raw),
                     model,
                     float(time_sec),
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
                 ),
             )
 

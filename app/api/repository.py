@@ -326,6 +326,23 @@ def qwen_stats() -> dict:
                 for row in cur.fetchall()
             ]
 
+            # Расход облака: локальная Ollama токенов не сообщает.
+            cur.execute(
+                "SELECT COALESCE(SUM(prompt_tokens), 0), "
+                "       COALESCE(SUM(completion_tokens), 0), "
+                "       COALESCE(SUM(total_tokens), 0) "
+                "FROM public.photo_qwen"
+            )
+            tokens_row = cur.fetchone()
+            tokens = {
+                "prompt": int(tokens_row[0]),
+                "completion": int(tokens_row[1]),
+                "total": int(tokens_row[2]),
+            }
+
+            cur.execute("SELECT count(*) FROM public.photo_qwen_history")
+            history_rows = int(cur.fetchone()[0])
+
             cur.execute(
                 """
                 SELECT COALESCE(payload ->> 'source', 'manual') AS source,
@@ -355,6 +372,8 @@ def qwen_stats() -> dict:
         "remaining": max(0, photos - described),
         "queued": counts.get("PENDING", 0) + counts.get("RUNNING", 0),
         "models": models,
+        "tokens": tokens,
+        "history_rows": history_rows,
         "runs": runs,
     }
 

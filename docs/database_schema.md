@@ -263,9 +263,20 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 | `qwen_model` | TEXT | имя модели |
 | `qwen_time_sec` | DOUBLE PRECISION | |
 | `error_message` | TEXT | |
+| `prompt_tokens` / `completion_tokens` / `total_tokens` | INTEGER | `schema/036`; облако отдаёт `usage`, локальная Ollama — NULL |
 | `created_at` / `finished_at` | TIMESTAMP | |
 
 Индексы по `status`, `address`, `client`. `007` также расширяет `job_queue.job_type` значением `QWEN_PHOTO`.
+
+**Перезапись и история (schema/036).** Строка одна на фото: успешный ответ
+перезаписывает поля целиком, но перед этим прежний результат уходит в
+`photo_qwen_history` (`schema/036_qwen_history_tokens.sql`) — владелец выбрал
+«полная перезапись + история версий», чтобы смена модели не стирала прежнее и
+результаты можно было сравнить. Колонки истории повторяют `photo_qwen` плюс
+`replaced_at` (когда вытеснили) и `replaced_by_model` (кто вытеснил).
+`mark_running` поля не чистит — поэтому «распознано» в карточке считается по
+наличию описания, а не по статусу. Чтение: `GET /v1/photos/{id}/qwen-history`,
+в карточке фото — блок «История описаний».
 
 ### 4.10 `app_settings` — настройки приложения (KV)
 

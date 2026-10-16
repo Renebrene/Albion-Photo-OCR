@@ -11,6 +11,7 @@ import {
   downloadAuthenticated,
   fetchMediaSearchJob,
   fetchPhotoDetails,
+  fetchQwenHistory,
   fetchQwenSettings,
   originalUrl,
   previewUrl,
@@ -112,6 +113,16 @@ const viewerOpen = ref(false)
 const current = ref(null)
 const details = ref(null)
 const detailsLoading = ref(false)
+// Прежние результаты распознавания: что перезаписала новая модель.
+const qwenHistory = ref([])
+
+function historyLine(item) {
+  const when = item.replaced_at
+    ? String(item.replaced_at).replace('T', ' ').slice(0, 16)
+    : '—'
+
+  return `${item.qwen_model || 'модель неизвестна'} · ${when}`
+}
 
 // Display settings (tile count / list fields); the same panel also lives in
 // the technical section (component DisplaySettings).
@@ -785,6 +796,7 @@ async function onLoad(index, done) {
 async function open(photo) {
   current.value = photo
   details.value = null
+  qwenHistory.value = []
   viewerOpen.value = true
   detailsLoading.value = true
 
@@ -794,6 +806,13 @@ async function open(photo) {
     Notify.create({ type: 'negative', message: err.message })
   } finally {
     detailsLoading.value = false
+  }
+
+  // История — вспомогательный блок: её отсутствие не должно ломать карточку.
+  try {
+    qwenHistory.value = (await fetchQwenHistory(photo.photo_id, 10)).items || []
+  } catch {
+    qwenHistory.value = []
   }
 }
 
@@ -1719,6 +1738,30 @@ function tagList(meta) {
                     </q-chip>
                   </div>
                 </div>
+
+                <q-expansion-item
+                  v-if="qwenHistory.length"
+                  class="q-mt-md"
+                  dense
+                  switch-toggle-side
+                  :label="`История описаний (${qwenHistory.length})`"
+                >
+                  <div
+                    v-for="item in qwenHistory"
+                    :key="item.history_id"
+                    class="q-mb-sm"
+                  >
+                    <div class="text-caption text-grey">
+                      {{ historyLine(item) }}
+                      <template v-if="item.total_tokens">
+                        · {{ item.total_tokens }} токенов
+                      </template>
+                    </div>
+                    <div class="text-body2">
+                      {{ item.description || '—' }}
+                    </div>
+                  </div>
+                </q-expansion-item>
 
                 <div v-if="!qwen" class="text-caption text-grey q-mt-md">
                   QWEN-метаданных нет.

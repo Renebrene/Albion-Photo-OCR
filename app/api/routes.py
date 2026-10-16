@@ -241,6 +241,24 @@ def get_photo_details(photo_id: str):
     return {"photo": photo.model_dump(), "qwen": qwen_meta}
 
 
+@read_router.get("/v1/photos/{photo_id}/qwen-history", response_model=None)
+def get_qwen_history(
+    photo_id: str,
+    limit: int = Query(10, ge=1, le=100),
+):
+    """
+    Прежние результаты распознавания этого фото, новые сверху.
+
+    Успешный ответ перезаписывает поля `photo_qwen` (владелец: «полная
+    перезапись + история версий»), поэтому вытесненные результаты лежат здесь —
+    их можно сравнить и вернуть.
+    """
+
+    photo_id = _validate_photo_id(photo_id)
+
+    return {"items": qwen_db.list_history(photo_id, limit=limit)}
+
+
 @read_router.get("/v1/photos/{photo_id}/previews/{size}")
 def get_preview(photo_id: str, size: str) -> Response:
     photo_id = _validate_photo_id(photo_id)
