@@ -473,7 +473,7 @@ onBeforeUnmount(() => {
       <div v-if="viewMode === 'tiles'" class="video-grid" :style="gridStyle">
         <q-card v-for="video in items" :key="video.video_id" flat bordered class="video-card" :class="{'video-card--selected': selectedVideoId === video.video_id}">
           <div class="video-poster" @click="openDetails(video)">
-            <AuthImage :url="videoPosterUrl(video.video_id)" ratio="16/9" />
+            <AuthImage :url="videoPosterUrl(video.video_id)" :ratio="16 / 9" />
             <q-icon class="video-play-icon" name="play_circle" size="42px" color="white" />
           </div>
           <q-card-section class="q-pa-sm">
@@ -492,7 +492,7 @@ onBeforeUnmount(() => {
       <q-list v-else bordered separator class="video-list">
         <q-item v-for="video in items" :key="video.video_id" class="video-list-item">
           <q-item-section avatar class="video-list-poster" @click="openDetails(video)">
-            <AuthImage :url="videoPosterUrl(video.video_id)" ratio="16/9" />
+            <AuthImage :url="videoPosterUrl(video.video_id)" :ratio="16 / 9" />
           </q-item-section>
           <q-item-section clickable @click="openDetails(video)">
             <div class="video-list-first">
@@ -598,7 +598,7 @@ onBeforeUnmount(() => {
                 <div v-else-if="trimStoryboardStatus === 'FAILED'" class="text-negative text-caption">{{ trimError || 'Кадры недоступны' }}</div>
                 <div v-else class="storyboard-grid">
                   <button v-for="index in trimFrameCount" :key="index - 1" class="storyboard-frame" type="button" @click="trimPlayer && (trimPlayer.currentTime = (Number(currentVideo?.duration_seconds || 0) * (index - 0.5) / trimFrameCount))">
-                    <AuthImage :url="videoStoryboardFrameUrl(currentVideo.video_id, index - 1)" ratio="16/9" />
+                    <AuthImage :url="videoStoryboardFrameUrl(currentVideo.video_id, index - 1)" :ratio="16 / 9" />
                     <span>{{ formatSeconds(Number(currentVideo?.duration_seconds || 0) * (index - 0.5) / trimFrameCount) }}</span>
                   </button>
                 </div>
