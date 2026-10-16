@@ -2,7 +2,7 @@
 
 **Источник:** выведено из SQL-схем `schema/001_ingest.sql` … `schema/005_hybrid.sql` и из фактических чтений/записей в `app/ingest/database.py`, `app/preview/database.py`, `app/dino/database.py`, `app/hybrid/database.py`, а также из локальной SQLite-очереди `app/pipeline/queue.py`.
 
-**Статус:** описание текущего контракта репозитория. На `photobase_ingest_test` подтверждены миграции 001–032 (030–032 применены в rollout 2026-10-16 после backup; повторный запуск — no-op). schema/033 `visits_and_audit` добавлена в checkout, но ещё не применена (нужен отдельный rollout).
+**Статус:** описание текущего контракта репозитория. На `photobase_ingest_test` подтверждены миграции 001–033 (030–033 применены в rollout 2026-10-16 после backup; повторный запуск — no-op).
 
 **Важно про `111/chatgpt_md`:** архив описывает **другую, legacy-схему** (`dbname=photobase`, `user=lora`, широкая таблица `photos` с колонками `address/client/brand/category/qwen_status/...`). Она **не совпадает** с текущим контрактом и нормой не является. Ниже — только то, что реально читает/пишет текущий код.
 
