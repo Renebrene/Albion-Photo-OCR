@@ -1758,9 +1758,6 @@ function tagList(meta) {
 
           <div class="col-5 column" style="overflow: auto">
             <q-card-section class="q-gutter-xs">
-              <div class="text-caption text-grey">ID</div>
-              <div class="ellipsis">{{ current?.photo_id }}</div>
-
               <div v-if="detailsLoading">
                 <q-spinner-dots color="primary" size="28px" />
               </div>
@@ -1921,6 +1918,11 @@ function tagList(meta) {
 
                 <div v-if="!qwen" class="text-caption text-grey q-mt-md">
                   QWEN-метаданных нет.
+                </div>
+
+                <div class="q-mt-md">
+                  <div class="text-caption text-grey">ID</div>
+                  <div class="ellipsis">{{ current?.photo_id }}</div>
                 </div>
               </template>
             </q-card-section>
