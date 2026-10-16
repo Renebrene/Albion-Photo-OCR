@@ -64,6 +64,7 @@ from app.api.schemas import (
     QwenModelRequest,
     QwenSettingsUpdate,
     SavedSearchCreate,
+    PipelineStartRequest,
     SourcePathRequest,
     SourceRunRequest,
     SelectionState,
@@ -1364,6 +1365,94 @@ def run_ingest(request: SourceRunRequest):
         "skipped": job_id is None,
         "directory": str(directory),
     }
+
+
+# ---------------------------------------------------------------------------
+# Resumable pipeline run (schema/031): "Обновление базы".
+# The supervisor only enqueues/observes jobs; it runs in a separate worker.
+# ---------------------------------------------------------------------------
+
+
+@jobs_router.post(
+    "/v1/pipeline/start",
+    status_code=202,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def start_pipeline_run(request: PipelineStartRequest):
+    """Start a fresh run (a stopped run is superseded)."""
+
+    from app.supervisor import runs as pipeline_runs
+
+    folder = request.folder or sources.current_folder() or None
+
+    if folder:
+        folder = str(sources.resolve_directory(folder))
+
+    try:
+        run = pipeline_runs.create_run(mode=request.mode, folder=folder)
+    except pipeline_runs.PipelineBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return run
+
+
+@jobs_router.post(
+    "/v1/pipeline/{run_id}/stop",
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def stop_pipeline_run(run_id: int):
+    from app.supervisor import runs as pipeline_runs
+
+    if not pipeline_runs.request_stop(run_id):
+        raise HTTPException(status_code=409, detail="run is not active")
+
+    return pipeline_runs.get_run_with_stages(run_id)
+
+
+@jobs_router.post(
+    "/v1/pipeline/{run_id}/resume",
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def resume_pipeline_run(run_id: int):
+    from app.supervisor import runs as pipeline_runs
+
+    try:
+        if not pipeline_runs.resume_run(run_id):
+            raise HTTPException(status_code=409, detail="run is not stopped")
+    except pipeline_runs.PipelineBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return pipeline_runs.get_run_with_stages(run_id)
+
+
+@read_router.get("/v1/pipeline/current", response_model=None)
+def current_pipeline_run():
+    """Active run with its stages, else the most recent run, else null."""
+
+    from app.supervisor import runs as pipeline_runs
+
+    run = pipeline_runs.active_run() or pipeline_runs.latest_run()
+
+    return {"run": pipeline_runs.get_run_with_stages(run["run_id"]) if run else None}
+
+
+@read_router.get("/v1/pipeline", response_model=None)
+def list_pipeline_runs(limit: int = Query(20, ge=1, le=100)):
+    from app.supervisor import runs as pipeline_runs
+
+    return {"items": pipeline_runs.list_runs(limit=limit)}
+
+
+@read_router.get("/v1/pipeline/{run_id}", response_model=None)
+def get_pipeline_run(run_id: int):
+    from app.supervisor import runs as pipeline_runs
+
+    run = pipeline_runs.get_run_with_stages(run_id)
+
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+
+    return run
 
 
 # ---------------------------------------------------------------------------

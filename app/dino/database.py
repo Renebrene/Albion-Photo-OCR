@@ -68,21 +68,42 @@ def create_batch(
     with get_connection() as conn:
         with conn.cursor() as cur:
             if run_type == "NORMAL":
-                cur.execute(
-                    """
-                    SELECT
-                        p.photo_id,
-                        p.source_path
-                    FROM public.photos AS p
-                    WHERE NOT EXISTS (
-                        SELECT 1
-                        FROM public.dino_runs AS r
-                        WHERE r.photo_id = p.photo_id
-                          AND r.status = 'DONE'
+                if requested_ids is not None:
+                    # Scoped NORMAL: only the supplied ids (a pipeline run's
+                    # frozen photo set) that still lack a DONE DINO run.
+                    cur.execute(
+                        """
+                        SELECT
+                            p.photo_id,
+                            p.source_path
+                        FROM public.photos AS p
+                        WHERE p.photo_id = ANY(%s)
+                          AND NOT EXISTS (
+                            SELECT 1
+                            FROM public.dino_runs AS r
+                            WHERE r.photo_id = p.photo_id
+                              AND r.status = 'DONE'
+                        )
+                        ORDER BY p.photo_id
+                        """,
+                        (requested_ids,),
                     )
-                    ORDER BY p.photo_id
-                    """
-                )
+                else:
+                    cur.execute(
+                        """
+                        SELECT
+                            p.photo_id,
+                            p.source_path
+                        FROM public.photos AS p
+                        WHERE NOT EXISTS (
+                            SELECT 1
+                            FROM public.dino_runs AS r
+                            WHERE r.photo_id = p.photo_id
+                              AND r.status = 'DONE'
+                        )
+                        ORDER BY p.photo_id
+                        """
+                    )
             else:
                 cur.execute(
                     """

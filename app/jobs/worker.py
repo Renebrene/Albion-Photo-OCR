@@ -129,7 +129,10 @@ def _execute(job: dict) -> dict:
     if job_type == "INGEST_DIR":
         from app.ingest.runner import ingest_directory
 
-        return ingest_directory(str(payload["directory"]))
+        return ingest_directory(
+            str(payload["directory"]),
+            only_files=payload.get("only_files"),
+        )
 
     if job_type == "PHOTO_PREVIEW":
         from app.preview.queue import run_photo_preview
@@ -403,6 +406,34 @@ def _requeue_stale_jobs(minutes: int, *, video_only: bool, preview_only: bool = 
     return result
 
 
+def _pipeline_loop(interval: float) -> None:
+    """
+    Dedicated supervisor loop: advance the active pipeline run, claim nothing.
+
+    Runs in scene-pipeline-worker.service so a long-running INGEST -> QWEN run
+    never occupies the shared job worker. The supervisor only enqueues/observes
+    the existing job types; the actual work stays in the normal workers.
+    """
+
+    from app.supervisor import runs as pipeline_runs
+
+    print(
+        "[pipeline-worker] supervisor loop started "
+        f"(interval={interval}s; INGEST -> PREVIEW -> DINO -> HYBRID -> QWEN)",
+        flush=True,
+    )
+
+    while True:
+        try:
+            result = pipeline_runs.tick()
+            if result.get("outcome") not in (None, "WAIT"):
+                print(f"[pipeline-worker] {result}", flush=True)
+        except Exception as exc:  # noqa: BLE001 - keep the loop alive
+            print(f"[pipeline-worker] tick failed: {exc}", flush=True)
+
+        time.sleep(interval)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="PhotoBAse job worker")
     parser.add_argument(
@@ -435,6 +466,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--pipeline",
+        action="store_true",
+        help=(
+            "Run only the resumable pipeline supervisor loop (INGEST -> PREVIEW "
+            "-> DINO -> HYBRID -> QWEN): advance active runs, never claim jobs. "
+            "Use it for the dedicated scene-pipeline-worker."
+        ),
+    )
+    parser.add_argument(
         "--only",
         default=None,
         metavar="TYPES",
@@ -463,6 +503,10 @@ def main() -> None:
 
     if args.automation:
         args.watch = True
+
+    if args.pipeline:
+        _pipeline_loop(args.interval)
+        return
 
     types = (
         [item.strip() for item in args.only.split(",") if item.strip()]

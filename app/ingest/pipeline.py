@@ -80,6 +80,7 @@ def run(
     *,
     recursive: bool = True,
     skip_known=None,
+    only_files: set[str] | None = None,
 ) -> IngestResult:
     """
     Run INGEST in parallel over every supported file in *directory*.
@@ -91,12 +92,27 @@ def run(
     accepts is reported as SKIPPED without being read or hashed; the database
     lookup itself is left to the caller so this function stays free of any
     database dependency.
+
+    *only_files* restricts the scan to a frozen set of relative paths (as used
+    by a resumed pipeline run); a file outside the set is ignored.
     """
 
     if workers < 1:
         raise ValueError("workers must be >= 1")
 
     files = discover_files(directory, recursive=recursive)
+
+    if only_files is not None:
+        root = Path(directory)
+
+        def _selected(path: Path) -> bool:
+            try:
+                relative = str(path.relative_to(root))
+            except ValueError:
+                relative = path.name
+            return relative in only_files or path.name in only_files
+
+        files = [path for path in files if _selected(path)]
 
     if not files:
         return create_ingest_result([])

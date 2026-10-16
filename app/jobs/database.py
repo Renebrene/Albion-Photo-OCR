@@ -172,14 +172,26 @@ def enqueue_fingerprint_build(
             return int(row[0]) if row is not None else None
 
 
-def enqueue_ingest(directory: str) -> int | None:
+def enqueue_ingest(
+    directory: str,
+    *,
+    only_files: list[str] | None = None,
+) -> int | None:
     """
     Enqueue an INGEST job for one folder, deduplicated while active.
 
     Returns the new job id, or None when a PENDING/RUNNING ingest of the same
     folder already exists (a second scan of a big tree would only duplicate
     work). The folder itself is validated by the API before this call.
+
+    *only_files* (relative names) restricts the scan to a frozen snapshot, so a
+    resumed pipeline run does not pick up files added while it was stopped.
     """
+
+    payload: dict[str, Any] = {"directory": directory}
+
+    if only_files is not None:
+        payload["only_files"] = list(only_files)
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -195,7 +207,7 @@ def enqueue_ingest(directory: str) -> int | None:
                 )
                 RETURNING id
                 """,
-                (Json({"directory": directory}), directory),
+                (Json(payload), directory),
             )
             row = cur.fetchone()
 

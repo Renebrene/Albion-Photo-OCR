@@ -304,6 +304,13 @@ class SourceRunRequest(BaseModel):
     path: str | None = Field(default=None, max_length=4096)
 
 
+class PipelineStartRequest(BaseModel):
+    """Start a resumable pipeline run (Обновление базы)."""
+
+    folder: str | None = Field(default=None, max_length=4096)
+    mode: str = Field(default="manual", pattern="^(manual|schedule|outofqueue)$")
+
+
 class NlSearchRequest(BaseModel):
     """Natural-language query, translated to filters by the worker."""
 

@@ -33,10 +33,29 @@ def _check_video(path: Path) -> tuple[Path, dict]:
     return path, check_video_file(path)
 
 
-def _ingest_videos(directory: str | Path, *, workers: int, recursive: bool) -> dict:
+def _ingest_videos(
+    directory: str | Path,
+    *,
+    workers: int,
+    recursive: bool,
+    only_files: set[str] | None = None,
+) -> dict:
     """Probe and register source videos separately from the photo pipeline."""
 
     paths = discover_video_files(directory, recursive=recursive)
+
+    if only_files is not None:
+        root = Path(directory)
+
+        def _selected(path: Path) -> bool:
+            try:
+                relative = str(path.relative_to(root))
+            except ValueError:
+                relative = path.name
+            return relative in only_files or path.name in only_files
+
+        paths = [path for path in paths if _selected(path)]
+
     if not paths:
         return {
             "discovered": 0,
@@ -111,6 +130,7 @@ def ingest_directory(
     workers: int = DEFAULT_WORKERS,
     skip_known: bool = True,
     recursive: bool = True,
+    only_files: list[str] | None = None,
 ) -> dict:
     """
     Run INGEST over *directory* and register the photos that are new.
@@ -118,13 +138,19 @@ def ingest_directory(
     Returns a small summary (counters over the discovered files plus the
     identity classification). The returned dict is what the worker stores as
     the job result, so it must stay JSON-serialisable.
+
+    *only_files* restricts photos *and* videos to a frozen snapshot (relative
+    names), used when a pipeline run is resumed after being stopped.
     """
+
+    subset = set(only_files) if only_files is not None else None
 
     result = run(
         directory,
         workers,
         recursive=recursive,
         skip_known=known_source_files if skip_known else None,
+        only_files=subset,
     )
 
     records = [
@@ -157,7 +183,9 @@ def ingest_directory(
     # Video validation/registration is a separate branch: video IDs live in a
     # distinct table and are never sent to the photo preview/DINO/HYBRID/QWEN
     # pipelines. Photo counters keep their existing shape for old clients.
-    videos = _ingest_videos(directory, workers=workers, recursive=recursive)
+    videos = _ingest_videos(
+        directory, workers=workers, recursive=recursive, only_files=subset
+    )
 
     return {
         "directory": str(directory),
