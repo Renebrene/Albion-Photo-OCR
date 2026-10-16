@@ -477,6 +477,20 @@ export function deleteClientAlias(alias) {
   )
 }
 
+// Названия клиентов/брендов, распознанные QWEN, и журнал правок алиасов.
+export function fetchQwenClientNames() {
+  return getJson(`${BASE}/v1/client-aliases/qwen-names`)
+}
+
+export function fetchClientAliasAudit(limit = 100) {
+  return getJson(`${BASE}/v1/client-aliases/audit?limit=${limit}`)
+}
+
+// Журнал посещений (только Администратор).
+export function fetchVisits(limit = 100) {
+  return getJson(`${BASE}/v1/visits?limit=${limit}`)
+}
+
 // Address directory (schema/022): legal/simple names for fingerprint ids.
 export function fetchAddressDirectory() {
   return getJson(`${BASE}/v1/addresses/directory`)

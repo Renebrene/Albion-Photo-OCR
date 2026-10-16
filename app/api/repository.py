@@ -430,9 +430,16 @@ def list_client_aliases() -> list[dict]:
             ]
 
 
-def upsert_client_alias(alias: str, canonical: str) -> dict:
+def upsert_client_alias(alias: str, canonical: str, actor: str | None = None) -> dict:
     with get_connection() as conn:
         with conn.cursor() as cur:
+            cur.execute(
+                "SELECT canonical FROM public.client_aliases WHERE alias = %s",
+                (alias,),
+            )
+            row = cur.fetchone()
+            old = row[0] if row is not None else None
+
             cur.execute(
                 """
                 INSERT INTO public.client_aliases (alias, canonical)
@@ -443,17 +450,114 @@ def upsert_client_alias(alias: str, canonical: str) -> dict:
                 (alias, canonical),
             )
 
+            _record_alias_audit(
+                cur,
+                actor=actor,
+                alias=alias,
+                canonical_old=old,
+                canonical_new=canonical,
+                action="update" if old is not None else "create",
+            )
+
     return {"alias": alias, "canonical": canonical}
 
 
-def delete_client_alias(alias: str) -> bool:
+def delete_client_alias(alias: str, actor: str | None = None) -> bool:
     with get_connection() as conn:
         with conn.cursor() as cur:
+            cur.execute(
+                "SELECT canonical FROM public.client_aliases WHERE alias = %s",
+                (alias,),
+            )
+            row = cur.fetchone()
+
+            if row is None:
+                return False
+
             cur.execute(
                 "DELETE FROM public.client_aliases WHERE alias = %s",
                 (alias,),
             )
-            return cur.rowcount == 1
+            deleted = cur.rowcount == 1
+
+            if deleted:
+                _record_alias_audit(
+                    cur,
+                    actor=actor,
+                    alias=alias,
+                    canonical_old=row[0],
+                    canonical_new=None,
+                    action="delete",
+                )
+
+            return deleted
+
+
+def _record_alias_audit(cur, *, actor, alias, canonical_old, canonical_new, action) -> None:
+    cur.execute(
+        """
+        INSERT INTO public.client_alias_audit
+            (actor, alias, canonical_old, canonical_new, action)
+        VALUES (%s, %s, %s, %s, %s)
+        """,
+        (actor, alias, canonical_old, canonical_new, action),
+    )
+
+
+def list_client_alias_audit(*, limit: int = 100) -> list[dict]:
+    limit = max(1, min(int(limit), 500))
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT audit_id, actor, alias, canonical_old, canonical_new,
+                       action, created_at
+                FROM public.client_alias_audit
+                ORDER BY audit_id DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+
+    return [
+        {
+            "audit_id": int(row[0]),
+            "actor": row[1],
+            "alias": row[2],
+            "canonical_old": row[3],
+            "canonical_new": row[4],
+            "action": row[5],
+            "created_at": row[6],
+        }
+        for row in rows
+    ]
+
+
+def list_qwen_client_names() -> list[dict]:
+    """Distinct client/brand strings QWEN produced, alphabetical, with counts."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT kind, name, count(*) AS n
+                FROM (
+                    SELECT 'client' AS kind, client AS name
+                    FROM public.photo_qwen WHERE client IS NOT NULL AND client <> ''
+                    UNION ALL
+                    SELECT 'brand' AS kind, brand AS name
+                    FROM public.photo_qwen WHERE brand IS NOT NULL AND brand <> ''
+                ) AS t
+                GROUP BY kind, name
+                ORDER BY lower(name), kind
+                """
+            )
+            return [
+                {"kind": row[0], "name": row[1], "count": int(row[2])}
+                for row in cur.fetchall()
+            ]
 
 
 # ---------------------------------------------------------------------------

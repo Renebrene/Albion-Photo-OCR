@@ -1022,20 +1022,51 @@ def list_client_aliases():
     return {"items": repository.list_client_aliases()}
 
 
-@searches_router.put(
-    "/v1/client-aliases",
-    dependencies=[Depends(require_scope("collections:write"))],
-)
-def upsert_client_alias(request: ClientAliasRequest):
-    return repository.upsert_client_alias(request.alias, request.canonical)
+def _actor_name(principal: dict | None) -> str | None:
+    if not principal:
+        return None
+    user = principal.get("user") or {}
+    return user.get("name")
 
 
-@searches_router.delete(
-    "/v1/client-aliases",
+@searches_router.get(
+    "/v1/client-aliases/qwen-names",
+    response_model=None,
     dependencies=[Depends(require_scope("collections:write"))],
 )
-def delete_client_alias(alias: str = Query(..., min_length=1, max_length=200)):
-    if not repository.delete_client_alias(alias):
+def list_qwen_client_names():
+    """Все названия клиентов/брендов от QWEN в алфавитном порядке."""
+
+    return {"items": repository.list_qwen_client_names()}
+
+
+@searches_router.get(
+    "/v1/client-aliases/audit",
+    response_model=None,
+    dependencies=[Depends(require_scope("collections:write"))],
+)
+def list_client_alias_audit(limit: int = Query(100, ge=1, le=500)):
+    """Журнал правок справочника алиасов: кто, что и когда изменил."""
+
+    return {"items": repository.list_client_alias_audit(limit=limit)}
+
+
+@searches_router.put("/v1/client-aliases")
+def upsert_client_alias(
+    request: ClientAliasRequest,
+    principal=Depends(require_scope("collections:write")),
+):
+    return repository.upsert_client_alias(
+        request.alias, request.canonical, actor=_actor_name(principal),
+    )
+
+
+@searches_router.delete("/v1/client-aliases")
+def delete_client_alias(
+    alias: str = Query(..., min_length=1, max_length=200),
+    principal=Depends(require_scope("collections:write")),
+):
+    if not repository.delete_client_alias(alias, actor=_actor_name(principal)):
         raise HTTPException(status_code=404, detail="alias not found")
 
     return {"deleted": alias}
@@ -1119,6 +1150,16 @@ def login(request: LoginRequest):
 
     token = users_db.create_session(user["user_id"])
 
+    # Учёт посещений. Ошибка записи не должна ломать вход.
+    try:
+        from app import visits as visits_mod
+
+        visits_mod.record_visit(
+            user_id=user["user_id"], user_name=user["name"], event="login",
+        )
+    except Exception:  # noqa: BLE001 - logging must never block login
+        pass
+
     return {"token": token, "user": _public_user(user)}
 
 
@@ -1155,6 +1196,19 @@ def list_users(active_only: bool = Query(False)):
     """User directory is administrator-only (names, roles, activity)."""
 
     return {"items": users_db.list_users(active_only=active_only)}
+
+
+@read_router.get(
+    "/v1/visits",
+    response_model=None,
+    dependencies=[Depends(require_scope("users:manage"))],
+)
+def list_visits(limit: int = Query(100, ge=1, le=500)):
+    """Журнал посещений (входов) — только Администратору."""
+
+    from app import visits as visits_mod
+
+    return {"items": visits_mod.list_visits(limit=limit)}
 
 
 @users_router.post(

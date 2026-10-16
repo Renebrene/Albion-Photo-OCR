@@ -14,6 +14,7 @@ import Automation from '../components/Automation.vue'
 import DisplaySettings from '../components/DisplaySettings.vue'
 import AddressDirectory from '../components/AddressDirectory.vue'
 import ClientNormalization from '../components/ClientNormalization.vue'
+import VisitsAdmin from '../components/VisitsAdmin.vue'
 import IngestFolder from '../components/IngestFolder.vue'
 
 // Mirrors the legacy NiceGUI "технический раздел" (components/technical.py)
@@ -54,6 +55,7 @@ const canEditClients = computed(() =>
       <q-tab name="addresses" icon="place" label="Адреса" />
       <span class="tab-sep" />
       <q-tab v-if="isAdmin" name="users" icon="group" label="Пользователи" />
+      <q-tab v-if="isAdmin" name="visits" icon="history_toggle_off" label="Посещения" />
       <q-tab name="display" icon="grid_view" label="Отображение" />
       <span class="tab-sep" />
     </q-tabs>
@@ -127,6 +129,10 @@ const canEditClients = computed(() =>
 
       <q-tab-panel v-if="isAdmin" name="users">
         <UsersAdmin />
+      </q-tab-panel>
+
+      <q-tab-panel v-if="isAdmin" name="visits">
+        <VisitsAdmin />
       </q-tab-panel>
 
       <q-tab-panel name="data">
