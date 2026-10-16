@@ -587,7 +587,7 @@ def _collection_row(row) -> dict:
     }
 
 
-def list_collections() -> list[dict]:
+def list_collections(user_id: str | None = None) -> list[dict]:
     sql = """
         SELECT
             c.collection_id,
@@ -602,16 +602,24 @@ def list_collections() -> list[dict]:
                 WHERE m.collection_id = c.collection_id
             ) AS members
         FROM public.collections AS c
-        ORDER BY lower(c.name)
     """
+    params: list[object] = []
+
+    # A user identity scopes the list to its owner; None (service token / auth
+    # disabled) keeps the system-wide view.
+    if user_id is not None:
+        sql += " WHERE c.user_id = %s"
+        params.append(user_id)
+
+    sql += " ORDER BY lower(c.name)"
 
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(sql)
+            cur.execute(sql, params)
             return [_collection_row(row) for row in cur.fetchall()]
 
 
-def get_collection(collection_id: int) -> dict | None:
+def get_collection(collection_id: int, user_id: str | None = None) -> dict | None:
     sql = """
         SELECT
             c.collection_id, c.name, c.kind, c.client, c.scope, c.created_at,
@@ -623,10 +631,15 @@ def get_collection(collection_id: int) -> dict | None:
         FROM public.collections AS c
         WHERE c.collection_id = %s
     """
+    params: list[object] = [collection_id]
+
+    if user_id is not None:
+        sql += " AND c.user_id = %s"
+        params.append(user_id)
 
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, (collection_id,))
+            cur.execute(sql, params)
             row = cur.fetchone()
 
     return _collection_row(row) if row is not None else None
@@ -638,16 +651,17 @@ def create_collection(
     kind: str = "Моя",
     client: str | None = None,
     scope: str = "photos",
+    user_id: str | None = None,
 ) -> dict:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO public.collections (name, kind, client, scope)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO public.collections (name, kind, client, scope, user_id)
+                VALUES (%s, %s, %s, %s, %s)
                 RETURNING collection_id
                 """,
-                (name, kind, client, scope),
+                (name, kind, client, scope, user_id),
             )
             collection_id = int(cur.fetchone()[0])
 
@@ -663,13 +677,17 @@ def create_collection(
             return _collection_row(cur.fetchone())
 
 
-def delete_collection(collection_id: int) -> bool:
+def delete_collection(collection_id: int, user_id: str | None = None) -> bool:
+    sql = "DELETE FROM public.collections WHERE collection_id = %s"
+    params: list[object] = [collection_id]
+
+    if user_id is not None:
+        sql += " AND user_id = %s"
+        params.append(user_id)
+
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM public.collections WHERE collection_id = %s",
-                (collection_id,),
-            )
+            cur.execute(sql, params)
             return cur.rowcount == 1
 
 
@@ -983,40 +1001,55 @@ def _saved_search_row(row) -> dict:
     }
 
 
-def list_saved_searches() -> list[dict]:
+def list_saved_searches(user_id: str | None = None) -> list[dict]:
     sql = """
         SELECT search_id, name, filters, created_at
         FROM public.saved_searches
-        ORDER BY lower(name)
     """
+    params: list[object] = []
+
+    if user_id is not None:
+        sql += " WHERE user_id = %s"
+        params.append(user_id)
+
+    sql += " ORDER BY lower(name)"
 
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(sql)
+            cur.execute(sql, params)
             return [_saved_search_row(row) for row in cur.fetchall()]
 
 
-def create_saved_search(*, name: str, filters: dict) -> dict:
+def create_saved_search(
+    *,
+    name: str,
+    filters: dict,
+    user_id: str | None = None,
+) -> dict:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO public.saved_searches (name, filters)
-                VALUES (%s, %s)
+                INSERT INTO public.saved_searches (name, filters, user_id)
+                VALUES (%s, %s, %s)
                 RETURNING search_id, name, filters, created_at
                 """,
-                (name, Json(filters or {})),
+                (name, Json(filters or {}), user_id),
             )
             return _saved_search_row(cur.fetchone())
 
 
-def delete_saved_search(search_id: int) -> bool:
+def delete_saved_search(search_id: int, user_id: str | None = None) -> bool:
+    sql = "DELETE FROM public.saved_searches WHERE search_id = %s"
+    params: list[object] = [search_id]
+
+    if user_id is not None:
+        sql += " AND user_id = %s"
+        params.append(user_id)
+
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM public.saved_searches WHERE search_id = %s",
-                (search_id,),
-            )
+            cur.execute(sql, params)
             return cur.rowcount == 1
 
 

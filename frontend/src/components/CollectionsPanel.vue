@@ -7,6 +7,7 @@ import { computed } from 'vue'
 import { Notify } from 'quasar'
 
 import { usePhotosStore } from '../stores/photos'
+import { useSessionStore } from '../stores/session'
 
 const props = defineProps({
   scope: {
@@ -19,6 +20,15 @@ const props = defineProps({
 const emit = defineEmits(['create'])
 
 const store = usePhotosStore()
+const session = useSessionStore()
+
+// Создание и удаление подборок требует scope collections:write; у Гостя его
+// нет, поэтому ему доступен только просмотр. В открытом локальном режиме
+// (аутентификация выключена) ограничивать нечего.
+const canEdit = computed(() => {
+  if (!session.authEnabled) return true
+  return ['Администратор', 'Менеджер'].includes(session.user?.role)
+})
 
 const items = computed(() => store.collectionsFor(props.scope))
 
@@ -54,7 +64,14 @@ async function remove(collection) {
   <q-card flat bordered class="column" style="flex: 1; min-height: 140px">
     <q-card-section class="panel-head q-pb-xs row items-center">
       <div class="panel-title col">{{ title }}</div>
-      <q-btn dense flat icon="add" size="sm" @click="emit('create', scope)">
+      <q-btn
+        v-if="canEdit"
+        dense
+        flat
+        icon="add"
+        size="sm"
+        @click="emit('create', scope)"
+      >
         <q-tooltip>Сохранить текущий выбор в подборку</q-tooltip>
       </q-btn>
     </q-card-section>
@@ -80,7 +97,7 @@ async function remove(collection) {
               }}: {{ collection.members }}
             </div>
           </q-item-section>
-          <q-item-section side>
+          <q-item-section v-if="canEdit" side>
             <q-btn
               dense
               flat

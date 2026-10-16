@@ -37,6 +37,12 @@ def _probe_json(*, duration="2.0", codec="h264", creation_time="2026-10-15T08:12
 def _install_probe(monkeypatch, metadata=None):
     calls = []
 
+    # The probe matches on argv[0]; a deployment may pin the binaries through
+    # SCENE_FFPROBE_BIN/SCENE_FFMPEG_BIN to absolute paths. Pin them here so the
+    # test asserts the same thing regardless of the ambient environment.
+    monkeypatch.setenv("SCENE_FFPROBE_BIN", "ffprobe")
+    monkeypatch.setenv("SCENE_FFMPEG_BIN", "ffmpeg")
+
     def fake_run(args, *, timeout):
         calls.append((args, timeout))
         if args[0] == "ffprobe":

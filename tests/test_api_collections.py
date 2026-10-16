@@ -50,6 +50,26 @@ def cleanup_collections():
                 )
 
 
+def _drop_test_users(names: list[str]) -> None:
+    """Remove throwaway users together with their collections/searches."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM public.collections WHERE user_id IN "
+                "(SELECT user_id::text FROM public.users WHERE name = ANY(%s))",
+                (names,),
+            )
+            cur.execute(
+                "DELETE FROM public.saved_searches WHERE user_id IN "
+                "(SELECT user_id::text FROM public.users WHERE name = ANY(%s))",
+                (names,),
+            )
+            cur.execute(
+                "DELETE FROM public.users WHERE name = ANY(%s)", (names,)
+            )
+
+
 def test_create_requires_collections_write_scope(monkeypatch):
     monkeypatch.setenv("SCENE_API_TOKENS", "tok:read")
     response = client.post(
@@ -117,3 +137,93 @@ def test_collection_lifecycle(cleanup_collections):
         client.delete(f"/api/v1/collections/{collection_id}").status_code == 404
     )
     cleanup_collections.remove(collection_id)
+
+
+@requires_db
+def test_collections_are_isolated_per_user(monkeypatch):
+    """A bookmark belongs to its owner: others neither see nor delete it."""
+
+    # Enforce scopes here so the guest's write attempt really is rejected.
+    monkeypatch.setenv("SCENE_AUTH_REQUIRED", "1")
+
+    from app.users import database as users_db
+
+    names = ["__col_owner__", "__col_other__", "__col_guest__"]
+    _drop_test_users(names)
+
+    try:
+        owner = users_db.create_user(name=names[0], role="Менеджер")
+        other = users_db.create_user(name=names[1], role="Менеджер")
+        guest = users_db.create_user(name=names[2], role="Гость")
+
+        owner_h = {
+            "Authorization": f"Bearer {users_db.create_session(owner['user_id'])}"
+        }
+        other_h = {
+            "Authorization": f"Bearer {users_db.create_session(other['user_id'])}"
+        }
+        guest_h = {
+            "Authorization": f"Bearer {users_db.create_session(guest['user_id'])}"
+        }
+
+        created = client.post(
+            "/api/v1/collections",
+            json={"name": "Личная подборка", "kind": "Моя"},
+            headers=owner_h,
+        )
+        assert created.status_code == 201
+        collection_id = created.json()["collection_id"]
+
+        owner_items = client.get("/api/v1/collections", headers=owner_h).json()[
+            "items"
+        ]
+        assert any(
+            item["collection_id"] == collection_id for item in owner_items
+        )
+
+        # Another manager does not see it and cannot touch it.
+        other_items = client.get("/api/v1/collections", headers=other_h).json()[
+            "items"
+        ]
+        assert all(
+            item["collection_id"] != collection_id for item in other_items
+        )
+        assert (
+            client.get(
+                f"/api/v1/collections/{collection_id}/members", headers=other_h
+            ).status_code
+            == 404
+        )
+        assert (
+            client.delete(
+                f"/api/v1/collections/{collection_id}", headers=other_h
+            ).status_code
+            == 404
+        )
+
+        # A guest (read only) sees an empty bookmark list and cannot create.
+        assert (
+            client.get("/api/v1/collections", headers=guest_h).json()["items"]
+            == []
+        )
+        assert (
+            client.post(
+                "/api/v1/collections", json={"name": "nope"}, headers=guest_h
+            ).status_code
+            == 403
+        )
+
+        # Filtering the grid by somebody else's collection yields nothing.
+        filtered = client.get(
+            f"/api/v1/photos?collection_id={collection_id}", headers=other_h
+        ).json()["items"]
+        assert filtered == []
+
+        assert (
+            client.delete(
+                f"/api/v1/collections/{collection_id}", headers=owner_h
+            ).status_code
+            == 200
+        )
+    finally:
+        _drop_test_users(names)

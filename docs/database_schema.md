@@ -283,7 +283,9 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 
 Создаёт `schema/009_collections.sql`; пишет `app/api/repository.py` (через API).
 
-`collections`: `collection_id` BIGSERIAL PK, `user_id` TEXT (пока NULL — пользователей нет), `name` TEXT NOT NULL, `kind` CHECK `Моя`/`Клиентская`, `client` TEXT, `scope` CHECK `addresses`/`clients`/`photos`, `created_at`, `updated_at`.
+`collections`: `collection_id` BIGSERIAL PK, `user_id` TEXT (владелец подборки; `NULL` — системная, видна всем), `name` TEXT NOT NULL, `kind` CHECK `Моя`/`Клиентская`, `client` TEXT, `scope` CHECK `addresses`/`clients`/`photos`, `created_at`, `updated_at`.
+
+**Изоляция по пользователю (schema/034).** `user_id` — владелец записи. API читает/создаёт/удаляет подборки только от имени текущего пользователя (`_principal_user_id`): чужой `collection_id` даёт 404 на изменение и пустую страницу в `/v1/photos?collection_id=…`, а не утечку существования. Сервисный токен (`kind=service`) и открытый режим (`user_id = NULL`) сохраняют общий доступ. `schema/034_owner_isolation.sql` дописывает `user_id` встроенному «Администратору» для наследованных записей и добавляет `idx_collections_user`; откат — только `DROP INDEX IF EXISTS idx_collections_user` (колонки не трогаются).
 
 `collection_members`: `collection_id` FK → `collections` ON DELETE CASCADE, `member_type` CHECK `address`/`client`/`photo`, `member_value` TEXT; PRIMARY KEY `(collection_id, member_type, member_value)`; индекс по `(member_type, member_value)`.
 
@@ -303,7 +305,9 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 
 Создаёт `schema/011_saved_searches.sql`; пишет `app/api/repository.py` (через API `/v1/searches`).
 
-`saved_searches`: `search_id` BIGSERIAL PK, `user_id` TEXT (NULL, пока не привязано к сессии), `name` TEXT NOT NULL, `filters` JSONB (снимок фильтров GRID: `q`, `addresses[]`, `clients[]`, `date_from`, `date_to`, `collection_id`), `created_at`; индекс по `user_id`.
+`saved_searches`: `search_id` BIGSERIAL PK, `user_id` TEXT (владелец; `NULL` — системный), `name` TEXT NOT NULL, `filters` JSONB (снимок фильтров GRID: `q`, `addresses[]`, `clients[]`, `date_from`, `date_to`, `collection_id`), `created_at`; индекс по `user_id`.
+
+Изоляция как у подборок (schema/034): список/создание/удаление ведутся от имени текущего пользователя, чужой `search_id` не удаляется (404).
 
 Аналог легаси `search`/«История поиска». Не влияет на пайплайны — только восстанавливает набор фильтров в UI.
 

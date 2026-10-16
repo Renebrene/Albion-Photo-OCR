@@ -93,3 +93,81 @@ def test_saved_search_lifecycle(cleanup_searches):
     assert client.delete(f"/api/v1/searches/{search_id}").status_code == 200
     assert client.delete(f"/api/v1/searches/{search_id}").status_code == 404
     cleanup_searches.remove(search_id)
+
+
+@requires_db
+def test_saved_searches_are_isolated_per_user():
+    """A bookmarked filter belongs to its owner only."""
+
+    from app.users import database as users_db
+
+    names = ["__srch_owner__", "__srch_other__"]
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM public.saved_searches WHERE user_id IN "
+                "(SELECT user_id::text FROM public.users WHERE name = ANY(%s))",
+                (names,),
+            )
+            cur.execute(
+                "DELETE FROM public.users WHERE name = ANY(%s)", (names,)
+            )
+
+    try:
+        owner = users_db.create_user(name=names[0], role="Менеджер")
+        other = users_db.create_user(name=names[1], role="Менеджер")
+
+        owner_h = {
+            "Authorization": f"Bearer {users_db.create_session(owner['user_id'])}"
+        }
+        other_h = {
+            "Authorization": f"Bearer {users_db.create_session(other['user_id'])}"
+        }
+
+        created = client.post(
+            "/api/v1/searches",
+            json={"name": "Личный фильтр", "filters": {"q": "test"}},
+            headers=owner_h,
+        )
+        assert created.status_code == 201
+        search_id = created.json()["search_id"]
+
+        owner_names = [
+            item["name"]
+            for item in client.get("/api/v1/searches", headers=owner_h).json()[
+                "items"
+            ]
+        ]
+        other_names = [
+            item["name"]
+            for item in client.get("/api/v1/searches", headers=other_h).json()[
+                "items"
+            ]
+        ]
+        assert "Личный фильтр" in owner_names
+        assert "Личный фильтр" not in other_names
+
+        # Someone else cannot delete it; the owner can.
+        assert (
+            client.delete(f"/api/v1/searches/{search_id}", headers=other_h)
+            .status_code
+            == 404
+        )
+        assert (
+            client.delete(f"/api/v1/searches/{search_id}", headers=owner_h)
+            .status_code
+            == 200
+        )
+    finally:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM public.saved_searches WHERE user_id IN "
+                    "(SELECT user_id::text FROM public.users "
+                    " WHERE name = ANY(%s))",
+                    (names,),
+                )
+                cur.execute(
+                    "DELETE FROM public.users WHERE name = ANY(%s)", (names,)
+                )

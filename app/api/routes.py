@@ -124,7 +124,16 @@ def list_photos(
     date_mode: str = Query("upload", pattern="^(upload|capture)$"),
     collection_id: int | None = Query(None, ge=1),
     ids: list[str] | None = Query(None, max_length=200),
+    principal=Depends(require_scope("read")),
 ):
+    # A collection belongs to its owner; asking for somebody else's yields an
+    # empty page rather than 404, so the response does not reveal that the id
+    # exists.
+    if collection_id is not None and repository.get_collection(
+        collection_id, _principal_user_id(principal)
+    ) is None:
+        return {"items": [], "next_cursor": None}
+
     items, next_cursor = repository.list_photos(
         limit=limit,
         cursor=cursor,
@@ -955,17 +964,27 @@ def run_automation(force: bool = Query(False)):
 # ---------------------------------------------------------------------------
 
 
+def _principal_user_id(principal) -> str | None:
+    """Owner id for per-user records; None for service tokens / open mode."""
+
+    user = principal.get("user") if principal else None
+    return str(user["user_id"]) if user else None
+
+
 @read_router.get("/v1/collections", response_model=None)
-def list_collections():
-    return {"items": repository.list_collections()}
+def list_collections(principal=Depends(require_scope("read"))):
+    return {"items": repository.list_collections(_principal_user_id(principal))}
 
 
 @read_router.get("/v1/collections/{collection_id}/members", response_model=None)
 def list_collection_members(
     collection_id: int,
     member_type: str = Query("photo", pattern=r"^(address|client|photo)$"),
+    principal=Depends(require_scope("read")),
 ):
-    if repository.get_collection(collection_id) is None:
+    if repository.get_collection(
+        collection_id, _principal_user_id(principal)
+    ) is None:
         raise HTTPException(status_code=404, detail="collection not found")
 
     return {
@@ -975,40 +994,42 @@ def list_collection_members(
     }
 
 
-@collections_router.post(
-    "/v1/collections",
-    status_code=201,
-    dependencies=[Depends(require_scope("collections:write"))],
-)
-def create_collection(request: CollectionCreate):
+@collections_router.post("/v1/collections", status_code=201)
+def create_collection(
+    request: CollectionCreate,
+    principal=Depends(require_scope("collections:write")),
+):
     return repository.create_collection(
         name=request.name,
         kind=request.kind,
         client=request.client,
         scope=request.scope,
+        user_id=_principal_user_id(principal),
     )
 
 
-@collections_router.delete(
-    "/v1/collections/{collection_id}",
-    dependencies=[Depends(require_scope("collections:write"))],
-)
-def delete_collection(collection_id: int):
-    if not repository.delete_collection(collection_id):
+@collections_router.delete("/v1/collections/{collection_id}")
+def delete_collection(
+    collection_id: int,
+    principal=Depends(require_scope("collections:write")),
+):
+    if not repository.delete_collection(
+        collection_id, _principal_user_id(principal)
+    ):
         raise HTTPException(status_code=404, detail="collection not found")
 
     return {"deleted": collection_id}
 
 
-@collections_router.post(
-    "/v1/collections/{collection_id}/members",
-    dependencies=[Depends(require_scope("collections:write"))],
-)
+@collections_router.post("/v1/collections/{collection_id}/members")
 def add_collection_members(
     collection_id: int,
     request: CollectionMembersRequest,
+    principal=Depends(require_scope("collections:write")),
 ):
-    if repository.get_collection(collection_id) is None:
+    if repository.get_collection(
+        collection_id, _principal_user_id(principal)
+    ) is None:
         raise HTTPException(status_code=404, detail="collection not found")
 
     added = repository.add_collection_members(
@@ -1020,15 +1041,15 @@ def add_collection_members(
     return {"collection_id": collection_id, "added": added}
 
 
-@collections_router.post(
-    "/v1/collections/{collection_id}/members/remove",
-    dependencies=[Depends(require_scope("collections:write"))],
-)
+@collections_router.post("/v1/collections/{collection_id}/members/remove")
 def remove_collection_members(
     collection_id: int,
     request: CollectionMembersRequest,
+    principal=Depends(require_scope("collections:write")),
 ):
-    if repository.get_collection(collection_id) is None:
+    if repository.get_collection(
+        collection_id, _principal_user_id(principal)
+    ) is None:
         raise HTTPException(status_code=404, detail="collection not found")
 
     removed = repository.remove_collection_members(
@@ -1046,28 +1067,30 @@ def remove_collection_members(
 
 
 @read_router.get("/v1/searches", response_model=None)
-def list_saved_searches():
-    return {"items": repository.list_saved_searches()}
+def list_saved_searches(principal=Depends(require_scope("read"))):
+    return {"items": repository.list_saved_searches(_principal_user_id(principal))}
 
 
-@searches_router.post(
-    "/v1/searches",
-    status_code=201,
-    dependencies=[Depends(require_scope("searches:write"))],
-)
-def create_saved_search(request: SavedSearchCreate):
+@searches_router.post("/v1/searches", status_code=201)
+def create_saved_search(
+    request: SavedSearchCreate,
+    principal=Depends(require_scope("searches:write")),
+):
     return repository.create_saved_search(
         name=request.name,
         filters=request.filters,
+        user_id=_principal_user_id(principal),
     )
 
 
-@searches_router.delete(
-    "/v1/searches/{search_id}",
-    dependencies=[Depends(require_scope("searches:write"))],
-)
-def delete_saved_search(search_id: int):
-    if not repository.delete_saved_search(search_id):
+@searches_router.delete("/v1/searches/{search_id}")
+def delete_saved_search(
+    search_id: int,
+    principal=Depends(require_scope("searches:write")),
+):
+    if not repository.delete_saved_search(
+        search_id, _principal_user_id(principal)
+    ):
         raise HTTPException(status_code=404, detail="saved search not found")
 
     return {"deleted": search_id}
