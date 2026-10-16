@@ -1,9 +1,10 @@
 # Супервизор пайплайна (resumable pipeline run)
 
-**Статус:** реализовано в коде (schema/031, `app/supervisor/runs.py`,
-`app.jobs.worker --pipeline`, маршруты `/v1/pipeline/*`). Миграция `031`
-**пока не применена** к рабочей БД; маршруты активируются после её применения
-и перезапуска `scene-api`.
+**Статус:** развёрнуто 2026-10-16. Миграция `031` применена к
+`photobase_ingest_test` (после backup и проверки в изолированной схеме),
+`scene-api` перезапущен (маршруты `/v1/pipeline/*` активны),
+`scene-pipeline-worker.service` установлен и включён. Сквозной smoke без
+реальной обработки прошёл.
 
 ## Зачем
 
@@ -124,12 +125,30 @@ INGEST/PREVIEW/DINO/HYBRID/QWEN выполняют обычные воркеры
 INGEST показывается число медиа в снимке папки, а не «обработано из». Живой
 прогресс INGEST — отдельная доработка.
 
-## Rollout (не выполнено)
+## Rollout (выполнено 2026-10-16)
 
-1. Проверить `031` на disposable PostgreSQL.
-2. Backup рабочей БД, применить `031` через `scripts/migrate.py`.
-3. Перезапустить `scene-api` (активирует маршруты `/v1/pipeline/*`) и
-   установить/включить `scene-pipeline-worker.service`.
-4. Проверить «Обновление базы» на тестовой папке синтетических данных.
+1. **Проверка 031.** Отдельную disposable PostgreSQL в этом окружении создать
+   нельзя (роль без `CREATEDB`, нет sudo/docker), поэтому миграция проверена в
+   **изолированной схеме** `scene_mig031_scratch` рабочей БД: свежее применение
+   → повтор (идемпотентно) → инвариант «один активный запуск» (второй
+   PENDING/RUNNING отклонён, новый после STOPPED разрешён) → каскадное удаление
+   стадий → документированный откат DROP → удаление схемы. Всё прошло; схема
+   удалена.
+2. **Backup.** `photobase_ingest_test_before_031_20261016_160716.dump`
+   (проверен `pg_restore -l`, 195 объектов).
+3. **Применение.** `scripts/migrate.py` применил `031` (30→31 applied); повторный
+   запуск — no-op. Таблицы `pipeline_runs`/`pipeline_run_stages` пусты, фото целы
+   (326).
+4. **Сервисы.** Установлен и включён `scene-pipeline-worker.service`;
+   `scene-api` и `scene-worker` перезапущены. Все 6 сервисов активны; `/api/health`
+   200, `/v1/pipeline/current` без токена 401 (fail-closed), маршруты
+   `/v1/pipeline/*` присутствуют в OpenAPI.
+5. **Сквозной smoke** (folder=None, реальной обработки нет): INGEST SKIPPED →
+   PREVIEW DONE 326/326 → DINO SKIPPED (нет фото без DINO) → HYBRID SKIPPED →
+   QWEN DONE 325/326 (1 известная ошибка) → run `DONE` «база обновлена». Тестовый
+   запуск удалён.
 
-До этого шага маршруты не активны, рабочая БД не менялась.
+Откат: остановить и отключить `scene-pipeline-worker.service`, перезапустить
+`scene-api` без маршрутов pipeline (или оставить — они просто читают таблицы),
+затем `DROP TABLE pipeline_run_stages, pipeline_runs` (см. комментарий в
+`schema/031_pipeline_runs.sql`).
