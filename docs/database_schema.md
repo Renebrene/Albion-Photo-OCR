@@ -2,7 +2,7 @@
 
 **Источник:** выведено из SQL-схем `schema/001_ingest.sql` … `schema/005_hybrid.sql` и из фактических чтений/записей в `app/ingest/database.py`, `app/preview/database.py`, `app/dino/database.py`, `app/hybrid/database.py`, а также из локальной SQLite-очереди `app/pipeline/queue.py`.
 
-**Статус:** описание текущего контракта репозитория. На `photobase_ingest_test` подтверждены миграции 001–031 (030 и 031 применены в rollout 2026-10-16 после backup; повторный запуск — no-op).
+**Статус:** описание текущего контракта репозитория. На `photobase_ingest_test` подтверждены миграции 001–032 (030–032 применены в rollout 2026-10-16 после backup; повторный запуск — no-op).
 
 **Важно про `111/chatgpt_md`:** архив описывает **другую, legacy-схему** (`dbname=photobase`, `user=lora`, широкая таблица `photos` с колонками `address/client/brand/category/qwen_status/...`). Она **не совпадает** с текущим контрактом и нормой не является. Ниже — только то, что реально читает/пишет текущий код.
 
@@ -53,11 +53,12 @@ PostgreSQL — источник истины для зарегистрирова
 029_photo_preview_jobs.sql → PHOTO_PREVIEW type + active per-photo dedup
 030_video_trim.sql → trim operation metadata + VIDEO_TRIM/VIDEO_STORYBOARD job types and active dedup
 031_pipeline_runs.sql → pipeline_runs / pipeline_run_stages (resumable supervisor) + single-active index
+032_automation_defaults.sql → планировщик: авто-DINO/QWEN по умолчанию выключены + UPDATE существующей строки
 ```
 
 **`004` теперь backfill-safe и идемпотентен (2026-10-12):** создаёт `dino_batches` при отсутствии, добавляет `dino_runs.batch_id` (nullable) при отсутствии, бэкфиллит существующие runs без batch (по одному legacy-batch на run, со статусом и счётчиками из run), затем ставит `NOT NULL` и создаёт индекс. Повторный прогон — no-op. Ранее файл делал `ADD COLUMN` и сразу `SET NOT NULL`, что падало на непустой `dino_runs`.
 
-`026_video_assets.sql` — аддитивная миграция; на `photobase_ingest_test` записаны как применённые 026–031 (030 и 031 применены в rollout 2026-10-16 после backup, повторный запуск — no-op). Миграция 031 проверена в изолированной схеме (свежее применение, идемпотентность, инвариант «один активный запуск», откат) перед применением.
+`026_video_assets.sql` — аддитивная миграция; на `photobase_ingest_test` записаны как применённые 026–032 (030–032 применены в rollout 2026-10-16 после backup, повторный запуск — no-op). Миграции 031 и 032 проверены в изолированной схеме (свежее применение, идемпотентность, откат) перед применением.
 
 **Остальные файлы (001–003, 005) не идемпотентны:** `CREATE TABLE` без `IF NOT EXISTS`; повторный прогон на существующей БД упадёт. Для этого есть версионированный раннер `scripts/migrate.py`: он ведёт `public.schema_migrations` (version + sha256) и применяет каждый файл ровно один раз; повторный запуск — no-op, а изменение уже применённого файла обнаруживается как checksum-drift и останавливает работу. Существующая БД «усыновляется» командой `--baseline` (записи без выполнения). `db_bootstrap.sh` теперь применяет схему через этот раннер (для существующей БД — `--baseline`). `000_bootstrap.sql` раннером не применяется (это шаг суперпользователя).
 
