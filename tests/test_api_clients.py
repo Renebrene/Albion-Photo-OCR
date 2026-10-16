@@ -49,6 +49,10 @@ def _cleanup() -> None:
                 ("__alias_probe%",),
             )
             cur.execute(
+                "DELETE FROM public.client_alias_audit WHERE alias LIKE %s",
+                ("__alias_probe%",),
+            )
+            cur.execute(
                 "DELETE FROM public.photo_qwen WHERE photo_id = %s", (PROBE_ID,)
             )
             cur.execute(
@@ -115,7 +119,11 @@ def test_alias_folds_clients_and_lifecycle():
         assert created.status_code == 200
 
         aliases = client.get("/api/v1/client-aliases").json()["items"]
-        assert {"alias": PROBE_RAW, "canonical": PROBE_CANON} in aliases
+        assert {
+            "alias": PROBE_RAW,
+            "canonical": PROBE_CANON,
+            "kind": "client",
+        } in aliases
 
         folded = client.get("/api/v1/clients").json()["items"]
         names = [c["client"] for c in folded]
@@ -142,3 +150,95 @@ def test_alias_folds_clients_and_lifecycle():
         )
     finally:
         _cleanup()
+
+
+def _kinds_available() -> bool:
+    if not os.getenv("INGEST_DB_PASSWORD"):
+        return False
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_name = 'client_aliases' AND column_name = 'kind'"
+                )
+                return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
+requires_kinds = pytest.mark.skipif(
+    not _kinds_available(),
+    reason="client_aliases.kind not available (schema 035)",
+)
+
+BRAND_RAW = "__alias_probe_brand__"
+BRAND_CANON = "__alias_probe_brand_canonical__"
+
+
+@requires_kinds
+def test_brand_aliases_live_apart_from_clients():
+    """Бренд и клиент — разные виды одного справочника (schema/035)."""
+
+    _cleanup()
+
+    try:
+        created = client.put(
+            "/api/v1/client-aliases",
+            json={"alias": BRAND_RAW, "canonical": BRAND_CANON},
+            params={"kind": "brand"},
+        )
+        assert created.status_code == 200
+        assert created.json()["kind"] == "brand"
+
+        brands = client.get(
+            "/api/v1/client-aliases", params={"kind": "brand"}
+        ).json()["items"]
+        assert {"alias": BRAND_RAW, "canonical": BRAND_CANON, "kind": "brand"} in brands
+
+        # В списке клиентов бренд-строка не появляется.
+        clients_ = client.get(
+            "/api/v1/client-aliases", params={"kind": "client"}
+        ).json()["items"]
+        assert all(item["alias"] != BRAND_RAW for item in clients_)
+
+        # Журнал правок тоже разделён по виду.
+        brand_audit = client.get(
+            "/api/v1/client-aliases/audit", params={"kind": "brand"}
+        ).json()["items"]
+        assert any(
+            row["alias"] == BRAND_RAW and row["kind"] == "brand"
+            for row in brand_audit
+        )
+
+        client_audit = client.get(
+            "/api/v1/client-aliases/audit", params={"kind": "client"}
+        ).json()["items"]
+        assert all(row["alias"] != BRAND_RAW for row in client_audit)
+
+        # Удаление без указания вида не тронет бренд.
+        assert (
+            client.delete(
+                "/api/v1/client-aliases", params={"alias": BRAND_RAW}
+            ).status_code
+            == 404
+        )
+        assert (
+            client.delete(
+                "/api/v1/client-aliases",
+                params={"alias": BRAND_RAW, "kind": "brand"},
+            ).status_code
+            == 200
+        )
+    finally:
+        _cleanup()
+
+
+@requires_kinds
+def test_unknown_kind_is_rejected():
+    assert (
+        client.get(
+            "/api/v1/client-aliases", params={"kind": "address"}
+        ).status_code
+        == 422
+    )

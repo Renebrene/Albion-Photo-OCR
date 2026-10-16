@@ -1116,8 +1116,12 @@ def delete_saved_search(
 
 
 @read_router.get("/v1/client-aliases", response_model=None)
-def list_client_aliases():
-    return {"items": repository.list_client_aliases()}
+def list_client_aliases(
+    kind: str = Query("client", pattern=r"^(client|brand)$"),
+):
+    """Справочник алиасов: клиенты (`client`) или бренды (`brand`)."""
+
+    return {"items": repository.list_client_aliases(kind)}
 
 
 def _actor_name(principal: dict | None) -> str | None:
@@ -1143,31 +1147,41 @@ def list_qwen_client_names():
     response_model=None,
     dependencies=[Depends(require_scope("collections:write"))],
 )
-def list_client_alias_audit(limit: int = Query(100, ge=1, le=500)):
+def list_client_alias_audit(
+    limit: int = Query(100, ge=1, le=500),
+    kind: str = Query("client", pattern=r"^(client|brand)$"),
+):
     """Журнал правок справочника алиасов: кто, что и когда изменил."""
 
-    return {"items": repository.list_client_alias_audit(limit=limit)}
+    return {"items": repository.list_client_alias_audit(limit=limit, kind=kind)}
 
 
 @searches_router.put("/v1/client-aliases")
 def upsert_client_alias(
     request: ClientAliasRequest,
+    kind: str = Query("client", pattern=r"^(client|brand)$"),
     principal=Depends(require_scope("collections:write")),
 ):
     return repository.upsert_client_alias(
-        request.alias, request.canonical, actor=_actor_name(principal),
+        request.alias,
+        request.canonical,
+        kind=kind,
+        actor=_actor_name(principal),
     )
 
 
 @searches_router.delete("/v1/client-aliases")
 def delete_client_alias(
     alias: str = Query(..., min_length=1, max_length=200),
+    kind: str = Query("client", pattern=r"^(client|brand)$"),
     principal=Depends(require_scope("collections:write")),
 ):
-    if not repository.delete_client_alias(alias, actor=_actor_name(principal)):
+    if not repository.delete_client_alias(
+        alias, kind=kind, actor=_actor_name(principal)
+    ):
         raise HTTPException(status_code=404, detail="alias not found")
 
-    return {"deleted": alias}
+    return {"deleted": alias, "kind": kind}
 
 
 # ---------------------------------------------------------------------------

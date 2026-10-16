@@ -1,9 +1,9 @@
-# Посещения и аудит нормализации клиентов
+# Посещения и аудит нормализации клиентов и брендов
 
-**Статус:** реализовано в коде (schema/033, `app/visits.py`, правки
-`app/api/repository.py` и маршрутов). Миграция `033` **пока не применена** к
-рабочей БД; вкладка «Посещения» и журнал алиасов появятся после её применения
-и перезапуска `scene-api`.
+**Статус:** реализовано и развёрнуто. `schema/033` (посещения + журнал алиасов),
+`schema/034` (закладки по владельцу) и `schema/035` (`kind` у справочника
+алиасов) применены к рабочей БД 2026-10-16, `scene-api` и `scene-worker`
+перезапущены; вкладка «Посещения» и журнал алиасов работают.
 
 ## Посещения
 
@@ -19,30 +19,49 @@
   «Отображением» (`frontend/src/components/VisitsAdmin.vue`). Скрывается, пока
   маршрут недоступен.
 
-## Аудит нормализации клиентов
+## Аудит нормализации клиентов и брендов
 
 - Таблица `client_alias_audit` (schema/033): `audit_id`, `actor`, `alias`,
   `canonical_old`, `canonical_new`, `action` (`create`/`update`/`delete`),
-  `created_at`.
+  `created_at`; `schema/035` добавляет `kind` (`client`/`brand`) — в истории
+  видно, что именно правили. Старые записи читаются как `client`.
 - Правки справочника алиасов пишут строку аудита с именем действующего
-  пользователя: `repository.upsert_client_alias(alias, canonical, actor)` и
-  `delete_client_alias(alias, actor)`; маршруты `PUT/DELETE /v1/client-aliases`
-  передают имя из principal.
+  пользователя: `repository.upsert_client_alias(alias, canonical, kind, actor)`
+  и `delete_client_alias(alias, kind, actor)`; маршруты
+  `PUT/DELETE /v1/client-aliases?kind=…` передают имя из principal.
+- **Один справочник на два вида.** `client_aliases.kind` (`client`/`brand`,
+  schema/035) с составным PK `(kind, alias)`: бренды нормализуются так же, как
+  клиенты. По умолчанию `kind=client`, поэтому прежние вызовы API не меняются.
+  Клиентские запросы (фасет `/v1/clients`, фильтр `client=` в `/v1/photos`)
+  явно фильтруют `kind = 'client'`, чтобы бренд-алиас не подтягивал фото по
+  клиенту. **Фильтра по бренду в гриде нет** — нормализация брендов сейчас
+  влияет только на справочник и журнал (решение владельца не запрашивалось).
 - `GET /v1/client-aliases/qwen-names` — все названия клиентов/брендов,
   распознанные QWEN, в алфавитном порядке с частотой (scope `collections:write`).
-- `GET /v1/client-aliases/audit?limit=` — журнал правок (scope
+- `GET /v1/client-aliases/audit?limit=&kind=` — журнал правок (scope
   `collections:write`).
-- UI (`ClientNormalization.vue`, вкладка «Отображение»): список имён QWEN —
+- UI (`ClientNormalization.vue`, вкладка «Отображение»): переключатель
+  **«Клиенты / Бренды»**; список имён QWEN показывает названия выбранного вида,
   клик по названию подставляет его в поля «как распознал QWEN» и
   «каноническое имя» (второе — уже заведённое сопоставление, если есть); под
-  таблицей алиасов добавлен журнал «кто/что/когда изменил».
+  таблицей алиасов — журнал «кто/что/когда изменил» с колонкой вида.
 
 Исходные строки `photo_qwen` не переписываются — как и раньше, нормализация
 влияет только на группировку и фильтр клиентов.
 
-## Rollout (не выполнено)
+## Rollout (выполнено 2026-10-16)
 
-1. Проверить `033` на disposable PostgreSQL (или в изолированной схеме).
-2. Backup, применить `033` через `scripts/migrate.py`.
-3. Перезапустить `scene-api` — активируются `/v1/visits`,
-   `/v1/client-aliases/qwen-names`, `/v1/client-aliases/audit`.
+1. `033` и `034` были проверены на рабочей БД; `035` — dry-run в транзакции с
+   откатом (структура, идемпотентность, откат).
+2. Backup `pg_dump -Fc` → `~/backups/photobase_before_034_035_20261016_2304.dump`.
+3. `scripts/migrate.py` применил `034_owner_isolation` и `035_alias_kind`
+   (33 → 35 применённых, 0 в очереди).
+4. `systemctl --user restart scene-api scene-worker` — активированы `/v1/visits`,
+   `/v1/client-aliases?kind=…`, `/v1/client-aliases/audit`, `/v1/qwen/stats` с
+   `photos`/`processed`/`remaining`/`runs`.
+5. Проверено живьём: `/v1/collections` 6 записей у Администратора,
+   `kind=brand` пусто, `kind=client` — 1 прежний алиас (backfill сработал),
+   `/v1/qwen/stats` → 326 фото, 325 распознано, 1 осталось.
+
+Откат `035` (потеряет бренд-строки): см. комментарий в начале
+`schema/035_alias_kind.sql`.

@@ -489,17 +489,21 @@ export async function fetchDataExport(format = 'json') {
   return response
 }
 
-export function fetchClientAliases() {
-  return getJson(`${BASE}/v1/client-aliases`)
+// Справочник алиасов: kind — 'client' (по умолчанию) или 'brand'.
+export function fetchClientAliases(kind = 'client') {
+  return getJson(`${BASE}/v1/client-aliases?kind=${kind}`)
 }
 
-export function saveClientAlias(alias, canonical) {
-  return putJson(`${BASE}/v1/client-aliases`, { alias, canonical })
+export function saveClientAlias(alias, canonical, kind = 'client') {
+  return putJson(
+    `${BASE}/v1/client-aliases?kind=${kind}`,
+    { alias, canonical },
+  )
 }
 
-export function deleteClientAlias(alias) {
+export function deleteClientAlias(alias, kind = 'client') {
   return deleteJson(
-    `${BASE}/v1/client-aliases?alias=${encodeURIComponent(alias)}`,
+    `${BASE}/v1/client-aliases?alias=${encodeURIComponent(alias)}&kind=${kind}`,
   )
 }
 
@@ -508,8 +512,8 @@ export function fetchQwenClientNames() {
   return getJson(`${BASE}/v1/client-aliases/qwen-names`)
 }
 
-export function fetchClientAliasAudit(limit = 100) {
-  return getJson(`${BASE}/v1/client-aliases/audit?limit=${limit}`)
+export function fetchClientAliasAudit(limit = 100, kind = 'client') {
+  return getJson(`${BASE}/v1/client-aliases/audit?limit=${limit}&kind=${kind}`)
 }
 
 // Журнал посещений (только Администратор).

@@ -349,9 +349,13 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
   - Ограничение: с пулом нельзя рассчитывать на `CREATE TEMP TABLE` между вызовами `get_connection()` (соединение может отличаться).
 - **Bounded futures.** `app/core/parallel.py:bounded_submit()` ограничивает число одновременных futures (окно ≈ 2×workers) в INGEST, PREVIEW, DINO и HYBRID — вместо создания future на каждый элемент сразу (важно для больших импортов).
 
-### 4.20 `client_aliases` — нормализация клиентов QWEN
+### 4.20 `client_aliases` — нормализация клиентов и брендов QWEN
 
-`schema/016_client_aliases.sql` (идемпотентно): `alias` TEXT PK, `canonical` TEXT, `created_at`. Аналог легаси `client_aliases`/`client_normalizer`: сопоставляет «сырое» написание клиента от QWEN каноническому. Исходные строки в `photo_qwen` не меняются. `list_clients` группирует по `COALESCE(alias.canonical, client)`; фильтр `client=` в `/v1/photos` тоже учитывает алиасы. API `GET /v1/client-aliases`, `PUT/DELETE /v1/client-aliases` (scope `collections:write`).
+`schema/016_client_aliases.sql` (идемпотентно): `alias` TEXT, `canonical` TEXT, `created_at`; `schema/035_alias_kind.sql` добавляет `kind TEXT NOT NULL DEFAULT 'client' CHECK (kind IN ('client','brand'))` и делает PK составным `(kind, alias)`. Аналог легаси `client_aliases`/`client_normalizer`: сопоставляет «сырое» написание клиента **или бренда** от QWEN каноническому. Исходные строки в `photo_qwen` не меняются.
+
+`list_clients` группирует по `COALESCE(alias.canonical, client)`, но join теперь с `a.kind = 'client'` — бренд-алиас не должен подтягивать фото по клиенту; по той же причине `kind = 'client'` стоит и в подзапросе фильтра `client=` в `/v1/photos`. API: `GET /v1/client-aliases?kind=client|brand`, `PUT/DELETE /v1/client-aliases?kind=…` (scope `collections:write`; по умолчанию `client`, поэтому прежние вызовы не меняются). Код требует применённой 035 — миграция идёт до перезапуска API.
+
+Журнал `client_alias_audit` (schema/033) получил колонку `kind` (035), чтобы в истории было видно, что правили; `GET /v1/client-aliases/audit?kind=…` фильтрует по виду, старые записи читаются как `client`.
 
 ### 4.21 `address_directory` / `address_fingerprints` — справочник адресов
 

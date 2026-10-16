@@ -178,14 +178,16 @@ def list_photos(
 
     if clients:
         # Match either the raw QWEN client or any alias mapping to a
-        # canonical value that matches (client_aliases).
+        # canonical value that matches (client_aliases). `kind = 'client'`:
+        # the same dictionary also holds brands (schema/035), and a brand
+        # alias must not pull photos by their client.
         parts = []
         for value in clients:
             like = f"%{value}%"
             parts.append(
                 "(t.client ILIKE %s OR t.client IN ("
                 "SELECT alias FROM public.client_aliases "
-                "WHERE canonical ILIKE %s))"
+                "WHERE kind = 'client' AND canonical ILIKE %s))"
             )
             params.extend([like, like])
         clauses.append("(" + " OR ".join(parts) + ")")
@@ -489,7 +491,8 @@ def list_clients(*, limit: int = 1000) -> list[dict]:
     sql = (
         "SELECT COALESCE(a.canonical, t.client) AS client, count(*) AS count "
         "FROM (" + _PHOTO_SELECT + ") AS t "
-        "LEFT JOIN public.client_aliases AS a ON a.alias = t.client "
+        "LEFT JOIN public.client_aliases AS a "
+        "       ON a.alias = t.client AND a.kind = 'client' "
         "WHERE t.client IS NOT NULL AND t.client <> '' "
         "GROUP BY COALESCE(a.canonical, t.client) "
         "ORDER BY lower(COALESCE(a.canonical, t.client)) LIMIT %s"
@@ -509,57 +512,78 @@ def list_clients(*, limit: int = 1000) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def list_client_aliases() -> list[dict]:
+def list_client_aliases(kind: str = "client") -> list[dict]:
+    """
+    One alias dictionary. `kind` is 'client' or 'brand' (schema/035).
+
+    Brands are normalised exactly like clients: QWEN invents strings for both.
+    """
+
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT alias, canonical FROM public.client_aliases "
-                "ORDER BY lower(alias)"
+                "SELECT alias, canonical, kind FROM public.client_aliases "
+                "WHERE kind = %s ORDER BY lower(alias)",
+                (kind,),
             )
             return [
-                {"alias": row[0], "canonical": row[1]}
+                {"alias": row[0], "canonical": row[1], "kind": row[2]}
                 for row in cur.fetchall()
             ]
 
 
-def upsert_client_alias(alias: str, canonical: str, actor: str | None = None) -> dict:
+def upsert_client_alias(
+    alias: str,
+    canonical: str,
+    *,
+    kind: str = "client",
+    actor: str | None = None,
+) -> dict:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT canonical FROM public.client_aliases WHERE alias = %s",
-                (alias,),
+                "SELECT canonical FROM public.client_aliases "
+                "WHERE kind = %s AND alias = %s",
+                (kind, alias),
             )
             row = cur.fetchone()
             old = row[0] if row is not None else None
 
             cur.execute(
                 """
-                INSERT INTO public.client_aliases (alias, canonical)
-                VALUES (%s, %s)
-                ON CONFLICT (alias) DO UPDATE
+                INSERT INTO public.client_aliases (alias, canonical, kind)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (kind, alias) DO UPDATE
                     SET canonical = EXCLUDED.canonical
                 """,
-                (alias, canonical),
+                (alias, canonical, kind),
             )
 
             _record_alias_audit(
                 cur,
                 actor=actor,
                 alias=alias,
+                kind=kind,
                 canonical_old=old,
                 canonical_new=canonical,
                 action="update" if old is not None else "create",
             )
 
-    return {"alias": alias, "canonical": canonical}
+    return {"alias": alias, "canonical": canonical, "kind": kind}
 
 
-def delete_client_alias(alias: str, actor: str | None = None) -> bool:
+def delete_client_alias(
+    alias: str,
+    *,
+    kind: str = "client",
+    actor: str | None = None,
+) -> bool:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT canonical FROM public.client_aliases WHERE alias = %s",
-                (alias,),
+                "SELECT canonical FROM public.client_aliases "
+                "WHERE kind = %s AND alias = %s",
+                (kind, alias),
             )
             row = cur.fetchone()
 
@@ -567,8 +591,8 @@ def delete_client_alias(alias: str, actor: str | None = None) -> bool:
                 return False
 
             cur.execute(
-                "DELETE FROM public.client_aliases WHERE alias = %s",
-                (alias,),
+                "DELETE FROM public.client_aliases WHERE kind = %s AND alias = %s",
+                (kind, alias),
             )
             deleted = cur.rowcount == 1
 
@@ -577,6 +601,7 @@ def delete_client_alias(alias: str, actor: str | None = None) -> bool:
                     cur,
                     actor=actor,
                     alias=alias,
+                    kind=kind,
                     canonical_old=row[0],
                     canonical_new=None,
                     action="delete",
@@ -585,32 +610,42 @@ def delete_client_alias(alias: str, actor: str | None = None) -> bool:
             return deleted
 
 
-def _record_alias_audit(cur, *, actor, alias, canonical_old, canonical_new, action) -> None:
+def _record_alias_audit(
+    cur, *, actor, alias, kind, canonical_old, canonical_new, action
+) -> None:
     cur.execute(
         """
         INSERT INTO public.client_alias_audit
-            (actor, alias, canonical_old, canonical_new, action)
-        VALUES (%s, %s, %s, %s, %s)
+            (actor, alias, kind, canonical_old, canonical_new, action)
+        VALUES (%s, %s, %s, %s, %s, %s)
         """,
-        (actor, alias, canonical_old, canonical_new, action),
+        (actor, alias, kind, canonical_old, canonical_new, action),
     )
 
 
-def list_client_alias_audit(*, limit: int = 100) -> list[dict]:
+def list_client_alias_audit(
+    *, limit: int = 100, kind: str | None = None
+) -> list[dict]:
     limit = max(1, min(int(limit), 500))
+
+    sql = (
+        "SELECT audit_id, actor, alias, canonical_old, canonical_new, "
+        "action, created_at, COALESCE(kind, 'client') "
+        "FROM public.client_alias_audit"
+    )
+    params: list[object] = []
+
+    if kind is not None:
+        # Старые записи не имеют kind и относятся к клиентам.
+        sql += " WHERE COALESCE(kind, 'client') = %s"
+        params.append(kind)
+
+    sql += " ORDER BY audit_id DESC LIMIT %s"
+    params.append(limit)
 
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT audit_id, actor, alias, canonical_old, canonical_new,
-                       action, created_at
-                FROM public.client_alias_audit
-                ORDER BY audit_id DESC
-                LIMIT %s
-                """,
-                (limit,),
-            )
+            cur.execute(sql, params)
             rows = cur.fetchall()
 
     return [
@@ -622,6 +657,7 @@ def list_client_alias_audit(*, limit: int = 100) -> list[dict]:
             "canonical_new": row[4],
             "action": row[5],
             "created_at": row[6],
+            "kind": row[7],
         }
         for row in rows
     ]

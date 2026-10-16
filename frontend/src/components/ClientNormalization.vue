@@ -5,7 +5,7 @@
 //
 // It used to live inside the QWEN settings page; it is shown from the photo
 // page (toolbar button) because it belongs to the clients, not to the model.
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { Notify } from 'quasar'
 
 import {
@@ -16,15 +16,26 @@ import {
   saveClientAlias,
 } from '../api/client'
 
+// Справочник один на клиентов и брендов: колонка kind выбирает, что правим
+// (schema/035). QWEN одинаково «изобретает» и клиентов, и бренды.
+const kind = ref('client')
+
 const aliases = ref([])
 const newAlias = ref('')
 const newCanonical = ref('')
 const qwenNames = ref([])
 const audit = ref([])
 
+const titleWord = computed(() => (kind.value === 'brand' ? 'брендов' : 'клиентов'))
+
+// Названия QWEN показываем только для выбранного вида.
+const namesForKind = computed(() =>
+  qwenNames.value.filter((item) => item.kind === kind.value),
+)
+
 async function loadAliases() {
   try {
-    aliases.value = (await fetchClientAliases()).items || []
+    aliases.value = (await fetchClientAliases(kind.value)).items || []
   } catch {
     aliases.value = []
   }
@@ -40,7 +51,7 @@ async function loadQwenNames() {
 
 async function loadAudit() {
   try {
-    audit.value = (await fetchClientAliasAudit(100)).items || []
+    audit.value = (await fetchClientAliasAudit(100, kind.value)).items || []
   } catch {
     audit.value = []
   }
@@ -71,7 +82,7 @@ async function addAlias() {
   }
 
   try {
-    await saveClientAlias(alias, canonical)
+    await saveClientAlias(alias, canonical, kind.value)
     newAlias.value = ''
     newCanonical.value = ''
     await loadAliases()
@@ -83,13 +94,21 @@ async function addAlias() {
 
 async function removeAlias(alias) {
   try {
-    await deleteClientAlias(alias)
+    await deleteClientAlias(alias, kind.value)
     await loadAliases()
     await loadAudit()
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   }
 }
+
+// Смена вида перезагружает и справочник, и журнал: они тоже вид-зависимые.
+watch(kind, () => {
+  newAlias.value = ''
+  newCanonical.value = ''
+  loadAliases()
+  loadAudit()
+})
 
 onMounted(() => {
   loadAliases()
@@ -100,11 +119,22 @@ onMounted(() => {
 
 <template>
   <div>
-    <div class="text-subtitle1 q-mb-sm">Нормализация клиентов</div>
+    <div class="text-subtitle1 q-mb-sm">Нормализация клиентов и брендов</div>
     <div class="text-caption text-grey q-mb-md">
-      Приведите близкие написания клиента от QWEN к одному. Исходные данные не
-      меняются, только группировка и фильтр.
+      Приведите близкие написания клиента или бренда от QWEN к одному.
+      Исходные данные не меняются, только группировка и фильтр.
     </div>
+
+    <q-btn-toggle
+      v-model="kind"
+      dense
+      no-caps
+      class="q-mb-md"
+      :options="[
+        { label: 'Клиенты', value: 'client' },
+        { label: 'Бренды', value: 'brand' },
+      ]"
+    />
 
     <div class="row q-gutter-sm items-center q-mb-md">
       <q-input
@@ -126,12 +156,12 @@ onMounted(() => {
 
     <!-- Все названия от QWEN в алфавитном порядке; клик подставляет в поля. -->
     <div class="text-caption text-grey-8 q-mb-xs">
-      Названия, распознанные QWEN (клик — подставить в поля):
+      Названия {{ titleWord }}, распознанные QWEN (клик — подставить в поля):
     </div>
     <q-scroll-area style="height: 180px" class="q-mb-md">
       <div class="row q-gutter-xs">
         <q-chip
-          v-for="item in qwenNames"
+          v-for="item in namesForKind"
           :key="`${item.kind}:${item.name}`"
           dense
           clickable
@@ -140,7 +170,7 @@ onMounted(() => {
         >
           {{ item.name }} <span class="text-grey-6">({{ item.count }})</span>
         </q-chip>
-        <span v-if="!qwenNames.length" class="text-caption text-grey">
+        <span v-if="!namesForKind.length" class="text-caption text-grey">
           Пока нет распознанных названий
         </span>
       </div>
@@ -180,6 +210,7 @@ onMounted(() => {
           <tr>
             <th class="text-left">Время</th>
             <th class="text-left">Кто</th>
+            <th class="text-left">Вид</th>
             <th class="text-left">Алиас</th>
             <th class="text-left">Было → стало</th>
             <th class="text-left">Действие</th>
@@ -189,6 +220,7 @@ onMounted(() => {
           <tr v-for="row in audit" :key="row.audit_id">
             <td>{{ fmt(row.created_at) }}</td>
             <td>{{ row.actor || '—' }}</td>
+            <td>{{ row.kind === 'brand' ? 'бренд' : 'клиент' }}</td>
             <td>{{ row.alias }}</td>
             <td>{{ row.canonical_old || '—' }} → {{ row.canonical_new || '—' }}</td>
             <td>{{ { create: 'добавлено', update: 'изменено', delete: 'удалено' }[row.action] || row.action }}</td>
