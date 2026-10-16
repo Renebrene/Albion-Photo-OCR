@@ -20,13 +20,24 @@ def make_app():
     return app
 
 
-def test_video_permissions_do_not_expand_photo_original_access():
+def test_manager_may_download_and_guest_may_not():
+    """
+    Матрица «скачивания» держится двумя ролями сразу.
+
+    Решение владельца 2026-10-16: Менеджер отличается от Администратора только
+    техническим разделом, поэтому он скачивает и видео, и оригиналы фото.
+    Ограничение осталось одно — Гость не получает ни видео-scopes, ни
+    `originals` (read-only по метаданным и превью).
+    """
+
     manager = ROLE_SCOPES["Менеджер"]
     guest = ROLE_SCOPES["Гость"]
+
     assert {"videos:read", "videos:write", "videos:download"} <= manager
-    assert "videos:read" not in guest
-    assert "videos:download" not in guest
-    assert "originals" not in manager
+    assert "originals" in manager
+
+    for scope in ("videos:read", "videos:write", "videos:download", "originals"):
+        assert scope not in guest, f"Гость не должен иметь {scope}"
 
 
 def test_playback_endpoint_enforces_dedicated_video_read_scope(monkeypatch):

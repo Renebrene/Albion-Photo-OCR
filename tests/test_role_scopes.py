@@ -79,11 +79,17 @@ def test_manager_runs_jobs(monkeypatch):
     assert "*" not in scopes
 
 
-def test_manager_does_not_get_photo_original_access(monkeypatch):
-    """Video scopes must not widen photo-original access (see test_video_api)."""
+def test_guest_gets_no_download_scopes(monkeypatch):
+    """Скачивание — граница между Гостем и рабочими ролями (решение 2026-10-16)."""
 
-    scopes = _resolve(monkeypatch, "Менеджер")["scopes"]
-    assert "originals" not in scopes
+    manager = _resolve(monkeypatch, "Менеджер")["scopes"]
+    guest = _resolve(monkeypatch, "Гость")["scopes"]
+
+    assert "originals" in manager
+    assert {"videos:read", "videos:write", "videos:download"} <= manager
+
+    for scope in ("originals", "videos:read", "videos:write", "videos:download"):
+        assert scope not in guest
 
 
 def test_administrator_has_everything(monkeypatch):

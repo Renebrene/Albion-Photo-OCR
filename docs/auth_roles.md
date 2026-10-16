@@ -25,7 +25,7 @@ credential считается недействительным и возвращ
 | Роль | Scopes |
 |---|---|
 | **Администратор** | `*` (всё) |
-| **Менеджер** | `read`, `collections:write`, `searches:write`, `upload:write`, `jobs:read`, `jobs:write`, `addresses:write`, `videos:read`, `videos:write`, `videos:download` |
+| **Менеджер** | `read`, `collections:write`, `searches:write`, `upload:write`, `jobs:read`, `jobs:write`, `addresses:write`, `originals`, `videos:read`, `videos:write`, `videos:download` |
 | **Гость** | `read` |
 
 Неизвестная роль трактуется как `read`.
@@ -82,13 +82,18 @@ credential считается недействительным и возвращ
 миграцией `schema/034_owner_isolation.sql` (колонки не удаляются, откат —
 `DROP INDEX IF EXISTS idx_collections_user`).
 
-**Открытый вопрос (не решён).** У Менеджера нет scope `originals`: он может
-скачивать видео, но **не** оригиналы фото и ZIP. Это закреплено тестом
-`tests/test_video_api.py::test_video_permissions_do_not_expand_photo_original_access`
-(видео-scopes не должны расширять доступ к фото-оригиналам). Противоречие с
-дорожной картой владельца (п.7 ограничивает скачивание только Гостю, п.8
-делает Менеджера отличимым от Администратора лишь техразделом) нужно решить
-отдельно: выдавать ли Менеджеру `originals`.
+## Скачивание: решение 2026-10-16
+
+**Менеджер скачивает оригиналы.** Роли добавлен scope `originals` (вместе с
+уже имевшимися `videos:read/write/download`): владелец подтвердил, что
+«Менеджер отличается от Администратора только техразделом», значит скачивание
+фото и ZIP ему доступно.
+
+Единственная роль без скачивания — **Гость**: у него нет ни `originals`, ни
+видео-scopes. Инвариант закреплён тестами
+`tests/test_video_api.py::test_manager_may_download_and_guest_may_not` и
+`tests/test_role_scopes.py::test_guest_gets_no_download_scopes` (раньше на этом
+месте стоял тест «у Менеджера нет `originals`» — он отменён этим решением).
 
 ### Известный риск (рекомендация)
 

@@ -43,12 +43,15 @@ ROLE_SCOPES: dict[str, set[str]] = {
         # Names for the addresses (schema/022) are day-to-day curation work,
         # not administration: the manager may edit them.
         "addresses:write",
-        # The manager may watch/compress/download VIDEO derivatives, but photo
-        # originals stay behind their own scope. tests/test_video_api.py pins
-        # this: adding video scopes must not widen photo-original access.
+        # Downloading. The manager differs from the administrator only by the
+        # technical section, so he downloads video derivatives AND photo
+        # originals (owner decision 2026-10-16). The only role kept away from
+        # downloads is Гость: tests/test_video_api.py pins that it has neither
+        # the video scopes nor `originals`.
         "videos:read",
         "videos:write",
         "videos:download",
+        "originals",
     },
     "Гость": {"read"},
 }
