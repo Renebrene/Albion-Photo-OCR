@@ -410,6 +410,7 @@ def test_registry_endpoints():
     assert bad.status_code == 404
 
 
+@requires_registry
 def test_sync_endpoint_is_available():
     """The sync route exists and is guarded like the other maintenance calls."""
 

@@ -10,7 +10,15 @@
 > нет» в разделах 1, 3, 5.1, 7 ниже относятся **к моменту анализа**, а не к
 > текущему состоянию. Актуальные детали — в
 > [`frontend_quasar.md`](frontend_quasar.md), [`database_schema.md`](database_schema.md),
-> [`db_setup.md`](db_setup.md).
+> [`db_setup.md`](db_setup.md), [`auth_roles.md`](auth_roles.md) (матрица
+> ролей/scopes), [`video.md`](video.md).
+>
+> **Обновление (2026-10-16).** Добавлены роли/доступ: Менеджеру выдан
+> `jobs:read`/`jobs:write` (рабочие задачи пайплайна); проверка сессии
+> сделана fail-closed (недоступная БД → `401`, не `500`). Отдельный
+> видеорежим, durable video INGEST, transcode/trim реализованы в коде
+> (см. `video.md`), но миграция `030` и video-worker ещё не развёрнуты.
+> Матрица ролей — `auth_roles.md`.
 
 **Статус (исходный):** read-only анализ существующей реализации и проектные рекомендации. Прототип FastAPI/Vue/Quasar в этой работе **не создавался**; API-контракт в `api_target.yaml` — целевой проект, не существующий API.
 

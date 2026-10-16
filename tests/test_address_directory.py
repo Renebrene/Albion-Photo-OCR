@@ -234,6 +234,7 @@ def test_directory_endpoints_require_authentication():
     assert client.get("/api/v1/addresses/directory").status_code == 401
 
 
+@requires_directory
 def test_directory_endpoint_returns_items():
     response = client.get("/api/v1/addresses/directory")
 

@@ -291,7 +291,7 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 
 `sessions`: `session_id` TEXT PK (opaque), `user_id` FK → `users` ON DELETE CASCADE, `created_at`, `expires_at`. Индекс по `user_id`.
 
-Пароли — `scrypt$<salt>$<hash>` (stdlib `hashlib.scrypt`), сверка `hmac.compare_digest`. Open-text сравнение из легаси не повторяется. Роли → scopes: Администратор `*`, Менеджер `read, collections:write, searches:write, jobs:read`, Гость `read`.
+Пароли — `scrypt$<salt>$<hash>` (stdlib `hashlib.scrypt`), сверка `hmac.compare_digest`. Open-text сравнение из легаси не повторяется. Роли → scopes: Администратор `*`, Менеджер `read, collections:write, searches:write, upload:write, jobs:read, jobs:write, addresses:write, videos:read, videos:write, videos:download`, Гость `read`. Полная матрица и правила — в [`auth_roles.md`](auth_roles.md).
 
 ### 4.13 `saved_searches` — сохранённые поиски
 

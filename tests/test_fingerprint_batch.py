@@ -265,6 +265,7 @@ def test_resume_without_a_pause_is_refused(photo_folders):
     client.post(f"/api/v1/jobs/{started['job_id']}/cancel")
 
 
+@requires_pause
 def test_pause_unknown_job_is_404():
     assert client.post("/api/v1/jobs/999999999/pause").status_code == 404
     assert client.post("/api/v1/jobs/999999999/resume").status_code == 404

@@ -302,6 +302,7 @@ def test_mapping_to_an_unknown_address_is_refused():
     assert response.status_code == 400
 
 
+@requires_directory
 def test_mapping_an_unknown_fingerprint_is_404():
     response = client.put(
         "/api/v1/fingerprints/registry/999_v33/address",

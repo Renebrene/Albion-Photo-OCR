@@ -66,6 +66,11 @@ requires_media_job = pytest.mark.skipif(
     reason="schema/020 (MEDIA_SEARCH job type) is not applied",
 )
 
+requires_db = pytest.mark.skipif(
+    not _db_available(),
+    reason="PostgreSQL (job_queue) is not configured",
+)
+
 
 @pytest.fixture(autouse=True)
 def query_dir(tmp_path, monkeypatch):
@@ -424,12 +429,14 @@ def test_media_search_endpoint_enqueues_a_job(query_dir):
     jobs_db.mark_cancelled(job_id)
 
 
+@requires_db
 def test_media_search_job_lookup_rejects_other_job_types():
     response = client.get("/api/v1/jobs/media-search/999999999")
 
     assert response.status_code == 404
 
 
+@requires_db
 def test_cancel_unknown_job_returns_404():
     response = client.post("/api/v1/jobs/999999999/cancel")
 

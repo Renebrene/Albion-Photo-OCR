@@ -14,9 +14,12 @@ Scope format of SCENE_API_TOKENS: `token:scope1|scope2`, comma separated.
 
 from __future__ import annotations
 
+import logging
 import os
 
 from fastapi import Header, HTTPException
+
+logger = logging.getLogger(__name__)
 
 # Cache for the validated SCENE_API_TOKENS parse.
 _tokens_cache_raw: str | None = None
@@ -30,10 +33,19 @@ ROLE_SCOPES: dict[str, set[str]] = {
         "collections:write",
         "searches:write",
         "upload:write",
+        # Working pipeline jobs (INGEST, DINO/HYBRID/QWEN, pause/cancel,
+        # fingerprint builds) are day-to-day operation, not administration:
+        # the manager may run and steer them (owner decision 2026-10-16).
+        # NOTE: jobs:write also gates the QWEN provider/model/key settings;
+        # splitting those into a separate scope is a recommended follow-up.
         "jobs:read",
+        "jobs:write",
         # Names for the addresses (schema/022) are day-to-day curation work,
         # not administration: the manager may edit them.
         "addresses:write",
+        # The manager may watch/compress/download VIDEO derivatives, but photo
+        # originals stay behind their own scope. tests/test_video_api.py pins
+        # this: adding video scopes must not widen photo-original access.
         "videos:read",
         "videos:write",
         "videos:download",
@@ -166,10 +178,19 @@ def resolve_principal(authorization: str | None) -> dict | None:
     if scopes is not None:
         return {"kind": "service", "scopes": scopes, "user": None}
 
-    # Fall back to a user session token.
+    # Fall back to a user session token. A database that is unreachable or not
+    # configured must never turn an unauthenticated request into a 500: we fail
+    # closed and treat the credential as invalid, so the caller answers 401.
     from app.users import database as users_db
 
-    user = users_db.get_session(token)
+    try:
+        user = users_db.get_session(token)
+    except Exception as exc:  # noqa: BLE001 - any failure means "cannot verify"
+        logger.warning(
+            "session lookup failed (%s); treating bearer token as invalid",
+            type(exc).__name__,
+        )
+        return None
 
     if user is None:
         return None

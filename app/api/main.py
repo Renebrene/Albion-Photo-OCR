@@ -1,5 +1,5 @@
 """
-FastAPI application for the PhotoBAse read-only web API.
+FastAPI application for the PhotoBAse web API.
 
 Run:
     uvicorn app.api.main:app --host 127.0.0.1 --port 8000
@@ -7,7 +7,10 @@ or:
     python -m app.api.main
 
 Database connection uses INGEST_DB_* (see docs/database_schema.md).
-No authentication yet: intended for local development.
+
+Authentication is enforced by default (fail-closed): bearer tokens from
+SCENE_API_TOKENS and user session tokens, each carrying scopes (see
+app/api/auth.py). Set SCENE_AUTH_REQUIRED=0 only for trusted local development.
 """
 
 from __future__ import annotations
@@ -56,9 +59,9 @@ def create_app() -> FastAPI:
         title="PhotoBAse API",
         version="0.1.0",
         description=(
-            "Read-only API over registered photos and their previews. "
-            "Authentication is optional (SCENE_API_TOKENS); when unset the "
-            "API is open for local development."
+            "API over registered photos and videos: metadata, previews, "
+            "originals, search, collections, jobs and the user directory. "
+            "Authentication is fail-closed; see app/api/auth.py for scopes."
         ),
     )
 
