@@ -318,6 +318,8 @@ class SearchQueryRequest(BaseModel):
     client: str | None = Field(default=None, max_length=200)
     brand: str | None = Field(default=None, max_length=200)
     category: str | None = Field(default=None, max_length=200)
+    # Tags edited in the window: extra free-text terms for the ranking.
+    tags: list[str] | None = Field(default=None, max_length=20)
 
 
 class NlSearchRequest(BaseModel):

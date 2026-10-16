@@ -862,15 +862,29 @@ def describe_media(
 def search_by_query(request: SearchQueryRequest):
     """Ручной режим, шаг 2: поиск по уже собранным/поправленным фильтрам."""
 
+    tags: list[str] = []
+
+    for raw in request.tags or []:
+        if not isinstance(raw, str):
+            continue
+
+        tag = raw.strip()
+
+        if tag and tag not in tags:
+            tags.append(tag)
+
     filters = {
         "q": request.q,
         "client": request.client,
         "brand": request.brand,
         "category": request.category,
+        "tags": tags,
         "address": None,
     }
 
-    if not any(filters[key] for key in ("q", "client", "brand", "category")):
+    if not any(
+        filters[key] for key in ("q", "client", "brand", "category", "tags")
+    ):
         raise HTTPException(status_code=422, detail="empty query")
 
     job_id = jobs_db.enqueue("MEDIA_SEARCH", {"filters": filters})

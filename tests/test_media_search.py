@@ -178,6 +178,7 @@ def test_description_filters_use_the_description_and_metadata():
         "client": "Волгский Дон",
         "brand": "KVAS",
         "category": "реклама",
+        "tags": ["щит", "дорога"],
         "address": None,
     }
 
@@ -188,6 +189,7 @@ def test_description_filters_fall_back_to_tags_and_blank_metadata():
     )
 
     assert filters["q"] == "вывеска, магазин"
+    assert filters["tags"] == ["вывеска", "магазин"]
     assert filters["brand"] is None
     assert filters["client"] is None
 
@@ -196,7 +198,20 @@ def test_description_filters_without_any_text_are_empty():
     filters = media_search.description_filters({})
 
     assert filters["q"] is None
-    assert all(value is None for value in filters.values())
+    assert filters["tags"] == []
+    assert all(
+        value is None
+        for key, value in filters.items()
+        if key != "tags"
+    )
+
+
+def test_description_filters_clean_and_deduplicate_tags():
+    filters = media_search.description_filters(
+        {"description": "щит", "tags": ["  щит ", "", None, "щит", "баннер"]}
+    )
+
+    assert filters["tags"] == ["щит", "баннер"]
 
 
 def test_search_ranks_terms_and_reports_truncation(monkeypatch):
@@ -230,6 +245,67 @@ def test_search_ranks_terms_and_reports_truncation(monkeypatch):
         (media_search.MAX_PER_TERM, "щит"),
         (media_search.MAX_PER_TERM, "KVAS"),
     ]
+
+
+def test_search_uses_tags_as_extra_terms(monkeypatch):
+    """Tags edited in the window must reach the search, not just the filter."""
+
+    class Item:
+        def __init__(self, photo_id: str):
+            self.photo_id = photo_id
+
+    seen: list[str] = []
+
+    def fake_list_photos(*, limit, query):
+        seen.append(query)
+
+        if query == "баннер":
+            return [Item("PH_a"), Item("PH_b")], None
+
+        return [Item("PH_b")], None
+
+    monkeypatch.setattr("app.api.repository.list_photos", fake_list_photos)
+
+    result = media_search.search({"q": "щит", "tags": ["баннер"]})
+
+    assert seen == ["щит", "баннер"]
+    # PH_b matched the description and the tag (1 + 1), PH_a only the tag.
+    assert result["photo_ids"] == ["PH_b", "PH_a"]
+    assert result["scores"] == {"PH_b": 2, "PH_a": 1}
+
+
+def test_search_bounds_the_number_of_tags(monkeypatch):
+    seen: list[str] = []
+
+    def fake_list_photos(*, limit, query):
+        seen.append(query)
+        return [], None
+
+    monkeypatch.setattr("app.api.repository.list_photos", fake_list_photos)
+
+    tags = [f"тег{i}" for i in range(30)]
+    media_search.search({"tags": tags})
+
+    assert len(seen) == media_search.MAX_TAG_TERMS
+    assert seen == tags[: media_search.MAX_TAG_TERMS]
+
+
+def test_search_skips_duplicate_and_overlong_tags(monkeypatch):
+    seen: list[str] = []
+
+    def fake_list_photos(*, limit, query):
+        seen.append(query)
+        return [], None
+
+    monkeypatch.setattr("app.api.repository.list_photos", fake_list_photos)
+
+    media_search.search(
+        {"q": "щит", "tags": ["щит", "x" * 100, "  ", "баннер"]}
+    )
+
+    # The description is searched once, the duplicate tag is dropped, the
+    # over-long tag is refused.
+    assert seen == ["щит", "баннер"]
 
 
 def test_search_without_terms_makes_no_query(monkeypatch):

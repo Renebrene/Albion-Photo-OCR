@@ -183,6 +183,33 @@ def test_query_endpoint_enqueues(monkeypatch):
     assert response.json()["job_id"] == 7
 
 
+def test_query_endpoint_passes_edited_tags(monkeypatch):
+    """Правленые теги должны уходить в поиск, а не теряться."""
+
+    monkeypatch.setenv("SCENE_API_TOKENS", "tok:searches:write")
+
+    captured: dict = {}
+
+    def fake_enqueue(job_type, payload):
+        captured["job_type"] = job_type
+        captured["payload"] = payload
+        return 11
+
+    monkeypatch.setattr(api_routes.jobs_db, "enqueue", fake_enqueue)
+
+    response = client.post(
+        "/api/v1/search/query",
+        json={"tags": ["щит", "  ", "баннер", "щит"]},
+        headers={"Authorization": "Bearer tok"},
+    )
+
+    assert response.status_code == 202
+    assert captured["job_type"] == "MEDIA_SEARCH"
+    assert captured["payload"]["filters"]["tags"] == ["щит", "баннер"]
+    # A tag-only query is not empty.
+    assert captured["payload"]["filters"]["q"] is None
+
+
 def test_query_endpoint_requires_write_scope(monkeypatch):
     monkeypatch.setenv("SCENE_API_TOKENS", "tok:read")
     response = client.post(
@@ -237,3 +264,80 @@ def test_list_photos_preserves_the_given_id_order():
     items, _ = repository.list_photos(limit=10, ids=wanted)
 
     assert [item.photo_id for item in items][:3] == wanted
+
+
+@requires_ids_db
+def test_ranked_pages_neither_skip_nor_repeat():
+    """Пагинация ranked-списка идёт по позиции в списке, не по photo_id."""
+
+    from app.api import repository
+
+    all_ids = repository.all_photo_ids()
+
+    if len(all_ids) < 5:
+        pytest.skip("needs at least five photos")
+
+    # Порядок заведомо не совпадает с сортировкой по photo_id.
+    ranked = [all_ids[4], all_ids[1], all_ids[3], all_ids[0], all_ids[2]]
+
+    seen: list[str] = []
+    cursor = None
+
+    for _ in range(len(ranked) + 1):
+        items, cursor = repository.list_photos(
+            limit=2, ids=ranked, cursor=cursor
+        )
+        seen.extend(item.photo_id for item in items)
+
+        if cursor is None:
+            break
+
+    assert seen == ranked
+
+
+@requires_ids_db
+def test_ranked_cursor_is_not_a_photo_id():
+    from app.api import repository
+
+    all_ids = repository.all_photo_ids()
+
+    if len(all_ids) < 3:
+        pytest.skip("needs at least three photos")
+
+    ranked = list(reversed(all_ids))
+    items, cursor = repository.list_photos(limit=2, ids=ranked)
+
+    assert len(items) == 2
+    assert cursor == "rank:2"
+
+
+@requires_ids_db
+def test_query_matches_a_photo_tag():
+    """Тег из photo_qwen.tags должен находиться обычным поиском."""
+
+    from app.api import repository
+    from app.ingest.database import get_connection
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            # Самый редкий тег: тогда результат поиска заведомо небольшой.
+            cur.execute(
+                "SELECT min(q.photo_id) AS photo_id, tag, "
+                "       count(DISTINCT q.photo_id) AS n "
+                "FROM public.photo_qwen AS q, "
+                "     jsonb_array_elements_text("
+                "       CASE WHEN jsonb_typeof(q.tags) = 'array' THEN q.tags END"
+                "     ) AS tag "
+                "GROUP BY tag "
+                "ORDER BY count(DISTINCT q.photo_id) ASC, tag ASC "
+                "LIMIT 1"
+            )
+            row = cur.fetchone()
+
+    if row is None:
+        pytest.skip("no tagged photos in the base")
+
+    photo_id, tag = row[0], row[1]
+    items, _ = repository.list_photos(limit=200, query=tag)
+
+    assert photo_id in [item.photo_id for item in items]

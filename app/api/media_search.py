@@ -382,6 +382,8 @@ def description_filters(fields: dict) -> dict:
 
     `q` carries the free-text description; brand/category/client are searched
     as exact metadata matches (the same columns the text search already uses).
+    `tags` travels as its own list of terms: the user edits them in the manual
+    window, so they must reach the search, not just fold into `q`.
     """
 
     def clean(value: object) -> str | None:
@@ -392,18 +394,31 @@ def description_filters(fields: dict) -> dict:
         return value or None
 
     tags = fields.get("tags")
-    joined_tags = ""
+    tag_list: list[str] = []
 
     if isinstance(tags, list):
-        joined_tags = ", ".join(str(tag) for tag in tags if str(tag).strip())
+        for tag in tags:
+            cleaned = clean(tag)
+
+            if cleaned and cleaned not in tag_list:
+                tag_list.append(cleaned)
+
+    joined_tags = ", ".join(tag_list)
 
     return {
         "q": clean(fields.get("description")) or joined_tags or None,
         "client": clean(fields.get("client")),
         "brand": clean(fields.get("brand")),
         "category": clean(fields.get("category")),
+        "tags": tag_list,
         "address": None,
     }
+
+
+# Tags are extra free-text terms: bound them so a hand-edited filter set cannot
+# turn one search into an unbounded number of queries.
+MAX_TAG_TERMS = 12
+MAX_TERM_CHARS = 60
 
 
 def search(filters: dict, *, limit: int = MAX_PER_TERM) -> dict:
@@ -412,26 +427,41 @@ def search(filters: dict, *, limit: int = MAX_PER_TERM) -> dict:
 
     Photos are ranked by how many query terms they match, so the most relevant
     come first: an exact metadata field (client/brand/category) weighs more than
-    the free-text description. Ties keep the order in which the terms were
-    scanned, which keeps the result stable for equal scores.
+    the free-text description and tags. Ties keep the order in which the terms
+    were scanned, which keeps the result stable for equal scores.
     """
 
     from app.api import repository
 
-    weighted = (
-        (filters.get("q"), 1),
-        (filters.get("client"), 2),
-        (filters.get("brand"), 2),
-        (filters.get("category"), 2),
-    )
+    weighted: list[tuple[str, int]] = [
+        (term, weight)
+        for term, weight in (
+            (filters.get("q"), 1),
+            (filters.get("client"), 2),
+            (filters.get("brand"), 2),
+            (filters.get("category"), 2),
+        )
+        if term
+    ]
+
+    # Extra free-text terms from the edited tag list (weight as the description):
+    # a photo matching both the description and a tag outranks one matching only
+    # the description.
+    seen = {term for term, _ in weighted}
+
+    for raw in list(filters.get("tags") or [])[:MAX_TAG_TERMS]:
+        tag = str(raw).strip()
+
+        if not tag or len(tag) > MAX_TERM_CHARS or tag in seen:
+            continue
+
+        weighted.append((tag, 1))
+        seen.add(tag)
 
     scores: dict[str, int] = {}
     truncated = False
 
     for term, weight in weighted:
-        if not term:
-            continue
-
         items, next_cursor = repository.list_photos(limit=limit, query=term)
 
         if next_cursor is not None:

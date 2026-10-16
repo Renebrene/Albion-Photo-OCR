@@ -14,6 +14,7 @@ import {
   getToken,
   setToken,
   searchByMedia,
+  searchByQuery,
   uploadPhotos,
   createHybridRun,
 } from '../src/api/client'
@@ -143,6 +144,20 @@ describe('api client', () => {
     expect(options.body).toBeInstanceOf(FormData)
     expect(options.headers['Content-Type']).toBeUndefined()
     expect(result).toEqual({ job_id: 7 })
+  })
+
+  it('sends the edited tags with the manual query', async () => {
+    mockFetchOnce(okJson({ job_id: 8 }))
+
+    await searchByQuery({ q: 'щит', tags: ['баннер', 'дорога'] })
+
+    const [url, options] = global.fetch.mock.calls[0]
+    expect(url).toContain('/v1/search/query')
+    expect(options.method).toBe('POST')
+    expect(JSON.parse(options.body)).toEqual({
+      q: 'щит',
+      tags: ['баннер', 'дорога'],
+    })
   })
 
   it('surfaces the server detail when the media search is rejected', async () => {

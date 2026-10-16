@@ -121,11 +121,16 @@ def list_photos(
     `addresses` are recognition results (HYBRID/DINO) and `clients` are the
     QWEN metadata; both accept several values with OR semantics (matching the
     legacy multi-select panels). `query` searches several fields at once
-    (filename, client, brand, category, description, address), mirroring the
-    legacy global search. date_from/date_to filter by the upload date
+    (filename, client, brand, category, description, tags, address), mirroring
+    the legacy global search. date_from/date_to filter by the upload date
     (photos.created_at) or, with date_mode="capture", by the EXIF capture
     date (photos.taken_at; photos without one are not matched). Fetches
     limit + 1 rows to detect a further page.
+
+    `ids` switches the page to the caller's own order (a ranked search): the
+    page is then taken by *rank offset*, and the cursor carries that offset as
+    "rank:N". A photo_id cursor cannot continue a ranked list - it would both
+    skip and repeat rows - so it is ignored in that mode.
     """
 
     if date_mode not in {"upload", "capture"}:
@@ -137,7 +142,7 @@ def list_photos(
     clauses: list[str] = []
     params: list[object] = []
 
-    if cursor:
+    if not ids and cursor:
         clauses.append("t.photo_id > %s")
         params.append(cursor)
 
@@ -147,17 +152,22 @@ def list_photos(
         # (schema/014): a multi-relation OR spanning photos and photo_qwen
         # cannot be pushed into index scans, but a UNION of per-table lookups
         # can (BitmapOr on photo_qwen). `address` is a computed column and
-        # stays as a plain ILIKE on the outer query.
+        # stays as a plain ILIKE on the outer query. `tags` is a JSONB array
+        # (schema/007); the CASE keeps jsonb_array_elements_text from raising
+        # on a NULL or a non-array value that a manual edit could leave behind.
         clauses.append(
             "(t.photo_id IN ("
             "  SELECT photo_id FROM public.photos WHERE filename ILIKE %s "
             "  UNION "
             "  SELECT photo_id FROM public.photo_qwen "
             "  WHERE (client ILIKE %s OR brand ILIKE %s "
-            "         OR category ILIKE %s OR description ILIKE %s)"
+            "         OR category ILIKE %s OR description ILIKE %s "
+            "         OR EXISTS (SELECT 1 FROM jsonb_array_elements_text("
+            "              CASE WHEN jsonb_typeof(tags) = 'array' THEN tags END"
+            "            ) AS tag WHERE tag ILIKE %s))"
             ") OR t.address ILIKE %s)"
         )
-        params.extend([like] * 6)
+        params.extend([like] * 7)
 
     if addresses:
         likes = [f"%{value}%" for value in addresses]
@@ -197,6 +207,7 @@ def list_photos(
         params.append(collection_id)
 
     order_param: list[str] | None = None
+    offset = 0
 
     if ids:
         clauses.append("t.photo_id = ANY(%s)")
@@ -205,16 +216,24 @@ def list_photos(
         # re-sorting by photo_id: the array position is the intended rank.
         order_param = list(ids)
 
+        if cursor and cursor.startswith("rank:"):
+            try:
+                offset = max(0, int(cursor[len("rank:"):]))
+            except ValueError:
+                offset = 0
+
     if clauses:
         sql += " WHERE " + " AND ".join(clauses)
 
     if order_param is not None:
-        sql += " ORDER BY array_position(%s::text[], t.photo_id) LIMIT %s"
-        params.append(order_param)
+        sql += (
+            " ORDER BY array_position(%s::text[], t.photo_id) "
+            "LIMIT %s OFFSET %s"
+        )
+        params.extend([order_param, limit + 1, offset])
     else:
         sql += " ORDER BY t.photo_id LIMIT %s"
-
-    params.append(limit + 1)
+        params.append(limit + 1)
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -226,7 +245,13 @@ def list_photos(
 
     items = [_photo_row(row) for row in rows]
 
-    next_cursor = items[-1].photo_id if has_next and items else None
+    if order_param is not None:
+        # Rank-based cursor: the offset of the next page inside the ranked list.
+        next_cursor = (
+            f"rank:{offset + len(items)}" if has_next and items else None
+        )
+    else:
+        next_cursor = items[-1].photo_id if has_next and items else None
 
     return items, next_cursor
 

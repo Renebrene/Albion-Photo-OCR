@@ -468,17 +468,36 @@ async function runDescribe() {
   }
 }
 
+// Теги вводятся строкой через запятую; пустые/дубли отбрасываются.
+const manualTags = computed(() =>
+  String(manualFields.value.tags || '')
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter((tag, index, all) => tag && all.indexOf(tag) === index),
+)
+
+// Пустой запрос сервер отвергает (422) — не даём нажать «Поиск» зря.
+const manualHasTerms = computed(() => Boolean(
+  manualFields.value.description?.trim()
+  || manualFields.value.client?.trim()
+  || manualFields.value.brand?.trim()
+  || manualFields.value.category?.trim()
+  || manualTags.value.length,
+))
+
 async function runManualSearch() {
   if (manualStage.value === 'searching') return
   manualStage.value = 'searching'
 
   try {
     const fields = manualFields.value
+    const tags = manualTags.value
     const { job_id: jobId } = await searchByQuery({
       q: fields.description || null,
       client: fields.client || null,
       brand: fields.brand || null,
       category: fields.category || null,
+      tags: tags.length ? tags : null,
     })
     let job = null
     for (let i = 0; i < 40; i += 1) {
@@ -1884,7 +1903,13 @@ function tagList(meta) {
               <q-input v-model="manualFields.client" outlined dense label="Клиент" class="q-mb-sm" />
               <q-input v-model="manualFields.brand" outlined dense label="Бренд" class="q-mb-sm" />
               <q-input v-model="manualFields.category" outlined dense label="Категория" class="q-mb-sm" />
-              <q-input v-model="manualFields.tags" outlined dense label="Теги (через запятую)" />
+              <q-input
+                v-model="manualFields.tags"
+                outlined
+                dense
+                label="Теги (через запятую)"
+                hint="Теги тоже участвуют в поиске"
+              />
             </template>
           </div>
         </q-card-section>
@@ -1905,6 +1930,7 @@ function tagList(meta) {
               icon="search"
               label="Поиск"
               :loading="manualStage === 'searching'"
+              :disable="!manualHasTerms"
               @click="runManualSearch"
             />
             <q-btn flat label="Распознать заново" @click="runDescribe" />
