@@ -13,6 +13,7 @@ import os
 import pytest
 
 from app.qwen import database as qwen_db
+from app.qwen import processor
 from app.qwen.processor import answer_truncated, parse_result
 
 
@@ -316,3 +317,57 @@ def test_qwen_live_smoke(tmp_path):
         assert qwen_db.get(photo_id)["status"] == "DONE"
     finally:
         _cleanup_probe_photo()
+
+def test_worker_passes_a_one_off_provider_override(monkeypatch):
+    """Кнопка «Пересканировать» просит конкретного провайдера одним заданием."""
+
+    from app.jobs import worker
+
+    seen = {}
+
+    def fake_run_photo(photo_id, *, provider=None, model=None):
+        seen.update({"photo_id": photo_id, "provider": provider, "model": model})
+        return {"photo_id": photo_id}
+
+    monkeypatch.setattr(processor, "run_photo", fake_run_photo)
+
+    worker._execute(
+        {
+            "id": 1,
+            "job_type": "QWEN_PHOTO",
+            "payload": {
+                "photo_id": PROBE_PHOTO_ID,
+                "source": "manual",
+                "provider": "openai",
+                "model": "ling-3.0-flash-vl",
+            },
+        }
+    )
+
+    assert seen == {
+        "photo_id": PROBE_PHOTO_ID,
+        "provider": "openai",
+        "model": "ling-3.0-flash-vl",
+    }
+
+
+def test_worker_keeps_the_current_settings_without_an_override(monkeypatch):
+    from app.jobs import worker
+
+    seen = {}
+
+    def fake_run_photo(photo_id, *, provider=None, model=None):
+        seen.update({"provider": provider, "model": model})
+        return {}
+
+    monkeypatch.setattr(processor, "run_photo", fake_run_photo)
+
+    worker._execute(
+        {
+            "id": 2,
+            "job_type": "QWEN_PHOTO",
+            "payload": {"photo_id": PROBE_PHOTO_ID},
+        }
+    )
+
+    assert seen == {"provider": None, "model": None}

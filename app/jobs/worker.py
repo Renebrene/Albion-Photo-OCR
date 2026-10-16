@@ -119,7 +119,13 @@ def _execute(job: dict) -> dict:
     if job_type == "QWEN_PHOTO":
         from app.qwen.processor import run_photo
 
-        return run_photo(str(payload["photo_id"]))
+        # Разовая пересборка из карточки фото может попросить конкретного
+        # провайдера/модель; обычные задания идут на текущих настройках.
+        return run_photo(
+            str(payload["photo_id"]),
+            provider=payload.get("provider"),
+            model=payload.get("model"),
+        )
 
     if job_type == "NL_SEARCH":
         from app.api.nl_search import run as nl_run

@@ -98,7 +98,13 @@ def enqueue_photo_preview(photo_id: str) -> int | None:
 QWEN_SOURCES = ("manual", "automation", "pipeline")
 
 
-def enqueue_qwen(photo_id: str, *, source: str = "manual") -> int | None:
+def enqueue_qwen(
+    photo_id: str,
+    *,
+    source: str = "manual",
+    provider: str | None = None,
+    model: str | None = None,
+) -> int | None:
     """
     Enqueue a QWEN job for one photo, deduplicated while active.
 
@@ -109,6 +115,15 @@ def enqueue_qwen(photo_id: str, *, source: str = "manual") -> int | None:
 
     if source not in QWEN_SOURCES:
         raise ValueError(f"unknown QWEN source: {source}")
+
+    # Разовая пересборка из карточки фото: конкретный провайдер/модель.
+    payload: dict = {"photo_id": photo_id, "source": source}
+
+    if provider:
+        payload["provider"] = provider
+
+    if model:
+        payload["model"] = model
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -124,7 +139,7 @@ def enqueue_qwen(photo_id: str, *, source: str = "manual") -> int | None:
                 )
                 RETURNING id
                 """,
-                (Json({"photo_id": photo_id, "source": source}), photo_id),
+                (Json(payload), photo_id),
             )
             row = cur.fetchone()
 

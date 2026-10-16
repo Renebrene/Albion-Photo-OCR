@@ -157,6 +157,10 @@ class QwenJobRequest(BaseModel):
     # When true, re-enqueue only photos whose QWEN row is FAILED
     # (takes precedence over photo_ids).
     only_failed: bool = False
+    # Разовая пересборка (кнопка «Пересканировать» в карточке фото): прогнать
+    # эти фото конкретным провайдером/моделью, не меняя общие настройки.
+    provider: str | None = Field(default=None, pattern="^(ollama|openai)$")
+    model: str | None = Field(default=None, max_length=200)
 
 
 class QwenModelRequest(BaseModel):

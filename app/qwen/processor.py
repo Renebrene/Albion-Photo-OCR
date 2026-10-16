@@ -817,8 +817,19 @@ def analysis_input(photo_id: str, source_path: str) -> str:
     return source_path
 
 
-def run_photo(photo_id: str) -> dict:
-    """Full pipeline for one photo: load source, analyze, persist."""
+def run_photo(
+    photo_id: str,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+) -> dict:
+    """
+    Full pipeline for one photo: load source, analyze, persist.
+
+    `provider`/`model` — разовый обход настроек: кнопка «Пересканировать» в
+    карточке фото умеет прогнать один снимок локально или в облаке, не меняя
+    провайдера для всей очереди.
+    """
 
     source_path = db.get_photo_source(photo_id)
 
@@ -826,6 +837,19 @@ def run_photo(photo_id: str) -> dict:
         raise ValueError(f"photo not found: {photo_id}")
 
     config = resolve_settings()
+
+    if provider and provider != config["provider"]:
+        if provider not in PROVIDERS:
+            raise ValueError(f"unknown provider: {provider}")
+
+        config = {
+            **config,
+            "provider": provider,
+            "model": model or model_for_provider(provider),
+        }
+    elif model:
+        config = {**config, "model": model}
+
     model = config["model"]
 
     db.mark_running(photo_id)

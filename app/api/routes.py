@@ -575,7 +575,12 @@ def enqueue_qwen(request: QwenJobRequest):
 
     for photo_id in photo_ids:
         # Deduplicated: a photo with an active QWEN job is skipped.
-        job_id = jobs_db.enqueue_qwen(photo_id, source="manual")
+        job_id = jobs_db.enqueue_qwen(
+            photo_id,
+            source="manual",
+            provider=request.provider,
+            model=request.model,
+        )
 
         if job_id is None:
             skipped += 1

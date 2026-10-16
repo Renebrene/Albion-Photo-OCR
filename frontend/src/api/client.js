@@ -712,10 +712,12 @@ export function fetchJobs({ limit = 50, cursor = null } = {}) {
   return getJson(withCursor(`${BASE}/v1/jobs`, { limit, cursor }))
 }
 
-export function enqueueQwen(photoIds = null, onlyFailed = false) {
+export function enqueueQwen(photoIds = null, onlyFailed = false, extra = {}) {
   return postJson(`${BASE}/v1/jobs/qwen`, {
     photo_ids: photoIds,
     only_failed: onlyFailed,
+    // Разовая пересборка: конкретный провайдер/модель (кнопка «Пересканировать»).
+    ...extra,
   })
 }
 

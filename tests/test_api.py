@@ -349,6 +349,52 @@ def test_qwen_only_failed_with_none_enqueues_nothing(monkeypatch):
     assert response.status_code == 422
 
 
+def test_qwen_rescan_passes_the_provider_override(monkeypatch):
+    """Кнопка «Пересканировать» просит провайдера и модель одним заданием."""
+
+    from app.api import routes as api_routes
+
+    monkeypatch.setenv("SCENE_API_TOKENS", "tok:jobs:write")
+
+    seen = {}
+
+    def fake_enqueue(photo_id, *, source="manual", provider=None, model=None):
+        seen.update(
+            {"photo_id": photo_id, "source": source,
+             "provider": provider, "model": model}
+        )
+        return 7
+
+    monkeypatch.setattr(api_routes.jobs_db, "enqueue_qwen", fake_enqueue)
+
+    photo_id = "PH_" + "a" * 24
+    response = client.post(
+        "/api/v1/jobs/qwen",
+        json={
+            "photo_ids": [photo_id],
+            "provider": "openai",
+            "model": "ling-3.0-flash-vl",
+        },
+        headers={"Authorization": "Bearer tok"},
+    )
+
+    assert response.status_code == 202
+    assert seen == {
+        "photo_id": photo_id,
+        "source": "manual",
+        "provider": "openai",
+        "model": "ling-3.0-flash-vl",
+    }
+
+
+def test_qwen_job_rejects_an_unknown_provider():
+    response = client.post(
+        "/api/v1/jobs/qwen",
+        json={"photo_ids": ["PH_" + "a" * 24], "provider": "gemini"},
+    )
+    assert response.status_code == 422
+
+
 @requires_db
 def test_last_run():
     data = client.get("/api/v1/runs/last").json()

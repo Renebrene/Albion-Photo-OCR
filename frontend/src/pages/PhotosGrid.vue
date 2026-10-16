@@ -6,6 +6,8 @@ import { Notify } from 'quasar'
 import {
   authImageUrl,
   cancelJob,
+  enqueueQwen,
+  fetchJob,
   describeMediaSearch,
   downloadArchive,
   downloadAuthenticated,
@@ -127,6 +129,81 @@ const detailsLoading = ref(false)
 // Прежние результаты распознавания: что перезаписала новая модель.
 const qwenHistory = ref([])
 
+// Разовая пересборка описания одного фото (локально или в облаке).
+const rescanBusy = ref(false)
+const qwenModels = ref({})
+
+// Пересборка — рабочая задача распознавания (scope jobs:write).
+const canRunQwen = computed(() => {
+  if (!session.authEnabled) return true
+  return ['Администратор', 'Менеджер'].includes(session.user?.role)
+})
+
+async function loadQwenModels() {
+  try {
+    const data = await fetchQwenSettings()
+    qwenModels.value = data.models || {}
+  } catch {
+    qwenModels.value = {}
+  }
+}
+
+// Ждём завершения задания: воркер берёт его со очереди.
+async function waitForQwenJob(jobId, attempts = 60) {
+  for (let i = 0; i < attempts; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    const job = await fetchJob(jobId)
+    if (['DONE', 'FAILED', 'CANCELLED'].includes(job.status)) return job
+  }
+  return null
+}
+
+async function rescanPhoto(provider) {
+  if (!current.value || rescanBusy.value) return
+
+  rescanBusy.value = true
+  const photoId = current.value.photo_id
+
+  try {
+    const result = await enqueueQwen([photoId], false, provider ? { provider } : {})
+
+    if (!result.first_job_id) {
+      Notify.create({
+        type: 'info',
+        message: 'Это фото уже стоит в очереди распознавания',
+      })
+      return
+    }
+
+    Notify.create({
+      type: 'info',
+      message:
+        provider === 'openai'
+          ? 'Распознаётся в облаке…'
+          : 'Распознаётся локально…',
+    })
+
+    const job = await waitForQwenJob(result.first_job_id)
+
+    if (!job) {
+      Notify.create({ type: 'warning', message: 'Задание всё ещё выполняется' })
+    } else if (job.status === 'DONE') {
+      Notify.create({ type: 'positive', message: 'Описание обновлено' })
+    } else {
+      Notify.create({
+        type: 'negative',
+        message: `Распознавание: ${job.status}${job.error_message ? ` — ${job.error_message}` : ''}`,
+      })
+    }
+
+    await loadDetails(current.value)
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    rescanBusy.value = false
+  }
+}
+
 function historyLine(item) {
   const when = item.replaced_at
     ? String(item.replaced_at).replace('T', ' ').slice(0, 16)
@@ -234,6 +311,7 @@ function currentDates() {
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
   await store.loadFacets()
+  loadQwenModels()
   apply()
   await nextTick()
 
@@ -804,6 +882,21 @@ async function onLoad(index, done) {
   done(!store.hasMore)
 }
 
+async function loadDetails(photo) {
+  try {
+    details.value = await fetchPhotoDetails(photo.photo_id)
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+
+  // История — вспомогательный блок: её отсутствие не должно ломать карточку.
+  try {
+    qwenHistory.value = (await fetchQwenHistory(photo.photo_id, 10)).items || []
+  } catch {
+    qwenHistory.value = []
+  }
+}
+
 async function open(photo) {
   current.value = photo
   details.value = null
@@ -812,18 +905,9 @@ async function open(photo) {
   detailsLoading.value = true
 
   try {
-    details.value = await fetchPhotoDetails(photo.photo_id)
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
+    await loadDetails(photo)
   } finally {
     detailsLoading.value = false
-  }
-
-  // История — вспомогательный блок: её отсутствие не должно ломать карточку.
-  try {
-    qwenHistory.value = (await fetchQwenHistory(photo.photo_id, 10)).items || []
-  } catch {
-    qwenHistory.value = []
   }
 }
 
@@ -1733,6 +1817,51 @@ function tagList(meta) {
                     :color="qwenStatus(qwen).color"
                     :label="qwenStatus(qwen).label"
                   />
+                  <q-btn
+                    v-if="canRunQwen"
+                    dense
+                    flat
+                    size="sm"
+                    icon="refresh"
+                    label="Пересканировать"
+                    :loading="rescanBusy"
+                  >
+                    <q-menu>
+                      <q-list dense style="min-width: 260px">
+                        <q-item
+                          clickable
+                          v-close-popup
+                          @click="rescanPhoto('ollama')"
+                        >
+                          <q-item-section>
+                            Локально
+                            <span v-if="qwenModels.ollama" class="text-grey-7">
+                              ({{ qwenModels.ollama }})
+                            </span>
+                          </q-item-section>
+                        </q-item>
+                        <q-item
+                          clickable
+                          v-close-popup
+                          @click="rescanPhoto('openai')"
+                        >
+                          <q-item-section>
+                            В облаке
+                            <span v-if="qwenModels.openai" class="text-grey-7">
+                              ({{ qwenModels.openai }})
+                            </span>
+                          </q-item-section>
+                        </q-item>
+                        <q-separator />
+                        <q-item>
+                          <q-item-section class="text-caption text-grey-7">
+                            Прежнее описание сохранится в истории. Облако
+                            отправляет кадр на внешний сервис.
+                          </q-item-section>
+                        </q-item>
+                      </q-list>
+                    </q-menu>
+                  </q-btn>
                   <span v-if="qwen?.qwen_model" class="text-caption text-grey">
                     {{ qwen.qwen_model }}
                     <template v-if="qwen.qwen_time_sec">
