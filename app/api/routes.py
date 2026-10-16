@@ -20,6 +20,7 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
+    Form,
     Header,
     HTTPException,
     Query,
@@ -747,7 +748,12 @@ def cancel_job(job_id: int):
 # ---------------------------------------------------------------------------
 
 
-def _store_media_query(file: UploadFile, mode: str) -> dict:
+def _store_media_query(
+    file: UploadFile,
+    mode: str,
+    *,
+    frame_seconds: float | None = None,
+) -> dict:
     """Store one uploaded query file, verify it, enqueue MEDIA_SEARCH."""
 
     kind = media_search.kind_for(file.filename or "")
@@ -774,15 +780,17 @@ def _store_media_query(file: UploadFile, mode: str) -> dict:
 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    job_id = jobs_db.enqueue(
-        "MEDIA_SEARCH",
-        {
-            "path": str(stored),
-            "filename": stored.name,
-            "kind": kind,
-            "mode": mode,
-        },
-    )
+    payload = {
+        "path": str(stored),
+        "filename": stored.name,
+        "kind": kind,
+        "mode": mode,
+    }
+
+    if frame_seconds is not None:
+        payload["frame_seconds"] = float(frame_seconds)
+
+    job_id = jobs_db.enqueue("MEDIA_SEARCH", payload)
 
     return {
         "job_id": job_id,
@@ -822,10 +830,19 @@ def search_by_media(file: UploadFile = File(...)):
     status_code=202,
     dependencies=[Depends(require_scope("searches:write"))],
 )
-def describe_media(file: UploadFile = File(...)):
-    """Ручной режим, шаг 1: только описание QWEN (поля для правки)."""
+def describe_media(
+    file: UploadFile = File(...),
+    frame_seconds: float | None = Form(default=None),
+):
+    """Ручной режим, шаг 1: только описание QWEN (поля для правки).
 
-    return _store_media_query(file, "describe")
+    Для видео можно указать frame_seconds — тогда описывается только этот кадр.
+    """
+
+    if frame_seconds is not None and frame_seconds < 0:
+        raise HTTPException(status_code=422, detail="frame_seconds must be >= 0")
+
+    return _store_media_query(file, "describe", frame_seconds=frame_seconds)
 
 
 @searches_router.post(

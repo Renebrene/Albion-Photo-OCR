@@ -175,6 +175,7 @@ def _execute(job: dict) -> dict:
                 kind=payload.get("kind"),
                 progress=job_control(int(job["id"])),
                 mode=payload.get("mode", "auto"),
+                frame_seconds=payload.get("frame_seconds"),
             )
         finally:
             # The uploaded query file is transient by design: it exists only

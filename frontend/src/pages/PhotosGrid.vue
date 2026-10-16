@@ -313,6 +313,12 @@ const manualMeta = ref(null)
 const manualPreviewUrl = ref(null)
 const manualModel = ref('')
 const manualFields = ref({ description: '', client: '', brand: '', category: '', tags: '' })
+const manualIsVideo = ref(false)
+const manualVideoRef = ref(null)
+const manualDuration = ref(0)
+const manualResolution = ref('')
+const manualCodec = ref('')
+const manualFrameSec = ref(0)
 
 function onMediaChosen(event) {
   const [file] = Array.from(event.target.files || [])
@@ -335,12 +341,36 @@ function openManual(file) {
   manualStage.value = 'idle'
   manualFields.value = { description: '', client: '', brand: '', category: '', tags: '' }
   manualMeta.value = { sizeMb: (file.size / 1048576).toFixed(1), date: new Date(file.lastModified).toLocaleString() }
-  manualPreviewUrl.value = file.type.startsWith('image/') ? URL.createObjectURL(file) : null
+  manualIsVideo.value = file.type.startsWith('video/')
+  manualDuration.value = 0
+  manualResolution.value = ''
+  manualCodec.value = ''
+  manualFrameSec.value = 0
+  // И фото, и видео показываются из локального файла (без сервера).
+  manualPreviewUrl.value = manualIsVideo.value || file.type.startsWith('image/')
+    ? URL.createObjectURL(file)
+    : null
   manualOpen.value = true
 
   fetchQwenSettings()
     .then((data) => { manualModel.value = data?.model || '' })
     .catch(() => { manualModel.value = '' })
+}
+
+// Длительность и разрешение берём из локального <video> сразу.
+function onVideoMeta(event) {
+  manualDuration.value = Math.round(event.target.duration || 0)
+  manualResolution.value = `${event.target.videoWidth}×${event.target.videoHeight}`
+}
+
+function onVideoSeek(event) {
+  // Слайдер двигает сам плеер, чтобы кадр было видно.
+  if (manualDuration.value) event.target.currentTime = manualFrameSec.value
+}
+
+function seekToFrame() {
+  const el = manualVideoRef.value
+  if (el) el.currentTime = manualFrameSec.value
 }
 
 function closeManual() {
@@ -360,7 +390,10 @@ async function runDescribe() {
   manualStage.value = 'describing'
 
   try {
-    const { job_id: jobId } = await describeMediaSearch(manualFile.value)
+    const frameSeconds = manualIsVideo.value ? manualFrameSec.value : null
+    const upload = await describeMediaSearch(manualFile.value, frameSeconds)
+    const { job_id: jobId } = upload
+    if (upload?.media?.codec) manualCodec.value = upload.media.codec
     let job = null
     for (let i = 0; i < 60; i += 1) {
       await new Promise((resolve) => setTimeout(resolve, 1500))
@@ -957,12 +990,12 @@ function tagList(meta) {
           </q-checkbox>
 
           <q-btn dense flat icon="photo_camera" :disable="mediaBusy" @click="pickMedia">
-            <q-tooltip>Умный поиск по фото (одно изображение)</q-tooltip>
+            <q-tooltip>Умный поиск по фото или видео</q-tooltip>
           </q-btn>
           <input
             ref="mediaInput"
             type="file"
-            accept="image/jpeg,image/png,.jpg,.jpeg,.png"
+            accept="image/jpeg,image/png,video/mp4,video/quicktime,.jpg,.jpeg,.png,.mp4,.m4v,.mov,.mpeg,.mpg"
             class="hidden-input"
             @change="onMediaChosen"
           />
@@ -1735,8 +1768,17 @@ function tagList(meta) {
         <q-separator />
         <q-card-section class="row q-col-gutter-md">
           <div class="col-12 col-sm-5">
+            <video
+              v-if="manualIsVideo && manualPreviewUrl"
+              ref="manualVideoRef"
+              :src="manualPreviewUrl"
+              class="manual-preview"
+              controls
+              @loadedmetadata="onVideoMeta"
+              @seeked="onVideoSeek"
+            />
             <img
-              v-if="manualPreviewUrl"
+              v-else-if="manualPreviewUrl"
               :src="manualPreviewUrl"
               class="manual-preview"
               @load="onPreviewLoad"
@@ -1744,10 +1786,29 @@ function tagList(meta) {
             <div v-else class="manual-preview flex flex-center text-grey">
               (превью недоступно)
             </div>
+
+            <div v-if="manualIsVideo" class="q-mt-sm">
+              <q-slider
+                v-model="manualFrameSec"
+                :min="0"
+                :max="Math.max(1, manualDuration)"
+                :step="1"
+                label
+                label-always
+                @update:model-value="seekToFrame"
+              />
+              <div class="text-caption text-grey-8">
+                Кадр для распознавания: {{ manualFrameSec }} с
+              </div>
+            </div>
+
             <div class="text-caption text-grey-8 q-mt-sm">
               <div>Файл: {{ manualFile?.name }}</div>
               <div v-if="manualMeta">Вес: {{ manualMeta.sizeMb }} МБ</div>
-              <div v-if="manualMeta?.width">Размер: {{ manualMeta.width }}×{{ manualMeta.height }}</div>
+              <div v-if="manualIsVideo && manualResolution">Разрешение: {{ manualResolution }}</div>
+              <div v-else-if="manualMeta?.width">Размер: {{ manualMeta.width }}×{{ manualMeta.height }}</div>
+              <div v-if="manualIsVideo && manualDuration">Длительность: {{ manualDuration }} с</div>
+              <div v-if="manualIsVideo && manualCodec">Кодек: {{ manualCodec }}</div>
               <div v-if="manualMeta?.date">Изменён: {{ manualMeta.date }}</div>
               <div v-if="manualModel">Модель: {{ manualModel }}</div>
             </div>

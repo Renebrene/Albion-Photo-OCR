@@ -546,6 +546,7 @@ def run(
     kind: str | None = None,
     progress=None,
     mode: str = "auto",
+    frame_seconds: float | None = None,
 ) -> dict:
     """
     Describe the uploaded photo/video and search the base with that description.
@@ -562,16 +563,26 @@ def run(
     режим: окно показывает поля, пользователь их правит и запускает поиск
     отдельным запросом).
 
+    *frame_seconds*: для видео — описать только один кадр в эту секунду
+    (ручной выбор кадра); иначе описываются все фиксированные кадры.
+
     Returns a serialisable result for the job row.
     """
 
     if mode not in ("auto", "describe"):
         raise ValueError("mode must be 'auto' or 'describe'")
 
+    if frame_seconds is not None and frame_seconds < 0:
+        raise ValueError("frame_seconds must be >= 0")
+
     kind = kind or kind_for(path)
 
     if kind == "video":
-        sources = extract_frames(path)
+        sources = (
+            extract_frames(path, seconds=(float(frame_seconds),))
+            if frame_seconds is not None
+            else extract_frames(path)
+        )
     else:
         sources = [{"path": Path(path), "sec": None}]
 

@@ -55,6 +55,32 @@ def test_describe_mode_does_not_search(monkeypatch, tmp_path):
     assert out["qwen"]["description"] == "щит с врачом"
 
 
+def test_describe_mode_with_frame_seconds_extracts_one_frame(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_extract(path, *, seconds=None):
+        seen["seconds"] = seconds
+        return [{"path": tmp_path / "f.jpg", "sec": float(seconds[0])}]
+
+    monkeypatch.setattr(media_search, "extract_frames", fake_extract)
+    monkeypatch.setattr(
+        media_search, "describe",
+        lambda path, **kw: {"fields": dict(_FIELDS), "seconds": 0.1, "fallback": False},
+    )
+
+    out = media_search.run(
+        tmp_path / "clip.mp4", kind="video", mode="describe", frame_seconds=4.0,
+    )
+
+    assert seen["seconds"] == (4.0,)
+    assert out["per_frame"][0]["sec"] == 4.0
+
+
+def test_run_rejects_negative_frame_seconds(tmp_path):
+    with pytest.raises(ValueError):
+        media_search.run(tmp_path / "c.mp4", kind="video", frame_seconds=-1)
+
+
 def test_auto_mode_searches(monkeypatch, tmp_path):
     monkeypatch.setattr(
         media_search, "describe",
