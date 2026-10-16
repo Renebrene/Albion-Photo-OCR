@@ -72,6 +72,12 @@ def cleanup_imported():
             )
 
 
+# Тесты привязки работают на временных слепках из фикстуры `probe_fingerprints`
+# (tests/conftest.py): `set_address` пишет имя в `display_name`, а снятие
+# привязки его стирает. Пока такой тест брал первый слепок реестра
+# (`items[0]` = 76_v33), каждый прогон снимал привязку с реального слепка.
+
+
 # ---- parsing ----
 
 
@@ -251,13 +257,10 @@ def test_import_endpoint_rejects_a_wrong_format():
 
 
 @requires_directory
-def test_fingerprint_can_be_mapped_to_an_address(cleanup_imported):
-    items = fingerprints_mod.list_registry()
+def test_fingerprint_can_be_mapped_to_an_address(cleanup_imported, probe_fingerprints):
+    """Привязка и снятие привязки — на своём (временном) слепке."""
 
-    if not items:
-        pytest.skip("registry is empty")
-
-    fingerprint_id = items[0]["fingerprint_id"]
+    fingerprint_id = probe_fingerprints[0]
 
     created = directory_mod.import_addresses(
         [{"legal_address": f"{PREFIX}для привязки", "simple_address": "Привязка"}]
@@ -285,6 +288,69 @@ def test_fingerprint_can_be_mapped_to_an_address(cleanup_imported):
 
     assert cleared.status_code == 200
     assert cleared.json()["address"] is None
+
+
+@requires_directory
+def test_reimport_renames_fingerprints_and_keeps_hand_typed_names(
+    cleanup_imported, probe_fingerprints
+):
+    """
+    Переимпорт справочника доезжает до имён слепков.
+
+    Раньше `simple_address` менялся только в справочнике, а на слепке
+    оставалось старое имя — владелец добавлял его заново. Имя, набранное
+    руками, по-прежнему не трогаем. Работаем на своих слепках.
+    """
+
+    from app.ingest.database import get_connection
+
+    first_id, second_id = probe_fingerprints
+    legal = f"{PREFIX}переименование"
+
+    created = directory_mod.import_addresses(
+        [{"legal_address": legal, "simple_address": "Старое имя"}]
+    )
+    assert created["created"] == 1
+
+    address = next(
+        item
+        for item in directory_mod.list_addresses()
+        if item["legal_address"] == legal
+    )
+    directory_mod.set_fingerprints(address["address_id"], [first_id, second_id])
+
+    # Первому имя поставил адрес (как `set_address`), второе набрано руками.
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE public.fingerprints SET display_name = %s "
+                "WHERE fingerprint_id = %s",
+                ("Старое имя", first_id),
+            )
+            cur.execute(
+                "UPDATE public.fingerprints SET display_name = %s "
+                "WHERE fingerprint_id = %s",
+                ("Моё имя", second_id),
+            )
+
+    renamed = directory_mod.import_addresses(
+        [{"legal_address": legal, "simple_address": "Новое имя"}]
+    )
+
+    assert renamed["updated"] == 1
+    assert renamed["renamed"] == 1
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT fingerprint_id, display_name "
+                "FROM public.fingerprints WHERE fingerprint_id = ANY(%s)",
+                ([first_id, second_id],),
+            )
+            names = dict(cur.fetchall())
+
+    assert names[first_id] == "Новое имя"
+    assert names[second_id] == "Моё имя"
 
 
 @requires_directory

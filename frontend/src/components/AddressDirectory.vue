@@ -57,6 +57,7 @@ async function onImportFileChosen(event) {
       message:
         `Импорт: строк ${result.rows}, добавлено ${result.created}, ` +
         `обновлено ${result.updated}, без изменений ${result.skipped}` +
+        (result.renamed ? `, переименовано слепков ${result.renamed}` : '') +
         (result.errors?.length ? `, ошибок ${result.errors.length}` : ''),
     })
     await load()
@@ -167,9 +168,37 @@ const mapOptions = computed(() => {
 
 async function saveMap() {
   try {
-    await setAddressFingerprints(mapTarget.value.address_id, mapSelected.value)
+    // Сохраняем НАМЕРЕНИЕ пользователя, а не снимок списка: пока окно было
+    // открыто, к адресу могли привязать ещё слепки (вкладка «Слепки»,
+    // другой пользователь). Отвязываем только те, что сняли здесь, а
+    // появившиеся за это время сохраняем — иначе у слепка пропадал адрес.
+    const data = await fetchAddressDirectory()
+    const fresh = (data.items || []).find(
+      (row) => row.address_id === mapTarget.value.address_id,
+    )
+    const freshIds = fresh?.fingerprints || []
+    const opened = new Set(mapTarget.value.fingerprints || [])
+    const selected = new Set(mapSelected.value)
+    const unchecked = [...opened].filter((id) => !selected.has(id))
+    const merged = [
+      ...new Set([
+        ...freshIds.filter((id) => !unchecked.includes(id)),
+        ...selected,
+      ]),
+    ].sort()
+
+    await setAddressFingerprints(mapTarget.value.address_id, merged)
     mapOpen.value = false
-    Notify.create({ type: 'positive', message: 'Идентификаторы сохранены' })
+
+    if (freshIds.some((id) => !opened.has(id))) {
+      Notify.create({
+        type: 'info',
+        message: 'К адресу добавились новые идентификаторы — список обновлён',
+      })
+    } else {
+      Notify.create({ type: 'positive', message: 'Идентификаторы сохранены' })
+    }
+
     await load()
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })

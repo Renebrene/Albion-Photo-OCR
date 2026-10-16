@@ -528,6 +528,7 @@ def import_addresses(items: list[dict]) -> dict:
     created = 0
     updated = 0
     skipped = 0
+    renamed = 0
     errors: list[str] = []
 
     with get_connection() as conn:
@@ -549,7 +550,7 @@ def import_addresses(items: list[dict]) -> dict:
                 if legal:
                     cur.execute(
                         """
-                        SELECT address_id, simple_address
+                        SELECT address_id, simple_address, legal_address
                         FROM public.address_directory
                         WHERE lower(btrim(legal_address)) = lower(btrim(%s))
                         """,
@@ -569,7 +570,7 @@ def import_addresses(items: list[dict]) -> dict:
                     created += 1
                     continue
 
-                address_id, current_simple = existing
+                address_id, current_simple, current_legal = existing
 
                 if simple and simple != (current_simple or ""):
                     cur.execute(
@@ -581,6 +582,28 @@ def import_addresses(items: list[dict]) -> dict:
                         (simple, address_id),
                     )
                     updated += 1
+
+                    # Слепки берут имя отсюда (`set_address` кладёт алиас в
+                    # display_name). Переименование обязано доехать до них, как
+                    # в `update_address`, иначе после переимпорта на слепке
+                    # остаётся старое имя — и владелец «добавляет его заново».
+                    # Имя, набранное руками, не трогаем.
+                    previous_label = address_label(current_simple, current_legal)
+                    new_label = address_label(simple, current_legal)
+
+                    if new_label != previous_label:
+                        cur.execute(
+                            """
+                            UPDATE public.fingerprints AS f
+                            SET display_name = %s, updated_at = CURRENT_TIMESTAMP
+                            FROM public.address_fingerprints AS af
+                            WHERE af.fingerprint_id = f.fingerprint_id
+                              AND af.address_id = %s
+                              AND (f.display_name = '' OR f.display_name = %s)
+                            """,
+                            (new_label, address_id, previous_label),
+                        )
+                        renamed += cur.rowcount
                 else:
                     skipped += 1
 
@@ -588,5 +611,6 @@ def import_addresses(items: list[dict]) -> dict:
         "created": created,
         "updated": updated,
         "skipped": skipped,
+        "renamed": renamed,
         "errors": errors[:20],
     }

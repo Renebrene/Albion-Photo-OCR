@@ -38,30 +38,10 @@ requires_registry = pytest.mark.skipif(
 )
 
 
-@pytest.fixture
-def restore_fingerprint():
-    """Put the fingerprint's human fields back after a test changed them."""
-
-    changed: list[str] = []
-
-    yield changed
-
-    if not changed:
-        return
-
-    from app.ingest.database import get_connection
-
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                UPDATE public.fingerprints
-                SET display_name = '', description = '', source_folder = NULL,
-                    active = TRUE
-                WHERE fingerprint_id = ANY(%s)
-                """,
-                (changed,),
-            )
+# Тесты, которые пишут в человеческие поля слепка (имя, описание, папка), берут
+# временную строку из фикстуры `probe_fingerprints` (tests/conftest.py).
+# Раньше они работали на первом слепке реестра и «восстанавливали» его в пустое
+# состояние — так у реального 76_v33 пропадало имя.
 
 
 # ---- validation ----
@@ -189,14 +169,8 @@ def test_a_rebuilt_fingerprint_appends_a_version(monkeypatch):
 
 
 @requires_registry
-def test_rename_describe_archive_round_trip(restore_fingerprint):
-    items = fp.list_registry()
-
-    if not items:
-        pytest.skip("registry is empty")
-
-    fingerprint_id = items[0]["fingerprint_id"]
-    restore_fingerprint.append(fingerprint_id)
+def test_rename_describe_archive_round_trip(probe_fingerprints):
+    fingerprint_id = probe_fingerprints[0]
 
     updated = fp.update_fingerprint(
         fingerprint_id,
@@ -212,8 +186,10 @@ def test_rename_describe_archive_round_trip(restore_fingerprint):
     assert updated["active"] is False
 
     # An unknown id is reported as missing, not as a validation error.
-    assert fp.update_fingerprint("999_v33", display_name="нет") is None
-    assert fp.list_versions("999_v33") is None
+    # (900_v33 — заведомо несуществующий id; 998/999_v33 заняты временными
+    # строками фикстуры `probe_fingerprints`.)
+    assert fp.update_fingerprint("900_v33", display_name="нет") is None
+    assert fp.list_versions("900_v33") is None
 
 
 @requires_registry
@@ -233,7 +209,7 @@ def test_registry_rows_carry_disk_and_version_state():
 
 
 @requires_registry
-def test_mapping_an_address_names_the_fingerprint(restore_fingerprint):
+def test_mapping_an_address_names_the_fingerprint(probe_fingerprints):
     """
     Choosing a legal address writes its alias into the fingerprint's name right
     away, so the name is stored and not only resolved when the row is read. A
@@ -245,19 +221,12 @@ def test_mapping_an_address_names_the_fingerprint(restore_fingerprint):
 
     from app.api import directory as directory_mod
 
-    items = fp.list_registry()
-
-    target = next((item for item in items if item["address"] is None), None)
-
-    if target is None:
-        pytest.skip("every fingerprint already has an address")
-
-    fingerprint_id = target["fingerprint_id"]
-    restore_fingerprint.append(fingerprint_id)
+    fingerprint_id = probe_fingerprints[0]
 
     # No address yet: the name is the technical id.
-    assert target["name"] == fingerprint_id
-    assert target["display_name"] == ""
+    fresh = fp.get_fingerprint(fingerprint_id)
+    assert fresh["name"] == fingerprint_id
+    assert fresh["display_name"] == ""
 
     address = directory_mod.create_address(
         legal_address="Тестовая ул. 1, A",
@@ -298,7 +267,7 @@ def test_mapping_an_address_names_the_fingerprint(restore_fingerprint):
 
 
 @requires_registry
-def test_renaming_an_alias_renames_the_fingerprint(restore_fingerprint):
+def test_renaming_an_alias_renames_the_fingerprint(probe_fingerprints):
     """
     The name a fingerprint copied from its address follows the directory: the
     alias is the single place to rename, a hand-typed name is never touched.
@@ -306,15 +275,7 @@ def test_renaming_an_alias_renames_the_fingerprint(restore_fingerprint):
 
     from app.api import directory as directory_mod
 
-    items = fp.list_registry()
-
-    target = next((item for item in items if item["address"] is None), None)
-
-    if target is None:
-        pytest.skip("every fingerprint already has an address")
-
-    fingerprint_id = target["fingerprint_id"]
-    restore_fingerprint.append(fingerprint_id)
+    fingerprint_id = probe_fingerprints[0]
 
     address = directory_mod.create_address(
         legal_address="Тестовая ул. 3, A",

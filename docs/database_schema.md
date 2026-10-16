@@ -381,6 +381,15 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 - **Сборка из окна** (`schema/024`): тип задания `FINGERPRINT_BUILD` в `job_queue` (выполняет scene-worker, как `INGEST_DIR`); `fingerprint_versions.images_meta` хранит `[{name, taken_at}]` — имена и **даты съёмок** использованных фото, потому что оригиналы после сборки не сохраняются. `fingerprints.source_folder` заполняется из `metadata.json` только если пуст (ручная правка в окне приоритетнее). Бэкфилл для слепков старого формата: `scripts/backfill_fingerprint_meta.py`.
 - **Откат**: `DROP TABLE fingerprint_versions; DROP TABLE fingerprints;` (теряется только человеческая обвязка).
 
+**Имя слепка и привязка к адресу.** `display_name` — короткое имя: `set_address()` кладёт туда алиас адреса при привязке, а при снятии привязки стирает только то имя, которое записал сам (набранное руками остаётся). Чтение — `resolve_name()`: `display_name` → алиас → юридический → id.
+
+Два места, где имя могло «пропасть» (исправлено 2026-10-16):
+
+- `directory.import_addresses()` менял `simple_address` только в справочнике, до слепков переименование не доезжало (в отличие от `update_address`). Теперь имя обновляется тем же правилом, а отчёт импорта отдаёт `renamed` — сколько имён слепков обновлено.
+- Окно «Идентификаторы» отправляло полный список и могло снять чужую/более свежую привязку, если список в окне устарел. Теперь окно сохраняет **намерение**: отвязывает только снятые пользователем галочки, а привязки, появившиеся пока окно было открыто, сохраняет.
+
+**Правило для тестов:** тесты, двигающие привязку и имя (`set_address`, `set_fingerprints`, импорт), обязаны работать на своих строках (`tests/test_address_import.py:PROBE_FINGERPRINTS`), а не на первом слепке реестра. Пока такой тест брал `items[0]`, каждый прогон снимал привязку с реального `76_v33`.
+
 ### 4.23 `video_assets` — identity durable source video
 
 Создаёт `schema/026_video_assets.sql`; записывает только video-specific INGEST (`app/ingest/video_register.py`). Таблица намеренно не связана с `photos`, `photo_previews`, `dino_runs`, `hybrid_results` или `photo_qwen`.
