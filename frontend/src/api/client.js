@@ -151,6 +151,25 @@ export function fetchLastRun() {
   return getJson(`${BASE}/v1/runs/last`)
 }
 
+export function fetchRunHistory({ kind = null, limit = 20 } = {}) {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (kind) params.set('kind', kind)
+  return getJson(`${BASE}/v1/runs/history?${params.toString()}`)
+}
+
+export async function fetchRunLog(runId) {
+  const response = await fetch(
+    `${BASE}/v1/runs/history/${encodeURIComponent(runId)}/log`,
+    { headers: authHeaders() },
+  )
+
+  if (!response.ok) {
+    throw new Error(`API error ${response.status}`)
+  }
+
+  return response.text()
+}
+
 // ---- resumable pipeline run ("Обновление базы") ----
 // The supervisor only becomes visible once schema/031 is applied; before that
 // these return 404 and the header control hides itself.

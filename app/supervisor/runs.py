@@ -26,6 +26,7 @@ Design points that matter:
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from psycopg.types.json import Json
@@ -34,6 +35,8 @@ from app.dino import database as dino_db
 from app.hybrid import database as hybrid_db
 from app.ingest.database import get_connection
 from app.jobs import database as jobs_db
+
+logger = logging.getLogger(__name__)
 from app.preview.queue import enqueue_missing_previews
 
 STAGES: tuple[str, ...] = ("INGEST", "PREVIEW", "DINO", "HYBRID", "QWEN")
@@ -226,7 +229,14 @@ def create_run(
     except pg_errors.UniqueViolation as exc:  # pragma: no cover - race path
         raise PipelineBusy("pipeline run already active") from exc
 
-    return get_run_with_stages(run_id)
+    result = get_run_with_stages(run_id)
+    try:
+        from app.runs import history as run_history
+
+        run_history.sync_pipeline(result)
+    except Exception as exc:  # noqa: BLE001 - history is observational
+        logger.warning("pipeline history sync failed (%s)", type(exc).__name__)
+    return result
 
 
 def request_stop(run_id: int) -> bool:
@@ -252,6 +262,7 @@ def request_stop(run_id: int) -> bool:
         raw = _raw_stage(run_id, run["stage"]) if run is not None else None
         if raw is not None and _stage_row(raw)["status"] in ("PENDING", "DONE", "SKIPPED"):
             _finish_run(run_id, "STOPPED", message="остановлено пользователем")
+        _sync_history(run_id)
 
     return changed
 
@@ -280,7 +291,11 @@ def resume_run(run_id: int) -> bool:
                 """,
                 (int(run_id),),
             )
-            return cur.rowcount == 1
+            changed = cur.rowcount == 1
+
+    if changed:
+        _sync_history(run_id)
+    return changed
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +322,9 @@ def tick(run_id: int | None = None) -> dict:
                 return {"skipped": "locked"}
 
         try:
-            return _advance(int(run["run_id"]))
+            result = _advance(int(run["run_id"]))
+            _sync_history(int(run["run_id"]))
+            return result
         finally:
             with conn.cursor() as cur:
                 cur.execute("SELECT pg_advisory_unlock(%s)", (lock,))
@@ -716,6 +733,18 @@ def _finish_run(run_id: int, status: str, *, message: str | None = None) -> None
                 """,
                 (status, message, int(run_id)),
             )
+    _sync_history(run_id)
+
+
+def _sync_history(run_id: int) -> None:
+    try:
+        from app.runs import history as run_history
+
+        snapshot = get_run_with_stages(run_id)
+        if snapshot is not None:
+            run_history.sync_pipeline(snapshot)
+    except Exception as exc:  # noqa: BLE001 - history is observational
+        logger.warning("pipeline history sync failed (%s)", type(exc).__name__)
 
 
 # ---------------------------------------------------------------------------

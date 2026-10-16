@@ -358,12 +358,13 @@ def test_qwen_rescan_passes_the_provider_override(monkeypatch):
 
     seen = {}
 
-    def fake_enqueue(photo_id, *, source="manual", provider=None, model=None):
+    def fake_enqueue(photo_id, *, source="manual", provider=None, model=None, run_history_id=None):
         seen.update(
             {"photo_id": photo_id, "source": source,
-             "provider": provider, "model": model}
+             "provider": provider, "model": model,
+             "run_history_id": run_history_id}
         )
-        return 7
+        return None
 
     monkeypatch.setattr(api_routes.jobs_db, "enqueue_qwen", fake_enqueue)
 
@@ -379,12 +380,13 @@ def test_qwen_rescan_passes_the_provider_override(monkeypatch):
     )
 
     assert response.status_code == 202
-    assert seen == {
+    assert {key: seen[key] for key in ("photo_id", "source", "provider", "model")} == {
         "photo_id": photo_id,
         "source": "manual",
         "provider": "openai",
         "model": "ling-3.0-flash-vl",
     }
+    assert "run_history_id" in seen
 
 
 def test_qwen_job_rejects_an_unknown_provider():

@@ -308,25 +308,39 @@ def run_once(
         flush=True,
     )
 
+    run_history_id = (job.get("payload") or {}).get("run_history_id")
+
+    if run_history_id is not None:
+        try:
+            from app.runs import history
+
+            history.record_job_start(int(run_history_id), int(job["id"]))
+        except Exception as exc:  # noqa: BLE001 - history must not break the job
+            print(f"[worker] could not mark run history started: {type(exc).__name__}", flush=True)
+
     try:
         result = _execute(job)
     except JobCancelled as exc:
         # The row is already CANCELLED; the result is dropped, nothing to report.
         print(f"[worker] job {job['id']} cancelled: {exc}", flush=True)
+        _record_history_result(run_history_id, job, "CANCELLED", error=str(exc))
         return str(job["job_type"])
     except Exception as exc:  # noqa: BLE001 - reported to the queue
         # A job cancelled while it ran keeps its CANCELLED status: the failure
         # is not published (mark_failed refuses to touch a non-RUNNING row).
+        safe_error = redact_absolute_paths(repr(exc))
         try:
-            # Store the message without absolute server paths.
-            jobs.mark_failed(job["id"], redact_absolute_paths(repr(exc)))
+            jobs.mark_failed(job["id"], safe_error)
         except ValueError:
             print(
                 f"[worker] job {job['id']} was cancelled; error not recorded",
                 flush=True,
             )
+            _record_history_result(run_history_id, job, "CANCELLED", error=safe_error)
+            return str(job["job_type"])
 
         print(f"[worker] job {job['id']} FAILED: {exc}", flush=True)
+        _record_history_result(run_history_id, job, "FAILED", error=safe_error)
         return str(job["job_type"])
 
     try:
@@ -337,10 +351,30 @@ def run_once(
             f"[worker] job {job['id']} was cancelled; result discarded",
             flush=True,
         )
+        _record_history_result(run_history_id, job, "CANCELLED")
         return str(job["job_type"])
 
+    _record_history_result(run_history_id, job, "DONE", result=result)
     print(f"[worker] job {job['id']} DONE {result}", flush=True)
     return str(job["job_type"])
+
+
+def _record_history_result(run_history_id, job, status, *, result=None, error=None):
+    if run_history_id is None:
+        return
+    try:
+        from app.runs import history
+
+        history.record_job_result(
+            int(run_history_id),
+            job_type=str(job["job_type"]),
+            job_id=int(job["id"]),
+            status=status,
+            result=result,
+            error=error,
+        )
+    except Exception as exc:  # noqa: BLE001 - history must never break queue work
+        print(f"[worker] could not update run history: {type(exc).__name__}", flush=True)
 
 
 def _builder_worker(

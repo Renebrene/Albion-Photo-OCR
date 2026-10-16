@@ -50,11 +50,20 @@ def _row_to_job(row) -> dict:
     }
 
 
-def enqueue(job_type: str, payload: dict[str, Any]) -> int:
+def enqueue(
+    job_type: str,
+    payload: dict[str, Any],
+    *,
+    run_history_id: int | None = None,
+) -> int:
     """Insert a PENDING job and return its id."""
 
     if job_type not in JOB_TYPES:
         raise ValueError(f"Unsupported job type: {job_type}")
+
+    payload = dict(payload)
+    if run_history_id is not None:
+        payload["run_history_id"] = int(run_history_id)
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -104,6 +113,7 @@ def enqueue_qwen(
     source: str = "manual",
     provider: str | None = None,
     model: str | None = None,
+    run_history_id: int | None = None,
 ) -> int | None:
     """
     Enqueue a QWEN job for one photo, deduplicated while active.
@@ -124,6 +134,8 @@ def enqueue_qwen(
 
     if model:
         payload["model"] = model
+    if run_history_id is not None:
+        payload["run_history_id"] = int(run_history_id)
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -200,6 +212,7 @@ def enqueue_ingest(
     directory: str,
     *,
     only_files: list[str] | None = None,
+    run_history_id: int | None = None,
 ) -> int | None:
     """
     Enqueue an INGEST job for one folder, deduplicated while active.
@@ -216,6 +229,8 @@ def enqueue_ingest(
 
     if only_files is not None:
         payload["only_files"] = list(only_files)
+    if run_history_id is not None:
+        payload["run_history_id"] = int(run_history_id)
 
     with get_connection() as conn:
         with conn.cursor() as cur:

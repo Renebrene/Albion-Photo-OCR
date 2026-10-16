@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 
 import { fetchLastRun } from '../api/client'
 import PipelineRunsPanel from './PipelineRunsPanel.vue'
+import RunHistoryPanel from './RunHistoryPanel.vue'
 
 const data = ref(null)
 const loading = ref(false)
@@ -36,6 +37,7 @@ onMounted(load)
 
     <!-- Прогоны «Обновления базы» идут первыми: это то, за чем следят. -->
     <PipelineRunsPanel class="q-mb-md" />
+    <RunHistoryPanel />
 
     <div v-if="data" class="row q-col-gutter-md">
       <q-card flat bordered class="col-12 col-md-6">

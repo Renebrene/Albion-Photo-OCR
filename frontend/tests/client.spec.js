@@ -11,6 +11,8 @@ import {
   resumeJob,
   fetchMediaSearchJob,
   fetchPhotos,
+  fetchRunHistory,
+  fetchRunLog,
   getToken,
   setToken,
   searchByMedia,
@@ -107,6 +109,29 @@ describe('api client', () => {
   it('throws a generic error on a failed GET', async () => {
     mockFetchOnce({ ok: false, status: 500, json: async () => ({}) })
     await expect(fetchPhotos({ limit: 5 })).rejects.toThrow('API error 500')
+  })
+
+  it('fetches run history with optional kind and limit', async () => {
+    mockFetchOnce(okJson({ items: [] }))
+    await fetchRunHistory({ kind: 'qwen', limit: 12 })
+    expect(global.fetch.mock.calls[0][0]).toContain('/v1/runs/history?limit=12&kind=qwen')
+    expect(global.fetch.mock.calls[0][1].headers.Authorization).toBeUndefined()
+  })
+
+  it('fetches a run log as authenticated plain text', async () => {
+    setToken('secret')
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => 'run log' })
+    await expect(fetchRunLog(42)).resolves.toBe('run log')
+    const [url, options] = global.fetch.mock.calls[0]
+    expect(url).toContain('/v1/runs/history/42/log')
+    expect(options.headers.Authorization).toBe('Bearer secret')
+  })
+
+  it('surfaces run-log missing and authorization errors', async () => {
+    mockFetchOnce({ ok: false, status: 404 })
+    await expect(fetchRunLog(2)).rejects.toThrow('API error 404')
+    mockFetchOnce({ ok: false, status: 403 })
+    await expect(fetchRunLog(2)).rejects.toThrow('API error 403')
   })
 
   it('surfaces the server detail on a failed POST', async () => {

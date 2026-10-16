@@ -174,6 +174,40 @@ def get_last_run():
     return sysinfo.last_run()
 
 
+@read_router.get("/v1/runs/history", response_model=None)
+def list_run_history(
+    kind: str | None = Query(None, pattern=r"^(pipeline|ingest|sort|qwen|scheduler)$"),
+    limit: int = Query(20, ge=1, le=200),
+):
+    """Единая история пользовательских запусков по видам."""
+
+    from app.runs import history
+
+    return {"items": history.list_runs(kind=kind, limit=limit)}
+
+
+@jobs_router.get(
+    "/v1/runs/history/{run_id}/log",
+    response_class=Response,
+    dependencies=[Depends(require_scope("jobs:read"))],
+)
+def read_run_log(run_id: int):
+    """Безопасно прочитать лог по внутреннему ID; путь/имя файла клиент не задаёт."""
+
+    from app.runs import history
+
+    text = history.read_run_log(run_id)
+
+    if text is None:
+        raise HTTPException(status_code=404, detail="run log not found")
+
+    return Response(
+        content=text,
+        media_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @read_router.get("/v1/data/storage", response_model=None)
 def data_storage():
     return data_mod.storage_stats()
@@ -570,27 +604,53 @@ def enqueue_qwen(request: QwenJobRequest):
             detail="no photos to process",
         )
 
+    from app.runs import history as run_history
+
+    history_id = run_history.create_run(
+        kind="qwen",
+        mode="manual",
+        title="QWEN: ручной запуск",
+        total=len(photo_ids),
+    )
     job_ids = []
     skipped = 0
 
-    for photo_id in photo_ids:
-        # Deduplicated: a photo with an active QWEN job is skipped.
-        job_id = jobs_db.enqueue_qwen(
-            photo_id,
-            source="manual",
-            provider=request.provider,
-            model=request.model,
-        )
+    try:
+        for photo_id in photo_ids:
+            # Deduplicated: a photo with an active QWEN job is skipped.
+            job_id = jobs_db.enqueue_qwen(
+                photo_id,
+                source="manual",
+                provider=request.provider,
+                model=request.model,
+                run_history_id=history_id,
+            )
 
-        if job_id is None:
-            skipped += 1
-        else:
-            job_ids.append(job_id)
+            if job_id is None:
+                skipped += 1
+            else:
+                job_ids.append(job_id)
+    except Exception as exc:
+        run_history.add_jobs(history_id, job_ids, skipped=skipped)
+        run_history.finish_enqueue(history_id, total=len(photo_ids), skipped=0)
+        run_history.update_run(
+            history_id,
+            status="PARTIAL" if job_ids else "FAILED",
+            message=f"Не удалось полностью поставить задания: {type(exc).__name__}",
+            finished=True,
+            error_count_delta=1,
+            log_lines=[f"enqueue failed: {type(exc).__name__}"],
+        )
+        raise
+
+    run_history.add_jobs(history_id, job_ids, skipped=skipped)
+    run_history.finish_enqueue(history_id, total=len(photo_ids), skipped=0)
 
     return {
         "jobs": len(job_ids),
         "skipped": skipped,
         "first_job_id": job_ids[0] if job_ids else None,
+        "run_history_id": history_id,
     }
 
 
@@ -1586,10 +1646,33 @@ def run_ingest(request: SourceRunRequest):
     directory = sources.resolve_directory(
         request.path or sources.current_folder()
     )
-    job_id = jobs_db.enqueue_ingest(str(directory))
+    from app.runs import history as run_history
+
+    history_id = run_history.create_run(
+        kind="ingest",
+        mode="manual",
+        title=f"Ingest: {directory.name}",
+        counts={"total": 1},
+    )
+    job_id = jobs_db.enqueue_ingest(
+        str(directory), run_history_id=history_id
+    )
+
+    if job_id is None:
+        run_history.finish_enqueue(history_id, total=0, skipped=1)
+        run_history.update_run(
+            history_id,
+            status="DONE",
+            message="активный ingest этой папки уже запущен; дублирование пропущено",
+            finished=True,
+        )
+    else:
+        run_history.add_jobs(history_id, [job_id])
+        run_history.finish_enqueue(history_id, total=1)
 
     return {
         "job_id": job_id,
+        "run_history_id": history_id,
         "skipped": job_id is None,
         "directory": str(directory),
     }
