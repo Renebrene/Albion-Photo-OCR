@@ -227,6 +227,15 @@ export function fetchPhotoDetails(photoId) {
   return getJson(`${BASE}/v1/photos/${photoId}/details`)
 }
 
+// Остановить активные задания QWEN и очистить список завершённых.
+export function stopQwenJobs() {
+  return postJson(`${BASE}/v1/jobs/qwen/stop`, {})
+}
+
+export function clearQwenJobs() {
+  return postJson(`${BASE}/v1/jobs/qwen/clear`, {})
+}
+
 // Прежние результаты QWEN: их вытеснила новая модель (schema/036).
 export function fetchQwenHistory(photoId, limit = 10) {
   return getJson(

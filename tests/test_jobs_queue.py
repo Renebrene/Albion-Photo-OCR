@@ -106,6 +106,33 @@ def test_mark_failed(cleanup_jobs, require_idle_queue):
     assert final["error_message"] == "boom"
 
 
+def test_clear_and_cancel_validate_their_input():
+    """
+    Массовые операции очереди защищены от опечаток.
+
+    Само удаление здесь не проверяем: оно работало бы по всем заданиям вида в
+    РАБОЧЕЙ базе и стёрло бы реальный журнал выполнений. Живая проверка —
+    кнопками в карточке «Распознавание».
+    """
+
+    with pytest.raises(ValueError):
+        jobs_db.clear_finished_jobs("NOPE")
+
+    with pytest.raises(ValueError):
+        # Активные статусы удалять нельзя.
+        jobs_db.clear_finished_jobs("QWEN_PHOTO", statuses=("PENDING",))
+
+    with pytest.raises(ValueError):
+        jobs_db.clear_finished_jobs("QWEN_PHOTO", statuses=())
+
+    with pytest.raises(ValueError):
+        jobs_db.cancel_jobs("NOPE")
+
+    with pytest.raises(ValueError):
+        # Завершённые задания «остановить» нельзя.
+        jobs_db.cancel_jobs("QWEN_PHOTO", statuses=("DONE",))
+
+
 def test_claim_returns_none_when_empty():
     # Drain any leftover PENDING jobs first is not needed: this asserts the
     # function returns None on an empty queue only when nothing is pending.

@@ -87,28 +87,57 @@ def _stored(key: str):
         return None
 
 
+def _migrate_legacy_model() -> None:
+    """
+    Один раз разложить старый единственный ключ `qwen_model` по провайдерам.
+
+    Ключ писался, когда провайдер был один. Если раздельные ключи уже есть,
+    старый просто убираем: иначе после переключения провайдера чужое имя
+    «прилипало» к другому — в окне у локальной Ollama показывалась модель
+    облака. Если раздельных ключей нет вовсе, значение принадлежит текущему
+    провайдеру и переносится к нему.
+    """
+
+    try:
+        legacy = _stored(QWEN_MODEL_KEY)
+
+        if not legacy:
+            return
+
+        # Пустая строка = «значения нет»: так ключ перестаёт участвовать.
+        if any(_stored(key) for key in QWEN_MODEL_KEYS.values()):
+            # Раздельные значения уже есть — старый ключ не приписываем никому:
+            # он писался при другом провайдере и «прилипал» к чужому.
+            settings_store.set_value(QWEN_MODEL_KEY, "")
+            return
+
+        provider = str(
+            _stored(QWEN_PROVIDER_KEY) or QWEN_PROVIDER
+        ).strip().lower()
+        key = QWEN_MODEL_KEYS.get(provider)
+
+        if key:
+            settings_store.set_value(key, str(legacy))
+
+        settings_store.set_value(QWEN_MODEL_KEY, "")
+    except Exception:  # noqa: BLE001 - без БД работаем на значениях из env
+        return
+
+
 def model_for_provider(provider: str) -> str:
     """
     The model saved for one provider, falling back to environment defaults.
 
     Each provider remembers its own model: у локальной Ollama и у облака разные
-    имена, и переключение провайдера не должно терять выбор другого. Старый
-    единственный ключ `qwen_model` читается как модель ТЕКУЩЕГО провайдера —
-    так сохранённый до появления раздельных ключей выбор не теряется.
+    имена, и переключение провайдера не должно терять выбор другого.
     """
+
+    _migrate_legacy_model()
 
     per_provider = _stored(QWEN_MODEL_KEYS.get(provider, ""))
 
     if per_provider:
         return str(per_provider)
-
-    legacy = _stored(QWEN_MODEL_KEY)
-    current_provider = str(
-        _stored(QWEN_PROVIDER_KEY) or QWEN_PROVIDER
-    ).strip().lower()
-
-    if legacy and provider == current_provider:
-        return str(legacy)
 
     return QWEN_MODEL if provider == PROVIDER_OLLAMA else ""
 
@@ -169,6 +198,11 @@ def public_settings() -> dict:
     return {
         "provider": config["provider"],
         "model": config["model"],
+        # Что запомнено для каждого провайдера: окно показывает оба значения,
+        # чтобы при переключении было видно, какая модель вернётся.
+        "models": {
+            name: model_for_provider(name) for name in PROVIDERS
+        },
         "base_url": config["base_url"],
         "api_key_set": bool(config["api_key"]),
         "api_key_hint": mask_api_key(config["api_key"]),

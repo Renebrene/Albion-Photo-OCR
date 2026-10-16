@@ -3,10 +3,12 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Notify } from 'quasar'
 
 import {
+  clearQwenJobs,
   enqueueQwen,
   fetchQwenModels,
   fetchQwenSettings,
   fetchQwenStats,
+  stopQwenJobs,
   unloadQwen,
   updateQwenSettings,
 } from '../api/client'
@@ -28,6 +30,8 @@ const model = ref(null)
 const available = ref([])
 const current = ref(null)
 const modelsUnavailable = ref(false)
+// Что запомнено для каждого провайдера: { ollama: '…', openai: '…' }.
+const savedModels = ref({})
 // Пока первичная загрузка не закончилась, наблюдатель за провайдером молчит:
 // иначе сохранение сработало бы на присвоении значения из настроек.
 const settingsLoaded = ref(false)
@@ -52,6 +56,7 @@ async function loadSettings() {
     unloadOnIdle.value = data.unload_on_idle !== false
     model.value = data.model || null
     current.value = data.model || null
+    savedModels.value = data.models || {}
     apiKey.value = ''
     settingsLoaded.value = true
   } catch (err) {
@@ -187,6 +192,36 @@ async function runAll() {
   }
 }
 
+async function stopQueue() {
+  try {
+    const result = await stopQwenJobs()
+    Notify.create({
+      type: 'info',
+      message: result.cancelled
+        ? `Остановлено заданий: ${result.cancelled}`
+        : 'Активных заданий нет',
+    })
+    await loadStats()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
+async function clearQueue() {
+  try {
+    const result = await clearQwenJobs()
+    Notify.create({
+      type: 'positive',
+      message: result.deleted
+        ? `Убрано записей: ${result.deleted}`
+        : 'Список уже пуст',
+    })
+    await loadStats()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
 async function save() {
   saving.value = true
 
@@ -270,8 +305,13 @@ onBeforeUnmount(stopStatsPolling)
           emit-value
           map-options
           label="Провайдер"
-          class="q-mb-md"
+          class="q-mb-sm"
         />
+
+        <div class="text-caption text-grey-8 q-mb-md">
+          Запомнено: локально — {{ savedModels.ollama || '—' }} ·
+          облако — {{ savedModels.openai || '—' }}
+        </div>
 
         <q-banner
           v-if="provider === 'openai'"
@@ -440,6 +480,21 @@ onBeforeUnmount(stopStatsPolling)
             :label="`Повторить для упавших (${stats.failed_photo_ids.length})`"
             :disable="!stats.failed_photo_ids.length"
             @click="retryFailed"
+          />
+          <q-btn
+            flat
+            color="orange"
+            icon="stop"
+            label="Остановить распознавание"
+            :disable="!qwenQueue"
+            @click="stopQueue"
+          />
+          <q-btn
+            flat
+            color="grey-8"
+            icon="clear_all"
+            label="Очистить список заданий"
+            @click="clearQueue"
           />
         </div>
       </q-card-section>

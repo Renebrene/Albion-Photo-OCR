@@ -532,6 +532,73 @@ def requeue_stale(
             return cur.rowcount
 
 
+def clear_finished_jobs(
+    job_type: str,
+    *,
+    statuses: tuple[str, ...] = ("DONE", "FAILED", "CANCELLED"),
+) -> int:
+    """
+    Убрать завершённые задания одного вида — «очистить список».
+
+    Сами описания живут в `photo_qwen`, поэтому удаление строк очереди ничего
+    не теряет: пропадает только журнал выполнений. Активные задания
+    (PENDING/RUNNING/PAUSED) не трогаем никогда.
+    """
+
+    if job_type not in JOB_TYPES:
+        raise ValueError(f"unknown job type: {job_type}")
+
+    allowed = {"DONE", "FAILED", "CANCELLED"}
+
+    if not statuses or not set(statuses) <= allowed:
+        raise ValueError("only finished statuses can be cleared")
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM public.job_queue
+                WHERE job_type = %s AND status = ANY(%s)
+                """,
+                (job_type, list(statuses)),
+            )
+            return cur.rowcount
+
+
+def cancel_jobs(
+    job_type: str,
+    *,
+    statuses: tuple[str, ...] = ("PENDING", "RUNNING"),
+) -> int:
+    """
+    Остановить активные задания одного вида — кнопка «Остановить».
+
+    PENDING уходит в CANCELLED сразу (воркер его не возьмёт); RUNNING — тоже
+    CANCELLED: текущий запрос к модели доиграет, но результат не публикуется
+    (`mark_done`/`mark_failed` отказываются писать после отмены).
+    """
+
+    if job_type not in JOB_TYPES:
+        raise ValueError(f"unknown job type: {job_type}")
+
+    allowed = {"PENDING", "RUNNING"}
+
+    if not statuses or not set(statuses) <= allowed:
+        raise ValueError("only active statuses can be cancelled")
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.job_queue
+                SET status = 'CANCELLED', finished_at = CURRENT_TIMESTAMP
+                WHERE job_type = %s AND status = ANY(%s)
+                """,
+                (job_type, list(statuses)),
+            )
+            return cur.rowcount
+
+
 def mark_failed(job_id: int, error_message: str) -> None:
     with get_connection() as conn:
         with conn.cursor() as cur:

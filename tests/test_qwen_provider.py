@@ -99,6 +99,47 @@ def test_legacy_model_key_belongs_to_the_current_provider(fake_settings):
     assert processor.model_for_provider("ollama") == processor.QWEN_MODEL
 
 
+def test_legacy_model_key_is_migrated_to_the_current_provider(fake_settings):
+    """Старый единственный ключ переносится к текущему провайдеру один раз."""
+
+    fake_settings["qwen_provider"] = "ollama"
+    fake_settings["qwen_model"] = "qwen3-vl:4b-instruct"
+
+    assert processor.model_for_provider("ollama") == "qwen3-vl:4b-instruct"
+    assert fake_settings["qwen_model_ollama"] == "qwen3-vl:4b-instruct"
+    assert not fake_settings.get("qwen_model")
+    assert processor.model_for_provider("openai") == ""
+
+
+def test_legacy_key_does_not_stick_to_another_provider(fake_settings):
+    """
+    Чужое имя не «прилипает» после переключения провайдера.
+
+    В окне у локальной Ollama показывалась облачная модель: старый общий ключ
+    читался как модель ЛЮБОГО текущего провайдера.
+    """
+
+    fake_settings["qwen_model_openai"] = "ling-3.0-flash-vl"
+    fake_settings["qwen_provider"] = "ollama"
+    fake_settings["qwen_model"] = "ling-3.0-flash-vl"
+
+    assert processor.model_for_provider("ollama") == processor.QWEN_MODEL
+    assert processor.model_for_provider("openai") == "ling-3.0-flash-vl"
+    assert not fake_settings.get("qwen_model")
+
+
+def test_public_settings_lists_the_model_of_each_provider(fake_settings):
+    fake_settings["qwen_model_ollama"] = "qwen3-vl:4b-instruct"
+    fake_settings["qwen_model_openai"] = "ling-3.0-flash-vl"
+
+    view = processor.public_settings()
+
+    assert view["models"] == {
+        "ollama": "qwen3-vl:4b-instruct",
+        "openai": "ling-3.0-flash-vl",
+    }
+
+
 def test_update_settings_rejects_unknown_provider(fake_settings):
     with pytest.raises(ValueError):
         processor.update_settings(provider="nope")

@@ -590,6 +590,36 @@ def enqueue_qwen(request: QwenJobRequest):
 
 
 @jobs_router.post(
+    "/v1/jobs/qwen/stop",
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def stop_qwen_jobs():
+    """
+    Остановить распознавание: активные задания QWEN уходят в CANCELLED.
+
+    Текущий запрос к модели доиграет, но результат не публикуется. Уже
+    сделанные описания остаются на месте.
+    """
+
+    return {"cancelled": jobs_db.cancel_jobs("QWEN_PHOTO")}
+
+
+@jobs_router.post(
+    "/v1/jobs/qwen/clear",
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def clear_qwen_jobs():
+    """
+    Очистить список заданий QWEN: убрать завершённые (DONE/FAILED/CANCELLED).
+
+    Описания живут в `photo_qwen`, поэтому удаляются только строки журнала
+    очереди. Активные задания не тронем.
+    """
+
+    return {"deleted": jobs_db.clear_finished_jobs("QWEN_PHOTO")}
+
+
+@jobs_router.post(
     "/v1/jobs/nl-search",
     status_code=202,
     dependencies=[Depends(require_scope("read"))],
