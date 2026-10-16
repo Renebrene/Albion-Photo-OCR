@@ -70,6 +70,10 @@ MAX_OUTPUT_TOKENS = 512
 # Settings keys (runtime overrides of the environment defaults).
 QWEN_PROVIDER_KEY = "qwen_provider"
 QWEN_MODEL_KEY = "qwen_model"
+QWEN_MODEL_KEYS = {
+    PROVIDER_OLLAMA: "qwen_model_ollama",
+    PROVIDER_OPENAI: "qwen_model_openai",
+}
 QWEN_BASE_URL_KEY = "qwen_base_url"
 QWEN_API_KEY_KEY = "qwen_api_key"
 QWEN_KEEP_ALIVE_KEY = "qwen_keep_alive"
@@ -81,6 +85,32 @@ def _stored(key: str):
         return settings_store.get(key)
     except Exception:
         return None
+
+
+def model_for_provider(provider: str) -> str:
+    """
+    The model saved for one provider, falling back to environment defaults.
+
+    Each provider remembers its own model: у локальной Ollama и у облака разные
+    имена, и переключение провайдера не должно терять выбор другого. Старый
+    единственный ключ `qwen_model` читается как модель ТЕКУЩЕГО провайдера —
+    так сохранённый до появления раздельных ключей выбор не теряется.
+    """
+
+    per_provider = _stored(QWEN_MODEL_KEYS.get(provider, ""))
+
+    if per_provider:
+        return str(per_provider)
+
+    legacy = _stored(QWEN_MODEL_KEY)
+    current_provider = str(
+        _stored(QWEN_PROVIDER_KEY) or QWEN_PROVIDER
+    ).strip().lower()
+
+    if legacy and provider == current_provider:
+        return str(legacy)
+
+    return QWEN_MODEL if provider == PROVIDER_OLLAMA else ""
 
 
 def resolve_settings() -> dict:
@@ -97,7 +127,7 @@ def resolve_settings() -> dict:
 
     return {
         "provider": provider,
-        "model": str(_stored(QWEN_MODEL_KEY) or QWEN_MODEL),
+        "model": model_for_provider(provider),
         "base_url": str(_stored(QWEN_BASE_URL_KEY) or QWEN_BASE_URL).rstrip("/"),
         "api_key": str(_stored(QWEN_API_KEY_KEY) or ""),
         "keep_alive": (
@@ -165,7 +195,15 @@ def update_settings(
         settings_store.set_value(QWEN_PROVIDER_KEY, provider)
 
     if model is not None:
-        settings_store.set_value(QWEN_MODEL_KEY, model)
+        # The model belongs to the provider being set (or to the current one
+        # when only the model is sent), so switching providers keeps both.
+        target = provider or str(
+            _stored(QWEN_PROVIDER_KEY) or QWEN_PROVIDER
+        ).strip().lower()
+
+        settings_store.set_value(
+            QWEN_MODEL_KEYS.get(target, QWEN_MODEL_KEY), model
+        )
 
     if base_url is not None:
         settings_store.set_value(QWEN_BASE_URL_KEY, base_url.rstrip("/"))
@@ -333,7 +371,11 @@ def _openai_analyze(config: dict, path: str) -> tuple[dict, dict, float]:
         headers=_openai_headers(config),
     )
 
-    payload = _post_json(request, config["timeout"])
+    # Облако ограничивает частоту: повторяем с паузой, чтобы массовый прогон
+    # не помечал упавшими фото из-за 429.
+    payload = _post_json(
+        request, config["timeout"], retries=CLOUD_RETRY_ATTEMPTS
+    )
 
     choices = payload.get("choices") or []
 
@@ -360,9 +402,65 @@ def _get_json(request, timeout: float) -> dict:
         return json.loads(response.read())
 
 
-def _post_json(request, timeout: float) -> dict:
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read())
+# Ограничение частоты у облачного провайдера — штатная ситуация: без повторов
+# один массовый прогон выжигает квоту и помечает упавшими сотни фото.
+CLOUD_RETRY_ATTEMPTS = int(os.getenv("SCENE_QWEN_CLOUD_RETRIES", "3"))
+CLOUD_RETRY_DELAY = float(os.getenv("SCENE_QWEN_CLOUD_RETRY_DELAY", "5"))
+_RETRYABLE_STATUS = {429, 503, 504}
+_MAX_WAIT = 60.0
+
+
+class ProviderRateLimited(RuntimeError):
+    """Провайдер ограничил частоту запросов и не отпустил после повторов."""
+
+
+def _retry_after(exc: urllib.error.HTTPError) -> float | None:
+    headers = getattr(exc, "headers", None)
+    raw = headers.get("Retry-After") if headers is not None else None
+
+    try:
+        return float(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _post_json(
+    request, timeout: float, *, retries: int = 1, retry_delay: float | None = None
+) -> dict:
+    """
+    POST one JSON request, retrying a rate-limited provider.
+
+    `retries`/`retry_delay` are for the cloud path; the local Ollama keeps a
+    single attempt (a stopped server must fail fast, not wait).
+    """
+
+    delay = CLOUD_RETRY_DELAY if retry_delay is None else retry_delay
+
+    for attempt in range(1, max(1, retries) + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read())
+        except urllib.error.HTTPError as exc:
+            last = attempt >= max(1, retries)
+
+            if last or exc.code not in _RETRYABLE_STATUS:
+                if exc.code == 429:
+                    raise ProviderRateLimited(
+                        "провайдер ограничил частоту запросов (HTTP 429): "
+                        "подождите или проверьте лимиты тарифа"
+                    ) from exc
+
+                raise
+
+            wait = _retry_after(exc) or delay * (2 ** (attempt - 1))
+            time.sleep(min(wait, _MAX_WAIT))
+        except urllib.error.URLError:
+            if attempt >= max(1, retries):
+                raise
+
+            time.sleep(min(delay * (2 ** (attempt - 1)), _MAX_WAIT))
+
+    raise ProviderRateLimited("провайдер недоступен после повторов")
 
 
 def encode_image(path: str) -> str:
@@ -572,7 +670,9 @@ def chat_text(prompt: str, config: dict | None = None) -> str:
             data=body,
             headers=_openai_headers(config),
         )
-        payload = _post_json(request, config["timeout"])
+        payload = _post_json(
+            request, config["timeout"], retries=CLOUD_RETRY_ATTEMPTS
+        )
         choices = payload.get("choices") or []
 
         if not choices:

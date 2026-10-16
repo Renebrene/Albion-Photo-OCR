@@ -286,7 +286,12 @@ def qwen_stats() -> dict:
     `photo_qwen` only has a row per described photo, so its status counts are
     *not* the base size: a photo that was never queued has no row at all. The
     card needs both numbers, hence `photos` (registered photos) next to
-    `counts`, with `processed`/`remaining` derived from them.
+    `counts`.
+
+    `processed` counts photos that HAVE a description, not rows currently in
+    status DONE: a re-run flips the row to RUNNING while the previous
+    description stays in place (`mark_running` does not clear it), so counting
+    DONE made the counter go backwards during a re-recognition pass.
 
     `runs` groups finished QWEN jobs by the trigger recorded in the payload
     ("manual" / "automation" / "pipeline"; older rows default to "manual"),
@@ -302,6 +307,24 @@ def qwen_stats() -> dict:
                 "SELECT status, count(*) FROM public.photo_qwen GROUP BY status"
             )
             counts = {row[0]: int(row[1]) for row in cur.fetchall()}
+
+            cur.execute(
+                "SELECT count(*) FROM public.photo_qwen "
+                "WHERE description IS NOT NULL AND btrim(description) <> ''"
+            )
+            described = int(cur.fetchone()[0])
+
+            # Какая модель дала описания: при смене модели видно, что
+            # перераспознано, а что ещё держит старый результат.
+            cur.execute(
+                "SELECT qwen_model, count(*) FROM public.photo_qwen "
+                "WHERE qwen_model IS NOT NULL AND qwen_model <> '' "
+                "GROUP BY 1 ORDER BY 2 DESC, 1"
+            )
+            models = [
+                {"model": row[0], "photos": int(row[1])}
+                for row in cur.fetchall()
+            ]
 
             cur.execute(
                 """
@@ -325,13 +348,13 @@ def qwen_stats() -> dict:
                 for row in cur.fetchall()
             ]
 
-    done = counts.get("DONE", 0)
-
     return {
         "photos": photos,
         "counts": counts,
-        "processed": done,
-        "remaining": max(0, photos - done),
+        "processed": described,
+        "remaining": max(0, photos - described),
+        "queued": counts.get("PENDING", 0) + counts.get("RUNNING", 0),
+        "models": models,
         "runs": runs,
     }
 

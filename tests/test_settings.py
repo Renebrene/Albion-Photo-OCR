@@ -64,16 +64,25 @@ def test_models_requires_read_scope(monkeypatch):
     assert response.status_code == 403
 
 
-@requires_db
-def test_settings_store_roundtrip():
-    key = "qwen_model"
-    original = settings_store.get(key)
+# Ключи, которыми тесты настроек не должны «сочиться» в рабочую базу.
+MODEL_KEYS = ("qwen_model", "qwen_model_ollama", "qwen_model_openai")
 
-    try:
-        settings_store.set_value(key, "test-model-x")
-        assert settings_store.get(key) == "test-model-x"
-    finally:
-        if original is None:
+
+def _snapshot_model_keys() -> dict:
+    return {key: settings_store.get(key) for key in MODEL_KEYS}
+
+
+def _restore_model_keys(snapshot: dict) -> None:
+    """
+    Вернуть настройки к состоянию до теста, включая «ключа не было».
+
+    Тесты писали в НАСТОЯЩИЕ настройки рабочей базы: однажды после прогона
+    осталась несуществующая облачная модель, и воркер отвечал «Not Found» на
+    каждом фото.
+    """
+
+    for key, value in snapshot.items():
+        if value is None:
             with get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
@@ -81,31 +90,47 @@ def test_settings_store_roundtrip():
                         (key,),
                     )
         else:
-            settings_store.set_value(key, original)
+            settings_store.set_value(key, value)
+
+
+@requires_db
+def test_settings_store_roundtrip():
+    snapshot = _snapshot_model_keys()
+
+    try:
+        settings_store.set_value("qwen_model", "test-model-x")
+        assert settings_store.get("qwen_model") == "test-model-x"
+    finally:
+        _restore_model_keys(snapshot)
 
 
 @requires_db
 def test_api_sets_model(monkeypatch):
+    """Модель сохраняется для ТЕКУЩЕГО провайдера (своя у каждого)."""
+
+    from app.qwen import processor as qwen_processor
+
     monkeypatch.delenv("SCENE_API_TOKENS", raising=False)
 
-    key = "qwen_model"
-    original = settings_store.get(key)
+    provider = qwen_processor.resolve_settings()["provider"]
+    key = qwen_processor.QWEN_MODEL_KEYS[provider]
+    snapshot = _snapshot_model_keys()
+    probe = "__probe_model__"
 
     try:
         response = client.put(
             "/api/v1/qwen/model",
-            json={"model": "qwen3-vl:8b"},
+            json={"model": probe},
         )
         assert response.status_code == 200
-        assert response.json()["model"] == "qwen3-vl:8b"
-        assert settings_store.get(key) == "qwen3-vl:8b"
+        assert response.json()["model"] == probe
+        assert settings_store.get(key) == probe
+        # Сохранение модели не подменяет модель другого провайдера.
+        other = next(
+            name
+            for name in qwen_processor.QWEN_MODEL_KEYS.values()
+            if name != key
+        )
+        assert settings_store.get(other) == snapshot[other]
     finally:
-        if original is None:
-            with get_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "DELETE FROM public.app_settings WHERE key = %s",
-                        (key,),
-                    )
-        else:
-            settings_store.set_value(key, original)
+        _restore_model_keys(snapshot)

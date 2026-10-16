@@ -4,7 +4,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { Notify, Quasar } from 'quasar'
+import { Notify, QSelect, Quasar } from 'quasar'
 
 import Settings from '../src/pages/Settings.vue'
 
@@ -31,7 +31,10 @@ function installFetch() {
     }
 
     if (method === 'PUT' && path === '/api/v1/qwen/settings') {
-      updated.push(JSON.parse(options.body))
+      const body = JSON.parse(options.body)
+      updated.push(body)
+      // Сервер возвращает сохранённое состояние — как настоящий маршрут.
+      qwenSettings = { ...qwenSettings, ...body }
       return jsonResponse(qwenSettings)
     }
 
@@ -124,6 +127,24 @@ describe('Settings.vue', () => {
     // должно остановить таймер, иначе он переживёт тест.
     expect(text).toContain('обновляется автоматически')
     wrapper.unmount()
+  })
+
+  it('shows the saved model and persists a newly chosen one', async () => {
+    const wrapper = mountSettings()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Сохранено: qwen3-vl:4b-instruct')
+
+    const modelSelect = wrapper
+      .findAllComponents(QSelect)
+      .find((item) => String(item.props('label')).includes('Модель'))
+
+    await modelSelect.vm.$emit('update:model-value', 'ling-3.0-flash-vl')
+    await flushPromises()
+
+    // Модель запоминается сразу при выборе, без кнопки «Сохранить».
+    expect(updated).toContainEqual({ model: 'ling-3.0-flash-vl' })
+    expect(wrapper.text()).toContain('Сохранено: ling-3.0-flash-vl')
   })
 
   it('disables retry when there are no failed photos', async () => {

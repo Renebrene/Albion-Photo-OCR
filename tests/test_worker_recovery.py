@@ -113,14 +113,26 @@ def test_qwen_stats_reports_base_size_and_runs():
     stats = repository.qwen_stats()
 
     assert stats["photos"] >= 1
-    assert stats["processed"] == stats["counts"].get("DONE", 0)
+    # «Распознано» — у фото есть описание, а не «сейчас в статусе DONE»:
+    # при повторном прогоне строка уходит в RUNNING, и счётчик не должен
+    # идти назад (mark_running описание не стирает).
+    assert stats["processed"] >= stats["counts"].get("DONE", 0)
+    assert stats["processed"] <= stats["photos"]
     assert stats["remaining"] == max(0, stats["photos"] - stats["processed"])
+    assert stats["queued"] == (
+        stats["counts"].get("PENDING", 0) + stats["counts"].get("RUNNING", 0)
+    )
     assert isinstance(stats["runs"], list)
+    assert isinstance(stats["models"], list)
 
     for run in stats["runs"]:
         assert run["source"] in jobs_db.QWEN_SOURCES
         assert run["jobs"] >= 1
         assert run["failed"] >= 0
+
+    for item in stats["models"]:
+        assert item["model"]
+        assert item["photos"] >= 1
 
 
 @requires_db

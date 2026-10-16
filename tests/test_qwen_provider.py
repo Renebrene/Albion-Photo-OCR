@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import json
+import urllib.error
 
 import pytest
 
@@ -65,6 +66,39 @@ def test_update_settings_roundtrip_and_masking(fake_settings):
     assert fake_settings["qwen_api_key"] == "sk-secret-123456"
 
 
+def test_each_provider_keeps_its_own_model(fake_settings):
+    """У локальной и облачной модели разные имена: выбор не теряется."""
+
+    processor.update_settings(provider="openai", model="ling-3.0-flash-vl")
+    processor.update_settings(provider="ollama", model="qwen3-vl:4b-instruct")
+
+    assert processor.model_for_provider("openai") == "ling-3.0-flash-vl"
+    assert processor.model_for_provider("ollama") == "qwen3-vl:4b-instruct"
+
+    # Переключение провайдера возвращает модель именно этого провайдера.
+    assert processor.resolve_settings()["model"] == "qwen3-vl:4b-instruct"
+    processor.update_settings(provider="openai")
+    assert processor.resolve_settings()["model"] == "ling-3.0-flash-vl"
+
+
+def test_model_without_provider_updates_the_current_one(fake_settings):
+    processor.update_settings(provider="openai", model="ling-3.0-flash-vl")
+    processor.update_settings(model="ling-3.0-flash-vl-v2")
+
+    assert processor.resolve_settings()["model"] == "ling-3.0-flash-vl-v2"
+
+
+def test_legacy_model_key_belongs_to_the_current_provider(fake_settings):
+    """Единственный старый ключ читается как модель текущего провайдера."""
+
+    fake_settings["qwen_provider"] = "openai"
+    fake_settings["qwen_model"] = "ling-3.0-flash-vl"
+
+    assert processor.model_for_provider("openai") == "ling-3.0-flash-vl"
+    # Локальной Ollama старое облачное имя не навязывается.
+    assert processor.model_for_provider("ollama") == processor.QWEN_MODEL
+
+
 def test_update_settings_rejects_unknown_provider(fake_settings):
     with pytest.raises(ValueError):
         processor.update_settings(provider="nope")
@@ -104,6 +138,82 @@ def test_ollama_analyze_sends_configured_keep_alive(fake_settings, monkeypatch):
     assert captured["url"].endswith("/api/chat")
     assert captured["body"]["keep_alive"] == "7m"
     assert captured["body"]["options"]["num_predict"] == processor.MAX_OUTPUT_TOKENS
+
+
+def test_cloud_retries_a_rate_limited_provider(monkeypatch):
+    """429 — не приговор: ждём и повторяем, а не помечаем фото упавшим."""
+
+    calls = {"n": 0}
+    slept: list[float] = []
+
+    class _Response(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def fake_urlopen(request, timeout=None):
+        calls["n"] += 1
+
+        if calls["n"] == 1:
+            raise urllib.error.HTTPError(
+                request.full_url, 429, "Too Many Requests", {}, None
+            )
+
+        return _Response(json.dumps({"ok": True}).encode("utf-8"))
+
+    monkeypatch.setattr(processor.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(processor.time, "sleep", lambda value: slept.append(value))
+
+    request = processor.urllib.request.Request("https://example.invalid/v1/x")
+    assert processor._post_json(request, 5.0, retries=3) == {"ok": True}
+    assert calls["n"] == 2
+    assert slept and slept[0] > 0
+
+
+def test_cloud_gives_up_with_a_readable_message(monkeypatch):
+    class _Response(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def fake_urlopen(request, timeout=None):
+        raise urllib.error.HTTPError(
+            request.full_url, 429, "Too Many Requests", {}, None
+        )
+
+    monkeypatch.setattr(processor.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(processor.time, "sleep", lambda value: None)
+
+    request = processor.urllib.request.Request("https://example.invalid/v1/x")
+
+    with pytest.raises(processor.ProviderRateLimited) as excinfo:
+        processor._post_json(request, 5.0, retries=2)
+
+    assert "429" in str(excinfo.value)
+
+
+def test_local_provider_does_not_retry(monkeypatch):
+    """У локальной Ollama повторов нет: остановленный сервер падает сразу."""
+
+    calls = {"n": 0}
+
+    def fake_urlopen(request, timeout=None):
+        calls["n"] += 1
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr(processor.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(processor.time, "sleep", lambda value: None)
+
+    request = processor.urllib.request.Request("http://127.0.0.1:11434/api/chat")
+
+    with pytest.raises(urllib.error.URLError):
+        processor._post_json(request, 5.0)
+
+    assert calls["n"] == 1
 
 
 def test_openai_analyze_builds_request_and_parses(fake_settings, monkeypatch):

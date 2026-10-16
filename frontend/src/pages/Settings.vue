@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Notify } from 'quasar'
 
 import {
@@ -27,6 +27,10 @@ const unloadOnIdle = ref(true)
 const model = ref(null)
 const available = ref([])
 const current = ref(null)
+const modelsUnavailable = ref(false)
+// Пока первичная загрузка не закончилась, наблюдатель за провайдером молчит:
+// иначе сохранение сработало бы на присвоении значения из настроек.
+const settingsLoaded = ref(false)
 
 const stats = ref(null)
 
@@ -46,7 +50,10 @@ async function loadSettings() {
     apiKeySet.value = !!data.api_key_set
     keepAlive.value = data.keep_alive || ''
     unloadOnIdle.value = data.unload_on_idle !== false
+    model.value = data.model || null
+    current.value = data.model || null
     apiKey.value = ''
+    settingsLoaded.value = true
   } catch (err) {
     error.value = err.message
   }
@@ -54,7 +61,6 @@ async function loadSettings() {
 
 async function loadModels() {
   loading.value = true
-  error.value = null
 
   try {
     const data = await fetchQwenModels()
@@ -63,13 +69,48 @@ async function loadModels() {
       value: m.name,
     }))
     current.value = data.current
-    if (!model.value) model.value = data.current
-  } catch (err) {
-    error.value = err.message
+    modelsUnavailable.value = false
+  } catch {
+    // Облачный провайдер может не отдавать список моделей — это не ошибка
+    // настроек: имя модели можно ввести руками, сохранённое значение остаётся.
+    modelsUnavailable.value = true
+    available.value = current.value ? [{ label: current.value, value: current.value }] : []
   } finally {
+    // Показываем именно сохранённую модель этого провайдера.
+    model.value = current.value || model.value
     loading.value = false
   }
 }
+
+// Модель запоминается сразу при выборе: у каждого провайдера своя модель.
+async function saveModel(value) {
+  if (!value) return
+
+  try {
+    const data = await updateQwenSettings({ model: value })
+    current.value = data?.model || value
+    Notify.create({ type: 'positive', message: `Модель сохранена: ${current.value}` })
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
+// Смена провайдера тоже сохраняется сразу и подтягивает модель этого провайдера.
+watch(provider, async (value, previous) => {
+  if (!settingsLoaded.value || value === previous) return
+
+  try {
+    await updateQwenSettings({ provider: value })
+    await loadSettings()
+    await loadModels()
+    Notify.create({
+      type: 'info',
+      message: value === 'openai' ? 'Провайдер: облако' : 'Провайдер: локально (Ollama)',
+    })
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+})
 
 async function loadStats() {
   try {
@@ -282,9 +323,16 @@ onBeforeUnmount(stopStatsPolling)
           use-input
           input-debounce="0"
           new-value-mode="add-unique"
-          label="Модель"
-          class="q-mb-md"
+          :label="`Модель (провайдер: ${provider === 'openai' ? 'облако' : 'локально'})`"
+          class="q-mb-sm"
+          @update:model-value="saveModel"
         />
+        <div class="text-caption text-grey-8 q-mb-md">
+          Сохранено: {{ current || '—' }}
+          <template v-if="modelsUnavailable">
+            · список моделей провайдера недоступен, введите имя вручную
+          </template>
+        </div>
 
         <div class="row q-gutter-sm items-center q-mb-md">
           <q-input
@@ -338,6 +386,19 @@ onBeforeUnmount(stopStatsPolling)
           <span v-if="statsTimer" class="text-caption text-grey-7">
             обновляется автоматически…
           </span>
+        </div>
+
+        <div v-if="stats.models && stats.models.length" class="q-mb-md">
+          <div class="text-caption text-grey-8 q-mb-xs">
+            Какая модель дала описания:
+          </div>
+          <div
+            v-for="item in stats.models"
+            :key="item.model"
+            class="text-caption text-grey-8"
+          >
+            {{ item.model }} — {{ item.photos }}
+          </div>
         </div>
 
         <div v-if="stats.runs && stats.runs.length" class="q-mb-md">

@@ -1448,8 +1448,9 @@ def qwen_models():
     dependencies=[Depends(require_scope("jobs:write"))],
 )
 def set_qwen_model(request: QwenModelRequest):
-    settings_store.set_value(qwen.QWEN_MODEL_KEY, request.model)
-    return {"model": qwen.resolve_model()}
+    # Идёт через update_settings: модель запоминается для ТЕКУЩЕГО провайдера,
+    # поэтому переключение провайдера не теряет выбор другого.
+    return qwen.update_settings(model=request.model)
 
 
 @jobs_router.post(
