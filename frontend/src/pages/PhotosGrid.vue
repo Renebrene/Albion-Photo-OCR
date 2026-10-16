@@ -46,17 +46,42 @@ const mediaFile = ref(null) // the chosen File, kept in memory until ПОИСК
 const mediaJobId = ref(null)
 const mediaStage = ref('')
 const mediaBusy = ref(false)
+const qwenElapsedSeconds = ref(0)
+const manualQwenRunning = ref(false)
+let qwenTimer = null
 
 const mediaName = computed(() => (mediaFile.value ? mediaFile.value.name : ''))
 
-const mediaStageText = computed(
-  () =>
-    ({
-      queued: 'в очереди…',
-      qwen: 'QWEN обрабатывает фото…',
-      search: 'поиск по базе…',
-    })[mediaStage.value] || 'обработка…',
-)
+function startQwenElapsed() {
+  if (qwenTimer !== null) return
+  qwenElapsedSeconds.value = 0
+  qwenTimer = window.setInterval(() => {
+    qwenElapsedSeconds.value += 1
+  }, 1000)
+}
+
+function stopQwenElapsed() {
+  if (qwenTimer !== null) window.clearInterval(qwenTimer)
+  qwenTimer = null
+  manualQwenRunning.value = false
+}
+
+const mediaStageText = computed(() => {
+  if (mediaStage.value === 'qwen') {
+    return `Распознаётся… ${qwenElapsedSeconds.value} с`
+  }
+  return ({
+    queued: 'в очереди…',
+    search: 'поиск по базе…',
+  })[mediaStage.value] || 'обработка…'
+})
+
+const manualQwenText = computed(() => {
+  if (manualStage.value !== 'describing') return ''
+  if (manualQwenRunning.value) return `Распознаётся… ${qwenElapsedSeconds.value} с`
+  if (qwenElapsedSeconds.value > 0) return `QWEN завершил за ${qwenElapsedSeconds.value} с`
+  return 'В очереди QWEN…'
+})
 // По умолчанию — все фото: грид подгружает их страницами по мере прокрутки.
 const period = ref('all')
 const customFrom = ref(null)
@@ -222,6 +247,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   stopGridObserver()
+  stopQwenElapsed()
 })
 
 // Arrow keys page through the gallery in the order it is displayed.
@@ -308,6 +334,7 @@ function pickMedia() {
 const autoMode = ref(true) // галочка «Авто» активна по умолчанию
 const manualOpen = ref(false)
 const manualStage = ref('idle') // idle | describing | ready | searching
+const manualJobId = ref(null)
 const manualFile = ref(null)
 const manualMeta = ref(null)
 const manualPreviewUrl = ref(null)
@@ -373,7 +400,13 @@ function seekToFrame() {
   if (el) el.currentTime = manualFrameSec.value
 }
 
-function closeManual() {
+async function closeManual() {
+  // Закрытие во время распознавания отменяет job (если она ещё активна).
+  if (manualJobId.value && manualStage.value === 'describing') {
+    try { await cancelJob(manualJobId.value) } catch { /* best-effort */ }
+  }
+  stopQwenElapsed()
+  manualJobId.value = null
   manualOpen.value = false
   if (manualPreviewUrl.value) URL.revokeObjectURL(manualPreviewUrl.value)
   manualPreviewUrl.value = null
@@ -387,19 +420,33 @@ function onPreviewLoad(event) {
 
 async function runDescribe() {
   if (!manualFile.value || manualStage.value === 'describing') return
+  stopQwenElapsed()
+  qwenElapsedSeconds.value = 0
   manualStage.value = 'describing'
 
   try {
     const frameSeconds = manualIsVideo.value ? manualFrameSec.value : null
     const upload = await describeMediaSearch(manualFile.value, frameSeconds)
     const { job_id: jobId } = upload
+    manualJobId.value = jobId
     if (upload?.media?.codec) manualCodec.value = upload.media.codec
     let job = null
     for (let i = 0; i < 60; i += 1) {
       await new Promise((resolve) => setTimeout(resolve, 1500))
       job = await fetchMediaSearchJob(jobId)
+
+      if (job.status === 'RUNNING') {
+        if (job.progress?.stage === 'готово') {
+          stopQwenElapsed()
+        } else {
+          manualQwenRunning.value = true
+          startQwenElapsed()
+        }
+      }
       if (['DONE', 'FAILED', 'CANCELLED'].includes(job.status)) break
     }
+    stopQwenElapsed()
+    manualJobId.value = null
     if (!job || job.status !== 'DONE') {
       manualStage.value = 'idle'
       Notify.create({ type: 'negative', message: `Распознавание: ${job ? job.status : 'таймаут'}` })
@@ -415,6 +462,7 @@ async function runDescribe() {
     }
     manualStage.value = 'ready'
   } catch (err) {
+    stopQwenElapsed()
     manualStage.value = 'idle'
     Notify.create({ type: 'negative', message: err.message })
   }
@@ -455,6 +503,7 @@ async function runManualSearch() {
 
 
 function clearMedia() {
+  stopQwenElapsed()
   mediaFile.value = null
   mediaStage.value = ''
   store.applyNlResults([])
@@ -463,6 +512,7 @@ function clearMedia() {
 async function runMediaSearch() {
   if (!mediaFile.value || mediaBusy.value) return
 
+  stopQwenElapsed()
   mediaBusy.value = true
   mediaStage.value = 'queued'
 
@@ -477,7 +527,15 @@ async function runMediaSearch() {
       await new Promise((resolve) => setTimeout(resolve, 1500))
       job = await fetchMediaSearchJob(jobId)
 
-      if (job.status === 'RUNNING') mediaStage.value = 'qwen'
+      if (job.status === 'RUNNING') {
+        if (job.progress?.stage === 'готово') {
+          mediaStage.value = 'search'
+          stopQwenElapsed()
+        } else {
+          mediaStage.value = 'qwen'
+          startQwenElapsed()
+        }
+      }
       if (['DONE', 'FAILED', 'CANCELLED'].includes(job.status)) break
     }
 
@@ -512,6 +570,7 @@ async function runMediaSearch() {
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   } finally {
+    stopQwenElapsed()
     mediaBusy.value = false
     mediaJobId.value = null
     mediaStage.value = ''
@@ -521,6 +580,7 @@ async function runMediaSearch() {
 async function stopMediaSearch() {
   if (!mediaJobId.value) return
 
+  stopQwenElapsed()
   try {
     await cancelJob(mediaJobId.value)
     Notify.create({ type: 'info', message: 'Поиск остановлен' })
@@ -1850,6 +1910,9 @@ function tagList(meta) {
             <q-btn flat label="Распознать заново" @click="runDescribe" />
           </template>
         </q-card-actions>
+        <div v-if="manualQwenText" class="text-caption text-grey-7 q-px-md q-pb-xs">
+          {{ manualQwenText }}
+        </div>
         <q-linear-progress v-if="manualStage === 'describing'" indeterminate color="secondary" />
         <q-linear-progress v-if="manualStage === 'searching'" indeterminate color="primary" />
       </q-card>
