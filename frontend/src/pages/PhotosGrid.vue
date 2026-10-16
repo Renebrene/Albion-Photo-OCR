@@ -19,6 +19,7 @@ import {
   searchByQuery,
 } from '../api/client'
 import AuthImage from '../components/AuthImage.vue'
+import ClientNormalization from '../components/ClientNormalization.vue'
 import CollectionsPanel from '../components/CollectionsPanel.vue'
 import ResizeHandle from '../components/ResizeHandle.vue'
 import DisplaySettings from '../components/DisplaySettings.vue'
@@ -31,10 +32,20 @@ import {
   useDisplayStore,
 } from '../stores/display'
 import { usePhotosStore } from '../stores/photos'
+import { useSessionStore } from '../stores/session'
 import { PERIODS, periodRange } from '../utils/periodRange'
 
 const store = usePhotosStore()
 const display = useDisplayStore()
+const session = useSessionStore()
+
+// Гость (read-only) не работает с подборками и «Избранным»: это писательские
+// функции (scopes searches:write / collections:write). В открытом локальном
+// режиме ограничивать нечего.
+const canUseCollective = computed(() => {
+  if (!session.authEnabled) return true
+  return ['Администратор', 'Менеджер'].includes(session.user?.role)
+})
 
 const { items, error, loading, addresses, clients, savedSearches } =
   storeToRefs(store)
@@ -1010,7 +1021,11 @@ function tagList(meta) {
           @resize="(delta) => display.resizeSideList(delta)"
         />
 
-        <CollectionsPanel scope="addresses" @create="openBucketDialog" />
+        <CollectionsPanel
+          v-if="canUseCollective"
+          scope="addresses"
+          @create="openBucketDialog"
+        />
       </div>
 
       <ResizeHandle
@@ -1248,16 +1263,16 @@ function tagList(meta) {
             <q-tooltip>Настройки отображения</q-tooltip>
           </q-btn>
 
-          <!-- сохранённые поиски переехали из левой панели в это меню -->
-          <q-btn dense flat icon="bookmarks">
-            <q-tooltip>Сохранённые поиски</q-tooltip>
+          <!-- Избранное (бывшие «сохранённые поиски») — тоже принадлежит пользователю -->
+          <q-btn v-if="canUseCollective" dense flat icon="bookmarks">
+            <q-tooltip>Избранное</q-tooltip>
             <q-menu>
               <q-list dense style="min-width: 240px">
                 <q-item clickable v-close-popup @click="openSaveSearch">
                   <q-item-section avatar>
                     <q-icon name="bookmark_add" />
                   </q-item-section>
-                  <q-item-section>Сохранить текущий поиск</q-item-section>
+                  <q-item-section>Добавить текущий поиск в Избранное</q-item-section>
                 </q-item>
                 <q-separator />
                 <q-item
@@ -1285,7 +1300,7 @@ function tagList(meta) {
                 </q-item>
                 <q-item v-if="!savedSearches.length">
                   <q-item-section class="text-caption text-grey">
-                    Нет сохранённых поисков
+                    В Избранном пусто
                   </q-item-section>
                 </q-item>
               </q-list>
@@ -1549,7 +1564,11 @@ function tagList(meta) {
           @resize="(delta) => display.resizeSideList(delta)"
         />
 
-        <CollectionsPanel scope="clients" @create="openBucketDialog" />
+        <CollectionsPanel
+          v-if="canUseCollective"
+          scope="clients"
+          @create="openBucketDialog"
+        />
       </div>
     </div>
 
@@ -1849,13 +1868,20 @@ function tagList(meta) {
 
     <!-- Display settings; the same panel is duplicated in the technical section -->
     <q-dialog v-model="settingsOpen">
-      <q-card style="min-width: 380px; max-width: 90vw">
+      <q-card style="min-width: 380px; max-width: 92vw">
         <q-card-section class="text-subtitle1">
           Настройки отображения
         </q-card-section>
         <q-separator />
-        <q-card-section>
-          <DisplaySettings />
+        <q-card-section class="row q-col-gutter-md">
+          <div :class="canUseCollective ? 'col-12 col-md-6' : 'col-12'">
+            <DisplaySettings />
+          </div>
+          <!-- Нормализация клиентов и брендов: справа, только форма и список
+               имён, без журнала (он остался в техразделе). -->
+          <div v-if="canUseCollective" class="col-12 col-md-6">
+            <ClientNormalization compact />
+          </div>
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Закрыть" v-close-popup />

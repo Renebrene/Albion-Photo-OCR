@@ -42,7 +42,7 @@ const canEditClients = computed(() =>
     <q-tabs v-model="tab" dense align="left" class="text-primary q-mb-sm">
       <span class="tab-sep" />
       <q-tab name="ingest" icon="folder_open" label="Загрузка" />
-      <q-tab name="processing" icon="play_circle" label="Обработка" />
+      <q-tab name="processing" icon="play_circle" label="Сортировка" />
       <q-tab name="qwen" icon="auto_awesome" label="Распознавание" />
       <span class="tab-sep" />
       <q-tab name="automation" icon="schedule" label="Автоматизация" />

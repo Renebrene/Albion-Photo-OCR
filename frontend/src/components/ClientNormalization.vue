@@ -18,6 +18,12 @@ import {
 
 // Справочник один на клиентов и брендов: колонка kind выбирает, что правим
 // (schema/035). QWEN одинаково «изобретает» и клиентов, и бренды.
+// compact — для окна над гридом: форма и список имён без журнала изменений
+// (журнал остаётся в техразделе).
+const props = defineProps({
+  compact: { type: Boolean, default: false },
+})
+
 const kind = ref('client')
 
 const aliases = ref([])
@@ -202,8 +208,8 @@ onMounted(() => {
     </q-markup-table>
     <div v-else class="text-caption text-grey">Алиасов нет</div>
 
-    <!-- Журнал правок: кто, что и когда изменил. -->
-    <div v-if="audit.length" class="q-mt-lg">
+    <!-- Журнал правок: кто, что и когда изменил (в компактном режиме скрыт). -->
+    <div v-if="audit.length && !compact" class="q-mt-lg">
       <div class="text-caption text-grey-8 q-mb-xs">История изменений</div>
       <q-markup-table dense flat bordered>
         <thead>

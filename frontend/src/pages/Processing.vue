@@ -194,7 +194,7 @@ onMounted(() => {
 <template>
   <div>
     <div class="row items-center q-gutter-md q-mb-md">
-      <div class="text-h6">Обработка</div>
+      <div class="text-h6">Сортировка</div>
       <q-btn
         color="primary"
         icon="play_arrow"

@@ -75,6 +75,8 @@ QWEN_MODEL_KEYS = {
     PROVIDER_OPENAI: "qwen_model_openai",
 }
 QWEN_BASE_URL_KEY = "qwen_base_url"
+QWEN_CROP_KEY = "qwen_crop"
+QWEN_CROP_RATIO_KEY = "qwen_crop_ratio"
 QWEN_API_KEY_KEY = "qwen_api_key"
 QWEN_KEEP_ALIVE_KEY = "qwen_keep_alive"
 QWEN_UNLOAD_IDLE_KEY = "qwen_unload_on_idle"
@@ -124,6 +126,35 @@ def _migrate_legacy_model() -> None:
         return
 
 
+def crop_settings() -> dict:
+    """
+    Кроп кадра перед отправкой в модель (по умолчанию выключен).
+
+    Большой щит часто занимает лишь центр кадра; если обрезать края, щит
+    займёт больше пикселей при том же лимите 1280 px. Режимы:
+    `off` — весь кадр (поведение по умолчанию), `center` — центральная часть
+    с долей `ratio` от каждой стороны. Настройка живёт в `app_settings`
+    (`qwen_crop`, `qwen_crop_ratio`), поэтому меняется без перезапуска.
+    """
+
+    mode = str(
+        _stored(QWEN_CROP_KEY) or os.getenv("SCENE_QWEN_CROP", "off")
+    ).strip().lower()
+
+    if mode not in ("off", "center"):
+        mode = "off"
+
+    try:
+        ratio = float(
+            _stored(QWEN_CROP_RATIO_KEY)
+            or os.getenv("SCENE_QWEN_CROP_RATIO", "0.6")
+        )
+    except (TypeError, ValueError):
+        ratio = 0.6
+
+    return {"mode": mode, "ratio": min(max(ratio, 0.2), 1.0)}
+
+
 def model_for_provider(provider: str) -> str:
     """
     The model saved for one provider, falling back to environment defaults.
@@ -169,6 +200,7 @@ def resolve_settings() -> dict:
         ),
         "timeout": QWEN_TIMEOUT,
         "ollama_url": OLLAMA_URL,
+        "crop": crop_settings(),
     }
 
 
@@ -293,7 +325,7 @@ def _ollama_analyze(config: dict, path: str) -> tuple[dict, dict, float]:
                 {
                     "role": "user",
                     "content": PROMPT,
-                    "images": [encode_image(path)],
+                    "images": [encode_image(path, crop=config.get("crop"))],
                 }
             ],
             "stream": False,
@@ -374,7 +406,7 @@ def _openai_analyze(config: dict, path: str) -> tuple[dict, dict, float]:
     if not config["base_url"]:
         raise ValueError("qwen_base_url is not configured")
 
-    image = encode_image(path)
+    image = encode_image(path, crop=config.get("crop"))
 
     body = json.dumps(
         {
@@ -497,14 +529,32 @@ def _post_json(
     raise ProviderRateLimited("провайдер недоступен после повторов")
 
 
-def encode_image(path: str) -> str:
-    """Load an image (MPO frame 0), downscale it and return base64 JPEG."""
+def encode_image(path: str, *, crop: dict | None = None) -> str:
+    """
+    Load an image (MPO frame 0), optionally crop it, and return base64 JPEG.
+
+    `crop` = {"mode": "off"|"center", "ratio": 0.2..1.0}: центральный кроп
+    перед уменьшением — щит занимает больше пикселей при том же лимите.
+    """
 
     with Image.open(path) as image:
         if getattr(image, "n_frames", 1) > 1:
             image.seek(0)
 
         image = image.convert("RGB")
+
+        if crop and crop.get("mode") == "center":
+            ratio = float(crop.get("ratio") or 1.0)
+
+            if 0 < ratio < 1:
+                source_width, source_height = image.size
+                crop_width = max(1, int(source_width * ratio))
+                crop_height = max(1, int(source_height * ratio))
+                left = (source_width - crop_width) // 2
+                top = (source_height - crop_height) // 2
+                image = image.crop(
+                    (left, top, left + crop_width, top + crop_height)
+                )
 
         width, height = image.size
         longest = max(width, height)

@@ -99,6 +99,48 @@ def test_legacy_model_key_belongs_to_the_current_provider(fake_settings):
     assert processor.model_for_provider("ollama") == processor.QWEN_MODEL
 
 
+def test_crop_takes_the_centre_of_the_frame(tmp_path):
+    """Кроп обязан обрезать кадр, а не менять масштаб целиком."""
+
+    from PIL import Image
+
+    source = tmp_path / "wide.jpg"
+    Image.new("RGB", (1000, 500), color=(10, 20, 30)).save(source)
+
+    full = processor.encode_image(str(source))
+    cropped = processor.encode_image(
+        str(source), crop={"mode": "center", "ratio": 0.5}
+    )
+
+    def size(payload: str) -> tuple[int, int]:
+        import base64
+        import io as _io
+
+        with Image.open(_io.BytesIO(base64.b64decode(payload))) as image:
+            return image.size
+
+    assert size(full) == (1000, 500)
+    # Центральные 50% по каждой стороне: 500x250, и это по-прежнему < 1280.
+    assert size(cropped) == (500, 250)
+
+
+def test_crop_defaults_to_the_whole_frame(fake_settings):
+    """По умолчанию кроп выключен — поведение не меняется."""
+
+    assert processor.crop_settings() == {"mode": "off", "ratio": 0.6}
+
+    fake_settings["qwen_crop"] = "center"
+    fake_settings["qwen_crop_ratio"] = 0.9
+
+    assert processor.crop_settings() == {"mode": "center", "ratio": 0.9}
+
+    # Мусор в настройке не ломает распознавание.
+    fake_settings["qwen_crop"] = "diagonal"
+    fake_settings["qwen_crop_ratio"] = "abc"
+
+    assert processor.crop_settings() == {"mode": "off", "ratio": 0.6}
+
+
 def test_legacy_model_key_is_migrated_to_the_current_provider(fake_settings):
     """Старый единственный ключ переносится к текущему провайдеру один раз."""
 
@@ -170,7 +212,7 @@ def test_ollama_analyze_sends_configured_keep_alive(fake_settings, monkeypatch):
         )
 
     monkeypatch.setattr(processor.urllib.request, "urlopen", fake_urlopen)
-    monkeypatch.setattr(processor, "encode_image", lambda path: "BASE64")
+    monkeypatch.setattr(processor, "encode_image", lambda path, **kw: "BASE64")
 
     config = {**processor.resolve_settings(), "keep_alive": "7m"}
 
@@ -286,7 +328,7 @@ def test_openai_analyze_builds_request_and_parses(fake_settings, monkeypatch):
         )
 
     monkeypatch.setattr(processor.urllib.request, "urlopen", fake_urlopen)
-    monkeypatch.setattr(processor, "encode_image", lambda path: "BASE64")
+    monkeypatch.setattr(processor, "encode_image", lambda path, **kw: "BASE64")
 
     config = {
         "provider": "openai",

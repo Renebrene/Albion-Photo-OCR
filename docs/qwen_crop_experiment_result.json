@@ -1,0 +1,242 @@
+{
+  "run_at": "2026-10-17T00:38:36",
+  "provider": "ollama",
+  "model": "qwen3-vl:4b-instruct",
+  "limit": 6,
+  "modes": {
+    "off": {
+      "summary": {
+        "photos": 6,
+        "errors": 0,
+        "agreement": {
+          "client": 100.0,
+          "brand": 100.0,
+          "category": 83.3
+        },
+        "seconds_mean": 2.02,
+        "tokens_total": null
+      },
+      "runs": [
+        {
+          "photo_id": "PH_0094a859f53a641a38d83e74",
+          "seconds": 1.57,
+          "fields": {
+            "client": "5",
+            "brand": "5",
+            "category": "рекламный щит"
+          },
+          "tokens": null,
+          "prompt_tokens": null,
+          "completion_tokens": null,
+          "matches": {
+            "client": true,
+            "brand": true,
+            "category": true
+          }
+        },
+        {
+          "photo_id": "PH_00a40729378de4dda40bfbb4",
+          "seconds": 1.7,
+          "fields": {
+            "client": "visitdon.ru",
+            "brand": "KVAS",
+            "category": "urban street"
+          },
+          "tokens": null,
+          "prompt_tokens": null,
+          "completion_tokens": null,
+          "matches": {
+            "client": true,
+            "brand": true,
+            "category": true
+          }
+        },
+        {
+          "photo_id": "PH_00aca47f50476e6faafa9a4d",
+          "seconds": 2.39,
+          "fields": {
+            "client": "Единая Россия",
+            "brand": "Единая Россия",
+            "category": "Рекламная вывеска"
+          },
+          "tokens": null,
+          "prompt_tokens": null,
+          "completion_tokens": null,
+          "matches": {
+            "client": true,
+            "brand": true,
+            "category": true
+          }
+        },
+        {
+          "photo_id": "PH_00d81ceea07b509d558d7f24",
+          "seconds": 2.33,
+          "fields": {
+            "client": "Маркет",
+            "brand": "Luvio",
+            "category": "рекламный щит"
+          },
+          "tokens": null,
+          "prompt_tokens": null,
+          "completion_tokens": null,
+          "matches": {
+            "client": true,
+            "brand": true,
+            "category": true
+          }
+        },
+        {
+          "photo_id": "PH_00f71993394455a6dcf826bb",
+          "seconds": 2.0,
+          "fields": {
+            "client": null,
+            "brand": null,
+            "category": "road_sign"
+          },
+          "tokens": null,
+          "prompt_tokens": null,
+          "completion_tokens": null,
+          "matches": {
+            "client": null,
+            "brand": null,
+            "category": true
+          }
+        },
+        {
+          "photo_id": "PH_055e7359ce7b7fc074059291",
+          "seconds": 2.13,
+          "fields": {
+            "client": "Магнит",
+            "brand": "Магнит",
+            "category": "реклама"
+          },
+          "tokens": null,
+          "prompt_tokens": null,
+          "completion_tokens": null,
+          "matches": {
+            "client": true,
+            "brand": true,
+            "category": false
+          }
+        }
+      ]
+    },
+    "center:0.6": {
+      "summary": {
+        "photos": 6,
+        "errors": 0,
+        "agreement": {
+          "client": 40.0,
+          "brand": 40.0,
+          "category": 33.3
+        },
+        "seconds_mean": 1.87,
+        "tokens_total": null
+      },
+      "runs": [
+        {
+          "photo_id": "PH_0094a859f53a641a38d83e74",
+          "seconds": 1.69,
+          "fields": {
+            "client": null,
+            "brand": null,
+            "category": "реклама"
+          },
+          "tokens": null,
+          "prompt_tokens": null,
+          "completion_tokens": null,
+          "matches": {
+            "client": false,
+            "brand": false,
+            "category": false
+          }
+        },
+        {
+          "photo_id": "PH_00a40729378de4dda40bfbb4",
+          "seconds": 1.76,
+          "fields": {
+            "client": "visitdon.ru",
+            "brand": "Peugeot",
+            "category": "urban street"
+          },
+          "tokens": null,
+          "prompt_tokens": null,
+          "completion_tokens": null,
+          "matches": {
+            "client": true,
+            "brand": false,
+            "category": true
+          }
+        },
+        {
+          "photo_id": "PH_00aca47f50476e6faafa9a4d",
+          "seconds": 1.78,
+          "fields": {
+            "client": "Единая Россия",
+            "brand": "Единая Россия",
+            "category": "политическая вывеска"
+          },
+          "tokens": null,
+          "prompt_tokens": null,
+          "completion_tokens": null,
+          "matches": {
+            "client": true,
+            "brand": true,
+            "category": false
+          }
+        },
+        {
+          "photo_id": "PH_00d81ceea07b509d558d7f24",
+          "seconds": 2.34,
+          "fields": {
+            "client": "Яндекс Маркет",
+            "brand": "Яндекс Маркет",
+            "category": "Реклама"
+          },
+          "tokens": null,
+          "prompt_tokens": null,
+          "completion_tokens": null,
+          "matches": {
+            "client": false,
+            "brand": false,
+            "category": false
+          }
+        },
+        {
+          "photo_id": "PH_00f71993394455a6dcf826bb",
+          "seconds": 1.98,
+          "fields": {
+            "client": null,
+            "brand": null,
+            "category": "road_sign"
+          },
+          "tokens": null,
+          "prompt_tokens": null,
+          "completion_tokens": null,
+          "matches": {
+            "client": null,
+            "brand": null,
+            "category": true
+          }
+        },
+        {
+          "photo_id": "PH_055e7359ce7b7fc074059291",
+          "seconds": 1.65,
+          "fields": {
+            "client": null,
+            "brand": "Магнит",
+            "category": "реклама"
+          },
+          "tokens": null,
+          "prompt_tokens": null,
+          "completion_tokens": null,
+          "matches": {
+            "client": false,
+            "brand": true,
+            "category": false
+          }
+        }
+      ]
+    }
+  }
+}
