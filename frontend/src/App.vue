@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Dark, Notify } from 'quasar'
 import { useRouter } from 'vue-router'
 
+import PipelineUpdateButton from './components/PipelineUpdateButton.vue'
 import { fetchMediaStatistics, fetchStats } from './api/client'
 import { useDisplayStore } from './stores/display'
 import { usePhotosStore } from './stores/photos'
@@ -165,8 +166,12 @@ async function doLogout() {
   await router.push('/')
 }
 
+// Тема: значок отражает текущее состояние (солнце — светлая, месяц — тёмная).
+const darkMode = ref(Dark.isActive)
+
 function toggleDark() {
   Dark.toggle()
+  darkMode.value = Dark.isActive
 }
 </script>
 
@@ -176,7 +181,23 @@ function toggleDark() {
       <q-toolbar>
         <q-toolbar-title>АЛЬБИОН: Фотобаза</q-toolbar-title>
 
-        <q-btn flat round dense icon="dark_mode" @click="toggleDark" />
+        <!-- Обновление базы: запускает/ведёт полный прогон. Виден, только
+             когда серверный супервизор уже развёрнут. -->
+        <PipelineUpdateButton
+          v-if="session.user"
+          :can-run="canUseTech"
+          @finished="loadStats"
+        />
+
+        <q-btn
+          flat
+          round
+          dense
+          :icon="darkMode ? 'dark_mode' : 'light_mode'"
+          @click="toggleDark"
+        >
+          <q-tooltip>{{ darkMode ? 'Тёмная тема' : 'Светлая тема' }}</q-tooltip>
+        </q-btn>
 
         <!-- Главный экран выделен плашкой, как блок пользователя. -->
         <q-tabs v-if="session.user" align="right" shrink class="header-gallery">

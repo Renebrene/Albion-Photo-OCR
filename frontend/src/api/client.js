@@ -151,6 +151,26 @@ export function fetchLastRun() {
   return getJson(`${BASE}/v1/runs/last`)
 }
 
+// ---- resumable pipeline run ("Обновление базы") ----
+// The supervisor only becomes visible once schema/031 is applied; before that
+// these return 404 and the header control hides itself.
+
+export function fetchCurrentPipeline() {
+  return getJson(`${BASE}/v1/pipeline/current`)
+}
+
+export function startPipeline(payload = {}) {
+  return postJson(`${BASE}/v1/pipeline/start`, payload)
+}
+
+export function stopPipeline(runId) {
+  return postJson(`${BASE}/v1/pipeline/${runId}/stop`, {})
+}
+
+export function resumePipeline(runId) {
+  return postJson(`${BASE}/v1/pipeline/${runId}/resume`, {})
+}
+
 export function createUser(payload) {
   return postJson(`${BASE}/v1/users`, payload)
 }
