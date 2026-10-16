@@ -6,13 +6,16 @@ import { Notify } from 'quasar'
 import {
   authImageUrl,
   cancelJob,
+  describeMediaSearch,
   downloadArchive,
   downloadAuthenticated,
   fetchMediaSearchJob,
   fetchPhotoDetails,
+  fetchQwenSettings,
   originalUrl,
   previewUrl,
   searchByMedia,
+  searchByQuery,
 } from '../api/client'
 import AuthImage from '../components/AuthImage.vue'
 import CollectionsPanel from '../components/CollectionsPanel.vue'
@@ -301,17 +304,122 @@ function pickMedia() {
   mediaInput.value?.click()
 }
 
+// ---- ручной режим: модалка с превью, метаданными и правкой полей QWEN ----
+const autoMode = ref(true) // галочка «Авто» активна по умолчанию
+const manualOpen = ref(false)
+const manualStage = ref('idle') // idle | describing | ready | searching
+const manualFile = ref(null)
+const manualMeta = ref(null)
+const manualPreviewUrl = ref(null)
+const manualModel = ref('')
+const manualFields = ref({ description: '', client: '', brand: '', category: '', tags: '' })
+
 function onMediaChosen(event) {
   const [file] = Array.from(event.target.files || [])
   event.target.value = '' // allow re-picking the same file
-
-  mediaFile.value = file || null
 
   if (file) {
     // A media query and a text query are mutually exclusive.
     q.value = ''
   }
+
+  if (autoMode.value) {
+    mediaFile.value = file || null
+  } else if (file) {
+    openManual(file)
+  }
 }
+
+function openManual(file) {
+  manualFile.value = file
+  manualStage.value = 'idle'
+  manualFields.value = { description: '', client: '', brand: '', category: '', tags: '' }
+  manualMeta.value = { sizeMb: (file.size / 1048576).toFixed(1), date: new Date(file.lastModified).toLocaleString() }
+  manualPreviewUrl.value = file.type.startsWith('image/') ? URL.createObjectURL(file) : null
+  manualOpen.value = true
+
+  fetchQwenSettings()
+    .then((data) => { manualModel.value = data?.model || '' })
+    .catch(() => { manualModel.value = '' })
+}
+
+function closeManual() {
+  manualOpen.value = false
+  if (manualPreviewUrl.value) URL.revokeObjectURL(manualPreviewUrl.value)
+  manualPreviewUrl.value = null
+  manualFile.value = null
+}
+
+function onPreviewLoad(event) {
+  if (!manualMeta.value) return
+  manualMeta.value = { ...manualMeta.value, width: event.target.naturalWidth, height: event.target.naturalHeight }
+}
+
+async function runDescribe() {
+  if (!manualFile.value || manualStage.value === 'describing') return
+  manualStage.value = 'describing'
+
+  try {
+    const { job_id: jobId } = await describeMediaSearch(manualFile.value)
+    let job = null
+    for (let i = 0; i < 60; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+      job = await fetchMediaSearchJob(jobId)
+      if (['DONE', 'FAILED', 'CANCELLED'].includes(job.status)) break
+    }
+    if (!job || job.status !== 'DONE') {
+      manualStage.value = 'idle'
+      Notify.create({ type: 'negative', message: `Распознавание: ${job ? job.status : 'таймаут'}` })
+      return
+    }
+    const qwen = (job.result && job.result.qwen) || {}
+    manualFields.value = {
+      description: qwen.description || '',
+      client: qwen.client || '',
+      brand: qwen.brand || '',
+      category: qwen.category || '',
+      tags: Array.isArray(qwen.tags) ? qwen.tags.join(', ') : '',
+    }
+    manualStage.value = 'ready'
+  } catch (err) {
+    manualStage.value = 'idle'
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
+async function runManualSearch() {
+  if (manualStage.value === 'searching') return
+  manualStage.value = 'searching'
+
+  try {
+    const fields = manualFields.value
+    const { job_id: jobId } = await searchByQuery({
+      q: fields.description || null,
+      client: fields.client || null,
+      brand: fields.brand || null,
+      category: fields.category || null,
+    })
+    let job = null
+    for (let i = 0; i < 40; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      job = await fetchMediaSearchJob(jobId)
+      if (['DONE', 'FAILED', 'CANCELLED'].includes(job.status)) break
+    }
+    if (!job || job.status !== 'DONE') {
+      manualStage.value = 'ready'
+      Notify.create({ type: 'negative', message: `Поиск: ${job ? job.status : 'таймаут'}` })
+      return
+    }
+    const ids = (job.result && job.result.photo_ids) || []
+    Notify.create({ type: 'info', message: `ИИ-поиск: найдено ${ids.length}` })
+    await store.applyNlResults(ids)
+    closeManual()
+  } catch (err) {
+    manualStage.value = 'ready'
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
 
 function clearMedia() {
   mediaFile.value = null
@@ -834,6 +942,19 @@ function tagList(meta) {
           >
             {{ mediaName }} (фото)
           </q-chip>
+
+          <q-checkbox
+            v-model="autoMode"
+            dense
+            size="sm"
+            label="Авто"
+            :disable="mediaBusy"
+          >
+            <q-tooltip>
+              Авто: выбранный файл сразу распознаётся и ищется. Выкл.: откроется
+              окно с превью, метаданными и правкой полей QWEN.
+            </q-tooltip>
+          </q-checkbox>
 
           <q-btn dense flat icon="photo_camera" :disable="mediaBusy" @click="pickMedia">
             <q-tooltip>Умный поиск по фото (одно изображение)</q-tooltip>
@@ -1606,6 +1727,72 @@ function tagList(meta) {
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <!-- Ручной режим умного поиска: превью, метаданные, правка полей QWEN. -->
+    <q-dialog v-model="manualOpen" @hide="closeManual">
+      <q-card style="width: min(680px, 94vw)">
+        <q-card-section class="panel-title">Поиск по медиа — ручной режим</q-card-section>
+        <q-separator />
+        <q-card-section class="row q-col-gutter-md">
+          <div class="col-12 col-sm-5">
+            <img
+              v-if="manualPreviewUrl"
+              :src="manualPreviewUrl"
+              class="manual-preview"
+              @load="onPreviewLoad"
+            />
+            <div v-else class="manual-preview flex flex-center text-grey">
+              (превью недоступно)
+            </div>
+            <div class="text-caption text-grey-8 q-mt-sm">
+              <div>Файл: {{ manualFile?.name }}</div>
+              <div v-if="manualMeta">Вес: {{ manualMeta.sizeMb }} МБ</div>
+              <div v-if="manualMeta?.width">Размер: {{ manualMeta.width }}×{{ manualMeta.height }}</div>
+              <div v-if="manualMeta?.date">Изменён: {{ manualMeta.date }}</div>
+              <div v-if="manualModel">Модель: {{ manualModel }}</div>
+            </div>
+          </div>
+
+          <div class="col-12 col-sm-7">
+            <div v-if="manualStage === 'idle'" class="text-caption text-grey-8">
+              Нажмите «Распознать» — QWEN опишет файл, поля ниже можно будет
+              поправить перед поиском.
+            </div>
+            <template v-else>
+              <q-input v-model="manualFields.description" type="textarea" autogrow outlined dense label="Описание" class="q-mb-sm" />
+              <q-input v-model="manualFields.client" outlined dense label="Клиент" class="q-mb-sm" />
+              <q-input v-model="manualFields.brand" outlined dense label="Бренд" class="q-mb-sm" />
+              <q-input v-model="manualFields.category" outlined dense label="Категория" class="q-mb-sm" />
+              <q-input v-model="manualFields.tags" outlined dense label="Теги (через запятую)" />
+            </template>
+          </div>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Отмена" @click="closeManual" />
+          <q-btn
+            v-if="manualStage === 'idle'"
+            color="secondary"
+            icon="auto_awesome"
+            label="Распознать (QWEN)"
+            :loading="false"
+            @click="runDescribe"
+          />
+          <template v-else>
+            <q-btn
+              color="primary"
+              icon="search"
+              label="Поиск"
+              :loading="manualStage === 'searching'"
+              @click="runManualSearch"
+            />
+            <q-btn flat label="Распознать заново" @click="runDescribe" />
+          </template>
+        </q-card-actions>
+        <q-linear-progress v-if="manualStage === 'describing'" indeterminate color="secondary" />
+        <q-linear-progress v-if="manualStage === 'searching'" indeterminate color="primary" />
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
@@ -1711,6 +1898,16 @@ body.body--dark .grid-divider {
   z-index: 2;
   background: rgba(255, 255, 255, 0.85);
   border-radius: 4px;
+}
+
+/* Превью выбранного файла в ручном режиме поиска. */
+.manual-preview {
+  width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+  background: #f4f5f7;
+  border-radius: 8px;
+  min-height: 120px;
 }
 
 /* Transparent arrows over the preview image. */

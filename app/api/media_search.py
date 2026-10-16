@@ -545,6 +545,7 @@ def run(
     *,
     kind: str | None = None,
     progress=None,
+    mode: str = "auto",
 ) -> dict:
     """
     Describe the uploaded photo/video and search the base with that description.
@@ -557,8 +558,15 @@ def run(
     `progress(done, total, stage)` вызывается перед каждым кадром: по нему
     окно рисует полосу и замечает отмену.
 
+    *mode*: "auto" — описать и искать; "describe" — только описать (ручной
+    режим: окно показывает поля, пользователь их правит и запускает поиск
+    отдельным запросом).
+
     Returns a serialisable result for the job row.
     """
+
+    if mode not in ("auto", "describe"):
+        raise ValueError("mode must be 'auto' or 'describe'")
 
     kind = kind or kind_for(path)
 
@@ -592,7 +600,11 @@ def run(
         fallback = fallback or bool(described.get("fallback"))
         frame_fields.append(fields)
 
-        found = search(description_filters(fields))
+        found = (
+            search(description_filters(fields))
+            if mode == "auto"
+            else {"photo_ids": [], "count": 0, "truncated": False}
+        )
         truncated = truncated or bool(found["truncated"])
 
         for photo_id in found["photo_ids"]:
@@ -622,6 +634,7 @@ def run(
 
     return {
         "kind": kind,
+        "mode": mode,
         "frames_count": total,
         "per_frame": per_frame,
         "filters": description_filters(merged),

@@ -311,6 +311,15 @@ class PipelineStartRequest(BaseModel):
     mode: str = Field(default="manual", pattern="^(manual|schedule|outofqueue)$")
 
 
+class SearchQueryRequest(BaseModel):
+    """Manual media search: filters edited by the user (step two)."""
+
+    q: str | None = Field(default=None, max_length=2000)
+    client: str | None = Field(default=None, max_length=200)
+    brand: str | None = Field(default=None, max_length=200)
+    category: str | None = Field(default=None, max_length=200)
+
+
 class NlSearchRequest(BaseModel):
     """Natural-language query, translated to filters by the worker."""
 

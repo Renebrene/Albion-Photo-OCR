@@ -156,6 +156,14 @@ def _execute(job: dict) -> dict:
     if job_type == "MEDIA_SEARCH":
         from app.api.media_search import delete_query
         from app.api.media_search import run as media_run
+        from app.api.media_search import search as media_search
+
+        # Ручной режим, второй шаг: поиск по уже собранным/поправленным
+        # фильтрам (файла нет, QWEN не вызывается).
+        if payload.get("filters") is not None:
+            filters = payload["filters"]
+            found = media_search(filters)
+            return {"kind": "query", "mode": "query", "filters": filters, **found}
 
         path = str(payload["path"])
 
@@ -166,6 +174,7 @@ def _execute(job: dict) -> dict:
                 path,
                 kind=payload.get("kind"),
                 progress=job_control(int(job["id"])),
+                mode=payload.get("mode", "auto"),
             )
         finally:
             # The uploaded query file is transient by design: it exists only

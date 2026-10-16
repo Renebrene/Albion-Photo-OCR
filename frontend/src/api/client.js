@@ -337,12 +337,12 @@ export function fetchNlSearchJob(jobId) {
 
 // Smart search by one uploaded photo. The file is transient on the server:
 // it is deleted once the worker finishes the job.
-export async function searchByMedia(file) {
+async function uploadMediaQuery(file, path) {
   const form = new FormData()
   form.append('file', file)
 
   // No Content-Type header: the browser sets the multipart boundary.
-  const response = await fetch(`${BASE}/v1/search/media`, {
+  const response = await fetch(`${BASE}${path}`, {
     method: 'POST',
     headers: authHeaders(),
     body: form,
@@ -360,6 +360,21 @@ export async function searchByMedia(file) {
   }
 
   return response.json()
+}
+
+// Авто-режим: описать и сразу искать.
+export function searchByMedia(file) {
+  return uploadMediaQuery(file, '/v1/search/media')
+}
+
+// Ручной режим, шаг 1: только описание QWEN (поля для правки).
+export function describeMediaSearch(file) {
+  return uploadMediaQuery(file, '/v1/search/media/describe')
+}
+
+// Ручной режим, шаг 2: поиск по поправленным фильтрам.
+export function searchByQuery(filters) {
+  return postJson(`${BASE}/v1/search/query`, filters)
 }
 
 export function fetchMediaSearchJob(jobId) {

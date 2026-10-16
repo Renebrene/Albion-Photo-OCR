@@ -65,6 +65,7 @@ from app.api.schemas import (
     QwenSettingsUpdate,
     SavedSearchCreate,
     PipelineStartRequest,
+    SearchQueryRequest,
     SourcePathRequest,
     SourceRunRequest,
     SelectionState,
@@ -746,25 +747,8 @@ def cancel_job(job_id: int):
 # ---------------------------------------------------------------------------
 
 
-@searches_router.post(
-    "/v1/search/media",
-    status_code=202,
-    dependencies=[Depends(require_scope("searches:write"))],
-)
-def search_by_media(file: UploadFile = File(...)):
-    """
-    Enqueue a search by one uploaded photo or video.
-
-    The file is stored in a dedicated working folder, verified with a real
-    decoder (PIL for photos, OpenCV for video) and dropped when it is neither.
-    A video longer than the query limit is refused here, with the reason.
-    The QWEN description and the photo search run in the worker
-    (job_type MEDIA_SEARCH); poll GET /v1/jobs/media-search/{id} for
-    {qwen, filters, photo_ids, count, per_frame}.
-
-    The response carries the file's facts so the window can show them before
-    the search starts (format, size, and for a video - duration and frames).
-    """
+def _store_media_query(file: UploadFile, mode: str) -> dict:
+    """Store one uploaded query file, verify it, enqueue MEDIA_SEARCH."""
 
     kind = media_search.kind_for(file.filename or "")
 
@@ -796,16 +780,76 @@ def search_by_media(file: UploadFile = File(...)):
             "path": str(stored),
             "filename": stored.name,
             "kind": kind,
+            "mode": mode,
         },
     )
 
     return {
         "job_id": job_id,
         "kind": kind,
+        "mode": mode,
         "filename": file.filename or stored.name,
         "size_bytes": stored.stat().st_size,
         "media": facts,
     }
+
+
+@searches_router.post(
+    "/v1/search/media",
+    status_code=202,
+    dependencies=[Depends(require_scope("searches:write"))],
+)
+def search_by_media(file: UploadFile = File(...)):
+    """
+    Enqueue a search by one uploaded photo or video (авто-режим).
+
+    The file is stored in a dedicated working folder, verified with a real
+    decoder (PIL for photos, OpenCV for video) and dropped when it is neither.
+    A video longer than the query limit is refused here, with the reason.
+    The QWEN description and the photo search run in the worker
+    (job_type MEDIA_SEARCH); poll GET /v1/jobs/media-search/{id} for
+    {qwen, filters, photo_ids, count, per_frame}.
+
+    The response carries the file's facts so the window can show them before
+    the search starts (format, size, and for a video - duration and frames).
+    """
+
+    return _store_media_query(file, "auto")
+
+
+@searches_router.post(
+    "/v1/search/media/describe",
+    status_code=202,
+    dependencies=[Depends(require_scope("searches:write"))],
+)
+def describe_media(file: UploadFile = File(...)):
+    """Ручной режим, шаг 1: только описание QWEN (поля для правки)."""
+
+    return _store_media_query(file, "describe")
+
+
+@searches_router.post(
+    "/v1/search/query",
+    status_code=202,
+    dependencies=[Depends(require_scope("searches:write"))],
+)
+def search_by_query(request: SearchQueryRequest):
+    """Ручной режим, шаг 2: поиск по уже собранным/поправленным фильтрам."""
+
+    filters = {
+        "q": request.q,
+        "client": request.client,
+        "brand": request.brand,
+        "category": request.category,
+        "address": None,
+    }
+
+    if not any(filters[key] for key in ("q", "client", "brand", "category")):
+        raise HTTPException(status_code=422, detail="empty query")
+
+    job_id = jobs_db.enqueue("MEDIA_SEARCH", {"filters": filters})
+
+    return {"job_id": job_id, "filters": filters}
 
 
 @searches_router.get(
