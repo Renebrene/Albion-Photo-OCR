@@ -26,7 +26,7 @@ from fastapi import (
     Response,
     UploadFile,
 )
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from app import settings_store
 from app.api import directory as directory_mod
@@ -284,8 +284,11 @@ def get_original(photo_id: str) -> Response:
         # 404 (not 403) so we do not confirm a file exists outside the volume.
         raise HTTPException(status_code=404, detail="original not found")
 
-    return Response(
-        content=resolved.read_bytes(),
+    # Stream from disk (chunked, supports single byte-ranges) instead of
+    # reading the whole original into memory: large photos and several
+    # concurrent downloads must not spike the API process RSS.
+    return FileResponse(
+        resolved,
         media_type="image/jpeg",
         headers={"Cache-Control": "private, max-age=300"},
     )

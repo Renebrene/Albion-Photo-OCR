@@ -149,3 +149,41 @@ def test_original_symlink_escape_is_blocked(tmp_path, monkeypatch):
         assert response.status_code == 404
     finally:
         _cleanup()
+
+
+def test_original_is_streamed_with_range_support(tmp_path, monkeypatch):
+    """The original is served from disk (chunked, Range-capable), not read
+    whole into memory; path containment is still applied. DB-free."""
+
+    monkeypatch.setenv("SCENE_API_TOKENS", "tok:originals")
+    headers = {"Authorization": "Bearer tok"}
+
+    root = tmp_path / "root"
+    root.mkdir()
+    payload = b"\xff\xd8\xff" + b"x" * 5000 + b"\xff\xd9"
+    (root / "a.jpg").write_bytes(payload)
+
+    monkeypatch.setattr(api_routes, "ORIGINALS_ROOTS", [root])
+    monkeypatch.setattr(
+        api_routes.repository,
+        "get_photo_source",
+        lambda photo_id: {"source_path": str(root / "a.jpg")},
+    )
+
+    url = f"/api/v1/photos/{PROBE_ID}/original"
+
+    full = client.get(url, headers=headers)
+    assert full.status_code == 200
+    assert full.content == payload
+    assert full.headers["content-type"].startswith("image/jpeg")
+    assert int(full.headers["content-length"]) == len(payload)
+
+    # A single byte-range is honoured (206) without sending the whole file.
+    partial = client.get(url, headers={**headers, "Range": "bytes=0-3"})
+    assert partial.status_code == 206
+    assert partial.content == payload[:4]
+    assert partial.headers["content-range"] == f"bytes 0-3/{len(payload)}"
+
+    # A file resolved outside the allowed root is still refused.
+    monkeypatch.setattr(api_routes, "ORIGINALS_ROOTS", [tmp_path / "other"])
+    assert client.get(url, headers=headers).status_code == 404
