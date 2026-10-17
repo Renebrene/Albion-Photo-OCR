@@ -151,6 +151,10 @@ export function fetchLastRun() {
   return getJson(`${BASE}/v1/runs/last`)
 }
 
+export function fetchRunActivity() {
+  return getJson(`${BASE}/v1/runs/activity`)
+}
+
 export function fetchRunHistory({ kind = null, limit = 20 } = {}) {
   const params = new URLSearchParams({ limit: String(limit) })
   if (kind) params.set('kind', kind)

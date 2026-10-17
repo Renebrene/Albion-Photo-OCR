@@ -9,6 +9,7 @@ and skip without INGEST_DB_*.
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,6 +18,7 @@ from PIL import Image
 from app.api import routes as api_routes
 from app.api.main import app
 from app.ingest import pipeline as ingest_pipeline
+from app.runs import coordination
 from app.supervisor import runs as pipeline_runs
 
 client = TestClient(app, raise_server_exceptions=False)
@@ -110,10 +112,20 @@ def test_run_reports_done_over_total_progress(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+def _noop_launch_gate(monkeypatch):
+    @contextmanager
+    def guard():
+        yield
+
+    monkeypatch.setattr(coordination, "launch_guard", guard)
+    monkeypatch.setattr(coordination, "active_operation", lambda: None)
+
+
 def test_start_returns_409_when_busy(monkeypatch):
     def busy(**_kwargs):
         raise pipeline_runs.PipelineBusy("pipeline run already active")
 
+    _noop_launch_gate(monkeypatch)
     monkeypatch.setattr(pipeline_runs, "create_run", busy)
     monkeypatch.setattr(api_routes.sources, "current_folder", lambda: "")
 
@@ -122,6 +134,7 @@ def test_start_returns_409_when_busy(monkeypatch):
 
 
 def test_start_accepts_and_returns_run(monkeypatch):
+    _noop_launch_gate(monkeypatch)
     monkeypatch.setattr(
         pipeline_runs, "create_run",
         lambda **_kwargs: {"run_id": 5, "status": "RUNNING", "stage": "INGEST", "stages": []},

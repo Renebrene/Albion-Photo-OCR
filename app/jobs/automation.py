@@ -163,14 +163,24 @@ def run_tick(*, force: bool = False) -> dict:
 
         history_id = None
         try:
-            current = get_settings()
-            if not current["enabled"] and not force:
-                return {"skipped": "disabled"}
-            if not force and not is_due(current):
-                return {"skipped": "not_due"}
+            from app.runs import coordination
 
-            history_id = _create_scheduler_history()
-            result = _run_tick_locked(current, history_id=history_id)
+            try:
+                with coordination.launch_guard():
+                    active = coordination.active_operation()
+                    if active:
+                        return {"skipped": f"{active['kind']}_active"}
+
+                    current = get_settings()
+                    if not current["enabled"] and not force:
+                        return {"skipped": "disabled"}
+                    if not force and not is_due(current):
+                        return {"skipped": "not_due"}
+
+                    history_id = _create_scheduler_history()
+                    result = _run_tick_locked(current, history_id=history_id)
+            except coordination.OperationBusy:
+                return {"skipped": "launch_busy"}
         except Exception as exc:
             _finalize_scheduler_failure(history_id, exc)
             raise

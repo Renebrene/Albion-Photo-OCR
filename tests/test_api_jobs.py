@@ -70,6 +70,11 @@ def test_force_rerun_without_photo_ids_is_422(monkeypatch):
 
 @requires_db
 def test_enqueue_force_rerun_batch(monkeypatch):
+    from app.runs import coordination
+
+    if coordination.active_operation() is not None:
+        pytest.skip("a real pipeline/scheduler/sort operation is active")
+
     monkeypatch.delenv("SCENE_API_TOKENS", raising=False)
 
     with get_connection() as conn:

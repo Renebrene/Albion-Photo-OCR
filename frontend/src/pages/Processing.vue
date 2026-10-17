@@ -1,15 +1,15 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Notify } from 'quasar'
 
 import {
   createDinoBatch,
   createHybridRun,
-  fetchCurrentPipeline,
   fetchDinoBatchRuns,
   fetchDinoBatches,
   fetchHybridRuns,
   fetchJobs,
+  fetchRunActivity,
 } from '../api/client'
 
 const tab = ref('dino')
@@ -17,9 +17,24 @@ const loading = ref(false)
 const error = ref(null)
 const starting = ref(false)
 
-// Ручной запуск сортировки запрещён, пока идёт полный прогон «Обновление базы»
-// (он сам ведёт DINO → HYBRID), иначе две волны работы пересекутся.
-const pipelineActive = ref(false)
+// Ручной запуск сортировки запрещён, пока идёт любой процесс, меняющий
+// состояние распознавания: полный прогон, тик планировщика или другая
+// DINO/HYBRID-сортировка.
+const activity = ref(null)
+const operationActive = computed(() => Boolean(activity.value))
+const operationText = computed(() => {
+  const current = activity.value
+  if (!current) return ''
+  if (current.kind === 'pipeline') {
+    return current.stage
+      ? `«Обновление базы», стадия ${current.stage}`
+      : '«Обновление базы»'
+  }
+  if (current.kind === 'scheduler') return 'тик планировщика'
+  if (current.kind === 'sort') return 'сортировка DINO/HYBRID'
+  return 'другая операция'
+})
+let activityTimer = null
 
 const dinoBatches = ref([])
 const hybridRuns = ref([])
@@ -136,6 +151,7 @@ async function startNormalBatch() {
     }
 
     await loadDino()
+    await loadActivity()
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   } finally {
@@ -154,6 +170,7 @@ async function startHybrid(batch) {
     }
 
     await loadDino()
+    await loadActivity()
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   }
@@ -174,20 +191,24 @@ async function openBatch(batch) {
   }
 }
 
-async function loadPipelineState() {
+async function loadActivity() {
   try {
-    const data = await fetchCurrentPipeline()
-    const status = data?.run?.status
-    pipelineActive.value = ['PENDING', 'RUNNING'].includes(status)
+    const data = await fetchRunActivity()
+    activity.value = data.active || null
   } catch {
-    // Супервизор не развёрнут: ручные действия доступны как раньше.
-    pipelineActive.value = false
+    // Endpoint unavailable: do not block manual work on a status read error.
+    activity.value = null
   }
 }
 
 onMounted(() => {
   loadDino()
-  loadPipelineState()
+  loadActivity()
+  activityTimer = window.setInterval(loadActivity, 3000)
+})
+
+onBeforeUnmount(() => {
+  if (activityTimer !== null) window.clearInterval(activityTimer)
 })
 </script>
 
@@ -200,15 +221,15 @@ onMounted(() => {
         icon="play_arrow"
         label="Запустить виртуальную сортировку"
         :loading="starting"
-        :disable="starting || pipelineActive"
+        :disable="starting || operationActive"
         @click="startNormalBatch"
       >
         <q-tooltip>
           Запускает вне очереди процесс виртуальной сортировки / пересчёт
           имеющейся сортировки файлов на основании алгоритмов Dino/Hybrid
           сопоставления адресов слепкам.
-          <template v-if="pipelineActive">
-            <br />Недоступно, пока идёт «Обновление базы».
+          <template v-if="operationActive">
+            <br />Недоступно, пока идёт {{ operationText }}.
           </template>
         </q-tooltip>
       </q-btn>
@@ -216,8 +237,8 @@ onMounted(() => {
       <q-space />
     </div>
 
-    <div v-if="pipelineActive" class="text-caption text-orange-8 q-mb-sm">
-      Идёт «Обновление базы»: ручной запуск сортировки временно недоступен.
+    <div v-if="operationActive" class="text-caption text-orange-8 q-mb-sm">
+      Идёт {{ operationText }}: ручной запуск сортировки временно недоступен.
     </div>
 
     <div v-if="error" class="q-mb-md">

@@ -85,6 +85,27 @@ DINO/HYBRID, упавшие в `FAILED`, переводят весь запус�
 | GET | `/v1/pipeline/current` | `read` | активный запуск (иначе последний) со стадиями |
 | GET | `/v1/pipeline` | `read` | список запусков |
 | GET | `/v1/pipeline/{id}` | `read` | один запуск со стадиями |
+| GET | `/v1/runs/activity` | `read` | активная операция распознавания (pipeline/scheduler/sort) |
+
+## Общая координация запусков (2026-10-17)
+
+`app/runs/coordination.py` — единая точка проверки состояния и короткой
+сериализации запуска:
+
+- `active_operation()` читает `pipeline_runs` (PENDING/RUNNING), затем активные
+  jobs scheduler-прогона (через `run_history`/`run_history_jobs`), затем ручные
+  `DINO_BATCH`/`HYBRID_RUN` jobs;
+- `launch_guard()` берёт PostgreSQL advisory lock на время проверки и постановки
+  задач, поэтому два одновременных запроса не могут оба увидеть «свободно»;
+- ручные DINO/HYBRID и `POST /v1/pipeline/start` возвращают `409`, если уже идёт
+  любая из этих операций;
+- `automation.run_tick()` возвращает `{"skipped":"pipeline_active"}` /
+  `"sort_active"` / `"scheduler_active"` и не обновляет `last_tick`, пока
+  операция занята;
+- `GET /v1/runs/activity` отдаёт `{"active": {...}|null, "message": ...}`.
+  Вкладка «Сортировка» опрашивает его каждые 3 секунды и блокирует ручную
+  кнопку, пока активен любой процесс (раньше проверялся только pipeline и
+  только один раз при открытии).
 
 ## Worker
 

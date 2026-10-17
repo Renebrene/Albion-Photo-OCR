@@ -174,6 +174,20 @@ def get_last_run():
     return sysinfo.last_run()
 
 
+@read_router.get("/v1/runs/activity", response_model=None)
+def run_activity():
+    """Operation that currently changes recognition state (if any)."""
+
+    from app.runs import coordination
+
+    active = coordination.active_operation()
+
+    return {
+        "active": active,
+        "message": coordination.busy_message(active) if active else None,
+    }
+
+
 @read_router.get("/v1/runs/history", response_model=None)
 def list_run_history(
     kind: str | None = Query(None, pattern=r"^(pipeline|ingest|sort|qwen|scheduler)$"),
@@ -520,6 +534,30 @@ def enqueue_dino_batch(request: DinoBatchRequest):
             detail="FORCE_RERUN requires photo_ids",
         )
 
+    from app.runs import coordination
+
+    try:
+        with coordination.launch_guard():
+            active = coordination.active_operation()
+
+            if active:
+                raise HTTPException(
+                    status_code=409,
+                    detail=coordination.busy_message(active),
+                )
+
+            return _enqueue_dino_batch_impl(request)
+    except coordination.OperationBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def _enqueue_dino_batch_impl(request: DinoBatchRequest):
+    if request.run_type == "FORCE_RERUN" and not request.photo_ids:
+        raise HTTPException(
+            status_code=422,
+            detail="FORCE_RERUN requires photo_ids",
+        )
+
     try:
         batch = dino_db.create_batch(
             request.run_type,
@@ -595,6 +633,24 @@ def _finish_sort_history_enqueue(history_module, run_id, job_ids, total):
     dependencies=[Depends(require_scope("jobs:write"))],
 )
 def enqueue_hybrid(request: HybridRequest):
+    from app.runs import coordination
+
+    try:
+        with coordination.launch_guard():
+            active = coordination.active_operation()
+
+            if active:
+                raise HTTPException(
+                    status_code=409,
+                    detail=coordination.busy_message(active),
+                )
+
+            return _enqueue_hybrid_impl(request)
+    except coordination.OperationBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def _enqueue_hybrid_impl(request: HybridRequest):
     try:
         run = hybrid_db.create_run(request.dino_batch_id)
     except ValueError as exc:
@@ -1768,6 +1824,7 @@ def run_ingest(request: SourceRunRequest):
 def start_pipeline_run(request: PipelineStartRequest):
     """Start a fresh run (a stopped run is superseded)."""
 
+    from app.runs import coordination
     from app.supervisor import runs as pipeline_runs
 
     folder = request.folder or sources.current_folder() or None
@@ -1776,7 +1833,18 @@ def start_pipeline_run(request: PipelineStartRequest):
         folder = str(sources.resolve_directory(folder))
 
     try:
-        run = pipeline_runs.create_run(mode=request.mode, folder=folder)
+        with coordination.launch_guard():
+            active = coordination.active_operation()
+
+            if active:
+                raise HTTPException(
+                    status_code=409,
+                    detail=coordination.busy_message(active),
+                )
+
+            run = pipeline_runs.create_run(mode=request.mode, folder=folder)
+    except coordination.OperationBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except pipeline_runs.PipelineBusy as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

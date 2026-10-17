@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -14,9 +15,16 @@ client = TestClient(app, raise_server_exceptions=False)
 @pytest.fixture
 def history_mocks(monkeypatch):
     from app.api import routes
-    from app.runs import history
+    from app.runs import coordination, history
 
     monkeypatch.setenv("SCENE_API_TOKENS", "operator:jobs:write")
+    monkeypatch.setattr(coordination, "active_operation", lambda: None)
+
+    @contextmanager
+    def noop_guard():
+        yield
+
+    monkeypatch.setattr(coordination, "launch_guard", noop_guard)
     create_run = Mock(return_value=901)
     add_jobs = Mock()
     finish_enqueue = Mock()
@@ -155,9 +163,15 @@ def test_manual_hybrid_records_enqueue_error_and_propagates(history_mocks, monke
 
 def test_manual_dino_is_not_blocked_when_history_storage_is_unavailable(monkeypatch):
     from app.api import routes
-    from app.runs import history
+    from app.runs import coordination, history
+
+    @contextmanager
+    def noop_guard():
+        yield
 
     monkeypatch.delenv("SCENE_API_TOKENS", raising=False)
+    monkeypatch.setattr(coordination, "launch_guard", noop_guard)
+    monkeypatch.setattr(coordination, "active_operation", lambda: None)
     monkeypatch.setattr(history, "create_run", Mock(side_effect=RuntimeError("history unavailable")))
     monkeypatch.setattr(routes.dino_db, "create_batch", lambda *_: SimpleNamespace(
         batch_id=25, total_count=0, status="DONE"

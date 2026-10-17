@@ -11,6 +11,7 @@ import {
   resumeJob,
   fetchMediaSearchJob,
   fetchPhotos,
+  fetchRunActivity,
   fetchRunHistory,
   fetchRunLog,
   getToken,
@@ -109,6 +110,13 @@ describe('api client', () => {
   it('throws a generic error on a failed GET', async () => {
     mockFetchOnce({ ok: false, status: 500, json: async () => ({}) })
     await expect(fetchPhotos({ limit: 5 })).rejects.toThrow('API error 500')
+  })
+
+  it('fetches the active recognition operation', async () => {
+    mockFetchOnce(okJson({ active: { kind: 'scheduler', run_id: 4 }, message: 'идёт тик планировщика' }))
+    const result = await fetchRunActivity()
+    expect(global.fetch.mock.calls[0][0]).toContain('/v1/runs/activity')
+    expect(result.active.kind).toBe('scheduler')
   })
 
   it('fetches run history with optional kind and limit', async () => {
