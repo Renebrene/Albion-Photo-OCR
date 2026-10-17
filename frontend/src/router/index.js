@@ -1,10 +1,13 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-import PhotosGrid from '../pages/PhotosGrid.vue'
-import VideosGrid from '../pages/VideosGrid.vue'
-import Technical from '../pages/Technical.vue'
-import Help from '../pages/Help.vue'
 import { useSessionStore } from '../stores/session'
+
+// Route-level chunks: the photo grid is the landing page, while the technical
+// section and the video editor are loaded only when the user opens them.
+const PhotosGrid = () => import('../pages/PhotosGrid.vue')
+const VideosGrid = () => import('../pages/VideosGrid.vue')
+const Technical = () => import('../pages/Technical.vue')
+const Help = () => import('../pages/Help.vue')
 
 // The technical section is for the staff: Администратор and Менеджер. A Гость
 // (read-only) never sees it, not even by typing the address.

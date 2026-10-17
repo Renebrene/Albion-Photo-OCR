@@ -1,9 +1,9 @@
 <script setup>
 // Loads an image through the authenticated API and shows it from a blob URL,
 // because <img>/<q-img> cannot attach the bearer token themselves.
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
-import { authImageUrl } from '../api/client'
+import { acquireImageUrl, releaseImageUrl } from '../api/client'
 
 const props = defineProps({
   url: { type: String, required: true },
@@ -41,17 +41,39 @@ const emit = defineEmits(['error', 'loaded'])
 
 const src = ref('')
 const failed = ref(false)
+const heldUrl = ref('')
+let requestId = 0
+
+function releaseHeld() {
+  if (heldUrl.value) {
+    releaseImageUrl(heldUrl.value)
+    heldUrl.value = ''
+  }
+}
 
 async function load(url) {
+  const request = ++requestId
   failed.value = false
   src.value = ''
+  releaseHeld()
 
   if (!url) return
 
   try {
-    src.value = await authImageUrl(url)
+    const objectUrl = await acquireImageUrl(url)
+
+    // The URL changed or the component unmounted while the request was in
+    // flight: do not leak this reference or show a stale image.
+    if (request !== requestId) {
+      releaseImageUrl(url)
+      return
+    }
+
+    src.value = objectUrl
+    heldUrl.value = url
     emit('loaded', url)
   } catch {
+    if (request !== requestId) return
     failed.value = true
     emit('error', url)
   }
@@ -59,6 +81,10 @@ async function load(url) {
 
 onMounted(() => load(props.url))
 watch(() => props.url, (url) => load(url))
+onBeforeUnmount(() => {
+  requestId += 1
+  releaseHeld()
+})
 </script>
 
 <template>

@@ -44,3 +44,27 @@ describe('AuthImage ratio', () => {
     expect(wrapper.html()).toContain('min-height')
   })
 })
+
+describe('AuthImage object URL lifetime', () => {
+  it('освобождает blob URL при размонтировании', async () => {
+    const create = vi.fn(() => 'blob:preview')
+    const revoke = vi.fn()
+    global.URL.createObjectURL = create
+    global.URL.revokeObjectURL = revoke
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      blob: async () => new Blob(),
+    }))
+
+    const wrapper = mount(AuthImage, {
+      props: { url: '/api/v1/photos/PH_test/previews/small' },
+      global: { plugins: [Quasar] },
+    })
+    await flushPromises()
+
+    expect(create).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+    expect(revoke).toHaveBeenCalledWith('blob:preview')
+  })
+})

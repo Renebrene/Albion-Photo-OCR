@@ -9,8 +9,8 @@
 ## Тесты в текущем checkout
 
 - Backend: `596 passed, 4 skipped`, `31 warnings` (`pytest -q`, с `~/.config/scene-fingerprint.env`). Интеграционные тесты используют настроенную PostgreSQL; пропуски в основном — тесты без дополнительной fixture/ресурсов. Warnings: Starlette/httpx deprecation и multiprocessing fork из многопоточного процесса.
-- Frontend: `132 passed` в 17 Vitest files.
-- Frontend build: успешен; Vite предупреждает о JS chunk около 614 KB (>500 KB).
+- Frontend: `133 passed` в 17 Vitest files.
+- Frontend build: успешен; route-level code splitting снизил основной JS chunk до ~308 KB (≈111 KB gzip), отдельные chunks для PhotosGrid/Technical/VideosGrid/Help. Предупреждение >500 KB больше не появляется.
 - Ветка проверена: рабочее дерево было чистым на старте аудита; новых изменений в этом аудите не выполнялось.
 
 ## Архитектура и ключевые инварианты
@@ -76,7 +76,7 @@
 12. **Video source consistency check** compares size + `st_mtime_ns` before/after hashing/probe/decode, not a second SHA; this is reasonable fast change detection but not cryptographic proof of immutable source under adversarial replacement. A safer, more expensive second hash is unnecessary by default; verify read-only mount and platform file handle semantics.
 13. **Video list filters:** inspect `video_repository.list_videos` for date range validation (`date_from <= date_to`) and input query bounds; potential if invalid range silently yields empty. Not a critical correctness issue if API test coverage exists.
 14. **GPU encoder concurrency**: auto NVENC worker count defaults to 1 and caps 2; CPU defaults half logical cores but systemd builder/video worker parallel config and other CPU workloads must be considered to avoid oversubscription.
-15. **Large-bundle warning:** SPA JS ~610KB minified (≈203KB gzip); load isn’t a current failure but low-cost optimization opportunity: route-level code splitting for technical/video editing pages, verify browser caching and AuthImage object URL cleanup.
+15. **[Закрыто 2026-10-17] Bundle и object URL.** Маршруты переведены на lazy chunks: основной JS ~308 KB (≈111 KB gzip), отдельные PhotosGrid/Technical/VideosGrid/Help; предупреждение Vite >500 KB исчезло. `AuthImage` освобождает blob URL при размонтировании/смене кадра, незавершённые запросы не оставляют ссылку.
 
 ## Recommended sequence: 6 stages
 
@@ -88,7 +88,7 @@ Sorted by difficulty/risk and FE/BE concentration; stages 1–3 mostly safe/medi
 | **2. INGEST precheck video parity — выполнено 2026-10-17** | `folder_stats`/`IngestFolder.vue` учитывают фото и видео, байты, расширения, проблемы, `truncated`/`timed_out`; запуск доступен только после проверки текущего пути. Полный decode остаётся в worker. | Medium / high safety if bounded | BE+FE | Large/slow directory bounded; unsupported/corrupt file UX; video accepted list matches `video_integrity`; no originals changed. |
 | **3. Global run coordination + reporting — координация выполнена 2026-10-17** | `coordination.launch_guard()` + `active_operation()`, `GET /v1/runs/activity`, 409 на ручных/pipeline стартах, scheduler skip, UI polling 3 с. Остаётся расширенная сводка/метрики per-kind без двойного счёта. | Medium-high / high data safety | Mostly BE + FE | Concurrent launch tests prove single intended operation; UI disables/reports accurately; no DINO/QWEN on video; durable terminal statuses. |
 | **4. Authorization/UI hardening — выполнено 2026-10-17** | Скрыты Guest video download/compress/edit/playback; гостевые layout/selection не сохраняются; QWEN provider/model/key требуют admin-only `settings:write`, `unload` остаётся `jobs:write`. | Medium / high security | BE+FE | Guest sees no nonfunctional controls; manager can operate jobs without credential administration; scope matrix regression tests. |
-| **5. Performance/accessibility follow-up** | Split JS by route (video/technical), inspect bundle source map; protect `AuthImage` object URL cleanup; keyboard/mobile detail dialog; benchmark folder scans/transcodes with a synthetic dataset; DB query plan on larger media corpus. | Medium / low risk | FE mostly + BE perf | Bundle budgets established, memory bounded while browsing, 10k-photo/video list latency measured, no production media inference. |
+| **5. Performance/accessibility follow-up — частично выполнено 2026-10-17** | Сделаны lazy route chunks и ref-counted `AuthImage` blob URL cleanup; bundle-предупреждение снято. Остаются keyboard/mobile detail dialog, benchmark folder scans/transcodes на синтетическом датасете и query plan на большом корпусе. | Medium / low risk | FE mostly + BE perf | Bundle budgets established, memory bounded while browsing, 10k-photo/video list latency measured, no production media inference. |
 | **6. Albion cloud-link feature** | Do not implement until provider/API, authentication, ownership, retention, quotas and deletion lifecycle are provided. Then add isolated object-storage adapter + worker upload, DB link registry/expiration, per-user “Мои ссылки,” no public credential exposure. | High / high external/security risk | BE+FE+ops | Provider sandbox integration, 90-day expiration cleanup, revoked/expired URL tests, scopes, size caps and cost controls. |
 
 ## Audit limitations

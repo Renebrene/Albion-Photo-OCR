@@ -22,12 +22,27 @@ export function authHeaders(extra = {}) {
 // <img>/window.open cannot attach a bearer token, so media is fetched with
 // auth and turned into a blob object URL.
 
+// url -> { objectUrl, refs }. AuthImage releases its reference on unmount, so a
+// long browsing session does not accumulate blob URLs for every preview it has
+// ever shown. `authImageUrl` keeps one permanent reference for one-off callers
+// (the original-image viewer), which is bounded by how many originals the user
+// actually opened.
 const _imageCache = new Map()
 const _imageInflight = new Map()
 
-export async function authImageUrl(url) {
-  if (_imageCache.has(url)) return _imageCache.get(url)
-  if (_imageInflight.has(url)) return _imageInflight.get(url)
+export async function acquireImageUrl(url) {
+  const cached = _imageCache.get(url)
+  if (cached) {
+    cached.refs += 1
+    return cached.objectUrl
+  }
+
+  if (_imageInflight.has(url)) {
+    const objectUrl = await _imageInflight.get(url)
+    const entry = _imageCache.get(url)
+    if (entry) entry.refs += 1
+    return objectUrl
+  }
 
   const task = (async () => {
     const response = await fetch(url, { headers: authHeaders() })
@@ -37,8 +52,7 @@ export async function authImageUrl(url) {
     }
 
     const objectUrl = URL.createObjectURL(await response.blob())
-    _imageCache.set(url, objectUrl)
-
+    _imageCache.set(url, { objectUrl, refs: 1 })
     return objectUrl
   })()
 
@@ -51,9 +65,26 @@ export async function authImageUrl(url) {
   }
 }
 
+export function releaseImageUrl(url) {
+  const entry = _imageCache.get(url)
+  if (!entry) return
+
+  entry.refs -= 1
+
+  if (entry.refs <= 0) {
+    _imageCache.delete(url)
+    URL.revokeObjectURL(entry.objectUrl)
+  }
+}
+
+/** Permanent reference for one-off callers (opening an original in a tab). */
+export function authImageUrl(url) {
+  return acquireImageUrl(url)
+}
+
 export function clearImageCache() {
-  for (const objectUrl of _imageCache.values()) {
-    URL.revokeObjectURL(objectUrl)
+  for (const entry of _imageCache.values()) {
+    URL.revokeObjectURL(entry.objectUrl)
   }
   _imageCache.clear()
 }
