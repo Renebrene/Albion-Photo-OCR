@@ -48,6 +48,35 @@ def sample_paths(paths, count):
     return [paths[int(index * stride)] for index in range(count)]
 
 
+def readable_paths(paths):
+    """
+    Split source paths into decodable images and skipped files.
+
+    A corrupt file with an image extension must not fail the whole build: it is
+    listed in metadata.json and the fingerprint is built from the rest. Full
+    decoding happens later in the embedder; here `verify()` is enough to catch
+    a file Pillow cannot even parse (a common case for truncated camera JPEGs).
+    """
+
+    readable = []
+    skipped = []
+
+    for path in paths:
+        path = Path(path)
+
+        try:
+            with Image.open(path) as image:
+                image.verify()
+
+            readable.append(path)
+        except Exception as exc:  # noqa: BLE001 - one bad file, not the build
+            skipped.append(
+                {"name": path.name, "error": type(exc).__name__}
+            )
+
+    return readable, skipped
+
+
 def image_meta(paths):
     """
     [{name, taken_at}] for the source photos of a fingerprint.
@@ -317,6 +346,22 @@ class FingerprintManager:
                 f"No images found in {folder}"
             )
 
+        # Unreadable files (truncated JPEGs, wrong content with an image
+        # extension) are skipped and recorded instead of failing the build.
+        paths, skipped = readable_paths(paths)
+
+        if not paths:
+            raise ValueError(
+                "No readable images found in "
+                f"{folder}: {len(skipped)} file(s) could not be decoded"
+            )
+
+        if skipped:
+            print(
+                f"[Fingerprint v3.3] skipped {len(skipped)} unreadable file(s): "
+                + ", ".join(item["name"] for item in skipped[:10])
+            )
+
         if max_photos:
             paths = sample_paths(paths, int(max_photos))
 
@@ -361,6 +406,7 @@ class FingerprintManager:
                 embedder,
                 source_folder=source_folder,
                 progress=progress,
+                skipped=skipped,
             )
 
             # Move the old vectors aside only now that the new ones exist.
@@ -400,6 +446,7 @@ class FingerprintManager:
         embedder,
         source_folder=None,
         progress=None,
+        skipped=(),
     ):
         print(
             f"[Fingerprint v3.3] "
@@ -648,6 +695,9 @@ class FingerprintManager:
             ],
             # None when no source photo could be decoded for the montage.
             "preview": PREVIEW_NAME if preview else None,
+            # Files with an image extension that could not be decoded; they
+            # never entered the vectors.
+            "skipped_images": list(skipped),
         }
 
         with (

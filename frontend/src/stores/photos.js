@@ -102,6 +102,38 @@ export const usePhotosStore = defineStore('photos', {
       await this.loadPage()
     },
 
+    /**
+     * Обновить уже загруженные строки, не сбрасывая прокрутку.
+     *
+     * Пока идёт пайплайн, адреса HYBRID и статусы QWEN меняются на месте:
+     * перечитываем столько же строк с теми же фильтрами и подменяем
+     * совпавшие по photo_id.
+     */
+    async syncLoaded() {
+      const count = this.items.length
+
+      if (!count || this.loading || count > 500) return
+
+      try {
+        const page = await fetchPhotos({
+          limit: count,
+          cursor: null,
+          q: this.query || null,
+          address: this.selectedAddresses.length ? this.selectedAddresses : null,
+          client: this.selectedClients.length ? this.selectedClients : null,
+          date_from: this.dateFrom || null,
+          date_to: this.dateTo || null,
+          date_mode: this.dateMode || 'upload',
+          ids: this.nlIds.length ? this.nlIds : null,
+        })
+
+        const byId = new Map(page.items.map((item) => [item.photo_id, item]))
+        this.items = this.items.map((item) => byId.get(item.photo_id) || item)
+      } catch {
+        // Фоновое обновление не должно ломать грид.
+      }
+    },
+
     async loadFacets() {
       this.facetsLoading = true
 

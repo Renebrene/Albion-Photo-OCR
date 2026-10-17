@@ -18,6 +18,26 @@ class HybridWorkItem:
     candidates: list[dict[str, Any]]
 
 
+def filter_active_candidates(
+    candidates: list[dict[str, Any]],
+    best_id: str | None,
+    active: set[str] | None,
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Drop candidates of hidden fingerprints from a saved DINO result."""
+
+    if active is None:
+        return candidates, best_id
+
+    kept = [
+        candidate for candidate in candidates if candidate["id"] in active
+    ]
+
+    if best_id is not None and best_id not in active:
+        best_id = None
+
+    return kept, best_id
+
+
 @dataclass(frozen=True)
 class HybridRun:
     hybrid_run_id: int
@@ -28,108 +48,218 @@ class HybridRun:
     failed_count: int
 
 
-def create_run(
-    dino_batch_id: int,
-) -> HybridRun:
-    """
-    Create a HYBRID RUN for one completed DINO BATCH.
+def _create_run_in_transaction(cur, dino_batch_id: int) -> HybridRun:
+    """Create a HYBRID row after validating the immutable DINO batch input."""
 
-    HYBRID accepts only a DONE DINO batch.
-    The DINO batch is immutable input for this HYBRID run.
-    """
+    cur.execute(
+        """
+        SELECT status, total_count, completed_count, failed_count
+        FROM public.dino_batches
+        WHERE batch_id = %s
+        FOR UPDATE
+        """,
+        (dino_batch_id,),
+    )
+
+    batch = cur.fetchone()
+    if batch is None:
+        raise ValueError(f"DINO batch not found: {dino_batch_id}")
+
+    status = str(batch[0])
+    total_count = int(batch[1])
+    completed_count = int(batch[2])
+    failed_count = int(batch[3])
+
+    if status != "DONE":
+        raise ValueError(f"DINO batch {dino_batch_id} is not DONE: {status}")
+    if failed_count != 0:
+        raise ValueError(
+            f"DINO batch {dino_batch_id} has failed runs: "
+            f"FAILED={failed_count}, TOTAL={total_count}"
+        )
+    if completed_count != total_count:
+        raise ValueError(
+            f"DINO batch {dino_batch_id} is incomplete: "
+            f"DONE={completed_count}, FAILED={failed_count}, TOTAL={total_count}"
+        )
+
+    cur.execute(
+        """
+        SELECT COUNT(*) FILTER (WHERE status = 'DONE'),
+               COUNT(*) FILTER (WHERE status = 'FAILED')
+        FROM public.dino_runs
+        WHERE batch_id = %s
+        """,
+        (dino_batch_id,),
+    )
+    done_runs, failed_runs = map(int, cur.fetchone())
+
+    if failed_runs != 0 or done_runs != total_count:
+        raise ValueError(
+            f"DINO batch {dino_batch_id} has unfinished runs: "
+            f"DONE={done_runs}, FAILED={failed_runs}, TOTAL={total_count}"
+        )
+
+    cur.execute(
+        """
+        INSERT INTO public.hybrid_runs (
+            dino_batch_id, status, total_count, completed_count, failed_count
+        )
+        VALUES (%s, %s, %s, 0, 0)
+        RETURNING hybrid_run_id
+        """,
+        (dino_batch_id, "DONE" if not done_runs else "PENDING", done_runs),
+    )
+    hybrid_run_id = int(cur.fetchone()[0])
+
+    if not done_runs:
+        cur.execute(
+            "UPDATE public.hybrid_runs SET finished_at=CURRENT_TIMESTAMP "
+            "WHERE hybrid_run_id=%s",
+            (hybrid_run_id,),
+        )
+
+    return HybridRun(
+        hybrid_run_id=hybrid_run_id,
+        dino_batch_id=dino_batch_id,
+        status="DONE" if not done_runs else "PENDING",
+        total_count=done_runs,
+        completed_count=0,
+        failed_count=0,
+    )
+
+
+def create_run(dino_batch_id: int) -> HybridRun:
+    """Create a HYBRID RUN for one completed DINO batch."""
+
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT
-                    status,
-                    total_count,
-                    completed_count,
-                    failed_count
-                FROM public.dino_batches
-                WHERE batch_id = %s
-                FOR UPDATE
-                """,
-                (dino_batch_id,),
-            )
+            return _create_run_in_transaction(cur, int(dino_batch_id))
 
-            batch = cur.fetchone()
 
-            if batch is None:
-                raise ValueError(
-                    f"DINO batch not found: {dino_batch_id}"
+def create_and_enqueue_run(
+    dino_batch_id: int,
+    *,
+    run_history_id: int | None = None,
+    history_spec: dict | None = None,
+) -> tuple[HybridRun, int | None, int | None]:
+    """
+    Atomically create one HYBRID run and its queue job/history link.
+
+    A worker/API failure cannot leave a new PENDING HYBRID row without a
+    corresponding queue job. The caller-owned transaction also links the
+    follow-on job before run history can be finalized by the DINO job.
+    """
+
+    from app.jobs.database import enqueue_in_transaction
+    from app.runs import history
+
+    create_history = bool(history_spec and history.available())
+    new_history_id = None
+    new_history_counts = None
+    job_id = None
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            hybrid = _create_run_in_transaction(cur, int(dino_batch_id))
+
+            active_history_id = run_history_id
+            if active_history_id is not None:
+                cur.execute(
+                    "SELECT 1 FROM public.run_history WHERE run_id=%s",
+                    (int(active_history_id),),
+                )
+                if cur.fetchone() is None:
+                    active_history_id = None
+
+            if active_history_id is None and create_history:
+                spec = dict(history_spec or {})
+                title_prefix = str(spec.pop("title_prefix", "HYBRID run"))
+                new_history_id = history.create_run_in_transaction(
+                    cur,
+                    kind="sort",
+                    mode=spec.pop("mode", "manual"),
+                    title=f"{title_prefix} #{hybrid.hybrid_run_id}",
+                    total=hybrid.total_count,
+                    counts=spec.pop(
+                        "counts",
+                        history.initial_sort_counts(
+                            hybrid.total_count, dino=False, hybrid=True
+                        ),
+                    ),
+                    source_id=hybrid.hybrid_run_id,
+                    status="RUNNING" if hybrid.total_count else "PENDING",
+                    started=True,
+                    **spec,
+                )
+                active_history_id = new_history_id
+
+            if hybrid.total_count:
+                job_id = enqueue_in_transaction(
+                    cur,
+                    "HYBRID_RUN",
+                    {"hybrid_run_id": hybrid.hybrid_run_id},
+                    run_history_id=active_history_id,
+                )
+                if active_history_id is not None:
+                    history.link_job_in_transaction(
+                        cur, int(active_history_id), job_id
+                    )
+                    history.set_sort_stage_in_transaction(
+                        cur,
+                        int(active_history_id),
+                        "HYBRID",
+                        status="RUNNING",
+                        total=hybrid.total_count,
+                        required=True,
+                    )
+            elif active_history_id is not None:
+                history.set_sort_stage_in_transaction(
+                    cur,
+                    int(active_history_id),
+                    "HYBRID",
+                    status="SKIPPED",
+                    total=0,
+                    required=False,
                 )
 
-            status = str(batch[0])
-            total_count = int(batch[1])
-            completed_count = int(batch[2])
-            failed_count = int(batch[3])
-
-            if status != "DONE":
-                raise ValueError(
-                    f"DINO batch {dino_batch_id} is not DONE: {status}"
+            if new_history_id is not None:
+                new_history_counts = history.finish_enqueue_in_transaction(
+                    cur,
+                    new_history_id,
+                    total=hybrid.total_count,
+                    covered=hybrid.total_count,
                 )
 
-            if failed_count != 0:
-                raise ValueError(
-                    f"DINO batch {dino_batch_id} has failed runs: "
-                    f"FAILED={failed_count}, TOTAL={total_count}"
-                )
+    if new_history_id is not None:
+        log_lines = [
+            f"run created: kind=sort mode=manual title=HYBRID run #{hybrid.hybrid_run_id}"
+        ]
+        if new_history_counts and not new_history_counts.get("jobs_total") and not new_history_counts.get("total"):
+            log_lines.append("run finished: no new jobs")
+        try:
+            history.append_log(new_history_id, log_lines)
+        except Exception:
+            # Logging must not hide the already committed run and queue job.
+            pass
 
-            if completed_count != total_count:
-                raise ValueError(
-                    f"DINO batch {dino_batch_id} is incomplete: "
-                    f"DONE={completed_count}, FAILED={failed_count}, "
-                    f"TOTAL={total_count}"
-                )
+    return hybrid, job_id, new_history_id
 
-            cur.execute(
-                """
-                SELECT
-                    COUNT(*) FILTER (WHERE status = 'DONE'),
-                    COUNT(*) FILTER (WHERE status = 'FAILED')
-                FROM public.dino_runs
-                WHERE batch_id = %s
-                """,
-                (dino_batch_id,),
-            )
 
-            done_runs, failed_runs = cur.fetchone()
-            done_runs = int(done_runs)
-            failed_runs = int(failed_runs)
+def fail_unstarted_run_in_transaction(cur, hybrid_run_id: int) -> bool:
+    """Close a queued HYBRID run if its queue job is cancelled before claim."""
 
-            if failed_runs != 0 or done_runs != total_count:
-                raise ValueError(
-                    f"DINO batch {dino_batch_id} has unfinished runs: "
-                    f"DONE={done_runs}, FAILED={failed_runs}, "
-                    f"TOTAL={total_count}"
-                )
-
-            cur.execute(
-                """
-                INSERT INTO public.hybrid_runs (
-                    dino_batch_id,
-                    status,
-                    total_count,
-                    completed_count,
-                    failed_count
-                )
-                VALUES (%s, 'PENDING', %s, 0, 0)
-                RETURNING hybrid_run_id
-                """,
-                (dino_batch_id, done_runs),
-            )
-
-            hybrid_run_id = int(cur.fetchone()[0])
-
-            return HybridRun(
-                hybrid_run_id=hybrid_run_id,
-                dino_batch_id=dino_batch_id,
-                status="PENDING",
-                total_count=done_runs,
-                completed_count=0,
-                failed_count=0,
-            )
+    cur.execute(
+        """
+        UPDATE public.hybrid_runs
+        SET status='FAILED',
+            failed_count=total_count,
+            finished_at=CURRENT_TIMESTAMP
+        WHERE hybrid_run_id=%s AND status='PENDING'
+        """,
+        (int(hybrid_run_id),),
+    )
+    return cur.rowcount == 1
 
 
 def get_run(
@@ -181,6 +311,14 @@ def get_run_items(
 
     No photo files are read.
     """
+
+    # Hidden fingerprints must not take part in HYBRID either. The candidates
+    # of an older DINO batch can still contain them, so filter here too (and
+    # clear a saved DINO best that now points at a hidden fingerprint).
+    from app.api.fingerprints import active_fingerprint_ids
+
+    active = active_fingerprint_ids()
+
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -272,13 +410,16 @@ def get_run_items(
                     for candidate in candidate_rows
                 ]
 
+                best_id = str(run[2]) if run[2] is not None else None
+                candidates, best_id = filter_active_candidates(
+                    candidates, best_id, active
+                )
+
                 items.append(
                     HybridWorkItem(
                         photo_id=str(run[1]),
                         dino_run_id=run_id,
-                        dino_best_id=(
-                            str(run[2]) if run[2] is not None else None
-                        ),
+                        dino_best_id=best_id,
                         dino_score=(
                             float(run[3]) if run[3] is not None else None
                         ),

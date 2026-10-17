@@ -24,7 +24,8 @@ psycopg = pytest.importorskip("psycopg")  # noqa: F841
 
 from app.dino import database as dino_db  # noqa: E402
 from app.hybrid import database as hybrid_db  # noqa: E402
-from app.ingest import database as ingest_db  # noqa: E402
+from app.ingest import database as ingest_db
+from app.jobs import database as jobs_db  # noqa: E402
 
 
 def _db_available() -> bool:
@@ -149,6 +150,60 @@ def test_finish_batch_running_while_work_pending(temp_photos):
     final = dino_db.finish_batch(batch.batch_id)
 
     assert final.status == "RUNNING"
+
+
+def test_abort_batch_fails_only_unfinished_runs_and_preserves_done(temp_photos):
+    batch = dino_db.create_batch(
+        "FORCE_RERUN", [record.photo_id for record in temp_photos]
+    )
+    _set_run_status(batch.batch_id, ["DONE", "RUNNING"])
+
+    final = dino_db.abort_batch(batch.batch_id, "cancelled at checkpoint")
+
+    assert final.status == "FAILED"
+    assert final.total_count == 2
+    assert final.completed_count == 1
+    assert final.failed_count == 1
+
+    with ingest_db.get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT status FROM public.dino_runs WHERE batch_id=%s ORDER BY run_id",
+                (batch.batch_id,),
+            )
+            assert [row[0] for row in cur.fetchall()] == ["DONE", "FAILED"]
+
+
+def test_requeue_interrupted_batch_resets_only_running_items(temp_photos):
+    batch = dino_db.create_batch(
+        "FORCE_RERUN", [record.photo_id for record in temp_photos]
+    )
+    _set_run_status(batch.batch_id, ["DONE", "RUNNING"])
+
+    reset = dino_db.requeue_interrupted_batch_runs(batch.batch_id)
+
+    assert reset == 1
+    with ingest_db.get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT status FROM public.dino_runs WHERE batch_id=%s ORDER BY run_id",
+                (batch.batch_id,),
+            )
+            assert [row[0] for row in cur.fetchall()] == ["DONE", "PENDING"]
+
+
+def test_cancelled_unclaimed_dino_job_fails_its_domain_batch(temp_photos):
+    batch = dino_db.create_batch("FORCE_RERUN", [temp_photos[0].photo_id])
+    job_id = jobs_db.enqueue("DINO_BATCH", {"batch_id": batch.batch_id})
+
+    assert jobs_db.mark_paused(job_id) is True
+    assert jobs_db.mark_cancelled(job_id) is True
+
+    job = jobs_db.get_job(job_id)
+    final = dino_db.get_batch(batch.batch_id)
+    assert job["status"] == "CANCELLED"
+    assert final.status == "FAILED"
+    assert final.failed_count == 1
 
 
 def test_hybrid_rejects_failed_batch(temp_photos):

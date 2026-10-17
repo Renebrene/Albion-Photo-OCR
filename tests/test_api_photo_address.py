@@ -1,0 +1,212 @@
+"""Manual legal-address override for one photo."""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+from types import SimpleNamespace
+
+from fastapi.testclient import TestClient
+
+from app.api import routes
+from app.api.main import app
+
+client = TestClient(app)
+
+PHOTO_ID = "PH_" + "ab" * 12
+
+
+def _override():
+    return {
+        "address_id": 5,
+        "legal_address": "г. Ростов-на-Дону, ул. Комарова, 13",
+        "simple_address": "Комарова 13",
+        "updated_at": None,
+    }
+
+
+def test_set_photo_address_stores_override(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        routes.repository, "get_photo",
+        lambda _pid: SimpleNamespace(model_dump=lambda: {"photo_id": PHOTO_ID}),
+    )
+    monkeypatch.setattr(routes.directory_mod, "get_address", lambda aid: {"address_id": aid})
+    monkeypatch.setattr(
+        routes.repository, "set_photo_address_override",
+        lambda pid, aid: calls.append((pid, aid)) or _override(),
+    )
+
+    response = client.put(
+        f"/api/v1/photos/{PHOTO_ID}/address",
+        json={"address_id": 5},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["address_id"] == 5
+    assert calls == [(PHOTO_ID, 5)]
+
+
+def test_set_photo_address_requires_existing_photo(monkeypatch):
+    monkeypatch.setattr(routes.repository, "get_photo", lambda _pid: None)
+
+    response = client.put(
+        f"/api/v1/photos/{PHOTO_ID}/address",
+        json={"address_id": 5},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "photo not found"
+
+
+def test_set_photo_address_requires_existing_address(monkeypatch):
+    monkeypatch.setattr(
+        routes.repository, "get_photo",
+        lambda _pid: SimpleNamespace(model_dump=lambda: {"photo_id": PHOTO_ID}),
+    )
+    monkeypatch.setattr(routes.directory_mod, "get_address", lambda _aid: None)
+
+    response = client.put(
+        f"/api/v1/photos/{PHOTO_ID}/address",
+        json={"address_id": 999},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "address not found"
+
+
+def test_clear_photo_address_removes_override(monkeypatch):
+    monkeypatch.setattr(
+        routes.repository, "get_photo",
+        lambda _pid: SimpleNamespace(model_dump=lambda: {"photo_id": PHOTO_ID}),
+    )
+    monkeypatch.setattr(
+        routes.repository, "clear_photo_address_override",
+        lambda _pid: True,
+    )
+
+    response = client.delete(f"/api/v1/photos/{PHOTO_ID}/address")
+
+    assert response.status_code == 200
+    assert response.json() == {"photo_id": PHOTO_ID, "cleared": True}
+
+
+def test_photo_details_include_address_override(monkeypatch):
+    monkeypatch.setattr(
+        routes.repository, "get_photo",
+        lambda _pid: SimpleNamespace(model_dump=lambda: {"photo_id": PHOTO_ID}),
+    )
+    monkeypatch.setattr(routes.qwen_db, "get", lambda _pid: None)
+    monkeypatch.setattr(
+        routes.repository, "get_photo_address_override",
+        lambda _pid: _override(),
+    )
+
+    body = client.get(f"/api/v1/photos/{PHOTO_ID}/details").json()
+
+    assert body["address_override"]["address_id"] == 5
+    assert body["address_override"]["simple_address"] == "Комарова 13"
+
+
+def _fake_connection(monkeypatch, repository, captured):
+    class Cursor:
+        def execute(self, sql, params=None):
+            captured.setdefault("queries", []).append((sql, params))
+
+        def fetchall(self):
+            return []
+
+        def fetchone(self):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class Connection:
+        def cursor(self):
+            return Cursor()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    @contextmanager
+    def fake():
+        yield Connection()
+
+    monkeypatch.setattr(repository, "get_connection", fake)
+
+
+def test_address_filter_ignores_recognized_id_after_override(monkeypatch):
+    """Исправленное фото не должно находиться по старому адресу."""
+
+    from app.api import repository
+
+    captured = {}
+    _fake_connection(monkeypatch, repository, captured)
+
+    repository.list_photos(limit=10, addresses=["89_v33"])
+
+    sql, params = captured["queries"][0]
+    assert "NOT EXISTS" in sql
+    assert "photo_address_overrides" in sql
+    assert sql.count("mfp.fingerprint_id ILIKE") == 1
+    assert params[:2] == ["%89_v33%", "%89_v33%"]
+    assert params[-1] == 11  # limit + 1 for the next-page probe
+
+
+def test_address_counts_follow_the_override(monkeypatch):
+    """Счётчики панели считают фото по адресу из override."""
+
+    from app.api import repository
+
+    captured = {}
+    _fake_connection(monkeypatch, repository, captured)
+
+    repository.list_addresses(limit=10)
+
+    sql = captured["queries"][0][0]
+    assert "LEFT JOIN LATERAL" in sql
+    assert "COALESCE(mapped.fingerprint_id, t.address)" in sql
+
+
+def test_save_manual_qwen_text(monkeypatch):
+    photo = SimpleNamespace(model_dump=lambda: {"photo_id": PHOTO_ID})
+    calls = []
+    monkeypatch.setattr(routes.repository, "get_photo", lambda _pid: photo)
+    monkeypatch.setattr(
+        routes.qwen_db, "save_manual",
+        lambda pid, fields: calls.append((pid, fields)),
+    )
+    monkeypatch.setattr(routes.qwen_db, "get", lambda _pid: {"status": "DONE"})
+
+    response = client.put(
+        f"/api/v1/photos/{PHOTO_ID}/qwen-text",
+        json={
+            "description": "Новое описание",
+            "client": "Клиент",
+            "brand": None,
+            "category": "Реклама",
+            "tags": ["тег", "ещё"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert calls[0][0] == PHOTO_ID
+    assert calls[0][1]["description"] == "Новое описание"
+    assert calls[0][1]["tags"] == ["тег", "ещё"]
+
+
+def test_save_manual_qwen_text_requires_photo(monkeypatch):
+    monkeypatch.setattr(routes.repository, "get_photo", lambda _pid: None)
+
+    response = client.put(
+        f"/api/v1/photos/{PHOTO_ID}/qwen-text",
+        json={"description": "x"},
+    )
+
+    assert response.status_code == 404

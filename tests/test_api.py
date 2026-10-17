@@ -164,6 +164,13 @@ def test_address_filter_is_built_from_the_fingerprints():
         if item["active"]:
             assert item["fingerprint_id"] in listed
 
+    # Hidden fingerprints are gone from «Адреса» even when they still carry
+    # recognised photos (the panel used to append their leftover counts).
+    hidden = {
+        item["fingerprint_id"] for item in registry if not item["active"]
+    }
+    assert not (listed & hidden)
+
     for item in addresses:
         assert item["name"]
         assert item["count"] >= 0
@@ -358,11 +365,12 @@ def test_qwen_rescan_passes_the_provider_override(monkeypatch):
 
     seen = {}
 
-    def fake_enqueue(photo_id, *, source="manual", provider=None, model=None, run_history_id=None):
+    def fake_enqueue(photo_id, *, source="manual", provider=None, model=None,
+                     run_history_id=None, priority=False):
         seen.update(
             {"photo_id": photo_id, "source": source,
              "provider": provider, "model": model,
-             "run_history_id": run_history_id}
+             "run_history_id": run_history_id, "priority": priority}
         )
         return None
 

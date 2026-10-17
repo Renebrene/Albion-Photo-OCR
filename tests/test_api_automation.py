@@ -1,8 +1,8 @@
 """
-Tests for the automation scheduler (schema 012).
+Tests for the automation scheduler (schema 012 + 042).
 
 Scope checks run everywhere; settings/lifecycle need PostgreSQL. Ticks are
-run with auto_dino/auto_qwen disabled so the tests never enqueue jobs.
+run with auto_qwen disabled so the tests never enqueue jobs.
 """
 
 from __future__ import annotations
@@ -36,16 +36,22 @@ requires_db = pytest.mark.skipif(
 )
 
 
-@pytest.fixture
-def restore_settings():
-    yield
+def _reset_settings():
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE public.automation_settings SET "
-                "enabled = FALSE, auto_dino = FALSE, auto_qwen = TRUE, "
+                "enabled = FALSE, auto_dino = FALSE, auto_qwen = FALSE, "
+                "mode = 'interval', daily_time = NULL, "
                 "interval_minutes = 60, last_tick = NULL WHERE id = 1"
             )
+
+
+@pytest.fixture
+def restore_settings():
+    _reset_settings()
+    yield
+    _reset_settings()
 
 
 def test_update_requires_jobs_write_scope(monkeypatch):
@@ -73,29 +79,34 @@ def test_automation_lifecycle(restore_settings):
     assert set(defaults) == {
         "enabled",
         "interval_minutes",
-        "auto_dino",
+        "mode",
+        "daily_time",
         "auto_qwen",
         "last_tick",
         "updated_at",
+        "last_run",
     }
     assert defaults["enabled"] is False
+    assert defaults["auto_qwen"] is False
 
     updated = client.put(
         "/api/v1/automation",
         json={
             "enabled": True,
             "interval_minutes": 30,
-            "auto_dino": False,
+            "mode": "daily",
+            "daily_time": "09:30",
             "auto_qwen": False,
         },
     ).json()
     assert updated["enabled"] is True
     assert updated["interval_minutes"] == 30
+    assert updated["mode"] == "daily"
+    assert updated["daily_time"] == "09:30"
     assert updated["auto_qwen"] is False
 
-    # With both sources disabled a forced tick enqueues nothing.
+    # QWEN disabled: a forced tick enqueues nothing.
     result = client.post("/api/v1/automation/run?force=true").json()
-    assert result.get("dino_batch_id") is None
     assert result.get("qwen_jobs") == 0
 
 

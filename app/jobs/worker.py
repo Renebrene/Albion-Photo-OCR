@@ -104,8 +104,59 @@ def _execute(job: dict) -> dict:
     if job_type == "DINO_BATCH":
         from app.dino.runner import run_batch
 
-        final = run_batch(int(payload["batch_id"]))
-        return {"batch_id": final.batch_id, "status": final.status}
+        batch_id = int(payload["batch_id"])
+        final = run_batch(
+            batch_id,
+            control=job_control(int(job["id"])),
+            recover_running=int(job.get("attempts") or 1) > 1,
+        )
+
+        followup_errors = []
+
+        # «Виртуальная сортировка» — один запуск DINO + HYBRID. HYBRID is
+        # atomically enqueued with its domain row and linked to shared history.
+        if payload.get("auto_hybrid") and final.status == "DONE":
+            from app.hybrid import database as hybrid_db
+            from app.runs import history
+
+            run_history_id = payload.get("run_history_id")
+
+            try:
+                hybrid, hybrid_job_id, _new_history_id = hybrid_db.create_and_enqueue_run(
+                    batch_id,
+                    run_history_id=run_history_id,
+                )
+                if hybrid_job_id is None and hybrid.total_count:
+                    raise RuntimeError(
+                        f"HYBRID run {hybrid.hybrid_run_id} has no queue job"
+                    )
+            except Exception as exc:
+                if run_history_id is not None:
+                    try:
+                        history.set_sort_stage(
+                            int(run_history_id),
+                            "HYBRID",
+                            status="FAILED",
+                            total=final.completed_count,
+                            failed=final.completed_count,
+                            required=True,
+                        )
+                    except Exception:
+                        pass
+                followup_errors.append({
+                    "error": f"HYBRID enqueue failed: {type(exc).__name__}"
+                })
+
+        result = {
+            "batch_id": final.batch_id,
+            "status": final.status,
+            "total_count": final.total_count,
+            "done_count": final.completed_count,
+            "failed_count": final.failed_count,
+        }
+        if followup_errors:
+            result["errors"] = followup_errors
+        return result
 
     if job_type == "HYBRID_RUN":
         from app.hybrid.database import get_run
@@ -114,7 +165,12 @@ def _execute(job: dict) -> dict:
         hybrid_run_id = int(payload["hybrid_run_id"])
         hybrid_run(hybrid_run_id)
         final = get_run(hybrid_run_id)
-        return {"hybrid_run_id": final.hybrid_run_id, "status": final.status}
+        return {
+            "hybrid_run_id": final.hybrid_run_id,
+            "status": final.status,
+            "done_count": final.completed_count,
+            "failed_count": final.failed_count,
+        }
 
     if job_type == "QWEN_PHOTO":
         from app.qwen.processor import run_photo
@@ -148,6 +204,11 @@ def _execute(job: dict) -> dict:
 
         return run_photo_preview(str(payload["photo_id"]))
 
+    if job_type == "BILLBOARD_DETECT":
+        from app.billboard.pipeline import run_detect
+
+        return run_detect(str(payload["photo_id"]))
+
     if job_type == "FINGERPRINT_BUILD":
         from app.pipeline.build import build_fingerprint
 
@@ -156,6 +217,9 @@ def _execute(job: dict) -> dict:
             str(payload["folder"]),
             max_photos=payload.get("max_photos"),
             replace=bool(payload.get("replace", True)),
+            recalculate=bool(payload.get("recalculate")),
+            batch_id=payload.get("batch_id"),
+            job_id=int(job["id"]),
             progress=job_control(int(job["id"])),
         )
 

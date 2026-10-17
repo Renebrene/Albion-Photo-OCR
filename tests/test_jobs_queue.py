@@ -84,6 +84,7 @@ def test_enqueue_then_claim_then_done(cleanup_jobs, require_idle_queue):
     assert claimed is not None
     assert claimed["id"] == job_id
     assert claimed["job_type"] == "DINO_BATCH"
+    assert claimed["attempts"] == 1
 
     jobs_db.mark_done(job_id, {"status": "DONE"})
 
@@ -104,6 +105,19 @@ def test_mark_failed(cleanup_jobs, require_idle_queue):
     final = jobs_db.get_job(job_id)
     assert final["status"] == "FAILED"
     assert final["error_message"] == "boom"
+
+
+def test_mark_failed_finalizes_a_paused_job_after_pause_timeout(cleanup_jobs, require_idle_queue):
+    job_id = jobs_db.enqueue("DINO_BATCH", {"batch_id": 1})
+    cleanup_jobs.append(job_id)
+
+    assert jobs_db.claim_next()["id"] == job_id
+    assert jobs_db.mark_paused(job_id) is True
+    jobs_db.mark_failed(job_id, "pause timed out")
+
+    final = jobs_db.get_job(job_id)
+    assert final["status"] == "FAILED"
+    assert final["error_message"] == "pause timed out"
 
 
 def test_clear_and_cancel_validate_their_input():

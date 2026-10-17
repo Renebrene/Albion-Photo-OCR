@@ -16,9 +16,11 @@ from app.core.fingerprint import FingerprintManager
 from app.core.scene_analyzer import CompactDescriptor
 from app.dino.database import (
     DinoWorkItem,
+    abort_batch,
     finish_batch,
     get_batch,
     get_batch_items,
+    requeue_interrupted_batch_runs,
     save_failure,
     save_success,
     start_batch,
@@ -179,12 +181,24 @@ class DinoRunner:
         self.fingerprints = self._load_fingerprints()
 
     def _load_fingerprints(self):
+        from app.api.fingerprints import active_fingerprint_ids
+
+        # Hidden/archived fingerprints stay on disk but must not take part in
+        # DINO ranking. None means the registry is unavailable -> old behaviour.
+        active = active_fingerprint_ids()
         loaded = []
 
         for metadata in self.manager.list_fingerprints():
             fingerprint_id = metadata.get("id")
 
             if not fingerprint_id:
+                continue
+
+            if active is not None and str(fingerprint_id) not in active:
+                print(
+                    f"[DINO Runner] SKIP hidden fingerprint "
+                    f"{fingerprint_id}"
+                )
                 continue
 
             try:
@@ -206,7 +220,7 @@ class DinoRunner:
 
         if not loaded:
             raise ValueError(
-                "No compatible v3.3 / 768D fingerprints found."
+                "No compatible v3.3 / 768D active fingerprints found."
             )
 
         print(
@@ -396,6 +410,8 @@ def _run_batched(
     runner: DinoRunner,
     items: list[DinoWorkItem],
     batch_size: int,
+    *,
+    control=None,
 ) -> tuple[int, int]:
     """
     Process items in batched embedding chunks, single-threaded.
@@ -409,6 +425,9 @@ def _run_batched(
     total = len(items)
 
     for start in range(0, total, batch_size):
+        if control is not None:
+            control(processed + failed, total, "dino")
+
         chunk = items[start:start + batch_size]
 
         started_runs: list[DinoWorkItem] = []
@@ -450,6 +469,9 @@ def _run_batched(
                     )
                     print(f"[DINO Runner] FAILED {item.photo_id}: {item_exc}")
 
+                if control is not None:
+                    control(processed + failed, total, "dino")
+
             continue
 
         for item, result in zip(started_runs, results):
@@ -465,6 +487,9 @@ def _run_batched(
                 failed += 1
                 print(f"[DINO Runner] FAILED {item.photo_id}: {exc}")
 
+            if control is not None:
+                control(processed + failed, total, "dino")
+
     return processed, failed
 
 
@@ -473,6 +498,9 @@ def run_batch(
     workers: int | None = None,
     limit: int | None = None,
     batch_size: int | None = None,
+    *,
+    control=None,
+    recover_running: bool = False,
 ):
     workers = resolve_workers(workers)
     batch_size = resolve_batch(batch_size)
@@ -489,6 +517,9 @@ def run_batch(
             f"DINO batch {batch_id} cannot run from "
             f"status {batch.status}"
         )
+
+    if recover_running and batch.status == "RUNNING":
+        requeue_interrupted_batch_runs(batch_id)
 
     items = get_batch_items(batch_id)
 
@@ -518,70 +549,103 @@ def run_batch(
     if batch.status == "PENDING":
         start_batch(batch_id)
 
-    runner = DinoRunner(workers=workers)
     started = time.perf_counter()
-
     processed = 0
     failed = 0
+    total = len(items)
 
-    if runner.workers == 1 and batch_size > 1:
-        processed, failed = _run_batched(runner, items, batch_size)
-    elif runner.workers == 1:
-        for item in items:
-            try:
-                run_item, result = _process_item(runner, item)
+    try:
+        runner = DinoRunner(workers=workers)
 
-                processed += 1
+        if control is not None:
+            control(0, total, "dino")
 
-                print(
-                    f"[DINO Runner] DONE "
-                    f"{processed}/{len(items)} "
-                    f"{run_item.photo_id} "
-                    f"score={result['score']:.4f} "
-                    f"time={result['time_sec']:.2f}s"
-                )
+        if runner.workers == 1 and batch_size > 1:
+            processed, failed = _run_batched(
+                runner, items, batch_size, control=control
+            )
+        elif runner.workers == 1:
+            for item in items:
+                if control is not None:
+                    control(processed + failed, total, "dino")
 
-            except Exception as exc:
-                failed += 1
-                print(
-                    f"[DINO Runner] FAILED "
-                    f"{item.photo_id}: {exc}"
-                )
-
-    else:
-        worker = partial(_process_item, runner)
-
-        with ThreadPoolExecutor(
-            max_workers=runner.workers
-        ) as executor:
-            # Bounded window: keep at most ~2x workers futures in flight.
-            for item, future in bounded_submit(
-                executor,
-                worker,
-                items,
-                window=default_window(runner.workers),
-            ):
                 try:
-                    run_item, result = future.result()
-
+                    run_item, result = _process_item(runner, item)
                     processed += 1
-
                     print(
-                        f"[DINO Runner] DONE "
-                        f"{processed}/{len(items)} "
-                        f"{run_item.photo_id} "
-                        f"score={result['score']:.4f} "
+                        f"[DINO Runner] DONE {processed}/{total} "
+                        f"{run_item.photo_id} score={result['score']:.4f} "
                         f"time={result['time_sec']:.2f}s"
                     )
-
                 except Exception as exc:
                     failed += 1
-                    print(
-                        f"[DINO Runner] FAILED "
-                        f"{item.photo_id}: {exc}"
-                    )
+                    print(f"[DINO Runner] FAILED {item.photo_id}: {exc}")
+
+                if control is not None:
+                    control(processed + failed, total, "dino")
+        else:
+            worker = partial(_process_item, runner)
+
+            with ThreadPoolExecutor(max_workers=runner.workers) as executor:
+                # The bounded window caps post-cancel in-flight work at ~2x
+                # workers. The coordinator checks control as each future ends;
+                # no new future is submitted after a pause/cancel is observed.
+                for item, future in bounded_submit(
+                    executor,
+                    worker,
+                    items,
+                    window=default_window(runner.workers),
+                ):
+                    try:
+                        run_item, result = future.result()
+                        processed += 1
+                        print(
+                            f"[DINO Runner] DONE {processed}/{total} "
+                            f"{run_item.photo_id} score={result['score']:.4f} "
+                            f"time={result['time_sec']:.2f}s"
+                        )
+                    except Exception as exc:
+                        failed += 1
+                        print(f"[DINO Runner] FAILED {item.photo_id}: {exc}")
+
+                    if control is not None:
+                        control(processed + failed, total, "dino")
+
+        if control is not None:
+            control(processed + failed, total, "dino")
+    except Exception as exc:
+        # Completed results stay DONE. Any item not finished before pause
+        # timeout/cancel (or an infrastructure error) becomes terminal FAILED
+        # so the batch cannot sit RUNNING with no worker attached.
+        try:
+            final_batch = abort_batch(
+                batch_id,
+                redact_absolute_paths(f"DINO batch interrupted: {exc}"),
+            )
+            print(
+                f"[DINO Runner] ABORTED BATCH {batch_id}: "
+                f"status={final_batch.status} done={final_batch.completed_count} "
+                f"failed={final_batch.failed_count}",
+                flush=True,
+            )
+        except Exception as abort_exc:
+            print(
+                f"[DINO Runner] could not finalize interrupted batch {batch_id}: "
+                f"{type(abort_exc).__name__}",
+                flush=True,
+            )
+        raise
 
     final_batch = finish_batch(batch_id)
+
+    if limit is None and final_batch.status == "RUNNING":
+        # A full queue batch must not be reported complete while run rows remain
+        # PENDING/RUNNING (for example, if a DB write failed after an item was
+        # submitted). Make the partial result terminal and visible to the caller.
+        final_batch = abort_batch(
+            batch_id,
+            "DINO runner finished with unfinished photo runs",
+        )
 
     elapsed = time.perf_counter() - started
 

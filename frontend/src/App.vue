@@ -22,9 +22,17 @@ const loginName = ref('')
 // the grid would flash the default layout and then rearrange itself.
 const booted = ref(false)
 
-// The technical section is for the staff: Администратор and Менеджер.
-const canUseTech = computed(() =>
-  ['Администратор', 'Менеджер'].includes(session.user?.role),
+// Технический раздел — только Администратору. В открытом демо-режиме
+// (SCENE_AUTH_REQUIRED=0) ограничений нет.
+const canUseTech = computed(
+  () => !session.authEnabled || session.user?.role === 'Администратор',
+)
+
+// «Обновление базы» запускают обе рабочие роли (Администратор и Менеджер).
+const canRunPipeline = computed(
+  () =>
+    !session.authEnabled ||
+    ['Администратор', 'Менеджер'].includes(session.user?.role),
 )
 
 onMounted(async () => {
@@ -52,7 +60,10 @@ async function afterAuth() {
   display.setPersistence(canPersist)
   if (!canPersist) display.reset()
 
-  photos.loadSelectionState({ persist: canPersist })
+  // Выделения адресов и клиентов не переживают сессию: при входе грид
+  // показывает все фото. Настройки отображения при этом по-прежнему
+  // сохраняются за рабочими ролями.
+  photos.loadSelectionState({ persist: false })
   // The display settings follow the user, not the browser. A Guest always
   // starts from the built-in defaults and never persists them.
   if (canPersist) await display.loadFromServer()
@@ -191,8 +202,8 @@ function toggleDark() {
         <!-- Обновление базы: запускает/ведёт полный прогон. Виден, только
              когда серверный супервизор уже развёрнут. -->
         <PipelineUpdateButton
-          v-if="session.user"
-          :can-run="canUseTech"
+          v-if="session.user || !session.authEnabled"
+          :can-run="canRunPipeline"
           @finished="loadStats"
         />
 
@@ -207,7 +218,12 @@ function toggleDark() {
         </q-btn>
 
         <!-- Главный экран выделен плашкой, как блок пользователя. -->
-        <q-tabs v-if="session.user" align="right" shrink class="header-gallery">
+        <q-tabs
+          v-if="session.user || !session.authEnabled"
+          align="right"
+          shrink
+          class="header-gallery"
+        >
           <q-route-tab to="/" icon="photo_library" label="Фотогалерея" exact />
           <q-route-tab to="/videos" icon="movie" label="Видео" exact />
         </q-tabs>
@@ -215,7 +231,7 @@ function toggleDark() {
         <!-- Технический раздел: шестерёнка вместо вкладки. Доступен только
              Администратору и Менеджеру — у Гостя его нет вовсе. -->
         <q-btn
-          v-if="session.user && canUseTech"
+          v-if="canUseTech"
           flat
           round
           dense

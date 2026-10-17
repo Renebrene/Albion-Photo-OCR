@@ -61,13 +61,20 @@ def test_manual_dino_run_links_job_and_preserves_response(history_mocks, monkeyp
     assert response.json() == {
         "job_id": 74, "batch_id": 22, "batch_status": "PENDING", "total_count": 3,
     }
+    from app.runs import history
+
     h.create_run.assert_called_once_with(
         kind="sort", mode="manual", title="DINO batch #22", total=3,
+        counts=history.initial_sort_counts(3, dino=True, hybrid=False),
         source_id=22, status="RUNNING", started=True,
     )
-    enqueue.assert_called_once_with("DINO_BATCH", {"batch_id": 22}, run_history_id=901)
+    enqueue.assert_called_once_with(
+        "DINO_BATCH",
+        {"batch_id": 22, "auto_hybrid": False},
+        run_history_id=901,
+    )
     h.add_jobs.assert_called_once_with(901, [74])
-    h.finish_enqueue.assert_called_once_with(901, total=3)
+    h.finish_enqueue.assert_called_once_with(901, total=3, covered=3)
 
 
 def test_zero_work_dino_finishes_history_without_enqueue(history_mocks, monkeypatch):
@@ -85,7 +92,7 @@ def test_zero_work_dino_finishes_history_without_enqueue(history_mocks, monkeypa
     assert response.status_code == 202
     assert response.json()["job_id"] is None
     enqueue.assert_not_called()
-    h.finish_enqueue.assert_called_once_with(901, total=0)
+    h.finish_enqueue.assert_called_once_with(901, total=0, covered=0)
 
 
 def test_dino_enqueue_failure_is_recorded_and_propagated(history_mocks, monkeypatch):
@@ -108,11 +115,14 @@ def test_dino_enqueue_failure_is_recorded_and_propagated(history_mocks, monkeypa
 
 def test_manual_hybrid_run_links_job_and_keeps_contract(history_mocks, monkeypatch):
     h = history_mocks
-    monkeypatch.setattr(h.routes.hybrid_db, "create_run", lambda *_: SimpleNamespace(
-        hybrid_run_id=31, total_count=2, status="PENDING"
+    create_and_enqueue = Mock(return_value=(
+        SimpleNamespace(hybrid_run_id=31, total_count=2, status="PENDING"),
+        75,
+        901,
     ))
-    enqueue = Mock(return_value=75)
-    monkeypatch.setattr(h.routes.jobs_db, "enqueue", enqueue)
+    monkeypatch.setattr(
+        h.routes.hybrid_db, "create_and_enqueue_run", create_and_enqueue
+    )
 
     response = client.post(
         "/api/v1/jobs/hybrid", json={"dino_batch_id": 12}, headers=h.headers,
@@ -122,18 +132,22 @@ def test_manual_hybrid_run_links_job_and_keeps_contract(history_mocks, monkeypat
     assert response.json() == {
         "job_id": 75, "hybrid_run_id": 31, "status": "PENDING", "total_count": 2,
     }
-    enqueue.assert_called_once_with("HYBRID_RUN", {"hybrid_run_id": 31}, run_history_id=901)
-    h.add_jobs.assert_called_once_with(901, [75])
-    h.finish_enqueue.assert_called_once_with(901, total=2)
+    create_and_enqueue.assert_called_once_with(
+        12,
+        history_spec={"mode": "manual", "title_prefix": "HYBRID run"},
+    )
 
 
 def test_hybrid_zero_work_finishes_history_without_enqueue(history_mocks, monkeypatch):
     h = history_mocks
-    monkeypatch.setattr(h.routes.hybrid_db, "create_run", lambda *_: SimpleNamespace(
-        hybrid_run_id=32, total_count=0, status="DONE"
+    create_and_enqueue = Mock(return_value=(
+        SimpleNamespace(hybrid_run_id=32, total_count=0, status="DONE"),
+        None,
+        901,
     ))
-    enqueue = Mock()
-    monkeypatch.setattr(h.routes.jobs_db, "enqueue", enqueue)
+    monkeypatch.setattr(
+        h.routes.hybrid_db, "create_and_enqueue_run", create_and_enqueue
+    )
 
     response = client.post(
         "/api/v1/jobs/hybrid", json={"dino_batch_id": 12}, headers=h.headers,
@@ -141,24 +155,30 @@ def test_hybrid_zero_work_finishes_history_without_enqueue(history_mocks, monkey
 
     assert response.status_code == 202
     assert response.json()["job_id"] is None
-    enqueue.assert_not_called()
-    h.finish_enqueue.assert_called_once_with(901, total=0)
+    create_and_enqueue.assert_called_once_with(
+        12,
+        history_spec={"mode": "manual", "title_prefix": "HYBRID run"},
+    )
 
 
-def test_manual_hybrid_records_enqueue_error_and_propagates(history_mocks, monkeypatch):
+def test_manual_hybrid_atomic_enqueue_error_does_not_return_a_pending_run(
+    history_mocks, monkeypatch
+):
     h = history_mocks
-    monkeypatch.setattr(h.routes.hybrid_db, "create_run", lambda *_: SimpleNamespace(
-        hybrid_run_id=33, total_count=1, status="PENDING"
-    ))
-    monkeypatch.setattr(h.routes.jobs_db, "enqueue", Mock(side_effect=RuntimeError("queue down")))
+    monkeypatch.setattr(
+        h.routes.hybrid_db,
+        "create_and_enqueue_run",
+        Mock(side_effect=RuntimeError("queue down")),
+    )
 
     response = client.post(
         "/api/v1/jobs/hybrid", json={"dino_batch_id": 12}, headers=h.headers,
     )
 
     assert response.status_code == 500
-    h.update_run.assert_called_once()
-    assert h.update_run.call_args.kwargs["status"] == "FAILED"
+    h.create_run.assert_not_called()
+    h.add_jobs.assert_not_called()
+    h.finish_enqueue.assert_not_called()
 
 
 def test_manual_dino_is_not_blocked_when_history_storage_is_unavailable(monkeypatch):

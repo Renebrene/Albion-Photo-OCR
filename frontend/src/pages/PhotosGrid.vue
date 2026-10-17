@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Notify } from 'quasar'
 
@@ -13,6 +13,12 @@ import {
   downloadAuthenticated,
   fetchMediaSearchJob,
   fetchPhotoDetails,
+  fetchSearchSuggestions,
+  fetchRunActivity,
+  savePhotoQwenText,
+  fetchAddressDirectory,
+  clearPhotoAddressOverride,
+  setPhotoAddressOverride,
   fetchQwenHistory,
   fetchQwenSettings,
   originalUrl,
@@ -49,6 +55,9 @@ const canUseCollective = computed(() => {
   if (!session.authEnabled) return true
   return ['Администратор', 'Менеджер'].includes(session.user?.role)
 })
+
+// Поиск по загруженному фото/видео требует searches:write — у Гостя его нет.
+const canSearchMedia = canUseCollective
 
 const { items, error, loading, addresses, clients, savedSearches } =
   storeToRefs(store)
@@ -309,17 +318,58 @@ function currentDates() {
   })
 }
 
+// Пока идёт пайплайн, адреса HYBRID и статусы QWEN меняются на месте:
+// обновляем уже показанные строки, не сбрасывая прокрутку.
+let pipelineSyncTimer = null
+let pipelineSyncTick = 0
+
+async function syncDuringPipeline() {
+  try {
+    const data = await fetchRunActivity()
+
+    if (!data.active) return
+
+    await store.syncLoaded()
+    pipelineSyncTick += 1
+
+    if (pipelineSyncTick % 3 === 0) await store.loadFacets()
+  } catch {
+    // Фоновое обновление не должно влиять на работу грида.
+  }
+}
+
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
+
+  // Вход на главную всегда начинает с полного грида: старые выделения
+  // адресов/клиентов, строка поиска и период не восстанавливаются.
+  store.selectedAddresses = []
+  store.selectedClients = []
+  store.collectionId = null
+  store.nlIds = []
+  q.value = ''
+  period.value = 'all'
+  customFrom.value = null
+  customTo.value = null
+  dateMode.value = 'upload'
+
   await store.loadFacets()
   loadQwenModels()
   apply()
+
+  if (gridScrollEl.value) gridScrollEl.value.scrollTop = 0
+  pipelineSyncTimer = window.setInterval(syncDuringPipeline, 10_000)
   await nextTick()
 
   if (gridScrollEl.value && typeof ResizeObserver !== 'undefined') {
     gridObserver = new ResizeObserver((entries) => {
       const entry = entries[0]
-      if (entry) gridWidth.value = entry.contentRect.width
+      if (entry) {
+        gridWidth.value = entry.contentRect.width
+        // Height-only resizes can turn a previously scrollable grid into an
+        // underfilled one; width changes also alter the number of columns.
+        if (store.hasMore) void fillGridUntilScrollable()
+      }
     })
     gridObserver.observe(gridScrollEl.value)
   }
@@ -329,6 +379,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   stopGridObserver()
   stopQwenElapsed()
+
+  if (suggestTimer !== null) window.clearTimeout(suggestTimer)
+  if (pipelineSyncTimer !== null) window.clearInterval(pipelineSyncTimer)
 })
 
 // Arrow keys page through the gallery in the order it is displayed.
@@ -344,10 +397,16 @@ function onKeydown(event) {
   }
 }
 
-async function apply() {
+async function apply(overrideQuery = undefined) {
+  // Кнопка очистки Quasar присылает update:modelValue(null) раньше, чем
+  // v-model записывает значение в q, поэтому пустой запрос передаётся явно.
+  const query = overrideQuery === undefined
+    ? String(q.value || '').trim()
+    : String(overrideQuery || '').trim()
+
   const [dateFrom, dateTo] = currentDates()
   await store.applyFilters({
-    q: q.value.trim(),
+    q: query,
     addresses: [...store.selectedAddresses],
     clients: [...store.selectedClients],
     dateFrom,
@@ -355,6 +414,123 @@ async function apply() {
     dateMode: dateMode.value,
     collectionId: store.collectionId,
   })
+}
+
+// Пока в строке поиска есть текст, фильтр клиентов/брендов неактивен:
+// два фильтра одновременно не смешиваются.
+const textSearchActive = computed(
+  () => String(q.value || '').trim() !== '',
+)
+
+// ---- очистка строки поиска ------------------------------------------------
+// Обрабатывается событиями самого поля (не watcher'ом): кнопка × присылает
+// @clear, а удаление текста — обычный @update:model-value. Оба пути ведут к
+// одному применению фильтра, повторный запрос не отправляется.
+
+let hadSearchTerm = false
+
+function onSearchInput(value) {
+  const term = String(value || '').trim()
+
+  scheduleSuggestions(value)
+
+  if (term !== '') {
+    hadSearchTerm = true
+    return
+  }
+
+  if (hadSearchTerm) {
+    hadSearchTerm = false
+    apply('')
+  }
+}
+
+function onSearchClear() {
+  // Некоторые версии Quasar присылают @clear без @update:model-value —
+  // на этот случай грид обновляется здесь. Флаг делает вызов идемпотентным.
+  if (!hadSearchTerm) return
+
+  hadSearchTerm = false
+  apply('')
+}
+
+// ---- подсказки строки поиска и проверка раскладки -------------------------
+
+const suggestItems = ref([])
+const suggestLayout = ref(null)
+const suggestOpen = ref(false)
+let suggestTimer = null
+let suggestMuted = false
+
+const SUGGESTION_KINDS = {
+  tag: 'тег',
+  client: 'клиент',
+  brand: 'бренд',
+  category: 'категория',
+  address: 'адрес',
+}
+
+const SUGGESTION_ICONS = {
+  tag: 'sell',
+  client: 'business',
+  brand: 'storefront',
+  category: 'category',
+  address: 'place',
+}
+
+function suggestionKind(kind) {
+  return SUGGESTION_KINDS[kind] || kind
+}
+
+function suggestionIcon(kind) {
+  return SUGGESTION_ICONS[kind] || 'search'
+}
+
+function scheduleSuggestions(value) {
+  if (suggestTimer !== null) window.clearTimeout(suggestTimer)
+
+  // Выбор подсказки программно меняет q — повторный запрос не нужен.
+  if (suggestMuted) {
+    suggestMuted = false
+    return
+  }
+
+  const term = String(value || '').trim()
+
+  if (term.length < 2) {
+    suggestItems.value = []
+    suggestLayout.value = null
+    suggestOpen.value = false
+    return
+  }
+
+  suggestTimer = window.setTimeout(() => loadSuggestions(term), 250)
+}
+
+async function loadSuggestions(term) {
+  try {
+    const data = await fetchSearchSuggestions(term)
+
+    // Пока шёл запрос, строку уже изменили — старые подсказки не показываем.
+    if (String(q.value || '').trim() !== term) return
+
+    suggestItems.value = data.items || []
+    suggestLayout.value = data.layout || null
+    suggestOpen.value = Boolean(suggestItems.value.length || suggestLayout.value)
+  } catch {
+    suggestItems.value = []
+    suggestLayout.value = null
+  }
+}
+
+function pickSuggestion(value) {
+  if (value !== String(q.value || '')) suggestMuted = true
+
+  q.value = value
+  suggestOpen.value = false
+  suggestItems.value = []
+  suggestLayout.value = null
+  apply(value)
 }
 
 function toggleValue(list, value) {
@@ -408,6 +584,9 @@ async function reset() {
 // ---- smart search by an uploaded photo ----
 
 function pickMedia() {
+  // Гость не имеет searches:write — поиск по файлу ему недоступен.
+  if (!canSearchMedia.value) return
+
   mediaInput.value?.click()
 }
 
@@ -716,6 +895,7 @@ async function saveSearch() {
 
 async function applySavedSearch(search) {
   const filters = search.filters || {}
+
   q.value = filters.q || ''
   store.collectionId = filters.collection_id || null
 
@@ -818,6 +998,30 @@ function tileMeta(photo) {
   return [tileDate(photo), tileSize(photo)].filter(Boolean).join(' · ')
 }
 
+/** «клиент · бренд» для карточки; пусто, когда распознавания ещё нет. */
+function clientBrand(photo) {
+  return [photo?.client, photo?.brand].filter(Boolean).join(' · ')
+}
+
+// Значок QWEN на плитке/в списке: зелёный — описание есть, оранжевый —
+// в очереди/процессе, красный — ошибка, серый — описания ещё нет.
+function qwenColor(photo) {
+  if (photo?.qwen_status === 'FAILED') return 'negative'
+  if (photo?.qwen_status === 'PENDING' || photo?.qwen_status === 'RUNNING') {
+    return 'orange'
+  }
+  if (photo?.qwen_described) return 'positive'
+  return 'grey'
+}
+
+function qwenHint(photo) {
+  if (photo?.qwen_status === 'FAILED') return 'QWEN: ошибка'
+  if (photo?.qwen_status === 'PENDING') return 'QWEN: в очереди'
+  if (photo?.qwen_status === 'RUNNING') return 'QWEN: распознаётся'
+  if (photo?.qwen_described) return 'QWEN: описание есть'
+  return 'QWEN: описания нет'
+}
+
 // ZIP: one server-built archive instead of a file per photo.
 const zipBusy = ref(false)
 
@@ -827,7 +1031,9 @@ async function downloadZip() {
   zipBusy.value = true
 
   try {
-    const items = [...store.selected].map((photoId) => ({
+    // Do not name this local `items`: it would shadow the loaded photo list
+    // (`items.value`) used in the initializer and hit its temporal dead zone.
+    const archiveItems = [...store.selected].map((photoId) => ({
       photo_id: photoId,
       // The same name the single-file download would use.
       name: downloadFileName(
@@ -838,11 +1044,11 @@ async function downloadZip() {
       ),
     }))
 
-    await downloadArchive(items)
+    await downloadArchive(archiveItems)
 
     Notify.create({
       type: 'positive',
-      message: `Архив собран: ${items.length} фото`,
+      message: `Архив собран: ${archiveItems.length} фото`,
     })
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
@@ -873,14 +1079,209 @@ async function downloadSelected() {
   }
 }
 
-async function onLoad(index, done) {
-  if (!store.hasMore) {
-    done(true)
-    return
+// Постепенная подгрузка: следующий лист запрашивается при прокрутке, а если
+// текущие карточки не создали полосу прокрутки — автоматически добираем страницы.
+let pageLoadPromise = null
+let gridFillPromise = null
+
+async function loadNextPhotoPage() {
+  if (pageLoadPromise) return pageLoadPromise
+  if (!store.hasMore || store.loading) return false
+
+  const previousCount = items.value.length
+  const previousCursor = store.nextCursor
+
+  pageLoadPromise = (async () => {
+    await store.loadPage()
+    await nextTick()
+
+    return (
+      items.value.length > previousCount
+      && store.nextCursor !== previousCursor
+    )
+  })()
+
+  try {
+    return await pageLoadPromise
+  } finally {
+    pageLoadPromise = null
+  }
+}
+
+async function fillGridUntilScrollable() {
+  if (gridFillPromise) return gridFillPromise
+
+  gridFillPromise = (async () => {
+    await nextTick()
+
+    while (store.hasMore && !store.loading && !error.value) {
+      const el = gridScrollEl.value
+      // Hidden/not-yet-laid-out containers have no measurable viewport. Do not
+      // drain every page just because both scroll metrics are zero.
+      if (!el || el.clientHeight <= 0 || el.scrollHeight > el.clientHeight + 1) break
+
+      const advanced = await loadNextPhotoPage()
+      if (!advanced) break
+    }
+  })().finally(() => {
+    gridFillPromise = null
+  })
+
+  return gridFillPromise
+}
+
+// Pinia exposes page completion as items/cursor plus loading=false. Run after
+// DOM patch so scrollHeight reflects the newly rendered cards. This also covers
+// initial load and every filter/collection refresh without depending on scroll.
+watch(
+  () => [items.value.length, store.nextCursor, loading.value],
+  ([, , isLoading]) => {
+    if (!isLoading && store.hasMore) void fillGridUntilScrollable()
+  },
+  { flush: 'post' },
+)
+
+async function onGridScroll(event) {
+  const el = event.target
+  if (!(el instanceof HTMLElement)) return
+
+  // When the user reaches the end, keep loading until there is meaningful
+  // scroll room; a single appended page may still leave the viewport at bottom.
+  while (
+    store.hasMore
+    && el.scrollTop + el.clientHeight >= el.scrollHeight - 600
+  ) {
+    const advanced = await loadNextPhotoPage()
+    if (!advanced) break
+  }
+}
+
+async function loadMorePhotos() {
+  await loadNextPhotoPage()
+  await fillGridUntilScrollable()
+}
+
+// ---- ручное исправление юридического адреса -------------------------------
+
+const addressEditOpen = ref(false)
+const addressOptions = ref([])
+const addressChoice = ref(null)
+const addressSaving = ref(false)
+
+function addressLabel(item) {
+  const legal = item.legal_address || ''
+  const simple = item.simple_address || ''
+
+  if (legal && simple && simple !== legal) return `${legal} · ${simple}`
+
+  return legal || simple || item.address
+}
+
+async function openAddressEditor() {
+  addressChoice.value = details.value?.address_override?.address_id || null
+  addressEditOpen.value = true
+
+  try {
+    const data = await fetchAddressDirectory()
+    addressOptions.value = (data.items || [])
+      .filter((item) => item.active)
+      .map((item) => ({ address_id: item.address_id, label: addressLabel(item) }))
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  }
+}
+
+async function saveAddressOverride() {
+  if (!current.value || !addressChoice.value || addressSaving.value) return
+
+  addressSaving.value = true
+
+  try {
+    await setPhotoAddressOverride(current.value.photo_id, addressChoice.value)
+    Notify.create({ type: 'positive', message: 'Юридический адрес обновлён' })
+    addressEditOpen.value = false
+    await loadDetails(current.value)
+    await store.refresh()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    addressSaving.value = false
+  }
+}
+
+async function resetAddressOverride() {
+  if (!current.value || addressSaving.value) return
+
+  addressSaving.value = true
+
+  try {
+    await clearPhotoAddressOverride(current.value.photo_id)
+    Notify.create({ type: 'info', message: 'Исправление снято' })
+    addressEditOpen.value = false
+    await loadDetails(current.value)
+    await store.refresh()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    addressSaving.value = false
+  }
+}
+
+// ---- ручная правка текстового описания QWEN -------------------------------
+
+const qwenEditOpen = ref(false)
+const qwenEditSaving = ref(false)
+const qwenEditFields = ref({
+  description: '',
+  client: '',
+  brand: '',
+  category: '',
+  tags: '',
+})
+
+function openQwenEditor() {
+  const meta = qwen.value || {}
+
+  qwenEditFields.value = {
+    description: meta.description || '',
+    client: meta.client || '',
+    brand: meta.brand || '',
+    category: meta.category || '',
+    tags: Array.isArray(meta.tags) ? meta.tags.join(', ') : '',
   }
 
-  await store.loadPage()
-  done(!store.hasMore)
+  qwenEditOpen.value = true
+}
+
+async function saveQwenEditor() {
+  if (!current.value || qwenEditSaving.value) return
+
+  qwenEditSaving.value = true
+
+  try {
+    const fields = qwenEditFields.value
+    const tags = fields.tags
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+
+    await savePhotoQwenText(current.value.photo_id, {
+      description: fields.description || null,
+      client: fields.client || null,
+      brand: fields.brand || null,
+      category: fields.category || null,
+      tags,
+    })
+
+    Notify.create({ type: 'positive', message: 'Описание сохранено' })
+    qwenEditOpen.value = false
+    await loadDetails(current.value)
+    await store.syncLoaded()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    qwenEditSaving.value = false
+  }
 }
 
 async function loadDetails(photo) {
@@ -995,6 +1396,7 @@ async function addOneToBucket(photo) {
 
 // QWEN metadata for the open photo (may be null when it has not run).
 const qwen = computed(() => (details.value ? details.value.qwen : null))
+
 
 // The open photo: the freshly fetched copy, falling back to the grid row
 // (which already carries the same fields, minus the QWEN metadata).
@@ -1124,26 +1526,75 @@ function tagList(meta) {
       <div class="col column full-height q-px-xs">
         <!-- unified search bar: Enter = Поиск, camera = search by a photo -->
         <div class="row items-center q-gutter-sm q-mb-sm">
-          <q-input
-            v-model="q"
-            dense
-            outlined
-            clearable
-            :disable="!!mediaFile"
-            :placeholder="
-              mediaFile ? '' : 'Название файла, клиент, бренд, адрес'
-            "
-            class="col"
-            @keyup.enter="apply"
-          >
-            <template #prepend>
-              <q-icon :name="mediaFile ? 'image' : 'search'" />
-            </template>
-          </q-input>
+          <div class="col relative-position">
+            <q-input
+              v-model="q"
+              dense
+              outlined
+              clearable
+              :disable="!!mediaFile"
+              :placeholder="
+                mediaFile ? '' : 'Название файла, клиент, бренд, адрес'
+              "
+              @keyup.enter="apply()"
+              @update:model-value="onSearchInput"
+              @clear="onSearchClear"
+            >
+              <template #prepend>
+                <q-icon :name="mediaFile ? 'image' : 'search'" />
+              </template>
+            </q-input>
+
+            <!-- Подсказки по существующим значениям + проверка раскладки -->
+            <q-menu
+              v-model="suggestOpen"
+              anchor="bottom left"
+              self="top left"
+              :offset="[0, 4]"
+              no-focus
+            >
+              <q-list dense style="min-width: 320px; max-width: 520px">
+                <q-item
+                  v-if="suggestLayout"
+                  clickable
+                  @click="pickSuggestion(suggestLayout.query)"
+                >
+                  <q-item-section avatar>
+                    <q-icon name="keyboard" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>
+                      Похоже, набрано в другой раскладке
+                    </q-item-label>
+                    <q-item-label caption>
+                      {{ suggestLayout.query }}
+                    </q-item-label>
+                  </q-item-section>
+                </q-item>
+
+                <q-item
+                  v-for="item in suggestItems"
+                  :key="`${item.kind}:${item.value}`"
+                  clickable
+                  @click="pickSuggestion(item.value)"
+                >
+                  <q-item-section avatar>
+                    <q-icon :name="suggestionIcon(item.kind)" />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label>{{ item.value }}</q-item-label>
+                    <q-item-label caption>
+                      {{ suggestionKind(item.kind) }}
+                    </q-item-label>
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-menu>
+          </div>
 
           <!-- the chosen image is named right in the search row -->
           <q-chip
-            v-if="mediaFile"
+            v-if="canSearchMedia && mediaFile"
             dense
             removable
             color="teal"
@@ -1155,6 +1606,7 @@ function tagList(meta) {
           </q-chip>
 
           <q-checkbox
+            v-if="canSearchMedia"
             v-model="autoMode"
             dense
             size="sm"
@@ -1167,7 +1619,14 @@ function tagList(meta) {
             </q-tooltip>
           </q-checkbox>
 
-          <q-btn dense flat icon="photo_camera" :disable="mediaBusy" @click="pickMedia">
+          <q-btn
+            v-if="canSearchMedia"
+            dense
+            flat
+            icon="photo_camera"
+            :disable="mediaBusy"
+            @click="pickMedia"
+          >
             <q-tooltip>Умный поиск по фото или видео</q-tooltip>
           </q-btn>
           <input
@@ -1407,8 +1866,11 @@ function tagList(meta) {
         <!-- Полоса-разделитель: фильтры сверху, сетка фото под ней. -->
         <div class="grid-divider" />
 
-        <div ref="gridScrollEl" class="col grid-scroll">
-          <q-infinite-scroll @load="onLoad" :offset="600">
+        <div
+          ref="gridScrollEl"
+          class="col grid-scroll"
+          @scroll.passive="onGridScroll"
+        >
             <div v-if="viewMode === 'tiles'" class="photo-grid" :style="gridStyle">
               <q-card
                 v-for="photo in sortedItems"
@@ -1430,7 +1892,8 @@ function tagList(meta) {
                 />
                 <q-card-section class="q-pa-xs">
                   <!-- Подпись плитки: алиас адреса жирным, имя файла обычным,
-                       дата съёмки и вес — жирным курсивом, клиент — курсивом. -->
+                       дата съёмки и вес — жирным курсивом, клиент и бренд —
+                       курсивом (результат распознавания QWEN). -->
                   <div
                     v-if="photo.address"
                     class="ellipsis text-caption text-weight-bold"
@@ -1440,7 +1903,17 @@ function tagList(meta) {
                       {{ photo.address }}
                     </q-tooltip>
                   </div>
-                  <div class="ellipsis text-caption">{{ photo.filename }}</div>
+                  <div class="ellipsis text-caption">
+                    <q-icon
+                      name="auto_awesome"
+                      size="14px"
+                      :color="qwenColor(photo)"
+                      class="q-mr-xs"
+                    >
+                      <q-tooltip>{{ qwenHint(photo) }}</q-tooltip>
+                    </q-icon>
+                    {{ photo.filename }}
+                  </div>
                   <div
                     v-if="tileMeta(photo)"
                     class="ellipsis text-caption text-weight-bold font-italic"
@@ -1448,10 +1921,10 @@ function tagList(meta) {
                     {{ tileMeta(photo) }}
                   </div>
                   <div
-                    v-if="photo.client"
+                    v-if="clientBrand(photo)"
                     class="ellipsis text-caption font-italic"
                   >
-                    {{ photo.client }}
+                    {{ clientBrand(photo) }}
                   </div>
                 </q-card-section>
 
@@ -1464,19 +1937,34 @@ function tagList(meta) {
                       </q-item-section>
                       <q-item-section>Открыть</q-item-section>
                     </q-item>
-                    <q-item clickable v-close-popup @click="openOriginal(photo)">
+                    <q-item
+                      v-if="canUseCollective"
+                      clickable
+                      v-close-popup
+                      @click="openOriginal(photo)"
+                    >
                       <q-item-section avatar>
                         <q-icon name="open_in_new" />
                       </q-item-section>
                       <q-item-section>Оригинал</q-item-section>
                     </q-item>
-                    <q-item clickable v-close-popup @click="saveOriginal(photo)">
+                    <q-item
+                      v-if="canUseCollective"
+                      clickable
+                      v-close-popup
+                      @click="saveOriginal(photo)"
+                    >
                       <q-item-section avatar>
                         <q-icon name="download" />
                       </q-item-section>
                       <q-item-section>Сохранить</q-item-section>
                     </q-item>
-                    <q-item clickable v-close-popup @click="addOneToBucket(photo)">
+                    <q-item
+                      v-if="canUseCollective"
+                      clickable
+                      v-close-popup
+                      @click="addOneToBucket(photo)"
+                    >
                       <q-item-section avatar>
                         <q-icon name="bookmark_add" />
                       </q-item-section>
@@ -1527,13 +2015,21 @@ function tagList(meta) {
                     </span>
                   </q-item-label>
 
-                  <!-- Строка 2: имя файла, клиент и бренд через запятую. -->
+                  <!-- Строка 2: имя файла и результат распознавания
+                       (клиент/бренд), когда он уже есть. -->
                   <q-item-label caption class="ellipsis">
-                    {{
-                      [photo.filename, photo.client, photo.brand]
-                        .filter(Boolean)
-                        .join(', ')
-                    }}
+                    <q-icon
+                      name="auto_awesome"
+                      size="14px"
+                      :color="qwenColor(photo)"
+                      class="q-mr-xs"
+                    >
+                      <q-tooltip>{{ qwenHint(photo) }}</q-tooltip>
+                    </q-icon>
+                    {{ photo.filename }}
+                    <span v-if="clientBrand(photo)" class="text-grey-8">
+                      · {{ clientBrand(photo) }}
+                    </span>
                   </q-item-label>
 
                   <!-- Остальные поля из настроек списка (размер в пикселях,
@@ -1551,15 +2047,30 @@ function tagList(meta) {
                   <q-btn dense flat icon="more_vert" @click.stop>
                     <q-menu>
                       <q-list dense style="min-width: 180px">
-                        <q-item clickable v-close-popup @click="openOriginal(photo)">
+                        <q-item
+                          v-if="canUseCollective"
+                          clickable
+                          v-close-popup
+                          @click="openOriginal(photo)"
+                        >
                           <q-item-section avatar><q-icon name="open_in_new" /></q-item-section>
                           <q-item-section>Оригинал</q-item-section>
                         </q-item>
-                        <q-item clickable v-close-popup @click="saveOriginal(photo)">
+                        <q-item
+                          v-if="canUseCollective"
+                          clickable
+                          v-close-popup
+                          @click="saveOriginal(photo)"
+                        >
                           <q-item-section avatar><q-icon name="download" /></q-item-section>
                           <q-item-section>Сохранить</q-item-section>
                         </q-item>
-                        <q-item clickable v-close-popup @click="addOneToBucket(photo)">
+                        <q-item
+                          v-if="canUseCollective"
+                          clickable
+                          v-close-popup
+                          @click="addOneToBucket(photo)"
+                        >
                           <q-item-section avatar><q-icon name="bookmark_add" /></q-item-section>
                           <q-item-section>В подборку</q-item-section>
                         </q-item>
@@ -1570,12 +2081,30 @@ function tagList(meta) {
               </q-item>
             </q-list>
 
-            <template #loading>
-              <div class="row justify-center q-my-md">
-                <q-spinner-dots color="primary" size="40px" />
-              </div>
-            </template>
-          </q-infinite-scroll>
+            <div v-if="loading" class="row justify-center q-my-md">
+              <q-spinner-dots color="primary" size="40px" />
+            </div>
+            <div
+              v-else-if="store.hasMore"
+              class="row items-center justify-center q-gutter-sm q-my-md text-caption text-grey-7"
+            >
+              <span>Показано {{ items.length }} фото; есть ещё</span>
+              <q-btn
+                dense
+                flat
+                color="primary"
+                label="Загрузить ещё"
+                :loading="loading"
+                :disable="loading"
+                @click="loadMorePhotos"
+              />
+            </div>
+            <div
+              v-else-if="items.length"
+              class="text-center text-grey-6 q-my-md text-caption"
+            >
+              Показаны все фото
+            </div>
 
           <div
             v-if="!loading && !error && items.length === 0"
@@ -1600,17 +2129,25 @@ function tagList(meta) {
         :style="{ width: display.rightPanelWidth + 'px', flex: '0 0 auto' }"
       >
         <q-card
-          flat bordered
+          flat
+          bordered
           class="column"
+          :class="{ 'panel-inactive': textSearchActive }"
           :style="{ height: display.sideListHeight + 'px' }"
         >
           <q-card-section class="panel-head q-pb-xs row items-center">
-            <div class="panel-title col">Клиенты</div>
+            <div class="panel-title col">
+              Клиент/бренд
+              <q-tooltip v-if="textSearchActive">
+                Недоступно, пока активен поиск по тексту
+              </q-tooltip>
+            </div>
             <!-- Одна кнопка: пока ничего не выбрано — «Все», иначе «Снять». -->
             <q-btn
               dense
               flat
               size="sm"
+              :disable="textSearchActive"
               :label="store.selectedClients.length ? 'Снять' : 'Все'"
               @click="
                 store.selectedClients.length
@@ -1629,7 +2166,7 @@ function tagList(meta) {
           </q-card-section>
           <q-separator />
           <q-scroll-area class="col">
-            <q-list dense>
+            <q-list dense :disable="textSearchActive">
               <q-item
                 v-for="item in clients"
                 :key="item.client"
@@ -1714,7 +2251,13 @@ function tagList(meta) {
               {{ current?.filename }}
             </div>
           </div>
-          <q-btn dense flat icon="open_in_new" @click="openOriginal(current)">
+          <q-btn
+            v-if="canUseCollective"
+            dense
+            flat
+            icon="open_in_new"
+            @click="openOriginal(current)"
+          >
             <q-tooltip>Открыть оригинал</q-tooltip>
           </q-btn>
           <q-btn
@@ -1770,10 +2313,30 @@ function tagList(meta) {
 
               <template v-else>
                 <div class="q-mt-sm">
-                  <div class="text-caption text-grey">Юридический адрес</div>
+                  <div class="row items-center">
+                    <div class="text-caption text-grey col">
+                      Юридический адрес
+                    </div>
+                    <q-btn
+                      v-if="canUseCollective"
+                      dense
+                      flat
+                      size="sm"
+                      icon="edit"
+                      @click="openAddressEditor"
+                    >
+                      <q-tooltip>Исправить юридический адрес</q-tooltip>
+                    </q-btn>
+                  </div>
                   <div>{{ info?.legal_address || '—' }}</div>
+                  <q-badge
+                    v-if="details?.address_override"
+                    color="orange"
+                    label="исправлено вручную"
+                    class="q-mt-xs"
+                  />
                   <div
-                    v-if="!info?.legal_address"
+                    v-else-if="!info?.legal_address"
                     class="text-caption text-grey-6"
                   >
                     Справочник адресов ещё не подключён.
@@ -1802,23 +2365,26 @@ function tagList(meta) {
                   </div>
                 </div>
 
-                <div class="row q-col-gutter-xs q-mt-sm">
-                  <div class="col-6">
-                    <div class="text-caption text-grey">Клиент</div>
-                    <div>{{ current?.client || '—' }}</div>
-                  </div>
-                  <div class="col-6">
-                    <div class="text-caption text-grey">Бренд</div>
-                    <div>{{ current?.brand || '—' }}</div>
-                  </div>
-                </div>
-
                 <!-- QWEN status: grey НЕТ, red !!!, orange ..., green ЕСТЬ -->
                 <div class="row items-center q-gutter-xs q-mt-sm">
                   <div class="text-caption text-grey">QWEN</div>
                   <q-badge
                     :color="qwenStatus(qwen).color"
                     :label="qwenStatus(qwen).label"
+                  />
+                  <q-badge
+                    v-if="qwen?.qwen_model === 'manual-edit'"
+                    color="orange"
+                    label="изменено вручную"
+                  />
+                  <q-btn
+                    v-if="canUseCollective"
+                    dense
+                    flat
+                    size="sm"
+                    icon="edit"
+                    label="Редактировать"
+                    @click="openQwenEditor"
                   />
                   <q-btn
                     v-if="canRunQwen"
@@ -1858,8 +2424,9 @@ function tagList(meta) {
                         <q-separator />
                         <q-item>
                           <q-item-section class="text-caption text-grey-7">
-                            Прежнее описание сохранится в истории. Облако
-                            отправляет кадр на внешний сервис.
+                            Пересканируется только это фото. Прежнее описание
+                            сохранится в истории. Облако отправляет кадр на
+                            внешний сервис.
                           </q-item-section>
                         </q-item>
                       </q-list>
@@ -1934,6 +2501,120 @@ function tagList(meta) {
             </q-card-section>
           </div>
         </div>
+      </q-card>
+    </q-dialog>
+
+    <!-- Ручная правка текстового описания QWEN. -->
+    <q-dialog v-model="qwenEditOpen">
+      <q-card style="min-width: 560px; max-width: 94vw">
+        <q-card-section class="text-subtitle1">
+          Редактирование описания
+        </q-card-section>
+        <q-card-section class="q-gutter-sm">
+          <q-input
+            v-model="qwenEditFields.description"
+            type="textarea"
+            autogrow
+            dense
+            outlined
+            label="Описание"
+          />
+          <div class="row q-col-gutter-sm">
+            <div class="col-12 col-md-6">
+              <q-input
+                v-model="qwenEditFields.client"
+                dense
+                outlined
+                label="Клиент"
+              />
+            </div>
+            <div class="col-12 col-md-6">
+              <q-input
+                v-model="qwenEditFields.brand"
+                dense
+                outlined
+                label="Бренд"
+              />
+            </div>
+            <div class="col-12 col-md-6">
+              <q-input
+                v-model="qwenEditFields.category"
+                dense
+                outlined
+                label="Категория"
+              />
+            </div>
+            <div class="col-12 col-md-6">
+              <q-input
+                v-model="qwenEditFields.tags"
+                dense
+                outlined
+                label="Теги (через запятую)"
+              />
+            </div>
+          </div>
+          <div class="text-caption text-grey-7">
+            Прежнее описание сохранится в истории; запись будет помечена как
+            «изменено вручную».
+          </div>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Отмена" v-close-popup />
+          <q-btn
+            color="primary"
+            label="Сохранить"
+            :loading="qwenEditSaving"
+            @click="saveQwenEditor"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Ручное исправление юридического адреса (ошибка распознавания). -->
+    <q-dialog v-model="addressEditOpen">
+      <q-card style="min-width: 460px; max-width: 92vw">
+        <q-card-section class="text-subtitle1">
+          Юридический адрес
+        </q-card-section>
+        <q-card-section class="q-gutter-sm">
+          <q-select
+            v-model="addressChoice"
+            :options="addressOptions"
+            option-value="address_id"
+            option-label="label"
+            emit-value
+            map-options
+            dense
+            outlined
+            options-dense
+            label="Выберите адрес из справочника"
+          />
+          <div class="text-caption text-grey-7">
+            Текущее распознавание: {{ info?.legal_address || '—' }}
+          </div>
+          <div class="text-caption text-grey-7">
+            Исправление хранится в базе отдельно от результатов распознавания;
+            сброс возвращает распознанный адрес.
+          </div>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn
+            v-if="details?.address_override"
+            flat
+            color="negative"
+            label="Сбросить"
+            :loading="addressSaving"
+            @click="resetAddressOverride"
+          />
+          <q-btn flat label="Отмена" v-close-popup />
+          <q-btn
+            color="primary"
+            label="Сохранить"
+            :disable="!addressChoice"
+            :loading="addressSaving"
+            @click="saveAddressOverride"
+          />
+        </q-card-actions>
       </q-card>
     </q-dialog>
 
@@ -2242,6 +2923,13 @@ body.body--dark .grid-divider {
   z-index: 2;
   background: rgba(255, 255, 255, 0.85);
   border-radius: 4px;
+}
+
+/* Панель клиентов/брендов гаснет и не принимает клики, пока активен
+   текстовый поиск. */
+.panel-inactive {
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 /* Превью выбранного файла в ручном режиме поиска. */

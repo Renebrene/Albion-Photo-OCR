@@ -27,6 +27,7 @@ JOB_TYPES = {
     "VIDEO_STORYBOARD",
     "PHOTO_PREVIEW",
     "MEDIA_EXPORT",
+    "BILLBOARD_DETECT",
 }
 
 _JOB_COLUMNS = (
@@ -51,13 +52,14 @@ def _row_to_job(row) -> dict:
     }
 
 
-def enqueue(
+def enqueue_in_transaction(
+    cur,
     job_type: str,
     payload: dict[str, Any],
     *,
     run_history_id: int | None = None,
 ) -> int:
-    """Insert a PENDING job and return its id."""
+    """Insert a PENDING job on a caller-owned transaction/cursor."""
 
     if job_type not in JOB_TYPES:
         raise ValueError(f"Unsupported job type: {job_type}")
@@ -66,17 +68,33 @@ def enqueue(
     if run_history_id is not None:
         payload["run_history_id"] = int(run_history_id)
 
+    cur.execute(
+        """
+        INSERT INTO public.job_queue (job_type, payload, status)
+        VALUES (%s, %s, 'PENDING')
+        RETURNING id
+        """,
+        (job_type, Json(payload)),
+    )
+    return int(cur.fetchone()[0])
+
+
+def enqueue(
+    job_type: str,
+    payload: dict[str, Any],
+    *,
+    run_history_id: int | None = None,
+) -> int:
+    """Insert a PENDING job and return its id."""
+
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO public.job_queue (job_type, payload, status)
-                VALUES (%s, %s, 'PENDING')
-                RETURNING id
-                """,
-                (job_type, Json(payload)),
+            return enqueue_in_transaction(
+                cur,
+                job_type,
+                payload,
+                run_history_id=run_history_id,
             )
-            return int(cur.fetchone()[0])
 
 
 def enqueue_photo_preview(photo_id: str) -> int | None:
@@ -115,6 +133,7 @@ def enqueue_qwen(
     provider: str | None = None,
     model: str | None = None,
     run_history_id: int | None = None,
+    priority: bool = False,
 ) -> int | None:
     """
     Enqueue a QWEN job for one photo, deduplicated while active.
@@ -137,6 +156,10 @@ def enqueue_qwen(
         payload["model"] = model
     if run_history_id is not None:
         payload["run_history_id"] = int(run_history_id)
+    if priority:
+        # Одиночное пересканирование из карточки не должно ждать массовый
+        # прогон: claim_next ставит такие задания впереди очереди.
+        payload["priority"] = True
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -159,6 +182,36 @@ def enqueue_qwen(
             return int(row[0]) if row is not None else None
 
 
+def enqueue_billboard_detect(photo_id: str) -> int | None:
+    """
+    Queue the background billboard detection for one photo, deduplicated
+    while a detection of that photo is already pending/running.
+    """
+
+    if not photo_id:
+        raise ValueError("photo_id is required")
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO public.job_queue (job_type, payload, status)
+                SELECT 'BILLBOARD_DETECT', %s, 'PENDING'
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM public.job_queue
+                    WHERE job_type = 'BILLBOARD_DETECT'
+                      AND status IN ('PENDING', 'RUNNING')
+                      AND payload ->> 'photo_id' = %s
+                )
+                RETURNING id
+                """,
+                (Json({"photo_id": photo_id}), photo_id),
+            )
+            row = cur.fetchone()
+
+            return int(row[0]) if row is not None else None
+
+
 def enqueue_fingerprint_build(
     fingerprint_id: str,
     folder: str,
@@ -166,6 +219,7 @@ def enqueue_fingerprint_build(
     max_photos: int | None = None,
     replace: bool = True,
     batch_id: str | None = None,
+    recalculate: bool = False,
 ) -> int | None:
     """
     Queue one fingerprint build (or rebuild).
@@ -173,6 +227,10 @@ def enqueue_fingerprint_build(
     One active build per fingerprint: a second request while the first is still
     PENDING/RUNNING is not duplicated (returns None), the same way a repeated
     ingest of one folder is skipped.
+
+    *recalculate* asks the builder to queue one full DINO+HYBRID pass after a
+    successful replacement of an existing fingerprint (the reference vectors
+    changed, so old verdicts are stale). New fingerprints need no pass.
     """
 
     payload = {
@@ -186,6 +244,9 @@ def enqueue_fingerprint_build(
 
     if batch_id:
         payload["batch_id"] = str(batch_id)
+
+    if recalculate:
+        payload["recalculate"] = True
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -329,13 +390,13 @@ def claim_next(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, job_type, payload
+                SELECT id, job_type, payload, attempts
                 FROM public.job_queue
                 WHERE status = 'PENDING'
                 """
                 + where
                 + """
-                ORDER BY id
+                ORDER BY (payload ->> 'priority') IS NOT NULL DESC, id
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
                 """,
@@ -364,6 +425,7 @@ def claim_next(
                 "id": job_id,
                 "job_type": str(row[1]),
                 "payload": row[2],
+                "attempts": int(row[3]) + 1,
             }
 
 
@@ -498,29 +560,73 @@ def mark_resumed(job_id: int) -> bool:
 
 def mark_cancelled(job_id: int) -> bool:
     """
-    Cancel a queued or running job.
+    Cancel a queued, running, or paused job.
 
-    PENDING flips to CANCELLED immediately and the worker never claims it. A
-    RUNNING job cannot be interrupted mid-step (the QWEN HTTP call finishes),
-    but its status changes too, so mark_done()/mark_failed() refuse to publish
-    the result and the worker discards it. Returns False when the job is
-    already finished or does not exist.
+    A job cancelled before its first claim cannot be finalized by a worker, so
+    its unstarted DINO/HYBRID domain run is closed in the same transaction.
+    Running work observes cancellation at a cooperative checkpoint; any current
+    inference step may finish, but its queue result is discarded.
     """
 
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
+                SELECT job_type, payload, status, started_at
+                FROM public.job_queue
+                WHERE id=%s
+                FOR UPDATE
+                """,
+                (job_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return False
+
+            job_type, payload, old_status, started_at = row
+            if old_status not in {"PENDING", "RUNNING", "PAUSED"}:
+                return False
+
+            cur.execute(
+                """
                 UPDATE public.job_queue
-                SET status = 'CANCELLED',
-                    finished_at = CURRENT_TIMESTAMP
-                WHERE id = %s
-                  AND status IN ('PENDING', 'RUNNING')
+                SET status='CANCELLED', finished_at=CURRENT_TIMESTAMP
+                WHERE id=%s
                 """,
                 (job_id,),
             )
 
-            return cur.rowcount == 1
+            # PENDING jobs have no worker. A paused DINO observes cancellation
+            # at a cooperative checkpoint; closing its unfinished item rows
+            # here also covers a worker that crashed while the queue row stayed
+            # PAUSED. HYBRID currently has no control callback, so only close a
+            # HYBRID row when its queue job has never been claimed.
+            payload = payload or {}
+            if (
+                job_type == "DINO_BATCH"
+                and old_status in {"PENDING", "PAUSED"}
+                and payload.get("batch_id") is not None
+            ):
+                from app.dino.database import abort_batch_in_transaction
+
+                abort_batch_in_transaction(
+                    cur,
+                    int(payload["batch_id"]),
+                    "DINO job cancelled before completion",
+                )
+            elif (
+                job_type == "HYBRID_RUN"
+                and old_status in {"PENDING", "PAUSED"}
+                and started_at is None
+                and payload.get("hybrid_run_id") is not None
+            ):
+                from app.hybrid.database import fail_unstarted_run_in_transaction
+
+                fail_unstarted_run_in_transaction(
+                    cur, int(payload["hybrid_run_id"])
+                )
+
+            return True
 
 
 def requeue_stale(
@@ -599,20 +705,20 @@ def clear_finished_jobs(
 def cancel_jobs(
     job_type: str,
     *,
-    statuses: tuple[str, ...] = ("PENDING", "RUNNING"),
+    statuses: tuple[str, ...] = ("PENDING", "RUNNING", "PAUSED"),
 ) -> int:
     """
     Остановить активные задания одного вида — кнопка «Остановить».
 
-    PENDING уходит в CANCELLED сразу (воркер его не возьмёт); RUNNING — тоже
-    CANCELLED: текущий запрос к модели доиграет, но результат не публикуется
-    (`mark_done`/`mark_failed` отказываются писать после отмены).
+    PENDING и PAUSED отменяются сразу. RUNNING получает CANCELLED и
+    останавливается на ближайшей поддерживаемой контрольной точке; результат
+    после отмены не публикуется.
     """
 
     if job_type not in JOB_TYPES:
         raise ValueError(f"unknown job type: {job_type}")
 
-    allowed = {"PENDING", "RUNNING"}
+    allowed = {"PENDING", "RUNNING", "PAUSED"}
 
     if not statuses or not set(statuses) <= allowed:
         raise ValueError("only active statuses can be cancelled")
@@ -640,7 +746,7 @@ def mark_failed(job_id: int, error_message: str) -> None:
                     error_message = %s,
                     finished_at = CURRENT_TIMESTAMP
                 WHERE id = %s
-                  AND status = 'RUNNING'
+                  AND status IN ('RUNNING', 'PAUSED')
                 """,
                 (str(error_message), job_id),
             )

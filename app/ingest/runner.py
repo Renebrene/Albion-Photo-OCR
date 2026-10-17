@@ -170,7 +170,23 @@ def ingest_directory(
     # the rest of a folder. register_new_photos() keeps the strict behaviour
     # for the upload path.
     if classification["NEW"]:
-        insert_photos(classification["NEW"])
+        inserted = insert_photos(classification["NEW"])
+
+        # A parallel ingest may have inserted the same file between the
+        # identity check and our INSERT. Those rows lost the race and are
+        # counted as EXISTING (and never get a second preview job).
+        if inserted is not None:
+            raced = [
+                record
+                for record in classification["NEW"]
+                if record.photo_id not in inserted
+            ]
+            classification["NEW"] = [
+                record
+                for record in classification["NEW"]
+                if record.photo_id in inserted
+            ]
+            classification["EXISTING"].extend(raced)
 
     preview_queued = 0
     preview_active = 0

@@ -186,7 +186,11 @@ def register_new_photos(
     EXISTING records are skipped without modification.
     CONFLICT records cause an error before any INSERT is performed.
 
-    Returns the identity classification.
+    Two concurrent ingests can both see a file as NEW; INSERT ... ON CONFLICT
+    DO NOTHING makes the loser lose the race gracefully, and those records are
+    reclassified as EXISTING instead of failing the whole batch.
+
+    Returns the identity classification (NEW contains only inserted rows).
     """
     result = check_identity_batch(records)
 
@@ -199,51 +203,77 @@ def register_new_photos(
         )
 
     if result["NEW"]:
-        insert_photos(result["NEW"])
+        result = _apply_insert_result(result, result["NEW"])
 
     return result
 
 
-def insert_photos(records: list[PhotoRecord]) -> None:
+def _apply_insert_result(
+    result: dict[str, list[PhotoRecord]],
+    candidates: list[PhotoRecord],
+) -> dict[str, list[PhotoRecord]]:
+    """Keep only rows actually inserted; raced rows become EXISTING."""
+
+    inserted = insert_photos(candidates)
+
+    if inserted is None:
+        # Defensive: a stub that does not report ids keeps old behaviour.
+        return result
+
+    new_records = [record for record in candidates if record.photo_id in inserted]
+    raced = [record for record in candidates if record.photo_id not in inserted]
+
+    result["NEW"] = new_records
+    result["EXISTING"].extend(raced)
+    return result
+
+
+def insert_photos(records: list[PhotoRecord]) -> set[str]:
     """
     Insert multiple PhotoRecord objects in one PostgreSQL transaction.
 
-    One database connection is used for the complete batch.
-    If any insert fails, the transaction is rolled back.
+    INSERT ... ON CONFLICT DO NOTHING makes concurrent ingests of the same
+    file safe: the second one inserts nothing instead of raising
+    UniqueViolation. Returns the photo_ids actually inserted.
     """
+
     if not records:
-        return
+        return set()
+
+    inserted: set[str] = set()
 
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.executemany(
-                """
-                INSERT INTO public.photos (
-                    photo_id,
-                    source_path,
-                    filename,
-                    sha256,
-                    container_format,
-                    frame_count,
-                    width,
-                    height,
-                    size_bytes,
-                    taken_at
-                )
-                VALUES (
-                    %(photo_id)s,
-                    %(source_path)s,
-                    %(filename)s,
-                    %(sha256)s,
-                    %(container_format)s,
-                    %(frame_count)s,
-                    %(width)s,
-                    %(height)s,
-                    %(size_bytes)s,
-                    %(taken_at)s
-                )
-                """,
-                [
+            for record in records:
+                cur.execute(
+                    """
+                    INSERT INTO public.photos (
+                        photo_id,
+                        source_path,
+                        filename,
+                        sha256,
+                        container_format,
+                        frame_count,
+                        width,
+                        height,
+                        size_bytes,
+                        taken_at
+                    )
+                    VALUES (
+                        %(photo_id)s,
+                        %(source_path)s,
+                        %(filename)s,
+                        %(sha256)s,
+                        %(container_format)s,
+                        %(frame_count)s,
+                        %(width)s,
+                        %(height)s,
+                        %(size_bytes)s,
+                        %(taken_at)s
+                    )
+                    ON CONFLICT DO NOTHING
+                    RETURNING photo_id
+                    """,
                     {
                         "photo_id": record.photo_id,
                         "source_path": record.source_path,
@@ -255,10 +285,14 @@ def insert_photos(records: list[PhotoRecord]) -> None:
                         "height": record.height,
                         "size_bytes": record.size_bytes,
                         "taken_at": record.taken_at,
-                    }
-                    for record in records
-                ],
-            )
+                    },
+                )
+                row = cur.fetchone()
+
+                if row is not None:
+                    inserted.add(str(row[0]))
+
+    return inserted
 
 
 def get_registered_photo(photo_id: str) -> PhotoRecord | None:

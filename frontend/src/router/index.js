@@ -9,9 +9,10 @@ const VideosGrid = () => import('../pages/VideosGrid.vue')
 const Technical = () => import('../pages/Technical.vue')
 const Help = () => import('../pages/Help.vue')
 
-// The technical section is for the staff: Администратор and Менеджер. A Гость
-// (read-only) never sees it, not even by typing the address.
-const TECH_ROLES = ['Администратор', 'Менеджер']
+// The technical section is administrator-only. Менеджер works through the gear
+// dialog (display settings + client normalization) and still runs the base
+// update; A Гость (read-only) never sees it, not even by typing the address.
+const TECH_ROLES = ['Администратор']
 
 const router = createRouter({
   history: createWebHistory(),
@@ -47,6 +48,8 @@ router.beforeEach((to) => {
   if (to.name !== 'technical') return true
 
   const session = useSessionStore()
+
+  if (!session.authEnabled) return true
 
   return TECH_ROLES.includes(session.user?.role) ? true : { path: '/' }
 })

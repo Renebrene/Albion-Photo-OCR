@@ -123,3 +123,47 @@ def test_enqueue_force_rerun_batch(monkeypatch):
 def test_get_unknown_job_returns_404(monkeypatch):
     monkeypatch.delenv("SCENE_API_TOKENS", raising=False)
     assert client.get("/api/v1/jobs/999999999").status_code == 404
+
+
+def test_qwen_rescan_uses_only_the_selected_photo(monkeypatch):
+    """Карточка шлёт один photo_id — весь корпус не должен ставиться."""
+
+    from app.api import routes
+    from app.runs import history
+
+    photo_id = "PH_" + "ab" * 12
+    monkeypatch.setattr(
+        routes.repository, "all_photo_ids",
+        lambda: (_ for _ in ()).throw(AssertionError("must not enqueue all")),
+    )
+    monkeypatch.setattr(history, "create_run", lambda **kw: 1)
+    monkeypatch.setattr(history, "add_jobs", lambda *a, **kw: None)
+    monkeypatch.setattr(history, "finish_enqueue", lambda *a, **kw: None)
+
+    queued = []
+    monkeypatch.setattr(
+        routes.jobs_db, "enqueue_qwen",
+        lambda pid, **kw: queued.append(pid) or 10,
+    )
+
+    response = client.post(
+        "/api/v1/jobs/qwen",
+        json={"photo_ids": [photo_id]},
+    )
+
+    assert response.status_code == 202
+    assert queued == [photo_id]
+    assert response.json()["jobs"] == 1
+
+
+def test_qwen_empty_explicit_list_does_not_fall_back_to_all(monkeypatch):
+    from app.api import routes
+
+    monkeypatch.setattr(
+        routes.repository, "all_photo_ids",
+        lambda: (_ for _ in ()).throw(AssertionError("must not enqueue all")),
+    )
+
+    response = client.post("/api/v1/jobs/qwen", json={"photo_ids": []})
+
+    assert response.status_code == 422

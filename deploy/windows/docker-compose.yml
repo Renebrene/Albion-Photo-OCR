@@ -1,0 +1,106 @@
+# PhotoBAse demo stack for Windows 10 (Docker Desktop).
+#
+#   copy .env.demo.example .env.demo
+#   .\start.ps1
+#
+# PostgreSQL is a container; Ollama (optional) runs on Windows and is reached
+# through host.docker.internal.
+
+name: photobase-demo
+
+x-app: &app
+  image: photobase-demo:latest
+  env_file:
+    - .env.demo
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  volumes:
+    - ./data:/app/data
+    - ./photos:/photos
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${INGEST_DB_NAME:-photobase}
+      POSTGRES_USER: ${INGEST_DB_USER:-photobase}
+      POSTGRES_PASSWORD: ${INGEST_DB_PASSWORD:-demo-password}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/00-extensions.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    <<: *app
+    build:
+      context: ../..
+      dockerfile: deploy/windows/Dockerfile
+    environment:
+      RUN_MIGRATIONS: "1"
+    ports:
+      - "8010:8010"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8010/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  worker:
+    <<: *app
+    command:
+      - python
+      - -m
+      - app.jobs.worker
+      - --watch
+      - --requeue-stale
+      - "30"
+      - --exclude
+      - QWEN_PHOTO
+      - --interval
+      - "5"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  qwen-worker:
+    <<: *app
+    command:
+      - python
+      - -m
+      - app.jobs.worker
+      - --watch
+      - --only
+      - QWEN_PHOTO
+      - --requeue-stale
+      - "10"
+      - --interval
+      - "5"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  pipeline-worker:
+    <<: *app
+    command:
+      - python
+      - -m
+      - app.jobs.worker
+      - --pipeline
+      - --interval
+      - "3"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:

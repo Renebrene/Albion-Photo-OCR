@@ -186,6 +186,11 @@ export function fetchRunActivity() {
   return getJson(`${BASE}/v1/runs/activity`)
 }
 
+// Сводка виртуальной сортировки: совпадения, статус, режимы, текущий batch.
+export function fetchSortStatus() {
+  return getJson(`${BASE}/v1/sort/status`)
+}
+
 export function fetchRunHistory({ kind = null, limit = 20 } = {}) {
   const params = new URLSearchParams({ limit: String(limit) })
   if (kind) params.set('kind', kind)
@@ -279,6 +284,18 @@ export function fetchPhotos({
 
 export function fetchPhotoDetails(photoId) {
   return getJson(`${BASE}/v1/photos/${photoId}/details`)
+}
+
+// Ручная правка описания в карточке фото (scope photos:write).
+export function savePhotoQwenText(photoId, payload) {
+  return putJson(`${BASE}/v1/photos/${photoId}/qwen-text`, payload)
+}
+
+// Подсказки строки поиска: существующие теги/клиенты/бренды/категории
+// и вариант в другой раскладке клавиатуры.
+export function fetchSearchSuggestions(q, limit = 8) {
+  const params = new URLSearchParams({ q, limit: String(limit) })
+  return getJson(`${BASE}/v1/search/suggestions?${params.toString()}`)
 }
 
 // Остановить активные задания QWEN и очистить список завершённых.
@@ -613,6 +630,17 @@ export function fetchAddressDirectory() {
   return getJson(`${BASE}/v1/addresses/directory`)
 }
 
+// Ручное исправление юридического адреса одного фото (scope addresses:write).
+export function setPhotoAddressOverride(photoId, addressId) {
+  return putJson(`${BASE}/v1/photos/${photoId}/address`, {
+    address_id: addressId,
+  })
+}
+
+export function clearPhotoAddressOverride(photoId) {
+  return deleteJson(`${BASE}/v1/photos/${photoId}/address`)
+}
+
 export function fetchUnassignedFingerprints() {
   return getJson(`${BASE}/v1/addresses/unassigned`)
 }
@@ -771,8 +799,16 @@ async function postJson(url, body) {
   return response.json()
 }
 
-export function createDinoBatch({ run_type = 'NORMAL', photo_ids = null } = {}) {
-  return postJson(`${BASE}/v1/jobs/dino-batch`, { run_type, photo_ids })
+export function createDinoBatch({
+  run_type = 'NORMAL',
+  photo_ids = null,
+  auto_hybrid = false,
+} = {}) {
+  return postJson(`${BASE}/v1/jobs/dino-batch`, {
+    run_type,
+    photo_ids,
+    auto_hybrid,
+  })
 }
 
 export function createHybridRun(dinoBatchId) {

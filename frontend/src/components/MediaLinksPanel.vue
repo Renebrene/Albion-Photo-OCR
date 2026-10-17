@@ -42,6 +42,17 @@ function fmtDate(value) {
   return value ? String(value).replace('T', ' ').slice(0, 16) : '—'
 }
 
+// Ссылка приходит от внешнего провайдера: в href допускаем только http(s),
+// иначе javascript:/data: могли бы выполниться по клику.
+function safeUrl(value) {
+  try {
+    const parsed = new URL(String(value))
+    return ['http:', 'https:'].includes(parsed.protocol) ? parsed.href : null
+  } catch {
+    return null
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -63,7 +74,13 @@ onMounted(load)
         <q-item v-for="item in items" :key="item.link_id" class="q-px-none">
           <q-item-section>
             <q-item-label class="ellipsis">
-              <a :href="item.url" target="_blank" rel="noopener noreferrer">{{ item.url }}</a>
+              <a
+                v-if="safeUrl(item.url)"
+                :href="safeUrl(item.url)"
+                target="_blank"
+                rel="noopener noreferrer"
+              >{{ item.url }}</a>
+              <span v-else class="text-grey">недопустимая ссылка</span>
             </q-item-label>
             <q-item-label caption>
               {{ item.media_kind }} · {{ item.media_id }}

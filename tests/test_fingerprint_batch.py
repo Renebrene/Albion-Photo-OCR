@@ -250,6 +250,27 @@ def test_pause_holds_a_queued_job_and_resume_releases_it(photo_folders):
 
 
 @requires_pause
+def test_cancel_is_allowed_while_a_job_is_paused(photo_folders):
+    folders, _empty = photo_folders
+
+    started = client.post(
+        "/api/v1/fingerprints/build",
+        json={"fingerprint_id": "test_pause_cancel_v33", "folder": str(folders[0])},
+    ).json()
+    job_id = started["job_id"]
+
+    assert client.post(f"/api/v1/jobs/{job_id}/pause").status_code == 200
+    cancelled = client.post(f"/api/v1/jobs/{job_id}/cancel")
+
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "CANCELLED"
+
+    from app.jobs import database as jobs_db
+
+    assert jobs_db.job_status(job_id) == "CANCELLED"
+
+
+@requires_pause
 def test_resume_without_a_pause_is_refused(photo_folders):
     folders, _empty = photo_folders
 

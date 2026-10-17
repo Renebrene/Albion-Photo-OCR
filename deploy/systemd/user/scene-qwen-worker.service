@@ -1,0 +1,15 @@
+[Unit]
+Description=PhotoBAse QWEN worker (parallel descriptions)
+After=network-online.target scene-api.service
+Wants=network-online.target scene-api.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/alexice/scene-fingerprint
+EnvironmentFile=/home/alexice/.config/scene-fingerprint.env
+ExecStart=/home/alexice/scene-fingerprint/.venv/bin/python -m app.jobs.worker --watch --only QWEN_PHOTO --requeue-stale 10 --interval 5
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

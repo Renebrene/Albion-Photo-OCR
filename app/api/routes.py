@@ -44,6 +44,7 @@ from app.api.auth import auth_enabled, require_scope, resolve_principal
 from app.api.config import ORIGINALS_ROOTS, PREVIEW_ROOT, SOURCE_ROOTS
 from app.ingest.integrity import SUPPORTED_EXTENSIONS
 from app.core.errors import redact_paths
+from app.core.layout import to_other_layout
 from app.api.schemas import (
     AddressCreate,
     AddressFingerprintsRequest,
@@ -62,7 +63,9 @@ from app.api.schemas import (
     LoginRequest,
     MediaLinkRequest,
     NlSearchRequest,
+    PhotoAddressRequest,
     QwenJobRequest,
+    QwenTextUpdate,
     QwenModelRequest,
     QwenSettingsUpdate,
     SavedSearchCreate,
@@ -367,6 +370,40 @@ def list_clients(limit: int = Query(1000, ge=1, le=5000)):
     return {"items": repository.list_clients(limit=limit)}
 
 
+@read_router.get("/v1/search/suggestions", response_model=None)
+def search_suggestions(
+    q: str = Query("", max_length=100),
+    limit: int = Query(8, ge=1, le=20),
+):
+    """
+    Подсказки строки поиска по уже существующим значениям.
+
+    Ищутся теги, клиенты, бренды и категории (подстрока или триграммное
+    сходство). Если в текущей раскладке ничего не нашлось, слово
+    переворачивается в другую раскладку и подсказки повторяются — так
+    «rjvfyjdf» находит «Комарова».
+    """
+
+    term = q.strip()
+
+    if len(term) < 2:
+        return {"items": [], "layout": None}
+
+    items = repository.suggest_terms(term, limit=limit)
+    layout = None
+
+    if len(items) < 3:
+        converted = to_other_layout(term).strip()
+
+        if converted and converted.lower() != term.lower():
+            alt_items = repository.suggest_terms(converted, limit=limit)
+
+            if alt_items:
+                layout = {"query": converted, "items": alt_items}
+
+    return {"items": items, "layout": layout}
+
+
 @read_router.get("/v1/photos/{photo_id}", response_model=None)
 def get_photo(photo_id: str):
     photo_id = _validate_photo_id(photo_id)
@@ -398,7 +435,32 @@ def get_photo_details(photo_id: str):
             source["source_path"] if source else None,
         )
 
-    return {"photo": photo.model_dump(), "qwen": qwen_meta}
+    return {
+        "photo": photo.model_dump(),
+        "qwen": qwen_meta,
+        "address_override": repository.get_photo_address_override(photo_id),
+    }
+
+
+@jobs_router.put(
+    "/v1/photos/{photo_id}/qwen-text",
+    response_model=None,
+    dependencies=[Depends(require_scope("photos:write"))],
+)
+def update_photo_qwen_text(photo_id: str, request: QwenTextUpdate):
+    """Save a hand-edited description from the photo card."""
+
+    photo_id = _validate_photo_id(photo_id)
+
+    if repository.get_photo(photo_id) is None:
+        raise HTTPException(status_code=404, detail="photo not found")
+
+    qwen_db.save_manual(
+        photo_id,
+        fields={**request.model_dump(), "tags": request.tags},
+    )
+
+    return qwen_db.get(photo_id)
 
 
 @read_router.get("/v1/photos/{photo_id}/qwen-history", response_model=None)
@@ -568,6 +630,19 @@ def download_archive(request: ArchiveRequest):
     )
 
 
+@read_router.get(
+    "/v1/sort/status",
+    response_model=None,
+    dependencies=[Depends(require_scope("jobs:read"))],
+)
+def get_sort_status():
+    """Последняя сортировка: совпадения, статус, режимы и текущий batch."""
+
+    from app.runs import sort_status as sort_status_mod
+
+    return sort_status_mod.status()
+
+
 @read_router.get("/v1/batches/dino", response_model=None)
 def list_dino_batches(
     limit: int = Query(50, ge=1, le=100),
@@ -683,9 +758,14 @@ def _enqueue_dino_batch_impl(request: DinoBatchRequest):
     try:
         history_id = run_history.create_run(
             kind="sort",
-            mode="manual",
+            mode=request.mode or "manual",
             title=f"DINO batch #{batch.batch_id}",
             total=batch.total_count,
+            counts=run_history.initial_sort_counts(
+                batch.total_count,
+                dino=True,
+                hybrid=bool(request.auto_hybrid),
+            ),
             source_id=batch.batch_id,
             status="RUNNING" if batch.total_count else "PENDING",
             started=True,
@@ -698,7 +778,10 @@ def _enqueue_dino_batch_impl(request: DinoBatchRequest):
         try:
             job_id = jobs_db.enqueue(
                 "DINO_BATCH",
-                {"batch_id": batch.batch_id},
+                {
+                    "batch_id": batch.batch_id,
+                    "auto_hybrid": bool(request.auto_hybrid),
+                },
                 run_history_id=history_id,
             )
         except Exception as exc:
@@ -733,7 +816,9 @@ def _finish_sort_history_enqueue(history_module, run_id, job_ids, total):
         return
     try:
         history_module.add_jobs(run_id, job_ids)
-        history_module.finish_enqueue(run_id, total=total)
+        # One DINO/HYBRID queue job covers the whole batch: all photos are
+        # tracked, none are "untracked".
+        history_module.finish_enqueue(run_id, total=total, covered=total)
     except Exception:
         # History is observational; already-created jobs remain authoritative.
         return
@@ -764,48 +849,15 @@ def enqueue_hybrid(request: HybridRequest):
 
 def _enqueue_hybrid_impl(request: HybridRequest):
     try:
-        run = hybrid_db.create_run(request.dino_batch_id)
+        run, job_id, _history_id = hybrid_db.create_and_enqueue_run(
+            request.dino_batch_id,
+            history_spec={
+                "mode": "manual",
+                "title_prefix": "HYBRID run",
+            },
+        )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-    from app.runs import history as run_history
-
-    try:
-        history_id = run_history.create_run(
-            kind="sort",
-            mode="manual",
-            title=f"HYBRID run #{run.hybrid_run_id}",
-            total=run.total_count,
-            source_id=run.hybrid_run_id,
-            status="RUNNING" if run.total_count else "PENDING",
-            started=True,
-        )
-    except Exception:
-        history_id = None
-    job_id = None
-
-    if run.total_count > 0:
-        try:
-            job_id = jobs_db.enqueue(
-                "HYBRID_RUN",
-                {"hybrid_run_id": run.hybrid_run_id},
-                run_history_id=history_id,
-            )
-        except Exception as exc:
-            if history_id is not None:
-                run_history.update_run(
-                    history_id,
-                    status="FAILED",
-                    message=f"Не удалось поставить HYBRID run в очередь: {type(exc).__name__}",
-                    finished=True,
-                    error_count_delta=1,
-                    log_lines=[f"enqueue failed: {type(exc).__name__}"],
-                )
-            raise
-
-        _finish_sort_history_enqueue(run_history, history_id, [job_id], run.total_count)
-    else:
-        _finish_sort_history_enqueue(run_history, history_id, [], 0)
 
     return {
         "job_id": job_id,
@@ -823,8 +875,12 @@ def _enqueue_hybrid_impl(request: HybridRequest):
 def enqueue_qwen(request: QwenJobRequest):
     if request.only_failed:
         photo_ids = repository.photo_ids_with_qwen_status("FAILED")
+    elif request.photo_ids is not None:
+        # Explicit list (even an empty one) never falls back to the whole
+        # corpus: «Пересканировать» в карточке запускает только это фото.
+        photo_ids = request.photo_ids
     else:
-        photo_ids = request.photo_ids or repository.all_photo_ids()
+        photo_ids = repository.all_photo_ids()
 
     if request.photo_ids:
         invalid = [
@@ -868,6 +924,9 @@ def enqueue_qwen(request: QwenJobRequest):
                 provider=request.provider,
                 model=request.model,
                 run_history_id=history_id,
+                # «Пересканировать» в карточке — одно фото: не ждём массовый
+                # прогон, который может стоять в очереди часами.
+                priority=bool(request.photo_ids and len(request.photo_ids) == 1),
             )
 
             if job_id is None:
@@ -1076,13 +1135,13 @@ def resume_job(job_id: int):
 )
 def cancel_job(job_id: int):
     """
-    Cancel a queued job (and mark a running one cancelled).
+    Cancel a queued, paused, or running job.
 
-    A job that is still PENDING is never claimed by the worker. One that is
-    already RUNNING cannot be interrupted mid-step, but its result is
-    discarded: mark_done() refuses to publish into a cancelled row. A queued
-    media search drops its uploaded image here, because the worker that would
-    normally delete it never runs.
+    PENDING is never claimed. PAUSED becomes terminal CANCELLED; a running DINO
+    job observes cancellation at its next safe checkpoint. Other in-flight
+    operations may finish their current step, but mark_done() refuses to publish
+    into a cancelled row. A queued/held media search drops its upload because
+    the worker that would normally delete it never resumes.
 
     Unknown job -> 404; a job that already finished -> 409.
     """
@@ -1092,12 +1151,15 @@ def cancel_job(job_id: int):
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
 
-    was_queued = job.get("status") == "PENDING"
+    was_queued = (
+        job.get("status") in {"PENDING", "PAUSED"}
+        and job.get("started_at") is None
+    )
 
     if not jobs_db.mark_cancelled(job_id):
         raise HTTPException(
             status_code=409,
-            detail="job is not pending or running",
+            detail="job is not pending, running, or paused",
         )
 
     # A media search cancelled while it was still queued never reaches the
@@ -1315,7 +1377,8 @@ def update_automation(request: AutomationUpdate):
     return automation.update_settings(
         enabled=request.enabled,
         interval_minutes=request.interval_minutes,
-        auto_dino=request.auto_dino,
+        mode=request.mode,
+        daily_time=request.daily_time,
         auto_qwen=request.auto_qwen,
     )
 
@@ -2049,6 +2112,44 @@ def list_address_directory():
     return {"items": directory_mod.list_addresses()}
 
 
+@addresses_router.put(
+    "/v1/photos/{photo_id}/address",
+    response_model=None,
+    dependencies=[Depends(require_scope("addresses:write"))],
+)
+def set_photo_address(photo_id: str, request: PhotoAddressRequest):
+    """Override the recognised legal address of one photo."""
+
+    photo_id = _validate_photo_id(photo_id)
+
+    if repository.get_photo(photo_id) is None:
+        raise HTTPException(status_code=404, detail="photo not found")
+
+    if directory_mod.get_address(request.address_id) is None:
+        raise HTTPException(status_code=404, detail="address not found")
+
+    return repository.set_photo_address_override(photo_id, request.address_id)
+
+
+@addresses_router.delete(
+    "/v1/photos/{photo_id}/address",
+    response_model=None,
+    dependencies=[Depends(require_scope("addresses:write"))],
+)
+def clear_photo_address(photo_id: str):
+    """Drop the manual override; the recognition result applies again."""
+
+    photo_id = _validate_photo_id(photo_id)
+
+    if repository.get_photo(photo_id) is None:
+        raise HTTPException(status_code=404, detail="photo not found")
+
+    return {
+        "photo_id": photo_id,
+        "cleared": repository.clear_photo_address_override(photo_id),
+    }
+
+
 @addresses_router.get(
     "/v1/addresses/unassigned",
     response_model=None,
@@ -2218,6 +2319,8 @@ def update_fingerprint_registry(
 ):
     """Rename, describe, archive or point at a source folder."""
 
+    before = fingerprints_mod.get_fingerprint(fingerprint_id)
+
     try:
         updated = fingerprints_mod.update_fingerprint(
             fingerprint_id,
@@ -2232,7 +2335,30 @@ def update_fingerprint_registry(
     if updated is None:
         raise HTTPException(status_code=404, detail="fingerprint not found")
 
-    return updated
+    result = dict(updated)
+
+    active_changed = (
+        request.active is not None
+        and before is not None
+        and bool(before.get("active")) != bool(request.active)
+    )
+
+    if active_changed:
+        # Hiding or re-enabling a fingerprint changes the ranking for every
+        # photo, so the stored DINO/HYBRID verdicts must be recalculated.
+        try:
+            from app.dino.recalc import enqueue_recalculation
+
+            recalc = enqueue_recalculation(
+                reason="скрытия" if not request.active else "включения",
+                fingerprint_id=fingerprint_id,
+            )
+            if recalc is not None:
+                result["recalc"] = recalc
+        except Exception as exc:  # noqa: BLE001 - the toggle itself succeeded
+            result["recalc_error"] = type(exc).__name__
+
+    return result
 
 
 @fingerprints_router.get(
@@ -2326,6 +2452,10 @@ def build_fingerprint(request: FingerprintBuildRequest):
         str(folder),
         max_photos=request.max_photos,
         replace=request.replace,
+        # A replacement of an existing fingerprint makes every stored verdict
+        # stale; the builder queues one full DINO+HYBRID pass after publishing
+        # the new vectors. A brand-new fingerprint ignores this flag.
+        recalculate=True,
     )
 
     return {
@@ -2615,6 +2745,7 @@ def build_fingerprint_batch(request: FingerprintBatchRequest):
             max_photos=request.max_photos,
             replace=request.replace,
             batch_id=batch_id,
+            recalculate=True,
         )
 
         jobs_out.append(

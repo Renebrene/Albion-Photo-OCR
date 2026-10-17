@@ -38,6 +38,11 @@ class PhotoSummary(BaseModel):
     legal_address: str | None = None
     simple_address: str | None = None
 
+    # QWEN icon in the grid: status plus whether a description actually exists
+    # (a failed re-run keeps the previous description row).
+    qwen_status: str | None = None
+    qwen_described: bool | None = None
+
 
 class PhotoPage(BaseModel):
     items: list[PhotoSummary]
@@ -142,6 +147,8 @@ class DinoBatchRequest(BaseModel):
 
     run_type: str = Field(default="NORMAL", pattern=r"^(NORMAL|FORCE_RERUN)$")
     photo_ids: list[str] | None = None
+    mode: str = Field(default="manual", pattern="^(manual|schedule|outofqueue)$")
+    auto_hybrid: bool = False
 
 
 class HybridRequest(BaseModel):
@@ -246,6 +253,22 @@ class AddressUpdate(BaseModel):
     simple_address: str | None = Field(default=None, max_length=300)
     active: bool | None = None
     sort_order: int | None = None
+
+
+class PhotoAddressRequest(BaseModel):
+    """Manual legal-address correction for one photo."""
+
+    address_id: int = Field(ge=1)
+
+
+class QwenTextUpdate(BaseModel):
+    """Hand-edited QWEN description of one photo."""
+
+    description: str | None = Field(default=None, max_length=4000)
+    client: str | None = Field(default=None, max_length=300)
+    brand: str | None = Field(default=None, max_length=300)
+    category: str | None = Field(default=None, max_length=300)
+    tags: list[str] = Field(default_factory=list, max_length=20)
 
 
 class AddressFingerprintsRequest(BaseModel):
@@ -353,7 +376,8 @@ class AutomationUpdate(BaseModel):
 
     enabled: bool | None = None
     interval_minutes: int | None = Field(default=None, ge=1, le=10080)
-    auto_dino: bool | None = None
+    mode: str | None = Field(default=None, pattern="^(interval|daily)$")
+    daily_time: str | None = Field(default=None, max_length=5)
     auto_qwen: bool | None = None
 
 
@@ -377,19 +401,28 @@ class UserSummary(BaseModel):
     active: bool
 
 
+# Only HEX colours reach CSS variables/avatars; the UI palette already sends
+# HEX, this closes the API path too (no `url(...)`, `;` or named colours).
+HEX_COLOR_PATTERN = r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+
+
 class UserCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     role: str = Field(
         default="Менеджер",
         pattern=r"^(Администратор|Менеджер|Гость)$",
     )
-    color: str | None = Field(default=None, max_length=32)
+    color: str | None = Field(
+        default=None, max_length=9, pattern=HEX_COLOR_PATTERN
+    )
     password: str | None = Field(default=None, max_length=200)
 
 
 class UserUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
-    color: str | None = Field(default=None, max_length=32)
+    color: str | None = Field(
+        default=None, max_length=9, pattern=HEX_COLOR_PATTERN
+    )
     role: str | None = Field(
         default=None,
         pattern=r"^(Администратор|Менеджер|Гость)$",

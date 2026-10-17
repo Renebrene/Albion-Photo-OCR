@@ -1,0 +1,25 @@
+# Build context for deploy/windows/Dockerfile (repo root context).
+.git
+.gitattributes
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.claude
+.claude-worktrees
+
+# Local data, photo corpora and weights never enter the image.
+data
+test
+111
+weights
+*.pt
+
+# The SPA is rebuilt inside the image; local node_modules/dist are ignored.
+frontend/node_modules
+frontend/dist
+
+# Local/editor debris
+*.bak
+*.before_*
+.DS_Store

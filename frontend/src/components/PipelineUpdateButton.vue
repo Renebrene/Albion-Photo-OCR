@@ -71,9 +71,19 @@ const statusText = computed(() => {
     case 'PREVIEW':
       return `Превью: ${row?.done_count ?? 0}/${row?.total_count ?? 0}`
     case 'DINO':
-      return `Совпадений: ${row?.done_count ?? 0}`
-    case 'HYBRID':
-      return `Сверка: ${row?.done_count ?? 0}/${row?.total_count ?? 0}`
+    case 'HYBRID': {
+      // Совпадения — итоговые вердикты HYBRID (пока он не начался, DINO).
+      const hybrid = stageRow('HYBRID')
+      const matched = hybrid?.done_count ?? row?.done_count ?? 0
+      const qwen = stageRow('QWEN')
+      const parts = [`Совпадений: ${matched}`]
+
+      if (qwen && (qwen.total_count || qwen.done_count)) {
+        parts.push(`Описаний: ${qwen.done_count ?? 0}`)
+      }
+
+      return parts.join(' · ')
+    }
     case 'QWEN':
       return row?.failed_count
         ? `Описаний: ${row?.done_count ?? 0} (ошибок: ${row?.failed_count})`
@@ -226,8 +236,10 @@ onBeforeUnmount(() => {
             он учтёт появившиеся файлы, а уже обработанные не пересчитывает.
           </div>
           <div v-else class="text-caption text-grey-7">
-            Остановка произойдёт после текущего шага; уже запущенные задачи
-            доиграют, состояние сохранится.
+            Вы уверены, что хотите остановить? Текущий статус будет запомнен и
+            продолжен после повторного запуска. Информацию можно посмотреть в
+            Техническом разделе. Остановка произойдёт после текущего шага; уже
+            запущенные задачи доиграют, состояние сохранится.
           </div>
         </q-card-section>
 

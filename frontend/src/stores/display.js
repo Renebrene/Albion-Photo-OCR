@@ -337,8 +337,14 @@ export function sortPhotos(items, key, direction = 'asc') {
       return (av < bv ? -1 : 1) * factor
     }
 
-    const av = (a[key] || '').toString()
-    const bv = (b[key] || '').toString()
+    // «По адресу» сортирует по видимому названию (override > справочник >
+    // технический id), иначе исправленный адрес не менял бы порядок.
+    const value = key === 'address'
+      ? (row) => row.simple_address || row.legal_address || row.address || ''
+      : (row) => row[key] || ''
+
+    const av = value(a).toString()
+    const bv = value(b).toString()
 
     return av.localeCompare(bv, 'ru') * factor
   })

@@ -9,6 +9,7 @@ import UsersAdmin from '../components/UsersAdmin.vue'
 import SystemMonitor from '../components/SystemMonitor.vue'
 import FingerprintsList from '../components/FingerprintsList.vue'
 import LastRun from '../components/LastRun.vue'
+import MediaStatistics from '../components/MediaStatistics.vue'
 import DataModule from '../components/DataModule.vue'
 import Automation from '../components/Automation.vue'
 import DisplaySettings from '../components/DisplaySettings.vue'
@@ -23,8 +24,10 @@ const tab = ref('processing')
 
 const session = useSessionStore()
 
-// The user directory is administrator-only.
-const isAdmin = computed(() => session.user?.role === 'Администратор')
+// The user directory is administrator-only; open demo mode has no roles.
+const isAdmin = computed(
+  () => !session.authEnabled || session.user?.role === 'Администратор',
+)
 
 // Editing client aliases needs the collections:write scope, which Администратор
 // and Менеджер have; Гость would only get 403s, so the block is hidden for it.
@@ -47,6 +50,7 @@ const canEditClients = computed(() =>
       <span class="tab-sep" />
       <q-tab name="automation" icon="schedule" label="Автоматизация" />
       <q-tab name="last_run" icon="history" label="Последний запуск" />
+      <q-tab name="statistics" icon="insights" label="Статистика" />
       <q-tab name="system" icon="monitor_heart" label="Система" />
       <q-tab name="base" icon="tune" label="Настройки" />
       <q-tab name="data" icon="storage" label="Данные" />
@@ -67,6 +71,10 @@ const canEditClients = computed(() =>
 
       <q-tab-panel name="last_run">
         <LastRun />
+      </q-tab-panel>
+
+      <q-tab-panel name="statistics">
+        <MediaStatistics />
       </q-tab-panel>
 
       <q-tab-panel name="qwen">

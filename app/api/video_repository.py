@@ -206,7 +206,9 @@ def media_statistics() -> dict:
                      count(*) FILTER (WHERE kind='photo' AND created_at >= CURRENT_DATE - 6),
                      count(*) FILTER (WHERE kind='video' AND created_at >= CURRENT_DATE - 6),
                      count(*) FILTER (WHERE kind='photo' AND date_trunc('month', created_at)=date_trunc('month', CURRENT_TIMESTAMP)),
-                     count(*) FILTER (WHERE kind='video' AND date_trunc('month', created_at)=date_trunc('month', CURRENT_TIMESTAMP))
+                     count(*) FILTER (WHERE kind='video' AND date_trunc('month', created_at)=date_trunc('month', CURRENT_TIMESTAMP)),
+                     max(created_at) FILTER (WHERE kind='photo'),
+                     max(created_at) FILTER (WHERE kind='video')
                    FROM all_media"""
             )
             row = cur.fetchone()
@@ -229,8 +231,16 @@ def media_statistics() -> dict:
         "photos", "videos", "period_start", "period_end", "today_photos", "today_videos",
         "yesterday_photos", "yesterday_videos", "day_before_photos", "day_before_videos",
         "last_7_days_photos", "last_7_days_videos", "this_month_photos", "this_month_videos",
+        "last_photo_at", "last_video_at",
     )
-    result = {key: (int(value) if key not in {"period_start", "period_end"} else value) for key, value in zip(names, row)}
+    result = {
+        key: (
+            value
+            if key in {"period_start", "period_end", "last_photo_at", "last_video_at"}
+            else int(value)
+        )
+        for key, value in zip(names, row)
+    }
     result["months"] = months
     return result
 

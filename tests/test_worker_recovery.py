@@ -115,8 +115,10 @@ def test_qwen_stats_reports_base_size_and_runs():
     assert stats["photos"] >= 1
     # «Распознано» — у фото есть описание, а не «сейчас в статусе DONE»:
     # при повторном прогоне строка уходит в RUNNING, и счётчик не должен
-    # идти назад (mark_running описание не стирает).
-    assert stats["processed"] >= stats["counts"].get("DONE", 0)
+    # идти назад (mark_running описание не стирает). DONE с пустым описанием
+    # тоже встречается, поэтому жёсткое processed >= DONE не гарантируется.
+    assert 0 <= stats["processed"] <= stats["photos"]
+    assert stats["remaining"] == stats["photos"] - stats["processed"]
     assert stats["processed"] <= stats["photos"]
     assert stats["remaining"] == max(0, stats["photos"] - stats["processed"])
     assert stats["queued"] == (

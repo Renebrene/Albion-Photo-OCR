@@ -353,10 +353,16 @@ async function pollBuild(jobId) {
 
     if (job.status === 'DONE') {
       buildJob.value.result = job.result
+
+      const skipped = job.result?.skipped_images || []
+
       Notify.create({
-        type: 'positive',
-        message: `Слепок собран: ${job.result?.images} фото`,
+        type: skipped.length ? 'warning' : 'positive',
+        message: skipped.length
+          ? `Слепок собран: ${job.result?.images} фото, пропущено битых файлов: ${skipped.length}`
+          : `Слепок собран: ${job.result?.images} фото`,
       })
+
       await load()
       return
     }
@@ -421,7 +427,7 @@ async function saveEdit() {
   const target = editTarget.value
 
   try {
-    await updateFingerprint(target.fingerprint_id, {
+    const updated = await updateFingerprint(target.fingerprint_id, {
       display_name: target.display_name,
       description: target.description,
       source_folder: target.source_folder,
@@ -437,6 +443,14 @@ async function saveEdit() {
 
     editOpen.value = false
     Notify.create({ type: 'positive', message: 'Слепок сохранён' })
+
+    if (updated?.recalc?.job_id) {
+      Notify.create({
+        type: 'info',
+        message: `Запущен пересчёт базы (задание ${updated.recalc.job_id})`,
+      })
+    }
+
     await load()
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
@@ -445,8 +459,15 @@ async function saveEdit() {
 
 async function toggleActive(item, value) {
   try {
-    await updateFingerprint(item.fingerprint_id, { active: value })
+    const updated = await updateFingerprint(item.fingerprint_id, { active: value })
     await load()
+
+    if (updated?.recalc?.job_id) {
+      Notify.create({
+        type: 'info',
+        message: `Запущен пересчёт базы (задание ${updated.recalc.job_id})`,
+      })
+    }
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
     await load()
@@ -858,9 +879,55 @@ function day(value) {
 
             <div
               v-else-if="buildJob.status === 'DONE' && buildJob.result"
-              class="text-caption text-grey q-mt-xs"
+              class="q-mt-xs"
             >
-              Собрано из {{ buildJob.result.images }} фото
+              <div class="text-caption text-grey">
+                Собрано из {{ buildJob.result.images }} фото
+              </div>
+
+              <q-banner
+                v-if="buildJob.result.recalc?.job_id"
+                dense
+                rounded
+                class="bg-blue-1 text-primary q-mt-sm"
+              >
+                Слепок заменён: запущен пересчёт базы
+                (задание {{ buildJob.result.recalc.job_id }}, фото:
+                {{ buildJob.result.recalc.total }}).
+              </q-banner>
+
+              <q-banner
+                v-else-if="buildJob.result.recalc_error"
+                dense
+                rounded
+                class="bg-orange-1 text-dark q-mt-sm"
+              >
+                Слепок заменён, но пересчёт базы не запустился:
+                {{ buildJob.result.recalc_error }}. Запустите сортировку вручную.
+              </q-banner>
+
+              <q-banner
+                v-if="buildJob.result.skipped_images?.length"
+                dense
+                rounded
+                class="bg-orange-1 text-dark q-mt-sm"
+              >
+                <div class="text-weight-medium">
+                  Пропущено битых файлов:
+                  {{ buildJob.result.skipped_images.length }}
+                </div>
+                <div class="text-caption">
+                  Эти файлы не включены в слепок:
+                </div>
+                <ul class="skipped-files">
+                  <li
+                    v-for="item in buildJob.result.skipped_images"
+                    :key="item.name"
+                  >
+                    {{ item.name }} — {{ item.error }}
+                  </li>
+                </ul>
+              </q-banner>
             </div>
           </div>
         </q-card-section>
@@ -1116,3 +1183,13 @@ function day(value) {
     </q-dialog>
   </div>
 </template>
+
+<style scoped>
+.skipped-files {
+  margin: 4px 0 0 18px;
+  padding: 0;
+  max-height: 160px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+</style>

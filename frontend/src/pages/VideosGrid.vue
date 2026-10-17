@@ -428,8 +428,8 @@ onBeforeUnmount(() => {
 
 <template>
   <q-page class="videos-page q-pa-md">
-    <div class="video-toolbar row items-center q-col-gutter-sm q-mb-sm">
-      <div class="col-12 col-md-4">
+    <div class="video-toolbar row items-center no-wrap q-gutter-sm q-mb-sm">
+      <div class="col" style="min-width: 220px">
         <q-input
           v-model="query"
           dense
@@ -442,16 +442,16 @@ onBeforeUnmount(() => {
           <template #append><q-icon name="search" /></template>
         </q-input>
       </div>
-      <div class="col-6 col-md-2">
+      <div class="col-auto" style="width: 170px">
         <q-select v-model="dateMode" :options="dateModes" emit-value map-options dense outlined @update:model-value="loadPage({ reset: true })" />
       </div>
-      <div class="col-6 col-md-2">
+      <div class="col-auto" style="width: 160px">
         <q-input v-model="dateFrom" type="date" dense outlined label="С даты" @update:model-value="loadPage({ reset: true })" />
       </div>
-      <div class="col-6 col-md-2">
+      <div class="col-auto" style="width: 160px">
         <q-input v-model="dateTo" type="date" dense outlined label="По дату" @update:model-value="loadPage({ reset: true })" />
       </div>
-      <div class="col-6 col-md-2 row items-center justify-end q-gutter-xs">
+      <div class="col-auto row items-center q-gutter-xs">
         <q-btn-toggle v-model="viewMode" dense unelevated toggle-color="primary" :options="[{label: 'Плитка', value: 'tiles', icon: 'grid_view'}, {label: 'Список', value: 'list', icon: 'view_list'}]" />
         <q-btn flat round dense icon="refresh" :loading="loading" @click="loadPage({ reset: true })"><q-tooltip>Обновить</q-tooltip></q-btn>
       </div>

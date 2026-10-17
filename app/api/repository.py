@@ -51,6 +51,9 @@ _PHOTO_BASE = """
         q.client AS client,
         q.brand AS brand,
         q.category AS category,
+        q.status AS qwen_status,
+        (q.description IS NOT NULL AND btrim(q.description) <> '')
+            AS qwen_described,
         p.created_at AS created_at,
         p.taken_at AS taken_at,
         p.size_bytes AS size_bytes
@@ -64,8 +67,8 @@ _PHOTO_BASE = """
 _PHOTO_DERIVED = """
     SELECT
         t.*,
-        d.legal_address AS legal_address,
-        d.simple_address AS simple_address
+        COALESCE(od.legal_address, d.legal_address) AS legal_address,
+        COALESCE(od.simple_address, d.simple_address) AS simple_address
     FROM (""" + _PHOTO_BASE + """) AS t
     LEFT JOIN public.address_fingerprints AS f
            ON f.fingerprint_id = t.address
@@ -73,12 +76,17 @@ _PHOTO_DERIVED = """
     LEFT JOIN public.address_directory AS d
            ON d.address_id = f.address_id
           AND d.active
+    LEFT JOIN public.photo_address_overrides AS ov
+           ON ov.photo_id = t.photo_id
+    LEFT JOIN public.address_directory AS od
+           ON od.address_id = ov.address_id
+          AND od.active
 """
 
 _PHOTO_SELECT = (
     "SELECT photo_id, filename, width, height, container_format, "
     "address, client, brand, category, created_at, taken_at, size_bytes, "
-    "legal_address, simple_address "
+    "legal_address, simple_address, qwen_status, qwen_described "
     "FROM (" + _PHOTO_DERIVED + ") AS t"
 )
 
@@ -99,6 +107,8 @@ def _photo_row(row) -> PhotoSummary:
         size_bytes=row[11],
         legal_address=row[12],
         simple_address=row[13],
+        qwen_status=row[14],
+        qwen_described=bool(row[15]) if row[15] is not None else None,
     )
 
 
@@ -175,16 +185,32 @@ def list_photos(
             "         OR EXISTS (SELECT 1 FROM jsonb_array_elements_text("
             "              CASE WHEN jsonb_typeof(tags) = 'array' THEN tags END"
             "            ) AS tag WHERE tag ILIKE %s))"
-            ") OR t.address ILIKE %s)"
+            ") OR t.address ILIKE %s"
+            " OR t.legal_address ILIKE %s OR t.simple_address ILIKE %s)"
         )
-        params.extend([like] * 9)
+        params.extend([like] * 11)
 
     if addresses:
-        likes = [f"%{value}%" for value in addresses]
-        clauses.append(
-            "(" + " OR ".join(["t.address ILIKE %s"] * len(likes)) + ")"
-        )
-        params.extend(likes)
+        # A manually corrected photo belongs ONLY to the chosen address: the
+        # recognised fingerprint is ignored while an override exists.
+        parts = []
+        for value in addresses:
+            like = f"%{value}%"
+            parts.append(
+                "((NOT EXISTS ("
+                "   SELECT 1 FROM public.photo_address_overrides AS ov"
+                "   WHERE ov.photo_id = t.photo_id)"
+                "  AND t.address ILIKE %s)"
+                " OR EXISTS ("
+                "   SELECT 1 FROM public.photo_address_overrides AS ov"
+                "   JOIN public.address_fingerprints AS mfp"
+                "     ON mfp.address_id = ov.address_id AND mfp.active"
+                "   WHERE ov.photo_id = t.photo_id"
+                "     AND mfp.fingerprint_id ILIKE %s))"
+            )
+            params.extend([like, like])
+
+        clauses.append("(" + " OR ".join(parts) + ")")
 
     if clients:
         # Match either the raw QWEN client or any alias mapping to a
@@ -424,17 +450,41 @@ def list_addresses(*, limit: int = 1000) -> list[dict]:
     fingerprint stays in the panel even while no photo has been recognised as
     it; its counter says how many photos carry its verdict.
 
-    A recognised id that is not an active fingerprint is appended, so a photo
-    can never become unfilterable. `address` is that recognised id and is what
-    the filter sends; `name` is what the panel shows.
+    A recognised id without a registry row is appended, so a photo can never
+    become unfilterable. Archived (``active = false``) fingerprints are hidden
+    from the panel even when they still have recognised photos: hiding a
+    fingerprint is how the operator removes a duplicate/obsolete shield from
+    «Адреса». `address` is the fingerprint id the filter sends; `name` is what
+    the panel shows.
     """
 
     with get_connection() as conn:
         with conn.cursor() as cur:
+            # Photo counts per address panel entry. A manual override moves the
+            # photo to the chosen address's representative fingerprint, so the
+            # counters match what the address filter returns.
             cur.execute(
-                "SELECT address, count(*) FROM (" + _PHOTO_SELECT + ") AS t "
-                "WHERE address IS NOT NULL AND address <> '' "
-                "GROUP BY address"
+                """
+                SELECT COALESCE(mapped.fingerprint_id, t.address) AS address,
+                       count(*) AS count
+                FROM (""" + _PHOTO_SELECT + """) AS t
+                LEFT JOIN public.photo_address_overrides AS ov
+                       ON ov.photo_id = t.photo_id
+                LEFT JOIN LATERAL (
+                    SELECT f.fingerprint_id
+                    FROM public.address_fingerprints AS f
+                    JOIN public.fingerprints AS reg
+                      ON reg.fingerprint_id = f.fingerprint_id
+                     AND reg.active
+                    WHERE f.address_id = ov.address_id
+                      AND f.active
+                    ORDER BY f.fingerprint_id
+                    LIMIT 1
+                ) AS mapped ON TRUE
+                WHERE COALESCE(mapped.fingerprint_id, t.address) IS NOT NULL
+                  AND COALESCE(mapped.fingerprint_id, t.address) <> ''
+                GROUP BY COALESCE(mapped.fingerprint_id, t.address)
+                """
             )
             counts = {row[0]: int(row[1]) for row in cur.fetchall()}
 
@@ -455,6 +505,7 @@ def list_addresses(*, limit: int = 1000) -> list[dict]:
 
     items: list[dict] = []
     listed: set[str] = set()
+    inactive: set[str] = set()
     known: dict[str, str] = {}
 
     for row in rows:
@@ -463,7 +514,10 @@ def list_addresses(*, limit: int = 1000) -> list[dict]:
 
         known[fingerprint_id] = name
 
-        if not row[2]:  # archived: only listed when it still recognises photos
+        if not row[2]:
+            # Hidden/archived fingerprints never enter the address panel, even
+            # if a photo was recognised as them before they were hidden.
+            inactive.add(fingerprint_id)
             continue
 
         listed.add(fingerprint_id)
@@ -476,7 +530,7 @@ def list_addresses(*, limit: int = 1000) -> list[dict]:
         )
 
     for fingerprint_id, count in counts.items():
-        if fingerprint_id in listed:
+        if fingerprint_id in listed or fingerprint_id in inactive:
             continue
 
         items.append(
@@ -531,6 +585,129 @@ def stats() -> dict:
         "last_photo_at": row[3],
         "last_video_at": last_video_at,
     }
+
+
+def get_photo_address_override(photo_id: str) -> dict | None:
+    """Manual legal-address override of one photo (None when not set)."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT o.address_id, d.legal_address, d.simple_address,
+                       o.updated_at
+                FROM public.photo_address_overrides AS o
+                JOIN public.address_directory AS d
+                  ON d.address_id = o.address_id
+                WHERE o.photo_id = %s
+                """,
+                (photo_id,),
+            )
+            row = cur.fetchone()
+
+    if row is None:
+        return None
+
+    return {
+        "address_id": int(row[0]),
+        "legal_address": row[1],
+        "simple_address": row[2],
+        "updated_at": row[3],
+    }
+
+
+def set_photo_address_override(photo_id: str, address_id: int) -> dict | None:
+    """Create or replace the manual address of one photo."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO public.photo_address_overrides (photo_id, address_id)
+                VALUES (%s, %s)
+                ON CONFLICT (photo_id)
+                DO UPDATE SET
+                    address_id = EXCLUDED.address_id,
+                    updated_at = CURRENT_TIMESTAMP
+                RETURNING address_id
+                """,
+                (photo_id, int(address_id)),
+            )
+            row = cur.fetchone()
+
+    return get_photo_address_override(photo_id) if row is not None else None
+
+
+def clear_photo_address_override(photo_id: str) -> bool:
+    """Remove the manual override; recognition data stays untouched."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM public.photo_address_overrides
+                WHERE photo_id = %s
+                RETURNING photo_id
+                """,
+                (photo_id,),
+            )
+            return cur.fetchone() is not None
+
+
+def suggest_terms(term: str, *, limit: int = 8) -> list[dict]:
+    """
+    Search-bar suggestions from existing QWEN values.
+
+    Matches tags, clients, brands and categories by substring (ILIKE) or
+    trigram similarity (pg_trgm), so a slightly misspelled word still finds a
+    real tag. Prefix matches rank first, then similarity, then usage count.
+    """
+
+    like = f"%{term}%"
+    prefix = f"{term}%"
+
+    sql = """
+        WITH values AS (
+            SELECT 'tag' AS kind, tag AS value
+            FROM public.photo_qwen AS q
+            CROSS JOIN LATERAL jsonb_array_elements_text(
+                CASE WHEN jsonb_typeof(q.tags) = 'array' THEN q.tags END
+            ) AS tag
+            WHERE tag <> ''
+            UNION ALL
+            SELECT 'client', client FROM public.photo_qwen
+            WHERE client IS NOT NULL AND client <> ''
+            UNION ALL
+            SELECT 'brand', brand FROM public.photo_qwen
+            WHERE brand IS NOT NULL AND brand <> ''
+            UNION ALL
+            SELECT 'category', category FROM public.photo_qwen
+            WHERE category IS NOT NULL AND category <> ''
+            UNION ALL
+            SELECT 'address', simple_address FROM public.address_directory
+            WHERE active AND simple_address <> ''
+            UNION ALL
+            SELECT 'address', legal_address FROM public.address_directory
+            WHERE active AND legal_address <> ''
+        )
+        SELECT value, min(kind) AS kind, count(*) AS uses
+        FROM values
+        WHERE value ILIKE %s OR value %% %s
+        GROUP BY value
+        ORDER BY (lower(value) LIKE lower(%s)) DESC,
+                 similarity(value, %s) DESC,
+                 uses DESC,
+                 lower(value)
+        LIMIT %s
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (like, term, prefix, term, limit))
+            return [
+                {"value": row[0], "kind": row[1], "uses": int(row[2])}
+                for row in cur.fetchall()
+            ]
 
 
 def list_clients(*, limit: int = 1000) -> list[dict]:

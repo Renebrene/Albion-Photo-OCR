@@ -679,6 +679,100 @@ def finish_batch(
             )
 
 
+def requeue_interrupted_batch_runs(batch_id: int) -> int:
+    """Reset unfinished RUNNING items when a retried queue job resumes a batch."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.dino_runs
+                SET status = 'PENDING',
+                    started_at = NULL,
+                    finished_at = NULL,
+                    dino_time_sec = NULL,
+                    error_message = COALESCE(error_message || ' | ', '')
+                        || 'reset for queue-job retry'
+                WHERE batch_id = %s
+                  AND status = 'RUNNING'
+                """,
+                (int(batch_id),),
+            )
+            return cur.rowcount
+
+
+def abort_batch_in_transaction(cur, batch_id: int, error_message: str) -> DinoBatch:
+    """Fail unfinished items and finalize their batch on the caller's transaction."""
+
+    cur.execute(
+        "SELECT run_type, total_count FROM public.dino_batches "
+        "WHERE batch_id=%s FOR UPDATE",
+        (int(batch_id),),
+    )
+    row = cur.fetchone()
+    if row is None:
+        raise ValueError(f"DINO batch {batch_id} not found")
+    expected_total = int(row[1])
+
+    cur.execute(
+        """
+        UPDATE public.dino_runs
+        SET status = 'FAILED',
+            finished_at = CURRENT_TIMESTAMP,
+            dino_time_sec = COALESCE(dino_time_sec, 0.0),
+            error_message = %s
+        WHERE batch_id = %s
+          AND status IN ('PENDING', 'RUNNING')
+        """,
+        (str(error_message), int(batch_id)),
+    )
+
+    cur.execute(
+        """
+        SELECT COUNT(*),
+               COUNT(*) FILTER (WHERE status='DONE'),
+               COUNT(*) FILTER (WHERE status='FAILED'),
+               COUNT(*) FILTER (WHERE status IN ('PENDING','RUNNING'))
+        FROM public.dino_runs
+        WHERE batch_id=%s
+        """,
+        (int(batch_id),),
+    )
+    actual_total, done, failed, active = map(int, cur.fetchone())
+    total = max(expected_total, actual_total)
+    # If batch metadata says there were inputs but their dino_runs rows are
+    # missing, do not silently turn the cancelled batch into an empty DONE one.
+    failed += max(0, total - actual_total)
+    status = "RUNNING" if active else ("FAILED" if failed else "DONE")
+
+    cur.execute(
+        """
+        UPDATE public.dino_batches
+        SET status=%s, total_count=%s, completed_count=%s,
+            failed_count=%s,
+            finished_at=CASE WHEN %s='RUNNING' THEN finished_at ELSE CURRENT_TIMESTAMP END
+        WHERE batch_id=%s
+        """,
+        (status, total, done, failed, status, int(batch_id)),
+    )
+    return DinoBatch(
+        batch_id=int(batch_id),
+        run_type=str(row[0]),
+        status=status,
+        total_count=total,
+        completed_count=done,
+        failed_count=failed,
+    )
+
+
+def abort_batch(batch_id: int, error_message: str) -> DinoBatch:
+    """Fail only unfinished items and preserve completed DINO results."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            return abort_batch_in_transaction(cur, int(batch_id), error_message)
+
+
 def latest_done_run(
     photo_id: str,
 ) -> dict[str, Any] | None:

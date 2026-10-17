@@ -56,12 +56,69 @@ def default_descriptor_workers() -> int:
     return max(1, (os.cpu_count() or 1) // parallel // 2)
 
 
+def _batch_recalc_needed(
+    batch_id: str | None,
+    job_id: int | None,
+    current_replaced: bool,
+) -> bool:
+    """
+    Should this finished build queue the one recalculation for its batch?
+
+    ``build-batch`` runs several builders in parallel. Waiting for the last one
+    avoids enqueueing a full pass per rebuilt fingerprint. The check is only a
+    best-effort read: the recalculation itself is deduplicated by an advisory
+    lock, so two last builders still cannot enqueue twice.
+    """
+
+    if not batch_id or job_id is None:
+        return current_replaced
+
+    from app.ingest.database import get_connection
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT 1
+                FROM public.job_queue
+                WHERE job_type = 'FINGERPRINT_BUILD'
+                  AND status IN ('PENDING', 'RUNNING')
+                  AND id <> %s
+                  AND payload ->> 'batch_id' = %s
+                LIMIT 1
+                """,
+                (int(job_id), str(batch_id)),
+            )
+
+            if cur.fetchone() is not None:
+                return False
+
+            cur.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM public.job_queue
+                    WHERE job_type = 'FINGERPRINT_BUILD'
+                      AND status = 'DONE'
+                      AND payload ->> 'batch_id' = %s
+                      AND result ->> 'replaced_existing' = 'true'
+                )
+                """,
+                (str(batch_id),),
+            )
+
+            return bool(cur.fetchone()[0]) or current_replaced
+
+
 def build_fingerprint(
     fingerprint_id: str,
     folder: str,
     *,
     max_photos: int | None = None,
     replace: bool = True,
+    recalculate: bool = False,
+    batch_id: str | None = None,
+    job_id: int | None = None,
     progress=None,
 ) -> dict:
     """
@@ -69,6 +126,10 @@ def build_fingerprint(
 
     Returns a JSON-serialisable summary for the job row: the id, how many photos
     were used, the folder and the algorithm version.
+
+    *recalculate* queues one full DINO+HYBRID pass when an existing fingerprint
+    was actually replaced: the new vectors make every stored verdict stale.
+    A brand-new fingerprint needs no recalculation.
 
     `progress(done, total, stage)` is handed to the builder; the worker uses it
     both for the progress bar and to notice a pause/cancel request.
@@ -82,6 +143,9 @@ def build_fingerprint(
         raise ValueError("source folder not found")
 
     settings.fingerprints_dir.mkdir(parents=True, exist_ok=True)
+
+    output = settings.fingerprints_dir / str(fingerprint_id)
+    replaced_existing = output.is_dir() and any(output.iterdir())
 
     embedder = get_embedder()
     manager = FingerprintManager(
@@ -104,13 +168,36 @@ def build_fingerprint(
     # visible in the window the moment the job finishes.
     sync = registry.sync_from_disk()
 
+    recalc = None
+    recalc_error = None
+
+    if recalculate and _batch_recalc_needed(
+        batch_id, job_id, replaced_existing
+    ):
+        # The fingerprint files are already published, so a DINO job started
+        # now reads the new vectors.
+        try:
+            from app.dino.recalc import enqueue_recalculation
+
+            recalc = enqueue_recalculation(
+                reason="замены",
+                fingerprint_id=str(fingerprint_id),
+            )
+        except Exception as exc:  # noqa: BLE001 - the build itself succeeded
+            recalc_error = type(exc).__name__
+
     return {
         "fingerprint_id": str(fingerprint_id),
         "folder": str(folder_path),
         "images": int(metadata.get("images") or 0),
+        "skipped_images": metadata.get("skipped_images") or [],
         "version": metadata.get("version"),
         "max_photos": max_photos,
         "replaced": bool(replace),
+        "replaced_existing": replaced_existing,
+        "recalculated": bool(recalc),
+        "recalc": recalc,
+        "recalc_error": recalc_error,
         "versions_added": [
             item for item in sync["versions_added"] if item == str(fingerprint_id)
         ],

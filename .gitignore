@@ -67,3 +67,16 @@ test/
 
 # Scratch of scripts/fingerprint_size_experiment.py (photos + numpy artifacts)
 data/output/fingerprint_size_experiment/
+
+# Billboard branch: derived crops and local detector weights (never commit)
+data/crops/
+data/models/
+weights/
+*.pt
+
+# Windows demo deployment: local env, data and photo drop folder
+deploy/windows/.env.demo
+deploy/windows/data/
+deploy/windows/photos/*
+!deploy/windows/photos/README.txt
+!deploy/windows/.env.demo.example

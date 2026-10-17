@@ -371,3 +371,82 @@ def test_worker_keeps_the_current_settings_without_an_override(monkeypatch):
     )
 
     assert seen == {"provider": None, "model": None}
+
+
+def _qwen_base_settings():
+    return {
+        "provider": "ollama",
+        "model": "test-model",
+        "crop": {"mode": "off", "ratio": 1.0},
+    }
+
+
+def test_run_photo_analyses_billboard_crop_when_present(monkeypatch, tmp_path):
+    """Описание берётся с кропа щита, бренд/клиент остаются в промпте."""
+
+    from PIL import Image
+    from app.billboard import pipeline as billboard_pipeline
+
+    crop = tmp_path / "crop_01.jpg"
+    Image.new("RGB", (320, 180), (5, 6, 7)).save(crop)
+
+    monkeypatch.setattr(processor.db, "get_photo_source", lambda pid: "/tmp/source.jpg")
+    monkeypatch.setattr(processor.db, "mark_running", lambda pid: None)
+    saved = {}
+    monkeypatch.setattr(
+        processor.db, "save_success",
+        lambda pid, **kw: saved.update(kw),
+    )
+    monkeypatch.setattr(processor, "resolve_settings", _qwen_base_settings)
+    monkeypatch.setattr(
+        billboard_pipeline, "ensure_crop",
+        lambda pid: str(crop),
+    )
+
+    discarded = []
+    monkeypatch.setattr(
+        billboard_pipeline, "discard_crop",
+        lambda path: discarded.append(str(path)) or True,
+    )
+
+    seen = {}
+
+    def fake_analyze(path, config=None):
+        seen.update({"path": path, "config": config})
+        return ({"brand": "X", "client": "Y"}, {}, 1.0)
+
+    monkeypatch.setattr(processor, "analyze_image", fake_analyze)
+
+    processor.run_photo("PH_" + "ab" * 12)
+
+    assert seen["path"] == str(crop)
+    assert seen["config"]["crop"] == {"mode": "off", "ratio": 1.0}
+    assert seen["config"]["max_image_side"] > 1280
+    assert "бренд" in seen["config"]["prompt"].lower()
+    assert "client" in seen["config"]["prompt"]
+    assert saved["fields"] == {"brand": "X", "client": "Y"}
+    # Кроп — временный: после успешного сохранения он удаляется.
+    assert discarded == [str(crop)]
+
+
+def test_run_photo_falls_back_to_full_frame(monkeypatch):
+    from app.billboard import pipeline as billboard_pipeline
+
+    monkeypatch.setattr(processor.db, "get_photo_source", lambda pid: "/tmp/source.jpg")
+    monkeypatch.setattr(processor.db, "mark_running", lambda pid: None)
+    monkeypatch.setattr(processor.db, "save_success", lambda pid, **kw: None)
+    monkeypatch.setattr(processor, "resolve_settings", _qwen_base_settings)
+    monkeypatch.setattr(billboard_pipeline, "ensure_crop", lambda pid: None)
+
+    seen = {}
+
+    def fake_analyze(path, config=None):
+        seen.update({"path": path, "config": config})
+        return ({"description": "scene"}, {}, 1.0)
+
+    monkeypatch.setattr(processor, "analyze_image", fake_analyze)
+
+    processor.run_photo("PH_" + "cd" * 12)
+
+    assert seen["path"] == "/tmp/source.jpg"
+    assert "prompt" not in seen["config"]

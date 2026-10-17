@@ -358,6 +358,30 @@ def list_registry() -> list[dict]:
     return items
 
 
+def active_fingerprint_ids() -> set[str] | None:
+    """
+    Fingerprints that may take part in recognition.
+
+    Returns ``None`` when the registry is empty or unavailable: an older
+    database without schema/023 must keep the previous disk-only behaviour
+    instead of suddenly recognising nothing.
+    """
+
+    try:
+        rows = list_registry()
+    except Exception:
+        return None
+
+    if not rows:
+        return None
+
+    return {
+        str(item["fingerprint_id"])
+        for item in rows
+        if item.get("active")
+    }
+
+
 def get_fingerprint(fingerprint_id: str) -> dict | None:
     with get_connection() as conn:
         with conn.cursor() as cur:

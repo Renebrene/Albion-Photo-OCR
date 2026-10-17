@@ -2,14 +2,16 @@
 Shared pytest configuration.
 
 Most tests exercise pure logic only: no PostgreSQL, no model loading, no
-network, and no writes outside pytest's temporary directories. The few
-fixtures that do touch PostgreSQL (`probe_fingerprints`) are opt-in and clean
-up after themselves.
+network, and no writes outside pytest's temporary directories. PostgreSQL tests
+are disabled by default because the local `photobase_ingest_test` database is
+working data. Opt in only with SCENE_TEST_DB=1 and an explicit disposable
+SCENE_TEST_DB_NAME (see docs/testing.md).
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
 import sys
 from pathlib import Path
 
@@ -19,6 +21,24 @@ from PIL import Image
 # Make the application package importable when pytest is run
 # directly from the repository root without an editable install.
 ROOT = Path(__file__).resolve().parents[1]
+
+# Database integration tests mutate queue/domain tables and therefore must never
+# silently use the application's operational database. Opt in only after
+# provisioning a disposable test database and naming it explicitly.
+if os.getenv("SCENE_TEST_DB") == "1":
+    test_db_name = os.getenv("SCENE_TEST_DB_NAME", "").strip()
+    if not test_db_name:
+        raise RuntimeError(
+            "SCENE_TEST_DB=1 requires SCENE_TEST_DB_NAME for a disposable DB"
+        )
+    if test_db_name == "photobase_ingest_test":
+        raise RuntimeError(
+            "refusing to run DB integration tests against the operational "
+            "photobase_ingest_test database"
+        )
+    os.environ["INGEST_DB_NAME"] = test_db_name
+else:
+    os.environ.pop("INGEST_DB_PASSWORD", None)
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))

@@ -63,6 +63,14 @@ advisory-lock gates) имеет один `scheduler` run; созданные и�
 Ошибки частичной постановки логируются как `PARTIAL`/`FAILED` при сохранении
 уже созданных jobs.
 
+Для `kind=sort` верхний `counts.total` — число **уникальных фото**, а не сумма
+работ по этапам. `counts.done/failed` не складывает одну фотографию дважды:
+DINO и HYBRID отражаются отдельно в `counts.by_stage.DINO` и
+`counts.by_stage.HYBRID`. В auto-HYBRID запуске HYBRID queue job атомарно
+связывается с той же history row до завершения DINO job; поэтому история не
+может стать DONE, пока follow-up HYBRID остаётся в очереди или выполняется.
+`jobs_total/jobs_done` считает queue jobs независимо от фото-счётчиков.
+
 ## Проверка и выкладка
 
 Миграции аддитивны и backfill не требуется. `037` проверена в отдельной схеме

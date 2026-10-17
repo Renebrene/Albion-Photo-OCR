@@ -16,12 +16,12 @@ import datetime
 
 from typing import Any
 
-from app.dino import database as dino_db
 from app.ingest.database import get_connection
 from app.jobs import database as jobs_db
 
 _SETTINGS_COLUMNS = (
-    "enabled, interval_minutes, auto_dino, auto_qwen, last_tick, updated_at"
+    "enabled, interval_minutes, mode, daily_time, auto_qwen, last_tick, "
+    "updated_at"
 )
 
 
@@ -29,10 +29,48 @@ def _row_to_settings(row) -> dict:
     return {
         "enabled": bool(row[0]),
         "interval_minutes": int(row[1]),
-        "auto_dino": bool(row[2]),
-        "auto_qwen": bool(row[3]),
-        "last_tick": row[4],
-        "updated_at": row[5],
+        "mode": row[2] or "interval",
+        "daily_time": row[3].strftime("%H:%M") if row[3] else None,
+        "auto_qwen": bool(row[4]),
+        "last_tick": row[5],
+        "updated_at": row[6],
+    }
+
+
+def last_run() -> dict | None:
+    """Latest scheduler tick: date, status, counts and log availability."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.run_history')")
+
+            if cur.fetchone()[0] is None:
+                return None
+
+            cur.execute(
+                """
+                SELECT run_id, status, started_at, finished_at, counts,
+                       message, error_count, (log_path IS NOT NULL) AS has_log
+                FROM public.run_history
+                WHERE kind = 'scheduler'
+                ORDER BY run_id DESC
+                LIMIT 1
+                """
+            )
+            row = cur.fetchone()
+
+    if row is None:
+        return None
+
+    return {
+        "run_id": int(row[0]),
+        "status": row[1],
+        "started_at": row[2],
+        "finished_at": row[3],
+        "counts": row[4] or {},
+        "message": row[5],
+        "error_count": int(row[6] or 0),
+        "has_log": bool(row[7]),
     }
 
 
@@ -45,14 +83,17 @@ def get_settings() -> dict:
             )
             row = cur.fetchone()
 
-    return _row_to_settings(row)
+    result = _row_to_settings(row)
+    result["last_run"] = last_run()
+    return result
 
 
 def update_settings(
     *,
     enabled: bool | None = None,
     interval_minutes: int | None = None,
-    auto_dino: bool | None = None,
+    mode: str | None = None,
+    daily_time: str | None = None,
     auto_qwen: bool | None = None,
 ) -> dict:
     """Update only the supplied fields; return the resulting settings."""
@@ -66,9 +107,22 @@ def update_settings(
     if interval_minutes is not None:
         assignments.append("interval_minutes = %s")
         params.append(int(interval_minutes))
-    if auto_dino is not None:
-        assignments.append("auto_dino = %s")
-        params.append(bool(auto_dino))
+    if mode is not None:
+        if mode not in ("interval", "daily"):
+            raise ValueError("mode must be 'interval' or 'daily'")
+        assignments.append("mode = %s")
+        params.append(mode)
+    if daily_time is not None:
+        value = str(daily_time).strip()
+        if value:
+            try:
+                datetime.time.fromisoformat(value)
+            except ValueError as exc:
+                raise ValueError("daily_time must be HH:MM") from exc
+            assignments.append("daily_time = %s")
+            params.append(value)
+        else:
+            assignments.append("daily_time = NULL")
     if auto_qwen is not None:
         assignments.append("auto_qwen = %s")
         params.append(bool(auto_qwen))
@@ -88,32 +142,37 @@ def update_settings(
 
 
 def is_due(settings: dict) -> bool:
-    """True when enough time passed since the last tick (or never ticked)."""
+    """
+    True when the scheduler should run.
+
+    Interval mode: enough time passed since the last tick. Daily mode: the
+    configured time has arrived today and the scheduler has not ticked since.
+    """
 
     if not settings["enabled"]:
         return False
 
+    now = datetime.datetime.now()
     last = settings["last_tick"]
+
+    if settings.get("mode") == "daily" and settings.get("daily_time"):
+        target = datetime.time.fromisoformat(settings["daily_time"])
+
+        if now.time() < target:
+            return False
+
+        if last is None:
+            return True
+
+        return last.date() < now.date() or (
+            last.date() == now.date() and last.time() < target
+        )
 
     if last is None:
         return True
 
-    elapsed = datetime.datetime.now() - last
+    elapsed = now - last
     return elapsed >= datetime.timedelta(minutes=settings["interval_minutes"])
-
-
-def _photos_without_dino() -> int:
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT count(*)
-                FROM public.photos AS p
-                LEFT JOIN public.dino_runs AS r ON r.photo_id = p.photo_id
-                WHERE r.photo_id IS NULL
-                """
-            )
-            return int(cur.fetchone()[0])
 
 
 def _photos_without_qwen() -> list[str]:
@@ -251,28 +310,8 @@ def _run_tick_locked(settings: dict, *, history_id: int | None = None) -> dict:
             # History is best-effort; keep queue work authoritative.
             return
 
-    if settings["auto_dino"] and not dino_db.has_active_batch():
-        missing_dino = _photos_without_dino()
-        target += missing_dino
-        if missing_dino > 0:
-            batch = dino_db.create_batch("NORMAL")
-            target += max(0, int(batch.total_count) - missing_dino)
-
-            if batch.total_count > 0:
-                job_id = jobs_db.enqueue(
-                    "DINO_BATCH",
-                    {"batch_id": batch.batch_id},
-                    run_history_id=history_id,
-                )
-                job_ids.append(job_id)
-                link_added_jobs()
-                result["dino_batch_id"] = batch.batch_id
-                result["dino_total"] = batch.total_count
-    elif settings["auto_dino"]:
-        active_batch_missing = _photos_without_dino()
-        target += active_batch_missing
-        skipped += active_batch_missing
-
+    # Auto-DINO (watcher for new files) is intentionally not implemented:
+    # sorting is started explicitly by «Обновление базы» or the Sorting tab.
     if settings["auto_qwen"]:
         photo_ids = _photos_without_qwen()
         target += len(photo_ids)

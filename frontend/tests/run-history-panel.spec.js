@@ -43,6 +43,18 @@ describe('общая история запусков', () => {
         error_count: 0, has_log: false,
         stages: [{ stage: 'DINO', status: 'DONE', seconds: 1.25 }],
       },
+      {
+        run_id: 19, kind: 'sort', mode: 'manual', status: 'RUNNING',
+        title: 'DINO batch #19', started_at: '2026-10-16T11:00:00Z',
+        counts: {
+          total: 4, done: 0, failed: 0, jobs_total: 2, jobs_done: 1,
+          by_stage: {
+            DINO: { required: true, total: 4, done: 4, failed: 0 },
+            HYBRID: { required: true, total: 4, done: 0, failed: 0 },
+          },
+        },
+        error_count: 0, has_log: false, stages: [],
+      },
     ] })
     await flushPromises()
     const text = wrapper.text()
@@ -53,6 +65,8 @@ describe('общая история запусков', () => {
     expect(text).toContain('Обновление базы')
     expect(text).toContain('по расписанию')
     expect(text).toContain('DINO: DONE  (1.25 с)')
+    expect(text).toContain('DINO 4/4')
+    expect(text).toContain('HYBRID 0/4')
     expect(text).toContain('Открыть лог')
   })
 

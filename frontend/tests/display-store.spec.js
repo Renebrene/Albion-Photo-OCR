@@ -224,6 +224,21 @@ describe('grid sorting', () => {
     ])
   })
 
+  it('sorts by the visible address name, so an override moves the photo', () => {
+    const addressed = [
+      { photo_id: 'x', address: '99_v33', simple_address: 'Ясная 5' },
+      { photo_id: 'y', address: '01_v33', simple_address: 'Айвовая 1' },
+      // Исправленный адрес: технический id остался прежним, имя новое.
+      { photo_id: 'z', address: '50_v33', simple_address: 'Боровая 7' },
+    ]
+
+    expect(sortPhotos(addressed, 'address').map((r) => r.photo_id)).toEqual([
+      'y',
+      'z',
+      'x',
+    ])
+  })
+
   it('treats a missing field as an empty string and never mutates the input', () => {
     const sorted = sortPhotos(rows, 'client')
 

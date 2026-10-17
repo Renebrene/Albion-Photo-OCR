@@ -32,6 +32,19 @@ def run_photo_preview(photo_id: str) -> dict:
         raise RuntimeError(
             f"PREVIEW failed for {photo_id}: " + ("; ".join(details) or "preview is incomplete")
         )
+
+    # Background branch: a ready preview is the trigger for billboard
+    # detection. It is best-effort by design - a detection enqueue failure
+    # must never fail PREVIEW or touch the main pipeline.
+    try:
+        from app.billboard.config import resolve_settings as billboard_settings
+        from app.jobs.database import enqueue_billboard_detect
+
+        if billboard_settings()["enabled"]:
+            enqueue_billboard_detect(photo_id)
+    except Exception:  # noqa: BLE001 - additive background work
+        pass
+
     return {
         "photo_id": photo_id,
         "status": "DONE",

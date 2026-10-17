@@ -340,6 +340,10 @@ def _advance(run_id: int) -> dict:
         _finish_run(run_id, "STOPPED", message="остановлено пользователем")
         return {"outcome": "STOPPED"}
 
+    # QWEN may have been started right after INGEST and runs in parallel with
+    # DINO/HYBRID: keep its stage counters fresh for the UI.
+    _sync_qwen_progress(run)
+
     stage = run["stage"]
     row = _stage_row(_raw_stage(run_id, stage))
     outcome = _HANDLERS[stage](run, row)
@@ -369,6 +373,76 @@ def _advance(run_id: int) -> dict:
 # ---------------------------------------------------------------------------
 # Stage handlers
 # ---------------------------------------------------------------------------
+
+
+def _auto_qwen_enabled() -> bool:
+    """Planner setting «Запускать QWEN автоматически» (off by default)."""
+
+    try:
+        from app.jobs import automation
+
+        return bool(automation.get_settings().get("auto_qwen"))
+    except Exception:  # noqa: BLE001 - a settings read must not break the run
+        return False
+
+
+def _enqueue_early_qwen(run: dict, manifest: dict) -> None:
+    """
+    Start QWEN right after INGEST (IDs exist), in parallel with sorting.
+
+    The set is frozen by `photo_cutoff`, the same set DINO will use, so files
+    added later wait for the next run.
+    """
+
+    if manifest.get("qwen_early") or not _auto_qwen_enabled():
+        return
+
+    manifest["qwen_early"] = True
+    photo_ids = _photos_without_qwen(manifest.get("photo_cutoff"))
+
+    if not photo_ids:
+        return
+
+    history_id = None
+
+    try:
+        from app.runs import history
+
+        found = history.find_run(kind="pipeline", source_id=int(run["run_id"]))
+
+        if found:
+            history_id = int(found["run_id"])
+    except Exception:  # noqa: BLE001 - history is an index, not the source
+        history_id = None
+
+    for photo_id in photo_ids:
+        jobs_db.enqueue_qwen(
+            photo_id, source="pipeline", run_history_id=history_id
+        )
+
+    _set_stage(
+        run["run_id"], "QWEN",
+        status="RUNNING", started_at_sql=True, total_count=len(photo_ids),
+    )
+
+
+def _sync_qwen_progress(run: dict) -> None:
+    """Keep the parallel QWEN stage counters current while sorting runs."""
+
+    if not (run.get("manifest") or {}).get("qwen_early"):
+        return
+
+    if run.get("stage") == "QWEN":
+        return
+
+    cutoff = _cutoff(run)
+
+    _set_stage(
+        run["run_id"], "QWEN",
+        done_count=_qwen_count(cutoff, "DONE"),
+        failed_count=_qwen_count(cutoff, "FAILED"),
+        total_count=_photos_total(cutoff),
+    )
 
 
 def _stage_ingest(run: dict, stage: dict) -> dict:
@@ -414,6 +488,11 @@ def _stage_ingest(run: dict, stage: dict) -> dict:
     if job["status"] == "DONE":
         result = job["result"] or {}
         manifest["photo_cutoff"] = _db_now()
+
+        # Auto-QWEN starts as soon as the IDs exist, in parallel with the
+        # sorting stages. Disabled by default in the planner settings.
+        _enqueue_early_qwen(run, manifest)
+
         _update_run(run["run_id"], manifest=manifest)
         return {
             "outcome": "DONE",
@@ -518,11 +597,8 @@ def _stage_hybrid(run: dict, stage: dict) -> dict:
         if batch_id is None:
             return {"outcome": "SKIPPED", "message": "нет DINO batch"}
 
-        hybrid = hybrid_db.create_run(int(batch_id))
-        job_id = (
-            jobs_db.enqueue("HYBRID_RUN", {"hybrid_run_id": hybrid.hybrid_run_id})
-            if hybrid.total_count
-            else None
+        hybrid, job_id, _history_id = hybrid_db.create_and_enqueue_run(
+            int(batch_id)
         )
         _set_stage(
             run["run_id"], "HYBRID",

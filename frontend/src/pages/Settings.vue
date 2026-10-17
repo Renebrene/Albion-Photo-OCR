@@ -156,6 +156,38 @@ const qwenQueue = computed(
   () => (stats.value?.counts?.PENDING || 0) + (stats.value?.counts?.RUNNING || 0),
 )
 
+// Правый модуль «Распознавания»: сводка присвоения описаний.
+const assignmentStats = computed(() => {
+  const s = stats.value
+
+  if (!s) return []
+
+  const photos = Number(s.photos || 0)
+  const processed = Number(s.processed || 0)
+
+  return [
+    { label: 'ВСЕГО ФАЙЛОВ', value: photos },
+    { label: 'ОБРАБОТАНО', value: processed },
+    { label: 'УСПЕШНО', value: Number(s.counts?.DONE || 0) },
+    { label: 'ПУСТО ИЛИ С ОШИБКОЙ', value: Math.max(0, photos - processed) },
+  ]
+})
+
+// Даты последних запусков по источникам: ручной / плановый / внеочередной.
+const launchDates = computed(() => {
+  const bySource = {}
+
+  for (const run of stats.value?.runs || []) {
+    bySource[run.source] = run.last_finished_at
+  }
+
+  return [
+    { label: 'Вручную', value: bySource.manual },
+    { label: 'По расписанию', value: bySource.automation },
+    { label: 'Вне очереди', value: bySource.pipeline },
+  ]
+})
+
 // ref, а не обычная переменная: окно показывает «обновляется автоматически».
 const statsTimer = ref(null)
 
@@ -289,8 +321,10 @@ onBeforeUnmount(stopStatsPolling)
 </script>
 
 <template>
-  <div style="max-width: 760px">
-    <div class="text-h6 q-mb-md">Модель QWEN</div>
+  <div style="max-width: 1180px">
+    <div class="row q-col-gutter-md">
+      <div class="col-12 col-md-7">
+        <div class="text-h6 q-mb-md">Модель QWEN</div>
 
     <div v-if="error" class="q-mb-md">
       <q-banner class="bg-red-1 text-negative">{{ error }}</q-banner>
@@ -516,6 +550,45 @@ onBeforeUnmount(stopStatsPolling)
         </div>
       </q-card-section>
     </q-card>
+      </div>
 
+      <!-- Справа: статистика присвоения описаний -->
+      <div class="col-12 col-md-5">
+        <q-card flat bordered class="fit">
+          <q-card-section>
+            <div class="text-subtitle1 q-mb-sm">Статистика описаний</div>
+
+            <template v-if="stats">
+              <div
+                v-for="row in assignmentStats"
+                :key="row.label"
+                class="row items-baseline q-mb-xs"
+              >
+                <div class="text-caption text-grey col">{{ row.label }}</div>
+                <div class="text-subtitle1">{{ row.value }}</div>
+              </div>
+
+              <q-separator class="q-my-sm" />
+
+              <div class="text-caption text-grey q-mb-xs">
+                Дата последнего запуска
+              </div>
+              <div
+                v-for="row in launchDates"
+                :key="row.label"
+                class="row items-baseline q-mb-xs"
+              >
+                <div class="text-caption text-grey col">{{ row.label }}</div>
+                <div class="text-caption">{{ fmtDate(row.value) }}</div>
+              </div>
+            </template>
+
+            <div v-else class="text-caption text-grey-7">
+              Данные статистики ещё не загружены.
+            </div>
+          </q-card-section>
+        </q-card>
+      </div>
+    </div>
   </div>
 </template>

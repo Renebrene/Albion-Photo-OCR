@@ -324,8 +324,16 @@ def _ollama_analyze(config: dict, path: str) -> tuple[dict, dict, float]:
             "messages": [
                 {
                     "role": "user",
-                    "content": PROMPT,
-                    "images": [encode_image(path, crop=config.get("crop"))],
+                    "content": config.get("prompt") or PROMPT,
+                    "images": [
+                        encode_image(
+                            path,
+                            crop=config.get("crop"),
+                            max_side=int(
+                                config.get("max_image_side", MAX_IMAGE_SIDE)
+                            ),
+                        )
+                    ],
                 }
             ],
             "stream": False,
@@ -343,6 +351,14 @@ def _ollama_analyze(config: dict, path: str) -> tuple[dict, dict, float]:
             "num_predict": int(
                 config.get("max_output_tokens", MAX_OUTPUT_TOKENS)
             ),
+            # Crop analysis can loop on a repeated address until the output
+            # budget runs out; a mild penalty breaks the repetition. Only the
+            # billboard branch sets this, the full-frame default is unchanged.
+            **(
+                {"repeat_penalty": float(config["repeat_penalty"])}
+                if config.get("repeat_penalty")
+                else {}
+            ),
         },
         }
     ).encode("utf-8")
@@ -356,8 +372,22 @@ def _ollama_analyze(config: dict, path: str) -> tuple[dict, dict, float]:
     payload = _post_json(request, config["timeout"])
 
     message = payload.get("message", {})
-    # Fall back to the reasoning channel if the model left content empty.
-    content = message.get("content") or message.get("thinking") or ""
+    content = message.get("content") or ""
+    thinking = message.get("thinking") or ""
+
+    # A «thinking» model put everything into the reasoning channel and left
+    # content empty: say it plainly instead of failing later with
+    # «no JSON object».
+    if not content.strip() and thinking.strip():
+        raise QwenParseError(
+            f"модель «{config['model']}» вернула только рассуждения "
+            "(thinking) и не дала ответ. Возьмите instruct-модель, "
+            "например qwen3-vl:4b-instruct.",
+            raw=thinking[:2000],
+        )
+
+    # Some providers put a valid answer into the reasoning channel anyway.
+    content = content or thinking
 
     limit = int(config.get("max_output_tokens", MAX_OUTPUT_TOKENS))
 
@@ -406,7 +436,11 @@ def _openai_analyze(config: dict, path: str) -> tuple[dict, dict, float]:
     if not config["base_url"]:
         raise ValueError("qwen_base_url is not configured")
 
-    image = encode_image(path, crop=config.get("crop"))
+    image = encode_image(
+        path,
+        crop=config.get("crop"),
+        max_side=int(config.get("max_image_side", MAX_IMAGE_SIDE)),
+    )
 
     body = json.dumps(
         {
@@ -415,7 +449,7 @@ def _openai_analyze(config: dict, path: str) -> tuple[dict, dict, float]:
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": PROMPT},
+                        {"type": "text", "text": config.get("prompt") or PROMPT},
                         {
                             "type": "image_url",
                             "image_url": {
@@ -529,12 +563,19 @@ def _post_json(
     raise ProviderRateLimited("провайдер недоступен после повторов")
 
 
-def encode_image(path: str, *, crop: dict | None = None) -> str:
+def encode_image(
+    path: str,
+    *,
+    crop: dict | None = None,
+    max_side: int = MAX_IMAGE_SIDE,
+) -> str:
     """
     Load an image (MPO frame 0), optionally crop it, and return base64 JPEG.
 
     `crop` = {"mode": "off"|"center", "ratio": 0.2..1.0}: центральный кроп
     перед уменьшением — щит занимает больше пикселей при том же лимите.
+    `max_side` позволяет ветке кропа щита поднять лимит: мелкий текст
+    баннера не должен теряться при уменьшении.
     """
 
     with Image.open(path) as image:
@@ -559,8 +600,8 @@ def encode_image(path: str, *, crop: dict | None = None) -> str:
         width, height = image.size
         longest = max(width, height)
 
-        if longest > MAX_IMAGE_SIDE:
-            scale = MAX_IMAGE_SIDE / longest
+        if longest > max_side:
+            scale = max_side / longest
             image = image.resize(
                 (max(1, round(width * scale)), max(1, round(height * scale))),
                 Image.Resampling.LANCZOS,
@@ -852,11 +893,33 @@ def run_photo(
 
     model = config["model"]
 
+    # The description is taken from the detected billboard crop when one
+    # exists (detection runs on demand if the background job has not finished
+    # yet). Without a billboard the full frame is analysed as before. A crop
+    # failure must never break QWEN.
+    image_path = analysis_input(photo_id, source_path)
+
+    try:
+        from app.billboard.pipeline import (
+            discard_crop,
+            ensure_crop,
+            qwen_crop_config,
+        )
+
+        crop_path = ensure_crop(photo_id)
+    except Exception:  # noqa: BLE001 - fall back to the full frame
+        crop_path = None
+        discard_crop = None
+
+    if crop_path:
+        image_path = crop_path
+        config = qwen_crop_config(config)
+
     db.mark_running(photo_id)
 
     try:
         fields, raw, elapsed = analyze_image(
-            analysis_input(photo_id, source_path),
+            image_path,
             config=config,
         )
     except urllib.error.URLError as exc:
@@ -876,6 +939,15 @@ def run_photo(
         model=model,
         time_sec=elapsed,
     )
+
+    # The crop existed only for this recognition. Delete it after a successful
+    # save; on any failure above it stays for the retry. A later run detects
+    # the billboard again and recreates the crop on demand.
+    if crop_path and discard_crop is not None:
+        try:
+            discard_crop(crop_path)
+        except Exception:  # noqa: BLE001 - cleanup must not fail QWEN
+            pass
 
     return {
         "photo_id": photo_id,

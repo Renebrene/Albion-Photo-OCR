@@ -33,6 +33,8 @@ ROLE_SCOPES: dict[str, set[str]] = {
         "collections:write",
         "searches:write",
         "upload:write",
+        # Manual corrections of the QWEN description in the photo card.
+        "photos:write",
         # Working pipeline jobs (INGEST, DINO/HYBRID/QWEN, pause/cancel,
         # fingerprint builds) are day-to-day operation, not administration:
         # the manager may run and steer them (owner decision 2026-10-16).

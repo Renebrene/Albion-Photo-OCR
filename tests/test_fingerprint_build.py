@@ -133,6 +133,9 @@ def test_worker_maps_the_build_payload(monkeypatch):
         *,
         max_photos=None,
         replace=True,
+        recalculate=False,
+        batch_id=None,
+        job_id=None,
         progress=None,
     ):
         seen.update(
@@ -140,6 +143,9 @@ def test_worker_maps_the_build_payload(monkeypatch):
             folder=folder,
             max_photos=max_photos,
             replace=replace,
+            recalculate=recalculate,
+            batch_id=batch_id,
+            job_id=job_id,
             has_progress=callable(progress),
         )
         return {"fingerprint_id": fingerprint_id, "images": 20}
@@ -157,6 +163,7 @@ def test_worker_maps_the_build_payload(monkeypatch):
                 "folder": "/photos/78",
                 "max_photos": 30,
                 "replace": True,
+                "recalculate": True,
             },
         }
     )
@@ -166,6 +173,9 @@ def test_worker_maps_the_build_payload(monkeypatch):
         "folder": "/photos/78",
         "max_photos": 30,
         "replace": True,
+        "recalculate": True,
+        "batch_id": None,
+        "job_id": 1,
         # The worker hands the builder a progress callback it can report with.
         "has_progress": True,
     }
@@ -228,6 +238,92 @@ def test_get_embedder_loads_the_model_once(monkeypatch):
 
     assert first is second
     assert len(calls) == 1
+
+
+# ---- recalculation after a replacement ----
+
+
+class _FakeManager:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def create(self, fingerprint_id, folder_path, embedder, **kwargs):
+        return {"images": 3, "version": "3.3"}
+
+
+def _prepare_build(monkeypatch, tmp_path):
+    from dataclasses import replace
+
+    from app.api import fingerprints as registry
+    from app.core.config import settings
+    from app.pipeline import build
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "fingerprints").mkdir()
+
+    monkeypatch.setattr(
+        build,
+        "settings",
+        replace(settings, data_dir=tmp_path),
+    )
+    monkeypatch.setattr(build, "FingerprintManager", _FakeManager)
+    monkeypatch.setattr(build, "get_embedder", lambda: object())
+    monkeypatch.setattr(
+        registry, "sync_from_disk", lambda: {"versions_added": []}
+    )
+
+    return build
+
+
+def test_replacing_an_existing_fingerprint_queues_recalculation(
+    monkeypatch, tmp_path
+):
+    build = _prepare_build(monkeypatch, tmp_path)
+
+    existing = tmp_path / "fingerprints" / "78_v33"
+    existing.mkdir()
+    (existing / "metadata.json").write_text("{}")
+
+    calls: list[dict] = []
+
+    def fake_recalc(**kwargs):
+        calls.append(kwargs)
+        return {"batch_id": 5, "job_id": 7, "total": 326, "run_id": 9}
+
+    monkeypatch.setattr(
+        "app.dino.recalc.enqueue_recalculation", fake_recalc
+    )
+
+    result = build.build_fingerprint(
+        "78_v33", str(tmp_path / "src"), recalculate=True
+    )
+
+    assert calls == [
+        {"reason": "замены", "fingerprint_id": "78_v33"},
+    ]
+    assert result["replaced_existing"] is True
+    assert result["recalculated"] is True
+    assert result["recalc"]["job_id"] == 7
+
+
+def test_a_new_fingerprint_does_not_queue_recalculation(
+    monkeypatch, tmp_path
+):
+    build = _prepare_build(monkeypatch, tmp_path)
+
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        "app.dino.recalc.enqueue_recalculation",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    result = build.build_fingerprint(
+        "99_v33", str(tmp_path / "src"), recalculate=True
+    )
+
+    assert calls == []
+    assert result["replaced_existing"] is False
+    assert result["recalculated"] is False
 
 
 # ---- endpoints ----

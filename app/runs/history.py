@@ -37,7 +37,8 @@ def available() -> bool:
     return _HISTORY_AVAILABLE
 
 
-def create_run(
+def create_run_in_transaction(
+    cur,
     *,
     kind: str,
     mode: str = "manual",
@@ -49,10 +50,9 @@ def create_run(
     created_by: str | None = None,
     status: str = "PENDING",
     started: bool = False,
-) -> int | None:
-    if not available():
-        return None
-    _prune_logs_if_due()
+) -> int:
+    """Insert a history row inside a caller-owned transaction."""
+
     if kind not in RUN_KINDS:
         raise ValueError(f"unsupported run kind: {kind}")
     if mode not in RUN_MODES:
@@ -71,25 +71,57 @@ def create_run(
     initial_counts.setdefault("jobs_failed", 0)
     initial_counts.setdefault("jobs_cancelled", 0)
 
+    cur.execute(
+        """
+        INSERT INTO public.run_history
+            (kind, mode, status, source_id, parent_run_id, title,
+             counts, created_by, started_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s,
+                CASE WHEN %s THEN CURRENT_TIMESTAMP ELSE NULL END)
+        RETURNING run_id
+        """,
+        (
+            kind, mode, status,
+            str(source_id) if source_id is not None else None,
+            parent_run_id, str(title or ""), Json(initial_counts),
+            created_by, bool(started),
+        ),
+    )
+    return int(cur.fetchone()[0])
+
+
+def create_run(
+    *,
+    kind: str,
+    mode: str = "manual",
+    title: str = "",
+    total: int = 0,
+    counts: dict | None = None,
+    source_id: str | int | None = None,
+    parent_run_id: int | None = None,
+    created_by: str | None = None,
+    status: str = "PENDING",
+    started: bool = False,
+) -> int | None:
+    if not available():
+        return None
+    _prune_logs_if_due()
+
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                INSERT INTO public.run_history
-                    (kind, mode, status, source_id, parent_run_id, title,
-                     counts, created_by, started_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s,
-                        CASE WHEN %s THEN CURRENT_TIMESTAMP ELSE NULL END)
-                RETURNING run_id
-                """,
-                (
-                    kind, mode, status,
-                    str(source_id) if source_id is not None else None,
-                    parent_run_id, str(title or ""), Json(initial_counts),
-                    created_by, bool(started),
-                ),
+            run_id = create_run_in_transaction(
+                cur,
+                kind=kind,
+                mode=mode,
+                title=title,
+                total=total,
+                counts=counts,
+                source_id=source_id,
+                parent_run_id=parent_run_id,
+                created_by=created_by,
+                status=status,
+                started=started,
             )
-            run_id = int(cur.fetchone()[0])
 
     append_log(run_id, [f"run created: kind={kind} mode={mode} title={title}"])
     return run_id
@@ -106,6 +138,176 @@ def _prune_logs_if_due() -> None:
     except OSError:
         # Retention must not prevent a user-visible run from being created.
         pass
+
+
+def initial_sort_counts(
+    total: int,
+    *,
+    dino: bool = True,
+    hybrid: bool = False,
+) -> dict:
+    """Photo-level counters for a sort run, without double-counting stages."""
+
+    total = max(0, int(total))
+    by_stage = {
+        "DINO": {
+            "required": bool(dino),
+            "status": "PENDING" if dino and total else "SKIPPED",
+            "total": total if dino else 0,
+            "done": 0,
+            "failed": 0,
+        },
+        "HYBRID": {
+            "required": bool(hybrid),
+            "status": "PENDING" if hybrid and total else "SKIPPED",
+            "total": 0,
+            "done": 0,
+            "failed": 0,
+        },
+    }
+    return {
+        "total": total,
+        "done": 0,
+        "failed": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "jobs_total": 0,
+        "jobs_done": 0,
+        "jobs_failed": 0,
+        "jobs_cancelled": 0,
+        "by_stage": by_stage,
+    }
+
+
+def _sort_counts_after_stage(
+    counts: dict,
+    stage: str,
+    *,
+    status: str,
+    total: int | None,
+    done: int,
+    failed: int,
+    required: bool | None = None,
+) -> dict:
+    """Update one stage and derive unique-photo totals for a sort run."""
+
+    counts = dict(counts)
+    by_stage = dict(counts.get("by_stage") or {})
+    current = dict(by_stage.get(stage) or {})
+    current.update({
+        "status": status,
+        "done": max(0, int(done)),
+        "failed": max(0, int(failed)),
+    })
+    if total is not None:
+        current["total"] = max(0, int(total))
+    if required is not None:
+        current["required"] = bool(required)
+    by_stage[stage] = current
+
+    if (
+        stage == "DINO"
+        and status in {"FAILED", "CANCELLED"}
+        and (by_stage.get("HYBRID") or {}).get("required")
+        and (by_stage.get("HYBRID") or {}).get("status") == "PENDING"
+    ):
+        hybrid = dict(by_stage["HYBRID"])
+        dino_done = int(current.get("done") or 0)
+        hybrid.update({
+            "status": "SKIPPED",
+            "total": dino_done,
+            "done": 0,
+            # DINO-completed photos with no HYBRID stage are incomplete for an
+            # auto-HYBRID sort, so count them as end-to-end failures.
+            "failed": dino_done,
+        })
+        by_stage["HYBRID"] = hybrid
+
+    counts["by_stage"] = by_stage
+
+    dino = by_stage.get("DINO") or {}
+    hybrid = by_stage.get("HYBRID") or {}
+    if hybrid.get("required"):
+        # Every HYBRID result is for a DINO-completed photo. DINO failures and
+        # HYBRID failures are therefore disjoint; successful unique photos are
+        # counted only at the final required stage.
+        counts["done"] = int(hybrid.get("done") or 0)
+        counts["failed"] = int(dino.get("failed") or 0) + int(hybrid.get("failed") or 0)
+    elif dino.get("required"):
+        counts["done"] = int(dino.get("done") or 0)
+        counts["failed"] = int(dino.get("failed") or 0)
+    else:
+        counts["done"] = int(hybrid.get("done") or 0)
+        counts["failed"] = int(hybrid.get("failed") or 0)
+
+    return counts
+
+
+def set_sort_stage_in_transaction(
+    cur,
+    run_id: int,
+    stage: str,
+    *,
+    status: str,
+    total: int | None = None,
+    done: int = 0,
+    failed: int = 0,
+    required: bool | None = None,
+) -> None:
+    """Update sort-stage counters using a caller-owned DB transaction."""
+
+    if stage not in {"DINO", "HYBRID"}:
+        raise ValueError(f"unsupported sort stage: {stage}")
+
+    cur.execute(
+        "SELECT counts FROM public.run_history WHERE run_id=%s FOR UPDATE",
+        (int(run_id),),
+    )
+    row = cur.fetchone()
+    if row is None:
+        return
+    counts = _sort_counts_after_stage(
+        dict(row[0] or {}),
+        stage,
+        status=status,
+        total=total,
+        done=done,
+        failed=failed,
+        required=required,
+    )
+    cur.execute(
+        "UPDATE public.run_history SET counts=%s, updated_at=CURRENT_TIMESTAMP "
+        "WHERE run_id=%s",
+        (Json(counts), int(run_id)),
+    )
+
+
+def set_sort_stage(
+    run_id: int | None,
+    stage: str,
+    *,
+    status: str,
+    total: int | None = None,
+    done: int = 0,
+    failed: int = 0,
+    required: bool | None = None,
+) -> dict | None:
+    """Record stage setup/progress while retaining one unique-photo total."""
+
+    if stage not in {"DINO", "HYBRID"}:
+        raise ValueError(f"unsupported sort stage: {stage}")
+    return update_run(
+        int(run_id),
+        counts_mutator=lambda counts: _sort_counts_after_stage(
+            counts,
+            stage,
+            status=status,
+            total=total,
+            done=done,
+            failed=failed,
+            required=required,
+        ),
+    ) if run_id is not None else None
 
 
 def create_from_pipeline(pipeline_run: dict) -> int:
@@ -264,6 +466,36 @@ def list_runs(*, kind: str | None = None, limit: int = 20) -> list[dict]:
     return [_row(row) for row in rows]
 
 
+def link_job_in_transaction(cur, run_id: int, job_id: int) -> bool:
+    """Link a job and increment jobs_total inside the caller's transaction."""
+
+    cur.execute(
+        "INSERT INTO public.run_history_jobs(run_id, job_id) "
+        "VALUES (%s, %s) ON CONFLICT DO NOTHING RETURNING run_id",
+        (int(run_id), int(job_id)),
+    )
+    if cur.fetchone() is None:
+        return False
+
+    cur.execute(
+        "SELECT counts FROM public.run_history WHERE run_id=%s FOR UPDATE",
+        (int(run_id),),
+    )
+    row = cur.fetchone()
+    if row is None:
+        return False
+    counts = dict(row[0] or {})
+    counts["jobs_total"] = int(counts.get("jobs_total", 0)) + 1
+    counts["enqueued"] = int(counts.get("jobs_total", 0))
+    cur.execute(
+        "UPDATE public.run_history SET counts=%s, status='RUNNING', "
+        "started_at=COALESCE(started_at,CURRENT_TIMESTAMP), "
+        "updated_at=CURRENT_TIMESTAMP WHERE run_id=%s",
+        (Json(counts), int(run_id)),
+    )
+    return True
+
+
 def link_job(run_id: int | None, job_id: int | None) -> None:
     if run_id is None or job_id is None or not available():
         return
@@ -306,31 +538,77 @@ def add_jobs(run_id: int | None, job_ids: list[int], *, skipped: int = 0) -> Non
     )
 
 
-def finish_enqueue(run_id: int | None, *, total: int, skipped: int = 0) -> None:
-    """Mark that the caller finished enqueueing; zero-work runs finish now."""
-    if run_id is None:
-        return
-    run = get_run(run_id)
-    if run is None:
-        return
-    counts = dict(run["counts"])
+def finish_enqueue_in_transaction(
+    cur,
+    run_id: int,
+    *,
+    total: int,
+    skipped: int = 0,
+    covered: int | None = None,
+) -> dict | None:
+    """Finalize enqueue bookkeeping on a caller-owned transaction."""
+
+    cur.execute(
+        "SELECT counts FROM public.run_history WHERE run_id=%s FOR UPDATE",
+        (int(run_id),),
+    )
+    row = cur.fetchone()
+    if row is None:
+        return None
+
+    counts = dict(row[0] or {})
     counts["total"] = max(0, int(total))
     counts["skipped"] = int(counts.get("skipped", 0)) + max(0, int(skipped))
     counts["enqueued"] = int(counts.get("jobs_total", 0))
-    counts["untracked"] = max(0, int(counts["total"]) - int(counts["enqueued"]) - int(counts["skipped"]))
+    covered_units = (
+        int(counts["enqueued"]) if covered is None else max(0, int(covered))
+    )
+    counts["untracked"] = max(
+        0,
+        int(counts["total"]) - covered_units - int(counts["skipped"]),
+    )
+    empty = int(counts.get("jobs_total", 0)) == 0 and int(counts["total"]) == 0
+    cur.execute(
+        "UPDATE public.run_history SET counts=%s, enqueue_complete=TRUE, "
+        "status=%s, started_at=COALESCE(started_at,CURRENT_TIMESTAMP), "
+        "finished_at=CASE WHEN %s THEN CURRENT_TIMESTAMP ELSE finished_at END, "
+        "updated_at=CURRENT_TIMESTAMP WHERE run_id=%s",
+        (Json(counts), "DONE" if empty else "RUNNING", empty, int(run_id)),
+    )
+    return counts
+
+
+def finish_enqueue(
+    run_id: int | None,
+    *,
+    total: int,
+    skipped: int = 0,
+    covered: int | None = None,
+) -> None:
+    """
+    Mark that the caller finished enqueueing; zero-work runs finish now.
+
+    *covered* is how many work units the enqueued jobs will process. It defaults
+    to ``jobs_total`` (one job per photo, as for QWEN/INGEST). Batch jobs such
+    as DINO and HYBRID cover all photos with a single queue row and pass
+    ``covered=total`` — otherwise those photos are counted as untracked and a
+    successful run is shown as PARTIAL.
+    """
+
+    if run_id is None:
+        return
+    counts = None
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE public.run_history SET counts=%s, enqueue_complete=TRUE, "
-                "status=CASE WHEN %s=0 AND %s=0 THEN 'DONE' ELSE 'RUNNING' END, "
-                "started_at=COALESCE(started_at,CURRENT_TIMESTAMP), "
-                "finished_at=CASE WHEN %s=0 AND %s=0 THEN CURRENT_TIMESTAMP ELSE finished_at END, "
-                "updated_at=CURRENT_TIMESTAMP WHERE run_id=%s",
-                (
-                    Json(counts), int(counts.get("jobs_total", 0)), int(counts.get("total", 0)),
-                    int(counts.get("jobs_total", 0)), int(counts.get("total", 0)), int(run_id),
-                ),
+            counts = finish_enqueue_in_transaction(
+                cur,
+                int(run_id),
+                total=total,
+                skipped=skipped,
+                covered=covered,
             )
+    if counts is None:
+        return
     if int(counts.get("jobs_total", 0)) == 0 and int(counts.get("total", 0)) == 0:
         append_log(run_id, ["run finished: no new jobs"])
     else:
@@ -342,6 +620,7 @@ def update_run(
     *,
     status: str | None = None,
     counts_delta: dict[str, int] | None = None,
+    counts_mutator=None,
     error_count_delta: int = 0,
     message: str | None = None,
     stages: list[dict] | None = None,
@@ -365,6 +644,8 @@ def update_run(
             counts = dict(old_counts or {})
             for key, delta in (counts_delta or {}).items():
                 counts[key] = max(0, int(counts.get(key, 0)) + int(delta))
+            if counts_mutator is not None:
+                counts = counts_mutator(counts) or counts
             new_status = status or old_status
             new_stages = stages if stages is not None else (old_stages or [])
             cur.execute(
@@ -416,15 +697,63 @@ def record_job_result(
     success = status == "DONE"
     cancelled = status == "CANCELLED"
     errors = _extract_errors(result)
+    result_failed = max(0, int(result.get("failed_count") or 0))
     error_count = len(errors) if errors else (0 if success or cancelled else 1)
+    if result.get("status") == "FAILED":
+        error_count = max(error_count, 1)
+    error_count = max(error_count, result_failed)
 
     delta = {
         "jobs_done": 1 if success else 0,
         "jobs_failed": 1 if status == "FAILED" else 0,
         "jobs_cancelled": 1 if cancelled else 0,
-        "done": int(result.get("registered", result.get("done_count", 0)) or 0),
-        "failed": int(result.get("failed_count", error_count) or 0),
     }
+    counts_mutator = None
+
+    sort_stage = None
+    if run["kind"] == "sort":
+        if job_type == "DINO_BATCH":
+            sort_stage = "DINO"
+        elif job_type == "HYBRID_RUN":
+            sort_stage = "HYBRID"
+
+    if sort_stage is not None:
+        result_status = result.get("status")
+        if result_status in {"PENDING", "RUNNING", "DONE", "FAILED", "CANCELLED", "SKIPPED"}:
+            stage_status = result_status
+        elif status == "CANCELLED":
+            stage_status = "CANCELLED"
+        elif status == "FAILED" or result_failed:
+            stage_status = "FAILED"
+        else:
+            stage_status = "DONE"
+
+        existing_stage = (run.get("counts") or {}).get("by_stage", {}).get(sort_stage, {})
+        stage_total = result.get("total_count")
+        if stage_total is None:
+            stage_total = int(existing_stage.get("total", run["counts"].get("total", 0)))
+        stage_done = result.get("done_count")
+        if stage_done is None:
+            stage_done = int(existing_stage.get("done", 0))
+            if stage_status == "DONE":
+                # Older workers returned only a DONE status; a completed batch
+                # job covers its fixed total even when it lacks explicit counts.
+                stage_done = int(stage_total)
+        stage_failed = result_failed
+        if stage_status == "FAILED" and stage_failed == 0:
+            stage_failed = max(0, int(stage_total) - int(stage_done)) or error_count
+
+        counts_mutator = lambda counts: _sort_counts_after_stage(
+            counts,
+            sort_stage,
+            status=stage_status,
+            total=stage_total,
+            done=int(stage_done),
+            failed=int(stage_failed),
+        )
+    else:
+        delta["done"] = int(result.get("registered", result.get("done_count", 0)) or 0)
+        delta["failed"] = result_failed or error_count
     lines = [f"job {job_id} {job_type}: {status}"]
     if error:
         lines.append(f"error: {error}")
@@ -439,6 +768,7 @@ def record_job_result(
     update_run(
         run_id,
         counts_delta=delta,
+        counts_mutator=counts_mutator,
         error_count_delta=error_count,
         message=error if error else None,
         log_lines=lines,
@@ -474,6 +804,13 @@ def _finish_if_complete(run_id: int) -> None:
                 return
             kind, old_status, counts, errors, enqueue_complete, active, cancelled = row
             if not enqueue_complete or active or old_status in ("STOPPED", "CANCELLED", "PARTIAL", "FAILED"):
+                return
+            by_stage = counts.get("by_stage") or {}
+            if any(
+                stage.get("required")
+                and stage.get("status") in {"PENDING", "RUNNING"}
+                for stage in by_stage.values()
+            ):
                 return
             untracked = int(counts.get("untracked", 0))
             if cancelled and not errors:

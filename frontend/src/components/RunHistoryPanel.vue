@@ -53,8 +53,14 @@ function formatCounts(counts = {}) {
   const failed = Number(counts.failed || 0)
   const jobsTotal = Number(counts.jobs_total || 0)
   const jobsDone = Number(counts.jobs_done || 0)
+  const stages = counts.by_stage || {}
 
   if (total || done || failed) pieces.push(`готово ${done}/${total}`)
+  for (const stageName of ['DINO', 'HYBRID']) {
+    const stage = stages[stageName]
+    if (!stage?.required) continue
+    pieces.push(`${stageName} ${Number(stage.done || 0)}/${Number(stage.total || 0)}`)
+  }
   if (failed) pieces.push(`ошибок ${failed}`)
   if (jobsTotal) pieces.push(`заданий ${jobsDone}/${jobsTotal}`)
   if (Number(counts.skipped || 0)) pieces.push(`пропущено ${counts.skipped}`)

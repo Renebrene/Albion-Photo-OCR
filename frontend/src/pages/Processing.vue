@@ -10,6 +10,8 @@ import {
   fetchHybridRuns,
   fetchJobs,
   fetchRunActivity,
+  fetchRunLog,
+  fetchSortStatus,
 } from '../api/client'
 
 const tab = ref('dino')
@@ -35,6 +37,72 @@ const operationText = computed(() => {
   return 'другая операция'
 })
 let activityTimer = null
+
+// Сводка последней виртуальной сортировки.
+const sortStatus = ref(null)
+const sortLogOpen = ref(false)
+const sortLogText = ref('')
+const sortLogLoading = ref(false)
+const sortLogError = ref(null)
+
+const sortState = computed(() => {
+  const current = sortStatus.value?.current
+  const last = sortStatus.value?.last
+  const stats = current || last?.stats || null
+  const status = last?.status || null
+
+  if (current) return { label: 'ПРОЦЕСС', color: 'primary', stats }
+
+  if (!last) return { label: 'НЕТ ДАННЫХ', color: 'grey', stats: null }
+
+  if (status === 'DONE') return { label: 'ОК', color: 'positive', stats }
+  if (status === 'FAILED') return { label: 'ОШИБКА', color: 'negative', stats }
+
+  return { label: status === 'STOPPED' ? 'ПРЕРВАНО' : status, color: 'orange', stats }
+})
+
+const sortSource = computed(() => {
+  const last = sortStatus.value?.last
+  if (!last) return ''
+  if (last.kind === 'pipeline') return 'обновление базы'
+  if (last.mode === 'schedule') return 'по расписанию'
+  if (last.mode === 'outofqueue') return 'вне очереди'
+  return 'вручную'
+})
+
+function fmtDate(value) {
+  return value ? String(value).replace('T', ' ').slice(0, 16) : '—'
+}
+
+function modeDate(mode) {
+  return fmtDate(sortStatus.value?.modes?.[mode]?.started_at)
+}
+
+async function loadSortStatus() {
+  try {
+    sortStatus.value = await fetchSortStatus()
+  } catch {
+    sortStatus.value = null
+  }
+}
+
+async function openSortLog() {
+  const run = sortStatus.value?.last
+  if (!run?.run_id) return
+
+  sortLogOpen.value = true
+  sortLogLoading.value = true
+  sortLogText.value = ''
+  sortLogError.value = null
+
+  try {
+    sortLogText.value = await fetchRunLog(run.run_id)
+  } catch (err) {
+    sortLogError.value = err.message
+  } finally {
+    sortLogLoading.value = false
+  }
+}
 
 const dinoBatches = ref([])
 const hybridRuns = ref([])
@@ -142,7 +210,10 @@ async function startNormalBatch() {
   starting.value = true
 
   try {
-    const result = await createDinoBatch({ run_type: 'NORMAL' })
+    const result = await createDinoBatch({
+      run_type: 'NORMAL',
+      auto_hybrid: true,
+    })
 
     if (result.job_id) {
       Notify.create({ type: 'positive', message: `Задание ${result.job_id} создано (batch ${result.batch_id})` })
@@ -204,7 +275,11 @@ async function loadActivity() {
 onMounted(() => {
   loadDino()
   loadActivity()
-  activityTimer = window.setInterval(loadActivity, 3000)
+  loadSortStatus()
+  activityTimer = window.setInterval(() => {
+    loadActivity()
+    loadSortStatus()
+  }, 3000)
 })
 
 onBeforeUnmount(() => {
@@ -246,6 +321,45 @@ onBeforeUnmount(() => {
         Ошибка загрузки: {{ error }}
       </q-banner>
     </div>
+
+    <!-- Сводка сортировки: первой, таблицы — ниже. -->
+    <q-card flat bordered class="q-mb-md">
+      <q-card-section>
+        <div class="row items-center q-gutter-sm">
+          <div class="text-subtitle1 col">Статистика сортировки</div>
+          <q-badge :color="sortState.color" :label="sortState.label" />
+          <q-btn
+            v-if="sortStatus?.last?.has_log"
+            dense
+            flat
+            size="sm"
+            icon="receipt_long"
+            label="Лог ошибок"
+            @click="openSortLog"
+          />
+        </div>
+
+        <div class="text-body2 q-mt-sm">
+          Совпадений:
+          <b>{{ sortState.stats?.matched ?? 0 }}</b>
+          из
+          <b>{{ sortState.stats?.total ?? 0 }}</b>
+          <span v-if="sortState.stats?.failed" class="text-negative">
+            · ошибок: {{ sortState.stats.failed }}
+          </span>
+          <span v-if="sortSource" class="text-caption text-grey-7">
+            · источник: {{ sortSource }}
+          </span>
+        </div>
+
+        <div class="text-caption text-grey-7 q-mt-sm">
+          Последний запуск: Вручную — {{ modeDate('manual') }} ·
+          По расписанию — {{ modeDate('schedule') }} ·
+          Вне очереди — {{ modeDate('outofqueue') }} ·
+          Обновление базы — {{ modeDate('pipeline') }}
+        </div>
+      </q-card-section>
+    </q-card>
 
     <q-tabs v-model="tab" dense align="left" class="text-primary q-mb-sm" @update:model-value="reload">
       <q-tab name="dino" label="DINO batches" />
@@ -377,5 +491,33 @@ onBeforeUnmount(() => {
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <q-dialog v-model="sortLogOpen">
+      <q-card style="min-width: 640px; max-width: 94vw">
+        <q-card-section class="text-subtitle1">Лог сортировки</q-card-section>
+        <q-separator />
+        <q-card-section style="max-height: 60vh; overflow: auto">
+          <div v-if="sortLogLoading" class="row justify-center">
+            <q-spinner-dots color="primary" size="32px" />
+          </div>
+          <q-banner v-else-if="sortLogError" dense class="bg-red-1 text-negative">
+            {{ sortLogError }}
+          </q-banner>
+          <pre v-else class="sort-log">{{ sortLogText || 'Лог пуст' }}</pre>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Закрыть" v-close-popup />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </div>
 </template>
+
+<style scoped>
+.sort-log {
+  margin: 0;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+</style>

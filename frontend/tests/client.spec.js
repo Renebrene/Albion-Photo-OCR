@@ -20,6 +20,7 @@ import {
   searchByQuery,
   uploadPhotos,
   createHybridRun,
+  createDinoBatch,
 } from '../src/api/client'
 
 // Minimal localStorage so the token helper works under the node environment.
@@ -140,6 +141,20 @@ describe('api client', () => {
     await expect(fetchRunLog(2)).rejects.toThrow('API error 404')
     mockFetchOnce({ ok: false, status: 403 })
     await expect(fetchRunLog(2)).rejects.toThrow('API error 403')
+  })
+
+  it('preserves the optional automatic HYBRID flag for DINO batches', async () => {
+    mockFetchOnce(okJson({ job_id: 8, batch_id: 4 }))
+
+    await createDinoBatch({ run_type: 'NORMAL', auto_hybrid: true })
+
+    const [url, options] = global.fetch.mock.calls[0]
+    expect(url).toContain('/v1/jobs/dino-batch')
+    expect(JSON.parse(options.body)).toEqual({
+      run_type: 'NORMAL',
+      photo_ids: null,
+      auto_hybrid: true,
+    })
   })
 
   it('surfaces the server detail on a failed POST', async () => {

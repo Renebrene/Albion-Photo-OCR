@@ -243,6 +243,69 @@ def save_success(
             )
 
 
+MANUAL_MODEL = "manual-edit"
+
+
+def save_manual(
+    photo_id: str,
+    *,
+    fields: dict[str, Any],
+) -> None:
+    """
+    Persist a hand-edited description from the photo card.
+
+    The previous result goes to the history (same contract as a re-run); the
+    row is marked with qwen_model="manual-edit" so the UI can show it.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            _archive_previous(cur, photo_id, MANUAL_MODEL)
+
+            cur.execute(
+                """
+                INSERT INTO public.photo_qwen (
+                    photo_id, status, description, address, client,
+                    brand, category, tags, raw, qwen_model,
+                    qwen_time_sec, finished_at, error_message,
+                    prompt_tokens, completion_tokens, total_tokens
+                )
+                VALUES (
+                    %s, 'DONE', %s, %s, %s, %s, %s, %s, %s, %s,
+                    0, CURRENT_TIMESTAMP, NULL, NULL, NULL, NULL
+                )
+                ON CONFLICT (photo_id)
+                DO UPDATE SET
+                    status = 'DONE',
+                    description = EXCLUDED.description,
+                    address = EXCLUDED.address,
+                    client = EXCLUDED.client,
+                    brand = EXCLUDED.brand,
+                    category = EXCLUDED.category,
+                    tags = EXCLUDED.tags,
+                    raw = EXCLUDED.raw,
+                    qwen_model = EXCLUDED.qwen_model,
+                    qwen_time_sec = 0,
+                    error_message = NULL,
+                    finished_at = CURRENT_TIMESTAMP,
+                    prompt_tokens = NULL,
+                    completion_tokens = NULL,
+                    total_tokens = NULL
+                """,
+                (
+                    photo_id,
+                    fields.get("description"),
+                    fields.get("address"),
+                    fields.get("client"),
+                    fields.get("brand"),
+                    fields.get("category"),
+                    Json(fields.get("tags") or []),
+                    Json({"manual": True}),
+                    MANUAL_MODEL,
+                ),
+            )
+
+
 def save_failure(photo_id: str, error_message: str) -> None:
     with get_connection() as conn:
         with conn.cursor() as cur:
