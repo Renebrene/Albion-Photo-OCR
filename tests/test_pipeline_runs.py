@@ -181,52 +181,70 @@ def test_pipeline_start_requires_jobs_write_scope(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@requires_db
-def test_run_lifecycle_stop_and_resume(tmp_path):
+def _skip_if_pipeline_is_active():
+    if pipeline_runs.active_run() is not None:
+        pytest.skip("a real pipeline run is active; refusing to disturb it")
+
+
+def _cleanup_pipeline_test_run(run_id: int) -> None:
     from app.ingest.database import get_connection
 
-    # Clean any leftover runs so the single-active index is free.
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM public.pipeline_runs")
+            cur.execute("SELECT to_regclass('public.run_history')")
+            if cur.fetchone()[0] is not None:
+                cur.execute(
+                    "DELETE FROM public.run_history "
+                    "WHERE kind = 'pipeline' AND source_id = %s",
+                    (str(run_id),),
+                )
+            cur.execute(
+                "DELETE FROM public.pipeline_runs WHERE run_id = %s",
+                (run_id,),
+            )
+
+
+@requires_db
+def test_run_lifecycle_stop_and_resume(tmp_path):
+    _skip_if_pipeline_is_active()
 
     run = pipeline_runs.create_run(mode="manual", folder=str(tmp_path))
     run_id = run["run_id"]
-    assert run["stage"] == "INGEST"
-    assert [s["stage"] for s in run["stages"]] == list(pipeline_runs.STAGES)
 
-    # A second active run is refused.
-    with pytest.raises(pipeline_runs.PipelineBusy):
-        pipeline_runs.create_run(mode="manual", folder=str(tmp_path))
+    try:
+        assert run["stage"] == "INGEST"
+        assert [s["stage"] for s in run["stages"]] == list(pipeline_runs.STAGES)
 
-    # Stop before any work started flips it to STOPPED immediately.
-    assert pipeline_runs.request_stop(run_id) is True
-    assert pipeline_runs.get_run(run_id)["status"] == "STOPPED"
+        # A second active run is refused.
+        with pytest.raises(pipeline_runs.PipelineBusy):
+            pipeline_runs.create_run(mode="manual", folder=str(tmp_path))
 
-    # Resume continues from the same stage and manifest.
-    assert pipeline_runs.resume_run(run_id) is True
-    assert pipeline_runs.get_run(run_id)["status"] == "RUNNING"
+        # Stop before any work started flips it to STOPPED immediately.
+        assert pipeline_runs.request_stop(run_id) is True
+        assert pipeline_runs.get_run(run_id)["status"] == "STOPPED"
 
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM public.pipeline_runs WHERE run_id = %s", (run_id,))
+        # Resume continues from the same stage and manifest.
+        assert pipeline_runs.resume_run(run_id) is True
+        assert pipeline_runs.get_run(run_id)["status"] == "RUNNING"
+    finally:
+        _cleanup_pipeline_test_run(run_id)
 
 
 @requires_db
-def test_tick_on_empty_folder_skips_ingest(tmp_path):
-    from app.ingest.database import get_connection
+def test_tick_on_empty_folder_skips_ingest(tmp_path, monkeypatch):
+    _skip_if_pipeline_is_active()
 
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM public.pipeline_runs")
+    # The tick must not enqueue real preview jobs while this test runs.
+    monkeypatch.setattr(
+        pipeline_runs, "enqueue_missing_previews", lambda **_kwargs: {"queued": 0}
+    )
 
     run = pipeline_runs.create_run(mode="manual", folder=None)
     run_id = run["run_id"]
 
-    # No folder -> INGEST is skipped and the run advances to the next stage.
-    first = pipeline_runs.tick(run_id)
-    assert first["outcome"] in {"ADVANCED", "DONE"}
-
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM public.pipeline_runs WHERE run_id = %s", (run_id,))
+    try:
+        # No folder -> INGEST is skipped and the run advances to the next stage.
+        first = pipeline_runs.tick(run_id)
+        assert first["outcome"] in {"ADVANCED", "DONE"}
+    finally:
+        _cleanup_pipeline_test_run(run_id)

@@ -250,6 +250,8 @@ def test_run_enqueues_an_ingest_job(photo_folder):
     assert response.status_code == 200
     body = response.json()
     assert body["job_id"]
+    first_history_id = body["run_history_id"]
+    second_history_id = None
 
     try:
         # The second call must not duplicate the pending job.
@@ -258,10 +260,18 @@ def test_run_enqueues_an_ingest_job(photo_folder):
         ).json()
         assert again["skipped"] is True
         assert again["job_id"] is None
+        second_history_id = again["run_history_id"]
     finally:
-        # Remove only the rows this test created.
+        # Remove only the rows this test created, including the history rows
+        # (job_queue deletion intentionally does not cascade into run history).
         with get_connection() as conn:
             with conn.cursor() as cur:
+                cur.execute("SELECT to_regclass('public.run_history')")
+                if cur.fetchone()[0] is not None:
+                    cur.execute(
+                        "DELETE FROM public.run_history WHERE run_id = ANY(%s)",
+                        ([first_history_id, second_history_id],),
+                    )
                 cur.execute(
                     "DELETE FROM public.job_queue "
                     "WHERE job_type = 'INGEST_DIR' "
