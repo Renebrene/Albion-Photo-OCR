@@ -21,6 +21,7 @@ import {
   searchByQuery,
 } from '../api/client'
 import AuthImage from '../components/AuthImage.vue'
+import CloudLinkButton from '../components/CloudLinkButton.vue'
 import ClientNormalization from '../components/ClientNormalization.vue'
 import CollectionsPanel from '../components/CollectionsPanel.vue'
 import ResizeHandle from '../components/ResizeHandle.vue'
@@ -1258,6 +1259,11 @@ function tagList(meta) {
           >
             <q-tooltip>Скачать выбранные фото одним архивом</q-tooltip>
           </q-btn>
+          <CloudLinkButton
+            v-if="canUseCollective"
+            :photo-ids="store.selected"
+            :disabled="!store.selectedCount"
+          />
 
           <q-space />
 

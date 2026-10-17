@@ -372,6 +372,23 @@ export function fetchMediaStatistics() {
   return getJson(`${BASE}/v1/media/statistics`)
 }
 
+// Albion cloud links (schema/039): upload selected media and list ready links.
+export function createMediaLinks({ photoIds = [], videoIds = [] } = {}) {
+  return postJson(`${BASE}/v1/media-links`, {
+    photo_ids: photoIds,
+    video_ids: videoIds,
+  })
+}
+
+export function fetchMediaLinks({ all = false, limit = 100, includeUnready = false } = {}) {
+  const params = new URLSearchParams({
+    all: all ? 'true' : 'false',
+    limit: String(limit),
+    include_unready: includeUnready ? 'true' : 'false',
+  })
+  return getJson(`${BASE}/v1/media-links?${params.toString()}`)
+}
+
 export async function uploadPhotos(files) {
   const form = new FormData()
   for (const file of files) form.append('files', file)

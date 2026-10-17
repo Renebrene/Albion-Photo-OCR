@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia'
 import { Notify } from 'quasar'
 
 import AuthImage from '../components/AuthImage.vue'
+import CloudLinkButton from '../components/CloudLinkButton.vue'
 import {
   cancelJob,
   enqueueVideoStoryboard,
@@ -472,6 +473,11 @@ onBeforeUnmount(() => {
         <q-tooltip>Сделать H.264/MP4 копию, оригинал останется без изменений</q-tooltip>
       </q-btn>
       <q-btn v-if="canDownloadVideos && activeTranscode?.status === 'DONE'" outline color="positive" icon="download" label="Скачать сжатое" @click="downloadTranscoded" />
+      <CloudLinkButton
+        v-if="canWriteVideos"
+        :video-ids="selectedVideo ? [selectedVideo.video_id] : []"
+        :disabled="!selectedVideo"
+      />
     </div>
     <div v-if="activeTranscode || transcodeError" class="video-transcode-status row items-center q-gutter-sm q-mb-sm">
       <span v-if="activeTranscode" class="text-caption">{{ transcodeProfile }}: {{ activeTranscode.status }}</span>

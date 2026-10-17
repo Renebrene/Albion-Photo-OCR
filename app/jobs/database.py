@@ -26,6 +26,7 @@ JOB_TYPES = {
     "VIDEO_TRIM",
     "VIDEO_STORYBOARD",
     "PHOTO_PREVIEW",
+    "MEDIA_EXPORT",
 }
 
 _JOB_COLUMNS = (

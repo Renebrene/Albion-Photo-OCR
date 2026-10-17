@@ -150,6 +150,22 @@ class HybridRequest(BaseModel):
     dino_batch_id: int = Field(ge=1)
 
 
+class MediaLinkRequest(BaseModel):
+    """Upload selected media to the configured cloud storage."""
+
+    photo_ids: list[str] = Field(default_factory=list, max_length=50)
+    video_ids: list[str] = Field(default_factory=list, max_length=50)
+
+    @model_validator(mode="after")
+    def validate_selection(self):
+        total = len(self.photo_ids) + len(self.video_ids)
+        if total == 0:
+            raise ValueError("at least one photo_id or video_id is required")
+        if total > 50:
+            raise ValueError("at most 50 media items per request")
+        return self
+
+
 class QwenJobRequest(BaseModel):
     """Request to enqueue QWEN metadata for specific or all photos."""
 

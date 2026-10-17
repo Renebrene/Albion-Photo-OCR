@@ -1,0 +1,1 @@
+"""Cloud media storage adapters."""

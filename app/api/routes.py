@@ -60,6 +60,7 @@ from app.api.schemas import (
     FingerprintUpdate,
     HybridRequest,
     LoginRequest,
+    MediaLinkRequest,
     NlSearchRequest,
     QwenJobRequest,
     QwenModelRequest,
@@ -185,6 +186,117 @@ def run_activity():
     return {
         "active": active,
         "message": coordination.busy_message(active) if active else None,
+    }
+
+
+@jobs_router.get(
+    "/v1/media-links",
+    dependencies=[Depends(require_scope("jobs:read"))],
+)
+def list_media_links(
+    limit: int = Query(100, ge=1, le=200),
+    all: bool = Query(False),
+    include_unready: bool = Query(False),
+    principal=Depends(require_scope("jobs:read")),
+):
+    """Albion links; by default ready ones, only the caller's own."""
+
+    from app.cloud import albion, repository as cloud_repository
+
+    if all and principal is not None:
+        scopes = principal.get("scopes") or set()
+        if "*" not in scopes and "users:manage" not in scopes:
+            raise HTTPException(
+                status_code=403,
+                detail="all media links require administrator rights",
+            )
+
+    user = principal.get("user") if principal else None
+    owner = None if all or user is None else str(user["user_id"])
+    return {
+        "items": cloud_repository.list_links(
+            owner_user_id=owner,
+            limit=limit,
+            include_unready=include_unready,
+        ),
+        "configured": albion.is_configured(),
+    }
+
+
+@jobs_router.post(
+    "/v1/media-links",
+    status_code=202,
+    dependencies=[Depends(require_scope("upload:write"))],
+)
+def create_media_links(
+    request: MediaLinkRequest,
+    principal=Depends(require_scope("upload:write")),
+):
+    """Queue one Albion upload per selected photo/video."""
+
+    from app.cloud import albion, repository as cloud_repository
+
+    user = principal.get("user") if principal else None
+    # Service tokens may also export; their links carry no personal owner.
+    owner_id = str(user["user_id"]) if user else "service"
+    owner_name = user.get("name") if user else "service"
+    items: list[dict] = []
+    job_ids: list[int] = []
+
+    if not albion.is_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="облачное хранилище Albion не настроено",
+        )
+
+    for media_kind, ids, pattern in (
+        ("photo", request.photo_ids, PHOTO_ID_RE),
+        ("video", request.video_ids, re.compile(r"^VI_[0-9a-f]{24}$")),
+    ):
+        for media_id in ids:
+            if not pattern.fullmatch(media_id):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"invalid {media_kind}_id: {media_id}",
+                )
+            if cloud_repository.media_source(media_kind, media_id) is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"{media_kind} not found: {media_id}",
+                )
+
+            link = cloud_repository.create_pending(
+                owner_user_id=owner_id,
+                owner_name=owner_name,
+                media_kind=media_kind,
+                media_id=media_id,
+            )
+            items.append(link)
+            if link["status"] == "READY":
+                continue
+
+            try:
+                job_id = jobs_db.enqueue(
+                    "MEDIA_EXPORT",
+                    {"link_id": link["link_id"]},
+                )
+            except Exception as exc:
+                cloud_repository.mark_failed(
+                    link["link_id"],
+                    f"не удалось поставить загрузку в очередь: {type(exc).__name__}",
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail="не удалось поставить загрузку в очередь",
+                ) from exc
+
+            cloud_repository.attach_job(link["link_id"], job_id)
+            job_ids.append(job_id)
+
+    return {
+        "items": items,
+        "job_ids": job_ids,
+        "configured": True,
     }
 
 

@@ -188,6 +188,11 @@ def _execute(job: dict) -> dict:
             # for the duration of the job (frames of a video go with it).
             delete_query(path)
 
+    if job_type == "MEDIA_EXPORT":
+        from app.cloud.export import run_export
+
+        return run_export(int(payload["link_id"]))
+
     if job_type == "VIDEO_STORYBOARD":
         from app.video.transcode import generate_storyboard
 
