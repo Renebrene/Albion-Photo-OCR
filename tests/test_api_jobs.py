@@ -94,11 +94,16 @@ def test_enqueue_force_rerun_batch(monkeypatch):
     job = client.get(f"/api/v1/jobs/{body['job_id']}").json()
     assert job["job_type"] == "DINO_BATCH"
     assert job["status"] == "PENDING"
-    assert job["payload"] == {"batch_id": batch_id}
+    assert job["payload"]["batch_id"] == batch_id
+    history_id = job["payload"]["run_history_id"]
 
-    # Clean up: batch (cascades runs) and the queued job.
+    # Clean up the test-owned history row, queue job and domain batch.
     with get_connection() as conn:
         with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM public.run_history WHERE run_id = %s",
+                (history_id,),
+            )
             cur.execute(
                 "DELETE FROM public.job_queue WHERE id = %s",
                 (body["job_id"],),

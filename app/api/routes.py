@@ -528,13 +528,47 @@ def enqueue_dino_batch(request: DinoBatchRequest):
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    from app.runs import history as run_history
+
+    try:
+        history_id = run_history.create_run(
+            kind="sort",
+            mode="manual",
+            title=f"DINO batch #{batch.batch_id}",
+            total=batch.total_count,
+            source_id=batch.batch_id,
+            status="RUNNING" if batch.total_count else "PENDING",
+            started=True,
+        )
+    except Exception:
+        history_id = None
     job_id = None
 
     if batch.total_count > 0:
-        job_id = jobs_db.enqueue(
-            "DINO_BATCH",
-            {"batch_id": batch.batch_id},
-        )
+        try:
+            job_id = jobs_db.enqueue(
+                "DINO_BATCH",
+                {"batch_id": batch.batch_id},
+                run_history_id=history_id,
+            )
+        except Exception as exc:
+            if history_id is not None:
+                try:
+                    run_history.update_run(
+                        history_id,
+                        status="FAILED",
+                        message=f"Не удалось поставить DINO batch в очередь: {type(exc).__name__}",
+                        finished=True,
+                        error_count_delta=1,
+                        log_lines=[f"enqueue failed: {type(exc).__name__}"],
+                    )
+                except Exception:
+                    pass
+            raise
+
+        _finish_sort_history_enqueue(run_history, history_id, [job_id], batch.total_count)
+    else:
+        _finish_sort_history_enqueue(run_history, history_id, [], 0)
 
     return {
         "job_id": job_id,
@@ -542,6 +576,17 @@ def enqueue_dino_batch(request: DinoBatchRequest):
         "batch_status": batch.status,
         "total_count": batch.total_count,
     }
+
+
+def _finish_sort_history_enqueue(history_module, run_id, job_ids, total):
+    if run_id is None:
+        return
+    try:
+        history_module.add_jobs(run_id, job_ids)
+        history_module.finish_enqueue(run_id, total=total)
+    except Exception:
+        # History is observational; already-created jobs remain authoritative.
+        return
 
 
 @jobs_router.post(
@@ -555,13 +600,44 @@ def enqueue_hybrid(request: HybridRequest):
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    from app.runs import history as run_history
+
+    try:
+        history_id = run_history.create_run(
+            kind="sort",
+            mode="manual",
+            title=f"HYBRID run #{run.hybrid_run_id}",
+            total=run.total_count,
+            source_id=run.hybrid_run_id,
+            status="RUNNING" if run.total_count else "PENDING",
+            started=True,
+        )
+    except Exception:
+        history_id = None
     job_id = None
 
     if run.total_count > 0:
-        job_id = jobs_db.enqueue(
-            "HYBRID_RUN",
-            {"hybrid_run_id": run.hybrid_run_id},
-        )
+        try:
+            job_id = jobs_db.enqueue(
+                "HYBRID_RUN",
+                {"hybrid_run_id": run.hybrid_run_id},
+                run_history_id=history_id,
+            )
+        except Exception as exc:
+            if history_id is not None:
+                run_history.update_run(
+                    history_id,
+                    status="FAILED",
+                    message=f"Не удалось поставить HYBRID run в очередь: {type(exc).__name__}",
+                    finished=True,
+                    error_count_delta=1,
+                    log_lines=[f"enqueue failed: {type(exc).__name__}"],
+                )
+            raise
+
+        _finish_sort_history_enqueue(run_history, history_id, [job_id], run.total_count)
+    else:
+        _finish_sort_history_enqueue(run_history, history_id, [], 0)
 
     return {
         "job_id": job_id,
