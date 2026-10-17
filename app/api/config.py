@@ -61,6 +61,13 @@ SOURCE_ROOTS = [
 # request busy forever. Exceeding it reports truncated=True.
 SOURCE_SCAN_FILE_LIMIT = int(os.getenv("SCENE_SOURCE_SCAN_LIMIT", "200000"))
 
+# The pre-check is a synchronous request: stop the shallow directory walk after
+# this many seconds and report a partial count instead of blocking on a slow
+# network share. Full validation remains in the INGEST worker.
+SOURCE_SCAN_TIMEOUT_SECONDS = float(
+    os.getenv("SCENE_SOURCE_SCAN_TIMEOUT", "10")
+)
+
 API_HOST = os.getenv("SCENE_API_HOST", "127.0.0.1")
 # Default 8010 (not 8000) to avoid clashing with other local services;
 # override with SCENE_API_PORT.

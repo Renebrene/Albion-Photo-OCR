@@ -1669,7 +1669,7 @@ def unload_qwen():
 
 @read_router.get("/v1/ingest/folder", response_model=None)
 def get_ingest_folder():
-    """Configured working folder plus its photo count and total size."""
+    """Configured working folder plus its preliminary photo/video statistics."""
 
     return sources.folder_state()
 
@@ -1689,7 +1689,7 @@ def update_ingest_folder(request: SourcePathRequest):
     dependencies=[Depends(require_scope("jobs:write"))],
 )
 def scan_ingest_folder(request: SourcePathRequest):
-    """Count photos and total size of a folder without saving or ingesting it."""
+    """Shallow photo/video count and size check; never decodes or saves."""
 
     return sources.folder_stats(sources.resolve_directory(request.path))
 

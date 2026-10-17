@@ -8,6 +8,7 @@ large tree stays cheap and the originals are never touched.
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -18,8 +19,18 @@ from app.api.config import (
     SOURCE_FOLDER_KEY,
     SOURCE_ROOTS,
     SOURCE_SCAN_FILE_LIMIT,
+    SOURCE_SCAN_TIMEOUT_SECONDS,
 )
 from app.ingest.integrity import SUPPORTED_EXTENSIONS
+from app.ingest.video_integrity import SUPPORTED_VIDEO_EXTENSIONS
+
+MEDIA_EXTENSIONS = SUPPORTED_EXTENSIONS | SUPPORTED_VIDEO_EXTENSIONS
+_PROBLEM_SAMPLE_LIMIT = 20
+
+
+def _now() -> float:
+    """Indirection for the scan deadline, patched in unit tests."""
+    return time.monotonic()
 
 
 def _is_within(path: Path, root: Path) -> bool:
@@ -66,32 +77,75 @@ def resolve_directory(raw: str) -> Path:
 
 def folder_stats(path: Path) -> dict:
     """
-    Count supported photos and their total size below *path*.
+    Count supported photos and videos below *path* without reading contents.
 
-    Bounded by SOURCE_SCAN_FILE_LIMIT; hidden directories are skipped (they
-    hold tooling/caches, not working photos).
+    This is a preliminary check for the folder picker: sizes come from stat(),
+    so a corrupt image/video is not detected until the INGEST worker decodes it.
+    Hidden directories are skipped. The walk is bounded by both a time budget
+    and SOURCE_SCAN_FILE_LIMIT; either bound sets truncated=True.
     """
 
-    files = 0
-    total = 0
+    photos = 0
+    videos = 0
+    photo_bytes = 0
+    video_bytes = 0
+    extensions: dict[str, int] = {}
+    problems: list[dict[str, str]] = []
+    problem_count = 0
     truncated = False
+    timed_out = False
+    processed = 0
+    deadline = (
+        _now() + SOURCE_SCAN_TIMEOUT_SECONDS
+        if SOURCE_SCAN_TIMEOUT_SECONDS > 0
+        else None
+    )
+
+    def note_problem(name: str, reason: str) -> None:
+        nonlocal problem_count
+
+        problem_count += 1
+        if len(problems) < _PROBLEM_SAMPLE_LIMIT:
+            problems.append({"filename": name, "reason": reason})
 
     for root, dirs, names in os.walk(path):
         dirs[:] = [name for name in dirs if not name.startswith(".")]
 
         for name in names:
-            if Path(name).suffix.lower() not in SUPPORTED_EXTENSIONS:
+            suffix = Path(name).suffix.lower()
+
+            if suffix not in MEDIA_EXTENSIONS:
                 continue
 
-            files += 1
+            if deadline is not None and _now() >= deadline:
+                timed_out = True
+                truncated = True
+                break
+
+            is_video = suffix in SUPPORTED_VIDEO_EXTENSIONS
+
+            if is_video:
+                videos += 1
+            else:
+                photos += 1
+
+            extensions[suffix] = extensions.get(suffix, 0) + 1
+            processed += 1
 
             try:
-                total += (Path(root) / name).stat().st_size
+                size = (Path(root) / name).stat().st_size
             except OSError:
-                # A file that vanished mid-walk is simply not counted.
-                continue
+                note_problem(name, "не удалось прочитать размер файла")
+            else:
+                if is_video:
+                    video_bytes += size
+                else:
+                    photo_bytes += size
 
-            if files >= SOURCE_SCAN_FILE_LIMIT:
+                if size <= 0:
+                    note_problem(name, "файл пуст")
+
+            if processed >= SOURCE_SCAN_FILE_LIMIT:
                 truncated = True
                 break
 
@@ -100,9 +154,21 @@ def folder_stats(path: Path) -> dict:
 
     return {
         "path": str(path),
-        "files": files,
-        "bytes": total,
+        # `files` stays the photo count for older clients; new clients use
+        # `photos`/`videos` explicitly.
+        "files": photos,
+        "photos": photos,
+        "videos": videos,
+        "media_files": photos + videos,
+        "bytes": photo_bytes + video_bytes,
+        "photo_bytes": photo_bytes,
+        "video_bytes": video_bytes,
+        "extensions": dict(sorted(extensions.items())),
+        "problem_count": problem_count,
+        "problems": problems,
+        "preliminary": True,
         "truncated": truncated,
+        "timed_out": timed_out,
     }
 
 
@@ -121,8 +187,23 @@ def folder_state() -> dict:
     """Configured folder plus its statistics, for the settings panel."""
 
     configured = current_folder()
-    state = {"configured": configured, "files": 0, "bytes": 0,
-             "truncated": False, "exists": False}
+    state = {
+        "configured": configured,
+        "files": 0,
+        "photos": 0,
+        "videos": 0,
+        "media_files": 0,
+        "bytes": 0,
+        "photo_bytes": 0,
+        "video_bytes": 0,
+        "extensions": {},
+        "problem_count": 0,
+        "problems": [],
+        "preliminary": True,
+        "truncated": False,
+        "timed_out": False,
+        "exists": False,
+    }
 
     if not configured:
         return state
@@ -136,8 +217,18 @@ def folder_state() -> dict:
 
     state.update(
         files=stats["files"],
+        photos=stats["photos"],
+        videos=stats["videos"],
+        media_files=stats["media_files"],
         bytes=stats["bytes"],
+        photo_bytes=stats["photo_bytes"],
+        video_bytes=stats["video_bytes"],
+        extensions=stats["extensions"],
+        problem_count=stats["problem_count"],
+        problems=stats["problems"],
+        preliminary=stats["preliminary"],
         truncated=stats["truncated"],
+        timed_out=stats["timed_out"],
         exists=True,
     )
 

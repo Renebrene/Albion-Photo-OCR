@@ -133,6 +133,70 @@ def test_scan_does_not_decode_images(tmp_path):
     assert body["files"] == 1
 
 
+def test_scan_counts_photos_videos_and_extensions(tmp_path):
+    (tmp_path / "a.jpg").write_bytes(b"x" * 10)
+    (tmp_path / "clip.mov").write_bytes(b"v" * 20)
+    nested = tmp_path / "sub"
+    nested.mkdir()
+    (nested / "clip.MP4").write_bytes(b"w" * 30)
+    (nested / "notes.txt").write_text("ignored", encoding="utf-8")
+
+    body = client.post("/api/v1/ingest/scan", json={"path": str(tmp_path)}).json()
+
+    assert body["photos"] == 1
+    assert body["videos"] == 2
+    assert body["media_files"] == 3
+    assert body["files"] == 1  # legacy photo-only field
+    assert body["photo_bytes"] == 10
+    assert body["video_bytes"] == 50
+    assert body["bytes"] == 60
+    assert body["extensions"] == {".jpg": 1, ".mov": 1, ".mp4": 1}
+    assert body["problem_count"] == 0
+    assert body["preliminary"] is True
+    assert body["timed_out"] is False
+
+
+def test_scan_reports_empty_supported_files_as_problems(tmp_path):
+    (tmp_path / "ok.jpg").write_bytes(b"x" * 5)
+    (tmp_path / "empty.mp4").write_bytes(b"")
+
+    body = client.post("/api/v1/ingest/scan", json={"path": str(tmp_path)}).json()
+
+    assert body["photos"] == 1
+    assert body["videos"] == 1
+    assert body["problem_count"] == 1
+    assert body["problems"] == [{"filename": "empty.mp4", "reason": "файл пуст"}]
+
+
+def test_scan_is_bounded_by_file_count(tmp_path, monkeypatch):
+    from app.api import sources
+
+    (tmp_path / "a.jpg").write_bytes(b"x")
+    (tmp_path / "b.jpg").write_bytes(b"y")
+    monkeypatch.setattr(sources, "SOURCE_SCAN_FILE_LIMIT", 1)
+
+    body = client.post("/api/v1/ingest/scan", json={"path": str(tmp_path)}).json()
+
+    assert body["media_files"] == 1
+    assert body["truncated"] is True
+    assert body["timed_out"] is False
+
+
+def test_scan_is_bounded_by_time(tmp_path, monkeypatch):
+    from app.api import sources
+
+    (tmp_path / "a.jpg").write_bytes(b"x" * 5)
+    monkeypatch.setattr(sources, "SOURCE_SCAN_TIMEOUT_SECONDS", 1.0)
+    moments = iter([0.0] + [100.0] * 8)
+    monkeypatch.setattr(sources, "_now", lambda: next(moments))
+
+    body = client.post("/api/v1/ingest/scan", json={"path": str(tmp_path)}).json()
+
+    assert body["media_files"] == 0
+    assert body["truncated"] is True
+    assert body["timed_out"] is True
+
+
 # --- persistence (database) --------------------------------------------------
 
 
