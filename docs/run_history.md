@@ -11,9 +11,9 @@
 qwen, scheduler), а не новая очередь и не источник истины исполнения. Задачи
 по-прежнему исполняет `public.job_queue`, а stages — `pipeline_runs` и
 `pipeline_run_stages`. `run_history_jobs` связывает одну запись запуска с одной
-или несколькими задачами очереди. Сейчас подключены ручной INGEST, ручной QWEN и
-supervisor pipeline; отдельные DINO/HYBRID, scheduler и UI интеграции остаются
-следующими шагами.
+или несколькими задачами очереди. Подключены ручной INGEST/QWEN, ручные DINO и
+HYBRID (kind `sort`), фактические scheduler ticks и supervisor pipeline; UI
+списка и логов доступен на вкладке «Последний запуск».
 
 Каждая строка содержит режим (`manual`, `schedule`, `outofqueue`), статус,
 счётчики JSONB, стадии и длительности, число ошибок, сообщение, автора и время.
@@ -40,6 +40,12 @@ supervisor pipeline; отдельные DINO/HYBRID, scheduler и UI интег�
 - `GET /api/v1/runs/history/{run_id}/log` — текст лога по внутреннему ID;
   требует `jobs:read`, отдаёт `Cache-Control: no-store`; путь файла наружу не
   передаётся.
+
+History/statuses синхронизируются при запуске и завершении job/обновлении pipeline,
+но unified list — snapshot-on-request, без периодического polling компонента.
+Фактическая «в реальном времени» частота зависит от job worker events; per-kind
+последние ручные/scheduled/out-of-queue даты требуют отдельной агрегирующей
+сводки, текущий UI её не вычисляет.
 
 Список и лог доступны после применения схемы; API smoke на рабочем экземпляре
 вернул 200 и 11 записей. Тесты проверяют scope и отсутствие принятия клиентского
@@ -68,9 +74,12 @@ advisory-lock gates) имеет один `scheduler` run; созданные и�
 истории с `ON DELETE CASCADE`, а `job_id` намеренно не FK: старые id могут
 сохраняться как архивные ссылки.
 
-Проверено: миграции 001–038 применены; у `run_history_jobs` остались PK и FK
-`run_id`, FK `job_id` отсутствует; API health 200, API истории 200. Backend suite
-после rollout: 573 passed, 4 skipped. `scene-api`/`scene-worker` active.
+Проверено на rollout 2026-10-17: миграции 001–038 применены; у
+`run_history_jobs` остались PK и FK `run_id`, FK `job_id` отсутствует. На
+последней проверке этого checkout (commit `be228d5`) backend suite — 585 passed,
+4 skipped; API health — 200, `scene-api`/`scene-worker` active. Полная frontend
+suite — 125 passed, production build успешен (Vite предупреждает о JS chunk >500
+KB).
 
 Для полного отката сначала остановить новые записи и откатить приложение, затем
 удалять таблицы `run_history_jobs` и `run_history` только после проверки
