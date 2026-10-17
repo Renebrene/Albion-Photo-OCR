@@ -293,7 +293,14 @@ export const usePhotosStore = defineStore('photos', {
 
     // ---- per-manager state ----
 
-    async loadSelectionState() {
+    async loadSelectionState({ persist = true } = {}) {
+      if (!persist) {
+        // Гость: выбор не используется действиями и не сохраняется.
+        this.selected = []
+        this.selectionPersist = false
+        return
+      }
+
       try {
         const data = await fetchSelection()
         this.selected = (data.state && data.state.selected) || []

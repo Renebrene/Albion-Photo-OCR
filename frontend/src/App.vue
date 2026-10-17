@@ -46,9 +46,16 @@ onBeforeUnmount(() => {
 })
 
 async function afterAuth() {
-  photos.loadSelectionState()
-  // The display settings follow the user, not the browser.
-  await display.loadFromServer()
+  // Гость только смотрит: его выбор/раскладка не сохраняются ни на сервере,
+  // ни в localStorage.
+  const canPersist = !session.authEnabled || session.user?.role !== 'Гость'
+  display.setPersistence(canPersist)
+  if (!canPersist) display.reset()
+
+  photos.loadSelectionState({ persist: canPersist })
+  // The display settings follow the user, not the browser. A Guest always
+  // starts from the built-in defaults and never persists them.
+  if (canPersist) await display.loadFromServer()
   await loadStats()
   if (statsTimer === null) statsTimer = window.setInterval(loadStats, 60_000)
   booted.value = true

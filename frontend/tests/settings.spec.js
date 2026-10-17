@@ -5,8 +5,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { Notify, QSelect, Quasar } from 'quasar'
+import { createPinia, setActivePinia } from 'pinia'
 
 import Settings from '../src/pages/Settings.vue'
+import { useSessionStore } from '../src/stores/session'
 
 // Quasar's Notify is a plugin singleton; outside a full app it may not be
 // installed, so give it a no-op create() for the component to call.
@@ -63,8 +65,17 @@ function installFetch() {
   })
 }
 
-function mountSettings() {
-  return mount(Settings, { global: { plugins: [Quasar] } })
+function mountSettings({ role = null } = {}) {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+
+  if (role) {
+    const session = useSessionStore()
+    session.authEnabled = true
+    session.user = { name: 'tester', role }
+  }
+
+  return mount(Settings, { global: { plugins: [Quasar, pinia] } })
 }
 
 beforeEach(() => {
@@ -145,6 +156,25 @@ describe('Settings.vue', () => {
     // Модель запоминается сразу при выборе, без кнопки «Сохранить».
     expect(updated).toContainEqual({ model: 'ling-3.0-flash-vl' })
     expect(wrapper.text()).toContain('Сохранено: ling-3.0-flash-vl')
+  })
+
+  it('keeps provider credentials read-only for a Manager', async () => {
+    const wrapper = mountSettings({ role: 'Менеджер' })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('только Администратор')
+    const providerSelect = wrapper
+      .findAllComponents(QSelect)
+      .find((item) => String(item.props('label')).includes('Провайдер'))
+    expect(providerSelect.props('disable')).toBe(true)
+
+    const save = wrapper
+      .findAll('button')
+      .find((button) => button.text().trim() === 'Сохранить')
+    expect(save).toBeUndefined()
+
+    // Operational unload is still available to the working role.
+    expect(wrapper.text()).toContain('Выгрузить из памяти')
   })
 
   it('disables retry when there are no failed photos', async () => {

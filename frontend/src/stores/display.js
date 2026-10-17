@@ -202,8 +202,16 @@ export const useDisplayStore = defineStore('display', () => {
   }
 
   let serverTimer = null
+  // Гость видит грид, но настройки сайта за ним не сохраняются.
+  let persistenceEnabled = true
+
+  function setPersistence(enabled) {
+    persistenceEnabled = Boolean(enabled)
+  }
 
   function persist() {
+    if (!persistenceEnabled) return
+
     const data = snapshot()
 
     try {
@@ -295,6 +303,7 @@ export const useDisplayStore = defineStore('display', () => {
     resizePanel,
     resizeSideList,
     reset,
+    setPersistence,
     loadFromServer,
     // Base (starting) state: reserve, restore, adopt from a file.
     base,

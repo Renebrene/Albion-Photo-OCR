@@ -12,6 +12,12 @@ import {
   unloadQwen,
   updateQwenSettings,
 } from '../api/client'
+import { useSessionStore } from '../stores/session'
+
+const session = useSessionStore()
+const canConfigure = computed(
+  () => !session.authEnabled || session.user?.role === 'Администратор',
+)
 
 const loading = ref(false)
 const saving = ref(false)
@@ -294,6 +300,11 @@ onBeforeUnmount(stopStatsPolling)
       <q-card-section>
         <div class="text-subtitle1 q-mb-sm">Провайдер QWEN</div>
 
+        <q-banner v-if="!canConfigure" dense class="bg-grey-2 text-caption q-mb-sm">
+          Провайдер, Base URL, API-ключ и модель меняет только Администратор.
+          Запуск распознавания и выгрузка модели из памяти доступны Менеджеру.
+        </q-banner>
+
         <q-select
           v-model="provider"
           :options="[
@@ -306,6 +317,7 @@ onBeforeUnmount(stopStatsPolling)
           map-options
           label="Провайдер"
           class="q-mb-sm"
+          :disable="!canConfigure"
         />
 
         <div class="text-caption text-grey-8 q-mb-md">
@@ -328,6 +340,7 @@ onBeforeUnmount(stopStatsPolling)
             outlined
             label="Base URL (например, https://api.openai.com/v1)"
             class="q-mb-md"
+            :disable="!canConfigure"
           />
           <q-input
             v-model="apiKey"
@@ -340,9 +353,10 @@ onBeforeUnmount(stopStatsPolling)
                 : 'API-ключ'
             "
             class="q-mb-md"
+            :disable="!canConfigure"
           />
           <q-btn
-            v-if="apiKeySet"
+            v-if="apiKeySet && canConfigure"
             flat
             dense
             color="negative"
@@ -365,6 +379,7 @@ onBeforeUnmount(stopStatsPolling)
           new-value-mode="add-unique"
           :label="`Модель (провайдер: ${provider === 'openai' ? 'облако' : 'локально'})`"
           class="q-mb-sm"
+          :disable="!canConfigure"
           @update:model-value="saveModel"
         />
         <div class="text-caption text-grey-8 q-mb-md">
@@ -381,10 +396,12 @@ onBeforeUnmount(stopStatsPolling)
             outlined
             label="Keep-alive (0 = выгружать сразу)"
             style="max-width: 220px"
+            :disable="!canConfigure"
           />
           <q-toggle
             v-model="unloadOnIdle"
             label="Выгружать при простое очереди"
+            :disable="!canConfigure"
           />
         </div>
 
@@ -394,7 +411,7 @@ onBeforeUnmount(stopStatsPolling)
         </div>
 
         <div class="q-gutter-sm">
-          <q-btn color="primary" label="Сохранить" :loading="saving" @click="save" />
+          <q-btn v-if="canConfigure" color="primary" label="Сохранить" :loading="saving" @click="save" />
           <q-btn flat icon="refresh" label="Обновить список" :loading="loading" @click="loadModels" />
           <q-btn flat color="orange" icon="memory" label="Выгрузить из памяти" @click="unload" />
         </div>

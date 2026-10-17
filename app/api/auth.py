@@ -36,8 +36,8 @@ ROLE_SCOPES: dict[str, set[str]] = {
         # Working pipeline jobs (INGEST, DINO/HYBRID/QWEN, pause/cancel,
         # fingerprint builds) are day-to-day operation, not administration:
         # the manager may run and steer them (owner decision 2026-10-16).
-        # NOTE: jobs:write also gates the QWEN provider/model/key settings;
-        # splitting those into a separate scope is a recommended follow-up.
+        # QWEN provider/model/API-key changes use the separate, admin-only
+        # `settings:write` scope.
         "jobs:read",
         "jobs:write",
         # Names for the addresses (schema/022) are day-to-day curation work,

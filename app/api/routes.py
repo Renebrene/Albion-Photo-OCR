@@ -1653,7 +1653,7 @@ def qwen_settings():
 
 @jobs_router.put(
     "/v1/qwen/settings",
-    dependencies=[Depends(require_scope("jobs:write"))],
+    dependencies=[Depends(require_scope("settings:write"))],
 )
 def update_qwen_settings(request: QwenSettingsUpdate):
     try:
@@ -1690,7 +1690,7 @@ def qwen_models():
 
 @jobs_router.put(
     "/v1/qwen/model",
-    dependencies=[Depends(require_scope("jobs:write"))],
+    dependencies=[Depends(require_scope("settings:write"))],
 )
 def set_qwen_model(request: QwenModelRequest):
     # Идёт через update_settings: модель запоминается для ТЕКУЩЕГО провайдера,

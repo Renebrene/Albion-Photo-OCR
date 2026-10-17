@@ -72,6 +72,22 @@ describe('display store', () => {
     expect(display.listFields).toEqual(['filename', 'address', 'client'])
     expect(display.downloadNameMode).toBe('filename')
   })
+
+  it('does not persist layout changes when persistence is disabled for a Guest', async () => {
+    const display = useDisplayStore()
+    display.setPersistence(false)
+
+    display.tileColumns = 5
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull()
+
+    display.reset()
+    expect(display.tileColumns).toBe('auto')
+
+    // The next describe reuses the active store; do not leak the Guest mode.
+    display.setPersistence(true)
+  })
 })
 
 describe('fieldText', () => {

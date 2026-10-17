@@ -6,6 +6,7 @@ import { Quasar, Notify } from 'quasar'
 import { createPinia, setActivePinia } from 'pinia'
 
 import VideosGrid from '../src/pages/VideosGrid.vue'
+import { useSessionStore } from '../src/stores/session'
 
 Notify.create = vi.fn()
 
@@ -97,6 +98,32 @@ describe('видеогалерея', () => {
     expect(wrapper.text()).toContain('14-10-26')
     expect(wrapper.text()).toContain('12.5 с / 5.0 МБ')
     expect(wrapper.text()).not.toContain('Выбрать все')
+
+    wrapper.unmount()
+  })
+
+  it('гость не видит скачивание, сжатие и редактирование', async () => {
+    const session = useSessionStore()
+    session.authEnabled = true
+    session.user = { name: 'guest', role: 'Гость' }
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const labels = wrapper.findAll('button').map((button) => button.text())
+    expect(labels.some((text) => text.includes('Скачать'))).toBe(false)
+    expect(labels.some((text) => text.includes('Сжать'))).toBe(false)
+
+    const detailsButton = wrapper
+      .findAll('button')
+      .find((button) => button.html().includes('more_horiz'))
+    await detailsButton.trigger('click')
+    await flushPromises()
+
+    expect(calls.some((call) => call.path.endsWith('/playback-ticket'))).toBe(false)
+    expect(document.body.textContent).toContain('Просмотр доступен сотрудникам')
+    expect(document.body.querySelector('input[maxlength="300"]')).toBeNull()
+    expect(document.body.textContent).not.toContain('Обрезать фрагмент')
 
     wrapper.unmount()
   })

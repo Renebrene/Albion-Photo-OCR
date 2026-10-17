@@ -36,7 +36,7 @@ requires_db = pytest.mark.skipif(
 )
 
 
-def test_set_model_requires_jobs_write(monkeypatch):
+def test_set_model_requires_settings_write(monkeypatch):
     monkeypatch.setenv("SCENE_API_TOKENS", "tok:read")
     response = client.put(
         "/api/v1/qwen/model",
@@ -44,6 +44,18 @@ def test_set_model_requires_jobs_write(monkeypatch):
         headers={"Authorization": "Bearer tok"},
     )
     assert response.status_code == 403
+
+
+def test_jobs_write_alone_cannot_change_provider_settings(monkeypatch):
+    monkeypatch.setenv("SCENE_API_TOKENS", "tok:jobs:write")
+    response = client.put(
+        "/api/v1/qwen/settings",
+        json={"model": "qwen3-vl:8b"},
+        headers={"Authorization": "Bearer tok"},
+    )
+    assert response.status_code == 403
+
+
 
 
 def test_unload_requires_jobs_write(monkeypatch):

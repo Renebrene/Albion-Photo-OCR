@@ -56,6 +56,7 @@ def test_guest_is_read_only(monkeypatch):
         "videos:write",
         "videos:download",
         "users:manage",
+        "settings:write",
     ):
         assert denied not in scopes, f"Гость не должен иметь {denied}"
 
@@ -76,6 +77,8 @@ def test_manager_runs_jobs(monkeypatch):
 
     # The technical section (user administration) stays administrator-only.
     assert "users:manage" not in scopes
+    # QWEN provider credentials/model are administration, not a working job.
+    assert "settings:write" not in scopes
     assert "*" not in scopes
 
 

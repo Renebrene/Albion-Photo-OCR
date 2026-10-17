@@ -21,10 +21,19 @@ import {
   videoStoryboardFrameUrl,
 } from '../api/client'
 import { useDisplayStore } from '../stores/display'
+import { useSessionStore } from '../stores/session'
 import { useVideosStore } from '../stores/videos'
 
 const display = useDisplayStore()
 const store = useVideosStore()
+const session = useSessionStore()
+// Гость видит грид и метаданные, но не скачивает, не сжимает и не редактирует.
+const isStaff = computed(
+  () => !session.authEnabled || ['Администратор', 'Менеджер'].includes(session.user?.role),
+)
+const canPlayVideos = computed(() => isStaff.value)
+const canWriteVideos = computed(() => isStaff.value)
+const canDownloadVideos = computed(() => isStaff.value)
 const { items, nextCursor, loading, error, query, dateMode, dateFrom, dateTo, selectedVideoId } = storeToRefs(store)
 const viewMode = ref('tiles')
 const detailsOpen = ref(false)
@@ -96,6 +105,12 @@ async function openDetails(video) {
   playbackUrl.value = ''
   playbackError.value = ''
   detailsOpen.value = true
+
+  if (!canPlayVideos.value) {
+    playbackError.value = 'Просмотр доступен сотрудникам'
+    return
+  }
+
   try {
     const ticket = await requestVideoPlayback(video.video_id)
     if (detailsOpen.value && currentVideo.value?.video_id === video.video_id) {
@@ -444,9 +459,9 @@ onBeforeUnmount(() => {
     <div class="video-actions row items-center q-gutter-sm q-mb-sm">
       <span class="text-caption text-grey-7">Видео: {{ items.length }}{{ nextCursor ? '+' : '' }}</span>
       <q-space />
-      <span v-if="selectedVideo" class="text-caption ellipsis">Выбрано: {{ selectedVideo.filename }}</span>
-      <q-btn color="primary" icon="download" label="Скачать" :disable="!selectedVideo" :loading="downloading" @click="downloadOriginal" />
-      <q-btn color="secondary" icon="compress" label="Сжать" :disable="!selectedVideo" :loading="transcodeSubmitting">
+      <span v-if="selectedVideo && canDownloadVideos" class="text-caption ellipsis">Выбрано: {{ selectedVideo.filename }}</span>
+      <q-btn v-if="canDownloadVideos" color="primary" icon="download" label="Скачать" :disable="!selectedVideo" :loading="downloading" @click="downloadOriginal" />
+      <q-btn v-if="canWriteVideos" color="secondary" icon="compress" label="Сжать" :disable="!selectedVideo" :loading="transcodeSubmitting">
         <q-menu anchor="bottom right" self="top right">
           <q-list dense style="min-width: 210px">
             <q-item v-for="profile in transcodeProfiles" :key="profile.value" clickable v-close-popup @click="startTranscode(profile.value)">
@@ -456,14 +471,14 @@ onBeforeUnmount(() => {
         </q-menu>
         <q-tooltip>Сделать H.264/MP4 копию, оригинал останется без изменений</q-tooltip>
       </q-btn>
-      <q-btn v-if="activeTranscode?.status === 'DONE'" outline color="positive" icon="download" label="Скачать сжатое" @click="downloadTranscoded" />
+      <q-btn v-if="canDownloadVideos && activeTranscode?.status === 'DONE'" outline color="positive" icon="download" label="Скачать сжатое" @click="downloadTranscoded" />
     </div>
     <div v-if="activeTranscode || transcodeError" class="video-transcode-status row items-center q-gutter-sm q-mb-sm">
       <span v-if="activeTranscode" class="text-caption">{{ transcodeProfile }}: {{ activeTranscode.status }}</span>
       <q-linear-progress v-if="activeTranscode && ['PENDING', 'RUNNING'].includes(activeTranscode.status)" class="col" :value="Number(activeTranscode.progress?.percent || 0) / 100" />
       <span v-if="activeTranscode?.status === 'FAILED'" class="text-negative text-caption">{{ activeTranscode.error_message || 'Ошибка конвертации' }}</span>
       <span v-if="transcodeError" class="text-negative text-caption">{{ transcodeError }}</span>
-      <q-btn v-if="activeTranscode && ['PENDING', 'RUNNING'].includes(activeTranscode.status)" dense flat color="negative" label="Отмена" @click="cancelTranscode" />
+      <q-btn v-if="canWriteVideos && activeTranscode && ['PENDING', 'RUNNING'].includes(activeTranscode.status)" dense flat color="negative" label="Отмена" @click="cancelTranscode" />
     </div>
 
     <div ref="scrollElement" class="video-scroll">
@@ -483,7 +498,7 @@ onBeforeUnmount(() => {
             <div class="video-meta">{{ formatDuration(video.duration_seconds) }} / {{ formatMegabytes(video.size_bytes) }}</div>
           </q-card-section>
           <q-card-actions align="right" class="q-pt-none">
-            <q-checkbox :model-value="selectedVideoId === video.video_id" dense aria-label="Выбрать видео" @update:model-value="selectVideo(video)" />
+            <q-checkbox v-if="canDownloadVideos" :model-value="selectedVideoId === video.video_id" dense aria-label="Выбрать видео" @update:model-value="selectVideo(video)" />
             <q-btn flat dense round icon="more_horiz" @click="openDetails(video)"><q-tooltip>Просмотр и название</q-tooltip></q-btn>
           </q-card-actions>
         </q-card>
@@ -504,7 +519,7 @@ onBeforeUnmount(() => {
             <div class="video-list-title">{{ video.display_title || ' ' }}</div>
           </q-item-section>
           <q-item-section side>
-            <q-checkbox :model-value="selectedVideoId === video.video_id" dense aria-label="Выбрать видео" @update:model-value="selectVideo(video)" />
+            <q-checkbox v-if="canDownloadVideos" :model-value="selectedVideoId === video.video_id" dense aria-label="Выбрать видео" @update:model-value="selectVideo(video)" />
           </q-item-section>
         </q-item>
       </q-list>
@@ -522,7 +537,11 @@ onBeforeUnmount(() => {
         <div v-if="!trimMode" class="video-details-layout q-pa-md">
           <div class="video-player-wrap">
             <video v-if="playbackUrl" :src="playbackUrl" controls playsinline preload="metadata" class="video-player" />
-            <div v-else class="flex flex-center bg-grey-2 video-player"><q-spinner-dots v-if="!playbackError" size="36px" color="primary" /><span v-else>{{ playbackError }}</span></div>
+            <div v-else class="flex flex-center bg-grey-2 video-player">
+              <span v-if="!canPlayVideos">Просмотр доступен сотрудникам</span>
+              <q-spinner-dots v-else-if="!playbackError" size="36px" color="primary" />
+              <span v-else>{{ playbackError }}</span>
+            </div>
           </div>
           <q-card flat bordered class="video-detail-card">
             <q-card-section class="panel-head"><div class="panel-title">Сведения о видео</div></q-card-section>
@@ -534,10 +553,15 @@ onBeforeUnmount(() => {
               <div><b>Кодек:</b> {{ currentVideo?.video_codec }} / {{ currentVideo?.container_format }}</div>
               <div><b>Вес:</b> {{ formatMegabytes(currentVideo?.size_bytes) }}</div>
               <div><b>Загружено:</b> {{ formatCapture(currentVideo?.created_at) }}</div>
-              <q-input v-model="titleDraft" outlined dense maxlength="300" label="Название" />
-              <q-btn color="primary" label="Сохранить название" :loading="savingTitle" @click="saveTitle" />
-              <q-separator />
-              <q-btn outline color="secondary" icon="content_cut" label="Обрезать фрагмент" @click="enterTrimMode" />
+              <template v-if="canWriteVideos">
+                <q-input v-model="titleDraft" outlined dense maxlength="300" label="Название" />
+                <q-btn color="primary" label="Сохранить название" :loading="savingTitle" @click="saveTitle" />
+              </template>
+              <div v-else><b>Название:</b> {{ currentVideo?.display_title || '—' }}</div>
+              <template v-if="canWriteVideos">
+                <q-separator />
+                <q-btn outline color="secondary" icon="content_cut" label="Обрезать фрагмент" @click="enterTrimMode" />
+              </template>
             </q-card-section>
           </q-card>
         </div>
@@ -583,8 +607,8 @@ onBeforeUnmount(() => {
                 <div class="row items-center q-gutter-sm q-mt-sm">
                   <q-btn outline color="primary" icon="play_arrow" label="Предпросмотр фрагмента" @click="startTrimPreview" />
                   <q-btn color="primary" icon="save" label="Сохранить как новый клип" :loading="trimSubmitting" :disable="['PENDING','RUNNING'].includes(trimInfo?.status)" @click="submitTrim" />
-                  <q-btn v-if="trimInfo?.status === 'DONE'" color="positive" icon="download" label="Скачать клип" @click="downloadTrim" />
-                  <q-btn v-if="['PENDING','RUNNING'].includes(trimInfo?.status)" flat color="negative" label="Отмена" @click="cancelTrim" />
+                  <q-btn v-if="canDownloadVideos && trimInfo?.status === 'DONE'" color="positive" icon="download" label="Скачать клип" @click="downloadTrim" />
+                  <q-btn v-if="canWriteVideos && ['PENDING','RUNNING'].includes(trimInfo?.status)" flat color="negative" label="Отмена" @click="cancelTrim" />
                   <span v-if="trimInfo" class="text-caption">{{ trimInfo.status }} · {{ trimInfo.progress?.percent ?? 0 }}%</span>
                 </div>
                 <q-linear-progress v-if="['PENDING','RUNNING'].includes(trimInfo?.status)" class="q-mt-sm" :value="Number(trimInfo.progress?.percent || 0) / 100" />
