@@ -41,7 +41,11 @@ export const usePhotosStore = defineStore('photos', {
     dateTo: null,
     // Which date the range filter uses: upload date or EXIF capture date.
     dateMode: 'upload',
+    // The two collection panels select independently. collectionId remains the
+    // most recently picked one for saved searches/backwards compatibility.
     collectionId: null,
+    addressCollectionId: null,
+    clientCollectionId: null,
     nlIds: [],
 
     // side panels (mirroring the legacy UI)
@@ -192,15 +196,28 @@ export const usePhotosStore = defineStore('photos', {
      * клиенты в правом; грид после этого показывает фото по этим фильтрам.
      * Повторный клик по активной подборке снимает выбор.
      */
+    _syncCollectionId() {
+      this.collectionId = this.addressCollectionId ?? this.clientCollectionId ?? null
+    },
+
+    isCollectionActive(collection) {
+      const collectionId = collection.scope === 'clients'
+        ? this.clientCollectionId
+        : this.addressCollectionId
+      return collectionId === collection.collection_id
+    },
+
     async applyCollection(collection) {
       const isClients = collection.scope === 'clients'
+      const activeKey = isClients ? 'clientCollectionId' : 'addressCollectionId'
 
-      if (this.collectionId === collection.collection_id) {
-        this.collectionId = null
+      if (this[activeKey] === collection.collection_id) {
+        this[activeKey] = null
 
         if (isClients) this.selectedClients = []
         else this.selectedAddresses = []
 
+        this._syncCollectionId()
         await this.refresh()
         return
       }
@@ -215,7 +232,9 @@ export const usePhotosStore = defineStore('photos', {
       if (isClients) this.selectedClients = values
       else this.selectedAddresses = values
 
-      this.collectionId = collection.collection_id
+      // The other scope keeps its own active collection and selected values.
+      this[activeKey] = collection.collection_id
+      this._syncCollectionId()
       await this.refresh()
     },
 
@@ -250,7 +269,8 @@ export const usePhotosStore = defineStore('photos', {
       await addCollectionMembers(id, { member_type: memberType, values })
 
       await this.loadCollections()
-      this.collectionId = id
+      this[isClients ? 'clientCollectionId' : 'addressCollectionId'] = id
+      this._syncCollectionId()
 
       return id
     },
@@ -361,7 +381,9 @@ export const usePhotosStore = defineStore('photos', {
 
     async deleteCollectionById(collectionId) {
       await deleteCollectionApi(collectionId)
-      if (this.collectionId === collectionId) this.collectionId = null
+      if (this.addressCollectionId === collectionId) this.addressCollectionId = null
+      if (this.clientCollectionId === collectionId) this.clientCollectionId = null
+      this._syncCollectionId()
       await this.loadCollections()
     },
   },

@@ -4,7 +4,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { Notify, QSelect, Quasar } from 'quasar'
+import { Notify, QSelect, QToggle, Quasar } from 'quasar'
 import { createPinia, setActivePinia } from 'pinia'
 
 import Settings from '../src/pages/Settings.vue'
@@ -18,6 +18,8 @@ let stats
 let enqueued
 let qwenSettings
 let updated
+let rescanned
+let historyLog
 
 function jsonResponse(body, status = 200) {
   return { ok: status < 400, status, json: async () => body }
@@ -52,6 +54,15 @@ function installFetch() {
       return jsonResponse(stats)
     }
 
+    if (method === 'GET' && path === '/api/v1/qwen/history') {
+      return jsonResponse(historyLog)
+    }
+
+    if (method === 'POST' && path === '/api/v1/jobs/qwen/rescan') {
+      rescanned.push(JSON.parse(options.body))
+      return jsonResponse({ jobs: 3, skipped: 0, photos: 3, archived: 1, model: 'qwen3-vl:4b-instruct', run_history_id: 7 }, 202)
+    }
+
     if (method === 'GET' && path === '/api/v1/client-aliases') {
       return jsonResponse({ items: [] })
     }
@@ -81,6 +92,8 @@ function mountSettings({ role = null } = {}) {
 beforeEach(() => {
   enqueued = []
   updated = []
+  rescanned = []
+  historyLog = { items: [], text: '' }
   stats = { counts: { DONE: 256 }, failed_photo_ids: [] }
   qwenSettings = {
     provider: 'ollama',
@@ -90,6 +103,8 @@ beforeEach(() => {
     api_key_hint: null,
     keep_alive: '10m',
     unload_on_idle: true,
+    billboard_crop_enabled: true,
+    billboard_crop_available: true,
   }
   installFetch()
 })
@@ -99,6 +114,64 @@ afterEach(() => {
 })
 
 describe('Settings.vue', () => {
+  it('loads and immediately persists the optional billboard crop setting', async () => {
+    const wrapper = mountSettings({ role: 'Администратор' })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Использовать crop рекламного щита для QWEN')
+    const toggle = wrapper.findAllComponents(QToggle)
+      .find((item) => String(item.props('label')).includes('рекламного щита'))
+    expect(toggle).toBeTruthy()
+    expect(toggle.props('modelValue')).toBe(true)
+    await toggle.vm.$emit('update:modelValue', false)
+    await flushPromises()
+
+    expect(updated).toContainEqual({ billboard_crop_enabled: false })
+    expect(qwenSettings.billboard_crop_enabled).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('renders the plain-text QWEN history log', async () => {
+    historyLog = {
+      items: [{ history_id: 1 }],
+      text: '2026-10-18 | photo.jpg | модель: old → new | DONE\nклиент: Litres, бренд: Яндекс',
+    }
+
+    const wrapper = mountSettings()
+    await flushPromises()
+
+    const log = wrapper.find('.qwen-history-text')
+    expect(log.exists()).toBe(true)
+    expect(log.text()).toContain('клиент: Litres, бренд: Яндекс')
+    wrapper.unmount()
+  })
+
+  it('confirms a destructive QWEN rescan for an explicit period', async () => {
+    const wrapper = mountSettings({ role: 'Администратор' })
+    await flushPromises()
+
+    const openButton = wrapper.findAll('button')
+      .find((button) => button.text().includes('Пересканировать'))
+    expect(openButton).toBeTruthy()
+    await openButton.trigger('click')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('ДЕСТРУКТИВНО')
+    wrapper.vm.rescanFrom = '2026-01-01'
+    wrapper.vm.rescanTo = '2026-01-31'
+    wrapper.vm.rescanDateMode = 'capture'
+    await flushPromises()
+    await wrapper.vm.runDestructiveRescan()
+    await flushPromises()
+
+    expect(rescanned).toEqual([{
+      date_from: '2026-01-01',
+      date_to: '2026-01-31',
+      date_mode: 'capture',
+    }])
+    wrapper.unmount()
+  })
+
   it('renders QWEN status counts', async () => {
     stats = { counts: { DONE: 255, FAILED: 1 }, failed_photo_ids: ['PH_bad'] }
 
@@ -156,6 +229,17 @@ describe('Settings.vue', () => {
     // Модель запоминается сразу при выборе, без кнопки «Сохранить».
     expect(updated).toContainEqual({ model: 'ling-3.0-flash-vl' })
     expect(wrapper.text()).toContain('Сохранено: ling-3.0-flash-vl')
+  })
+
+  it('keeps the billboard crop setting read-only for a Manager', async () => {
+    const wrapper = mountSettings({ role: 'Менеджер' })
+    await flushPromises()
+
+    const toggle = wrapper.findAllComponents(QToggle)
+      .find((item) => String(item.props('label')).includes('рекламного щита'))
+    expect(toggle).toBeTruthy()
+    expect(toggle.props('disable')).toBe(true)
+    wrapper.unmount()
   })
 
   it('keeps provider credentials read-only for a Manager', async () => {

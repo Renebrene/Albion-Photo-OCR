@@ -82,7 +82,7 @@ async function remove(collection) {
           v-for="collection in items"
           :key="collection.collection_id"
           clickable
-          :active="store.collectionId === collection.collection_id"
+          :active="store.isCollectionActive(collection)"
           active-class="bg-secondary text-white"
           @click="pick(collection)"
         >

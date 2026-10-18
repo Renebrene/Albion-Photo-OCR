@@ -46,6 +46,87 @@ def test_set_model_requires_settings_write(monkeypatch):
     assert response.status_code == 403
 
 
+def test_billboard_crop_qwen_setting_roundtrips_without_database(monkeypatch):
+    from app.qwen import processor as qwen_processor
+
+    stored = {}
+    monkeypatch.setenv("SCENE_BILLBOARD_DETECT", "1")
+    monkeypatch.setattr(settings_store, "get", lambda key, default=None: stored.get(key, default))
+    monkeypatch.setattr(settings_store, "set_value", lambda key, value: stored.__setitem__(key, value))
+
+    assert qwen_processor.public_settings()["billboard_crop_enabled"] is True
+    updated_settings = qwen_processor.update_settings(billboard_crop_enabled=False)
+    assert stored["billboard_detect"] is False
+    assert updated_settings["billboard_crop_enabled"] is False
+    assert qwen_processor.public_settings()["billboard_crop_enabled"] is False
+
+
+def test_qwen_settings_api_accepts_billboard_crop_toggle(monkeypatch):
+    from app.api import routes
+
+    saved = {}
+    monkeypatch.setenv("SCENE_AUTH_REQUIRED", "0")
+    monkeypatch.setattr(routes.qwen, "update_settings", lambda **kwargs: saved.update(kwargs) or {"billboard_crop_enabled": kwargs["billboard_crop_enabled"]})
+
+    response = client.put("/api/v1/qwen/settings", json={"billboard_crop_enabled": False})
+
+    assert response.status_code == 200
+    assert saved["billboard_crop_enabled"] is False
+    assert response.json()["billboard_crop_enabled"] is False
+
+
+def test_qwen_destructive_rescan_requires_jobs_write_and_valid_period(monkeypatch):
+    from datetime import date
+
+    from pydantic import ValidationError
+
+    from app.api.schemas import QwenRescanRequest
+
+    with pytest.raises(ValidationError):
+        QwenRescanRequest(date_from=date(2026, 2, 2), date_to=date(2026, 2, 1))
+
+    monkeypatch.setenv("SCENE_AUTH_REQUIRED", "1")
+    monkeypatch.setenv("SCENE_API_TOKENS", "reader:read")
+    response = client.post(
+        "/api/v1/jobs/qwen/rescan",
+        json={"date_from": "2026-02-01", "date_to": "2026-02-02", "date_mode": "capture"},
+        headers={"Authorization": "Bearer reader"},
+    )
+    assert response.status_code == 403
+
+
+def test_qwen_global_history_returns_plain_text(monkeypatch):
+    from app.api import routes
+
+    monkeypatch.setenv("SCENE_AUTH_REQUIRED", "0")
+    monkeypatch.setenv("SCENE_API_TOKENS", "")
+    monkeypatch.setattr(
+        routes.qwen_db,
+        "list_global_history",
+        lambda limit: [{
+            "history_id": 1,
+            "photo_id": "PH_" + "a" * 24,
+            "filename": "photo.jpg",
+            "status": "DONE",
+            "description": "Описание",
+            "client": "Клиент",
+            "brand": "Бренд",
+            "category": "Категория",
+            "tags": ["тег"],
+            "qwen_model": "old-model",
+            "total_tokens": 10,
+            "replaced_at": None,
+            "replaced_by_model": "new-model",
+        }],
+    )
+
+    response = client.get("/api/v1/qwen/history?limit=10")
+
+    assert response.status_code == 200
+    assert "клиент: Клиент, бренд: Бренд" in response.json()["text"]
+    assert "old-model → new-model" in response.json()["text"]
+
+
 def test_jobs_write_alone_cannot_change_provider_settings(monkeypatch):
     monkeypatch.setenv("SCENE_API_TOKENS", "tok:jobs:write")
     response = client.put(

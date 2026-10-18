@@ -74,6 +74,7 @@ function installFetch({
             simple_address: 'Комарова 13',
             client: 'Клиент А',
             brand: 'Бренд Б',
+            source_directory: 'test',
             taken_at: '2025-07-17 11:43:19',
             size_bytes: 4194304,
           },
@@ -104,6 +105,43 @@ function installFetch({
             fingerprints: [],
           },
         ],
+      })
+    }
+
+    if (path.endsWith('/qwen-history')) {
+      return json({
+        items: [{
+          history_id: 1,
+          status: 'DONE',
+          description: 'Прежнее описание',
+          client: 'Старый клиент',
+          brand: 'Старый бренд',
+          category: 'Реклама',
+          tags: ['тег'],
+          qwen_model: 'old-model',
+          replaced_at: '2026-10-01T10:00:00',
+        }],
+      })
+    }
+
+    if (path.endsWith('/details')) {
+      return json({
+        photo: {
+          photo_id: 'PH_' + 'a'.repeat(24),
+          filename: 'photo.jpg',
+          client: 'Клиент А',
+          brand: 'Бренд Б',
+          source_directory: 'test',
+        },
+        qwen: {
+          status: 'DONE',
+          description: 'Описание сцены',
+          client: 'Клиент А',
+          brand: 'Бренд Б',
+          category: 'Реклама товаров',
+          tags: [],
+        },
+        address_override: null,
       })
     }
 
@@ -199,7 +237,21 @@ describe('оболочка приложения', () => {
     expect(caption).toContain('Комарова 13')
     expect(caption).toContain('photo.jpg')
     expect(caption).toContain('17.07.2025 · 4.0 МБ')
-    expect(caption).toContain('Клиент А · Бренд Б')
+    expect(caption).toContain('Клиент А, Бренд Б')
+    expect(caption).toContain('Каталог: test')
+
+    wrapper.unmount()
+  })
+
+  it('технический раздел по умолчанию открывает «Загрузку»', async () => {
+    const wrapper = await mountShell()
+
+    await wrapper.vm.$router.push('/technical')
+    await flushPromises()
+
+    const technical = wrapper.findComponent(Technical)
+    expect(technical.exists()).toBe(true)
+    expect(technical.vm.tab).toBe('ingest')
 
     wrapper.unmount()
   })
@@ -227,7 +279,7 @@ describe('оболочка приложения', () => {
     // Строка 1: адрес, дата съёмки и вес. Строка 2: имя файла и клиент/бренд.
     expect(text).toContain('Комарова 13 · 17.07.2025 · 4.0 МБ')
     expect(text).toContain('photo.jpg')
-    expect(text).toContain('Клиент А · Бренд Б')
+    expect(text).toContain('Клиент А, Бренд Б')
 
     wrapper.unmount()
   })
@@ -443,6 +495,37 @@ describe('оболочка приложения', () => {
     expect(wrapper.text()).not.toContain('Скачать')
     expect(wrapper.text()).not.toContain('В подборку')
     expect(html).not.toContain('/technical')
+
+    wrapper.unmount()
+  })
+
+  it('показывает клиента и бренд в карточке QWEN и в форме редактирования', async () => {
+    const wrapper = await mountShell()
+    const grid = wrapper.findComponent(PhotosGrid)
+
+    await grid.vm.open({
+      photo_id: 'PH_' + 'a'.repeat(24),
+      filename: 'photo.jpg',
+      address: '78_v33',
+      simple_address: 'Комарова 13',
+    })
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('Клиент А')
+    expect(document.body.textContent).toContain('Бренд Б')
+    expect(grid.vm.qwenHistoryText).toContain('клиент: Старый клиент, бренд: Старый бренд')
+    expect(grid.vm.qwenHistoryText).toContain('Прежнее описание')
+
+    const edit = Array.from(document.body.querySelectorAll('button'))
+      .find((button) => button.textContent.includes('Редактировать'))
+    expect(edit).toBeTruthy()
+    edit.click()
+    await flushPromises()
+
+    const labels = Array.from(document.body.querySelectorAll('.q-field__label'))
+      .map((label) => label.textContent.trim())
+    expect(labels).toContain('Клиент')
+    expect(labels).toContain('Бренд')
 
     wrapper.unmount()
   })

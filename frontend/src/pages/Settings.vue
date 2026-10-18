@@ -5,9 +5,11 @@ import { Notify } from 'quasar'
 import {
   clearQwenJobs,
   enqueueQwen,
+  fetchQwenHistoryLog,
   fetchQwenModels,
   fetchQwenSettings,
   fetchQwenStats,
+  rescanQwenPeriod,
   stopQwenJobs,
   unloadQwen,
   updateQwenSettings,
@@ -31,6 +33,9 @@ const apiKeyHint = ref(null)
 const apiKeySet = ref(false)
 const keepAlive = ref('10m')
 const unloadOnIdle = ref(true)
+const billboardCropEnabled = ref(false)
+const billboardCropAvailable = ref(false)
+const billboardCropSaving = ref(false)
 
 const model = ref(null)
 const available = ref([])
@@ -43,6 +48,15 @@ const savedModels = ref({})
 const settingsLoaded = ref(false)
 
 const stats = ref(null)
+const historyLog = ref({ items: [], text: '' })
+const historyLoading = ref(false)
+const historyError = ref('')
+const rescanOpen = ref(false)
+const rescanBusy = ref(false)
+const rescanDateMode = ref('upload')
+const rescanFrom = ref('')
+const rescanTo = ref('')
+const rescanError = ref('')
 
 
 function sizeLabel(size) {
@@ -60,6 +74,8 @@ async function loadSettings() {
     apiKeySet.value = !!data.api_key_set
     keepAlive.value = data.keep_alive || ''
     unloadOnIdle.value = data.unload_on_idle !== false
+    billboardCropAvailable.value = data.billboard_crop_available === true
+    billboardCropEnabled.value = data.billboard_crop_enabled === true
     model.value = data.model || null
     current.value = data.model || null
     savedModels.value = data.models || {}
@@ -94,6 +110,29 @@ async function loadModels() {
 }
 
 // Модель запоминается сразу при выборе: у каждого провайдера своя модель.
+async function setBillboardCropEnabled(value) {
+  if (!canConfigure.value || billboardCropSaving.value) return
+
+  const previous = billboardCropEnabled.value
+  billboardCropEnabled.value = Boolean(value)
+  billboardCropSaving.value = true
+  try {
+    const data = await updateQwenSettings({ billboard_crop_enabled: billboardCropEnabled.value })
+    billboardCropEnabled.value = data?.billboard_crop_enabled === true
+    Notify.create({
+      type: 'positive',
+      message: billboardCropEnabled.value
+        ? 'Распознавание щита и crop для QWEN включены'
+        : 'Crop щита выключен; QWEN анализирует полный кадр',
+    })
+  } catch (err) {
+    billboardCropEnabled.value = previous
+    Notify.create({ type: 'negative', message: err.message || 'Не удалось сохранить настройку crop' })
+  } finally {
+    billboardCropSaving.value = false
+  }
+}
+
 async function saveModel(value) {
   if (!value) return
 
@@ -134,6 +173,56 @@ async function loadStats() {
   // обновляться сама, иначе счётчики «застывают» до ручного перезахода.
   if (qwenQueue.value) startStatsPolling()
   else stopStatsPolling()
+}
+
+async function loadHistoryLog() {
+  historyLoading.value = true
+  historyError.value = ''
+  try {
+    historyLog.value = await fetchQwenHistoryLog(200)
+  } catch (err) {
+    historyError.value = err.message || 'Не удалось загрузить историю QWEN'
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+function canRescan() {
+  return !qwenQueue.value
+    && Boolean(rescanFrom.value)
+    && Boolean(rescanTo.value)
+    && rescanTo.value >= rescanFrom.value
+}
+
+function openRescan() {
+  rescanFrom.value = ''
+  rescanTo.value = ''
+  rescanError.value = ''
+  rescanOpen.value = true
+}
+
+async function runDestructiveRescan() {
+  if (!canRescan() || rescanBusy.value) return
+  rescanBusy.value = true
+  rescanError.value = ''
+  try {
+    const result = await rescanQwenPeriod({
+      date_from: rescanFrom.value,
+      date_to: rescanTo.value,
+      date_mode: rescanDateMode.value,
+    })
+    rescanOpen.value = false
+    Notify.create({
+      type: 'positive',
+      message: `В историю сохранено: ${result.archived}; новых заданий: ${result.jobs}`,
+    })
+    await loadStats()
+    await loadHistoryLog()
+  } catch (err) {
+    rescanError.value = err.message || 'Пересканирование не запущено'
+  } finally {
+    rescanBusy.value = false
+  }
 }
 
 // Показ триггера запуска: он записан в payload задания.
@@ -315,6 +404,7 @@ onMounted(async () => {
   await loadSettings()
   await loadModels()
   loadStats()
+  loadHistoryLog()
 })
 
 onBeforeUnmount(stopStatsPolling)
@@ -323,7 +413,7 @@ onBeforeUnmount(stopStatsPolling)
 <template>
   <div style="max-width: 1180px">
     <div class="row q-col-gutter-md">
-      <div class="col-12 col-md-7">
+      <div class="col-12 col-md-5">
         <div class="text-h6 q-mb-md">Модель QWEN</div>
 
     <div v-if="error" class="q-mb-md">
@@ -439,6 +529,22 @@ onBeforeUnmount(stopStatsPolling)
           />
         </div>
 
+        <div v-if="billboardCropAvailable" class="q-mb-md">
+          <q-toggle
+            :model-value="billboardCropEnabled"
+            label="Использовать crop рекламного щита для QWEN"
+            :disable="!canConfigure || billboardCropSaving"
+            @update:model-value="setBillboardCropEnabled"
+          />
+          <div class="text-caption text-grey-8 q-ml-xl">
+            Если щит найден, QWEN анализирует его crop; если не найден или опция выключена — полный кадр.
+            Не связано с обычным центральным crop.
+          </div>
+        </div>
+        <q-banner v-else dense class="bg-grey-2 text-caption q-mb-md">
+          Детектор рекламных щитов не установлен в этой версии сервера.
+        </q-banner>
+
         <div class="text-caption text-grey q-mb-md">
           Текущая: <b>{{ current || '—' }}</b>. Keep-alive держит модель в
           памяти между заданиями; при простое очереди воркер выгружает её.
@@ -553,7 +659,7 @@ onBeforeUnmount(stopStatsPolling)
       </div>
 
       <!-- Справа: статистика присвоения описаний -->
-      <div class="col-12 col-md-5">
+      <div class="col-12 col-md-3">
         <q-card flat bordered class="fit">
           <q-card-section>
             <div class="text-subtitle1 q-mb-sm">Статистика описаний</div>
@@ -581,6 +687,20 @@ onBeforeUnmount(stopStatsPolling)
                 <div class="text-caption text-grey col">{{ row.label }}</div>
                 <div class="text-caption">{{ fmtDate(row.value) }}</div>
               </div>
+
+              <q-separator class="q-my-sm" />
+              <q-btn
+                outline
+                color="negative"
+                icon="restart_alt"
+                label="Пересканировать"
+                class="full-width"
+                :disable="qwenQueue > 0"
+                @click="openRescan"
+              />
+              <div class="text-caption text-negative q-mt-xs">
+                Удалит текущие QWEN-результаты за выбранный период, сохранив их в историю, и запустит распознавание заново.
+              </div>
             </template>
 
             <div v-else class="text-caption text-grey-7">
@@ -589,6 +709,81 @@ onBeforeUnmount(stopStatsPolling)
           </q-card-section>
         </q-card>
       </div>
+
+      <!-- Третья колонка: текстовый лог прежних описаний. -->
+      <div class="col-12 col-md-4">
+        <q-card flat bordered class="fit">
+          <q-card-section>
+            <div class="row items-center q-mb-sm">
+              <div class="text-subtitle1 col">История описаний</div>
+              <q-btn flat dense round icon="refresh" :loading="historyLoading" @click="loadHistoryLog">
+                <q-tooltip>Обновить текстовый лог</q-tooltip>
+              </q-btn>
+            </div>
+            <div v-if="historyError" class="text-negative text-caption q-mb-sm">{{ historyError }}</div>
+            <div v-else-if="!historyLog.items.length" class="text-caption text-grey-7">
+              История пока пуста.
+            </div>
+            <pre v-else class="qwen-history-text">{{ historyLog.text }}</pre>
+          </q-card-section>
+        </q-card>
+      </div>
     </div>
+
+    <q-dialog v-model="rescanOpen">
+      <q-card style="width: 520px; max-width: calc(100vw - 32px)">
+        <q-card-section class="text-subtitle1">Пересканировать QWEN за период</q-card-section>
+        <q-card-section class="q-gutter-sm">
+          <q-banner class="bg-red-1 text-negative text-caption" rounded>
+            ДЕСТРУКТИВНО: текущие результаты QWEN за выбранный период будут удалены.
+            Сначала они сохраняются в историю, затем для выбранных фото запускается
+            новое распознавание с текущей моделью <b>{{ current || '—' }}</b>.
+          </q-banner>
+          <q-select
+            v-model="rescanDateMode"
+            :options="[{ label: 'Дата загрузки', value: 'upload' }, { label: 'Дата съёмки', value: 'capture' }]"
+            emit-value
+            map-options
+            dense
+            outlined
+            label="Фильтр периода"
+          />
+          <div class="row q-col-gutter-sm">
+            <div class="col-6">
+              <q-input v-model="rescanFrom" type="date" dense outlined label="С даты" />
+            </div>
+            <div class="col-6">
+              <q-input v-model="rescanTo" type="date" dense outlined label="По дату" />
+            </div>
+          </div>
+          <div v-if="qwenQueue" class="text-negative text-caption">
+            Сначала остановите активное распознавание QWEN.
+          </div>
+          <div v-if="rescanError" class="text-negative text-caption">{{ rescanError }}</div>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Отмена" v-close-popup :disable="rescanBusy" />
+          <q-btn
+            color="negative"
+            label="Пересканировать"
+            :disable="!canRescan() || rescanBusy"
+            :loading="rescanBusy"
+            @click="runDestructiveRescan"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </div>
 </template>
+
+<style scoped>
+.qwen-history-text {
+  margin: 0;
+  max-height: 420px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 0.78rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #455a64;
+}
+</style>

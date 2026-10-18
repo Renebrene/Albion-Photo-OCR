@@ -67,6 +67,7 @@ from app.api.schemas import (
     QwenJobRequest,
     QwenTextUpdate,
     QwenModelRequest,
+    QwenRescanRequest,
     QwenSettingsUpdate,
     SavedSearchCreate,
     PipelineStartRequest,
@@ -479,6 +480,27 @@ def get_qwen_history(
     photo_id = _validate_photo_id(photo_id)
 
     return {"items": qwen_db.list_history(photo_id, limit=limit)}
+
+
+@read_router.get("/v1/qwen/history", response_model=None)
+def get_global_qwen_history(limit: int = Query(200, ge=1, le=1000)):
+    """Recent QWEN versions across all photos in a plain-text-ready form."""
+    items = qwen_db.list_global_history(limit=limit)
+    lines = []
+    for item in items:
+        when = str(item.get("replaced_at") or "").replace("T", " ")[:19] or "—"
+        name = item.get("filename") or item.get("photo_id") or "—"
+        tags = item.get("tags") or []
+        if isinstance(tags, list):
+            tags = ", ".join(str(tag) for tag in tags)
+        lines.append(
+            f"{when} | {name} | модель: {item.get('qwen_model') or '—'}"
+            f" → {item.get('replaced_by_model') or '—'} | {item.get('status') or '—'}\n"
+            f"клиент: {item.get('client') or '—'}, бренд: {item.get('brand') or '—'}, "
+            f"категория: {item.get('category') or '—'}, теги: {tags or '—'}\n"
+            f"{item.get('description') or '—'}"
+        )
+    return {"items": items, "text": "\n\n".join(lines)}
 
 
 @read_router.get("/v1/photos/{photo_id}/previews/{size}")
@@ -953,6 +975,101 @@ def enqueue_qwen(request: QwenJobRequest):
         "jobs": len(job_ids),
         "skipped": skipped,
         "first_job_id": job_ids[0] if job_ids else None,
+        "run_history_id": history_id,
+    }
+
+
+@jobs_router.post(
+    "/v1/jobs/qwen/rescan",
+    status_code=202,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def rescan_qwen_period(request: QwenRescanRequest):
+    """
+    Destructive QWEN refresh for one date range.
+
+    Current QWEN rows of the selected photos are copied to
+    photo_qwen_history and removed before new QWEN jobs are enqueued.
+    """
+    if jobs_db.active_count("QWEN_PHOTO"):
+        raise HTTPException(
+            status_code=409,
+            detail="Сначала остановите активное распознавание QWEN",
+        )
+
+    photo_ids = qwen_db.photo_ids_in_period(
+        date_from=request.date_from,
+        date_to=request.date_to,
+        date_mode=request.date_mode,
+    )
+    if not photo_ids:
+        raise HTTPException(status_code=422, detail="За выбранный период фотографии не найдены")
+
+    config = qwen.resolve_settings()
+    if not config.get("provider") or not config.get("model"):
+        raise HTTPException(status_code=422, detail="Модель QWEN не настроена")
+
+    from app.runs import history as run_history
+
+    title = f"QWEN: пересканирование {request.date_from} — {request.date_to}"
+    history_id = run_history.create_run(
+        kind="qwen",
+        mode="manual",
+        title=title,
+        total=len(photo_ids),
+    )
+
+    try:
+        archived = qwen_db.archive_and_clear(
+            photo_ids, replaced_by_model=str(config["model"])
+        )
+    except Exception as exc:
+        run_history.update_run(
+            history_id,
+            status="FAILED",
+            message=f"Архивирование QWEN не выполнено: {type(exc).__name__}",
+            finished=True,
+            error_count_delta=1,
+        )
+        raise
+
+    job_ids = []
+    skipped = 0
+    try:
+        for photo_id in photo_ids:
+            job_id = jobs_db.enqueue_qwen(
+                photo_id,
+                source="manual",
+                provider=config["provider"],
+                model=config["model"],
+                run_history_id=history_id,
+            )
+            if job_id is None:
+                skipped += 1
+            else:
+                job_ids.append(job_id)
+    except Exception as exc:
+        run_history.add_jobs(history_id, job_ids, skipped=skipped)
+        run_history.finish_enqueue(history_id, total=len(photo_ids), skipped=0)
+        run_history.update_run(
+            history_id,
+            status="PARTIAL" if job_ids else "FAILED",
+            message=f"Очистка выполнена, но очередь QWEN не создана полностью: {type(exc).__name__}",
+            finished=True,
+            error_count_delta=1,
+        )
+        raise
+
+    run_history.add_jobs(history_id, job_ids, skipped=skipped)
+    run_history.finish_enqueue(history_id, total=len(photo_ids), skipped=0)
+
+    return {
+        "job_id": job_ids[0] if job_ids else None,
+        "jobs": len(job_ids),
+        "skipped": skipped,
+        "photos": len(photo_ids),
+        "archived": archived,
+        "model": config["model"],
         "run_history_id": history_id,
     }
 
@@ -1839,6 +1956,7 @@ def update_qwen_settings(request: QwenSettingsUpdate):
             api_key=request.api_key,
             keep_alive=request.keep_alive,
             unload_on_idle=request.unload_on_idle,
+            billboard_crop_enabled=request.billboard_crop_enabled,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

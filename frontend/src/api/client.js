@@ -314,6 +314,14 @@ export function fetchQwenHistory(photoId, limit = 10) {
   )
 }
 
+export function fetchQwenHistoryLog(limit = 200) {
+  return getJson(`${BASE}/v1/qwen/history?limit=${limit}`)
+}
+
+export function rescanQwenPeriod(payload) {
+  return postJson(`${BASE}/v1/jobs/qwen/rescan`, payload)
+}
+
 // Durable video library (separate from photo-only DINO/HYBRID/QWEN).
 export function fetchVideos({ limit = 50, cursor = null, q = null, date_from = null, date_to = null, date_mode = 'upload' } = {}) {
   const params = new URLSearchParams()

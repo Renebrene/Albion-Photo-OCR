@@ -225,6 +225,42 @@ describe('photos store', () => {
     )
   })
 
+  it('keeps address and client collection selections active independently', async () => {
+    routes.push(
+      {
+        method: 'GET',
+        match: (p) => p === '/api/v1/collections/7/members',
+        respond: () => jsonResponse({ items: ['78_v33'] }),
+      },
+      {
+        method: 'GET',
+        match: (p) => p === '/api/v1/collections/5/members',
+        respond: () => jsonResponse({ items: ['Маркет'] }),
+      },
+    )
+
+    const store = usePhotosStore()
+    const addressCollection = { collection_id: 7, name: 'Центр', scope: 'addresses' }
+    const clientCollection = { collection_id: 5, name: 'Клиенты', scope: 'clients' }
+
+    await store.applyCollection(addressCollection)
+    await store.applyCollection(clientCollection)
+
+    expect(store.addressCollectionId).toBe(7)
+    expect(store.clientCollectionId).toBe(5)
+    expect(store.selectedAddresses).toEqual(['78_v33'])
+    expect(store.selectedClients).toEqual(['Маркет'])
+    expect(store.isCollectionActive(addressCollection)).toBe(true)
+    expect(store.isCollectionActive(clientCollection)).toBe(true)
+
+    // Turning off one panel's collection leaves the other one untouched.
+    await store.applyCollection(addressCollection)
+    expect(store.addressCollectionId).toBe(null)
+    expect(store.clientCollectionId).toBe(5)
+    expect(store.selectedAddresses).toEqual([])
+    expect(store.selectedClients).toEqual(['Маркет'])
+  })
+
   it('saveSelectionAsCollection stores the current address selection', async () => {
     const calls = []
 

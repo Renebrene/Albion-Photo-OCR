@@ -79,6 +79,18 @@ def enqueue_in_transaction(
     return int(cur.fetchone()[0])
 
 
+def active_count(job_type: str) -> int:
+    """Return the number of active jobs of one type."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) FROM public.job_queue "
+                "WHERE job_type=%s AND status IN ('PENDING','RUNNING','PAUSED')",
+                (job_type,),
+            )
+            return int(cur.fetchone()[0])
+
+
 def enqueue(
     job_type: str,
     payload: dict[str, Any],

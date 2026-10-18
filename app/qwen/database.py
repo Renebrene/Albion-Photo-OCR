@@ -149,6 +149,96 @@ def list_history(photo_id: str, *, limit: int = 20) -> list[dict]:
     ]
 
 
+def list_global_history(*, limit: int = 200) -> list[dict]:
+    """Recent QWEN versions across all photos, newest first."""
+    limit = max(1, min(int(limit), 1000))
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT h.history_id, h.photo_id, p.filename, h.status,
+                       h.description, h.client, h.brand, h.category, h.tags,
+                       h.qwen_model, h.total_tokens, h.replaced_at,
+                       h.replaced_by_model
+                FROM public.photo_qwen_history AS h
+                LEFT JOIN public.photos AS p ON p.photo_id = h.photo_id
+                ORDER BY h.history_id DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+
+    return [
+        {
+            "history_id": int(row[0]),
+            "photo_id": row[1],
+            "filename": row[2],
+            "status": row[3],
+            "description": row[4],
+            "client": row[5],
+            "brand": row[6],
+            "category": row[7],
+            "tags": row[8],
+            "qwen_model": row[9],
+            "total_tokens": row[10],
+            "replaced_at": row[11],
+            "replaced_by_model": row[12],
+        }
+        for row in rows
+    ]
+
+
+def photo_ids_in_period(
+    *, date_from, date_to, date_mode: str = "upload"
+) -> list[str]:
+    """Registered photo ids whose upload or capture date is in [from, to]."""
+    if date_mode not in {"upload", "capture"}:
+        raise ValueError("date_mode must be upload or capture")
+    date_column = "taken_at" if date_mode == "capture" else "created_at"
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT photo_id FROM public.photos "
+                f"WHERE {date_column} >= %s::date "
+                f"AND {date_column} < (%s::date + interval '1 day') "
+                f"ORDER BY photo_id",  # noqa: S608 - date_column is allowlisted above
+                (date_from, date_to),
+            )
+            return [str(row[0]) for row in cur.fetchall()]
+
+
+def archive_and_clear(photo_ids: list[str], *, replaced_by_model: str) -> int:
+    """Copy current QWEN rows to history, then delete them in one transaction."""
+    if not photo_ids:
+        return 0
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO public.photo_qwen_history (
+                    photo_id, status, description, address, client, brand,
+                    category, tags, raw, qwen_model, qwen_time_sec,
+                    error_message, prompt_tokens, completion_tokens,
+                    total_tokens, finished_at, replaced_by_model
+                )
+                SELECT photo_id, status, description, address, client, brand,
+                       category, tags, raw, qwen_model, qwen_time_sec,
+                       error_message, prompt_tokens, completion_tokens,
+                       total_tokens, finished_at, %s
+                FROM public.photo_qwen
+                WHERE photo_id = ANY(%s)
+                """,
+                (replaced_by_model, photo_ids),
+            )
+            archived = cur.rowcount
+            cur.execute(
+                "DELETE FROM public.photo_qwen WHERE photo_id = ANY(%s)",
+                (photo_ids,),
+            )
+            return int(archived or 0)
+
+
 def get_photo_source(photo_id: str) -> str | None:
     """Return the registered source_path for one photo, or None."""
 

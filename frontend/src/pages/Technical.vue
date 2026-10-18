@@ -20,7 +20,7 @@ import IngestFolder from '../components/IngestFolder.vue'
 
 // Mirrors the legacy NiceGUI "технический раздел" (components/technical.py)
 // with its modules: photo_processing, qwen, automation, users, data.
-const tab = ref('processing')
+const tab = ref('ingest')
 
 const session = useSessionStore()
 

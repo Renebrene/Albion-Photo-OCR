@@ -222,6 +222,22 @@ function historyLine(item) {
   return `${item.qwen_model || 'модель неизвестна'} · ${when}`
 }
 
+const qwenHistoryText = computed(() =>
+  qwenHistory.value
+    .map((item) => {
+      const tags = Array.isArray(item.tags)
+        ? item.tags.join(', ')
+        : (item.tags || '')
+      return [
+        `${historyLine(item)} · ${item.status || '—'}`,
+        `клиент: ${item.client || '—'}, бренд: ${item.brand || '—'}, категория: ${item.category || '—'}`,
+        `теги: ${tags || '—'}`,
+        item.description || '—',
+      ].join('\n')
+    })
+    .join('\n\n'),
+)
+
 // Display settings (tile count / list fields); the same panel also lives in
 // the technical section (component DisplaySettings).
 const settingsOpen = ref(false)
@@ -346,6 +362,8 @@ onMounted(async () => {
   store.selectedAddresses = []
   store.selectedClients = []
   store.collectionId = null
+  store.addressCollectionId = null
+  store.clientCollectionId = null
   store.nlIds = []
   q.value = ''
   period.value = 'all'
@@ -577,6 +595,8 @@ async function reset() {
   store.selectedAddresses = []
   store.selectedClients = []
   store.collectionId = null
+  store.addressCollectionId = null
+  store.clientCollectionId = null
   store.clearSelection()
   await apply()
 }
@@ -1000,7 +1020,7 @@ function tileMeta(photo) {
 
 /** «клиент · бренд» для карточки; пусто, когда распознавания ещё нет. */
 function clientBrand(photo) {
-  return [photo?.client, photo?.brand].filter(Boolean).join(' · ')
+  return [photo?.client, photo?.brand].filter(Boolean).join(', ')
 }
 
 // Значок QWEN на плитке/в списке: зелёный — описание есть, оранжевый —
@@ -1920,14 +1940,14 @@ function tagList(meta) {
                   >
                     {{ tileMeta(photo) }}
                   </div>
+                  <div v-if="photo.source_directory" class="ellipsis text-caption text-grey-7" :title="photo.source_directory">
+                    Каталог: {{ photo.source_directory }}
+                  </div>
                   <div
                     v-if="clientBrand(photo)"
                     class="ellipsis text-caption font-italic"
                   >
                     {{ clientBrand(photo) }}
-                  </div>
-                  <div v-if="photo.source_directory" class="ellipsis text-caption text-grey-7" :title="photo.source_directory">
-                    {{ photo.source_directory }}
                   </div>
                 </q-card-section>
 
@@ -2447,6 +2467,17 @@ function tagList(meta) {
                   <div>{{ qwen.category }}</div>
                 </div>
 
+                <div class="row q-col-gutter-sm q-mt-sm">
+                  <div class="col-12 col-sm-6">
+                    <div class="text-caption text-grey">Клиент</div>
+                    <div class="ellipsis" :title="qwen?.client || ''">{{ qwen?.client || '—' }}</div>
+                  </div>
+                  <div class="col-12 col-sm-6">
+                    <div class="text-caption text-grey">Бренд</div>
+                    <div class="ellipsis" :title="qwen?.brand || ''">{{ qwen?.brand || '—' }}</div>
+                  </div>
+                </div>
+
                 <div v-if="qwen?.description" class="q-mt-sm">
                   <div class="text-caption text-grey">Описание</div>
                   <div class="text-body2">{{ qwen.description }}</div>
@@ -2489,6 +2520,8 @@ function tagList(meta) {
                       {{ item.description || '—' }}
                     </div>
                   </div>
+                  <div class="text-caption text-grey q-mt-sm">Текстовый лог</div>
+                  <pre class="qwen-history-text">{{ qwenHistoryText }}</pre>
                 </q-expansion-item>
 
                 <div v-if="!qwen" class="text-caption text-grey q-mt-md">
@@ -2564,6 +2597,14 @@ function tagList(meta) {
             Прежнее описание сохранится в истории; запись будет помечена как
             «изменено вручную».
           </div>
+          <q-expansion-item
+            v-if="qwenHistory.length"
+            dense
+            switch-toggle-side
+            :label="`История описаний (${qwenHistory.length})`"
+          >
+            <pre class="qwen-history-text">{{ qwenHistoryText }}</pre>
+          </q-expansion-item>
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Отмена" v-close-popup />
@@ -2965,5 +3006,18 @@ body.body--dark .grid-divider {
 
 .viewer-nav--right {
   right: 6px;
+}
+
+.qwen-history-text {
+  margin: 6px 0 0;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 0.76rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #455a64;
+  background: #f5f6f8;
+  border-radius: 6px;
+  padding: 8px;
 }
 </style>

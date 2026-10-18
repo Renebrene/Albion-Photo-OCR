@@ -80,6 +80,7 @@ QWEN_CROP_RATIO_KEY = "qwen_crop_ratio"
 QWEN_API_KEY_KEY = "qwen_api_key"
 QWEN_KEEP_ALIVE_KEY = "qwen_keep_alive"
 QWEN_UNLOAD_IDLE_KEY = "qwen_unload_on_idle"
+BILLBOARD_CROP_ENABLED_KEY = "billboard_detect"
 
 
 def _stored(key: str):
@@ -124,6 +125,24 @@ def _migrate_legacy_model() -> None:
         settings_store.set_value(QWEN_MODEL_KEY, "")
     except Exception:  # noqa: BLE001 - без БД работаем на значениях из env
         return
+
+
+def billboard_crop_available() -> bool:
+    """Whether the optional detector/crop module is installed in this checkout."""
+    try:
+        from app.billboard import config as _billboard_config  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def billboard_crop_enabled() -> bool:
+    """Return the persisted optional billboard-crop setting, when installed."""
+    if not billboard_crop_available():
+        return False
+    from app.billboard.config import resolve_settings as resolve_billboard_settings
+
+    return bool(resolve_billboard_settings()["enabled"])
 
 
 def crop_settings() -> dict:
@@ -198,6 +217,7 @@ def resolve_settings() -> dict:
             if unload_idle is not None
             else QWEN_UNLOAD_ON_IDLE
         ),
+        "billboard_crop_enabled": billboard_crop_enabled(),
         "timeout": QWEN_TIMEOUT,
         "ollama_url": OLLAMA_URL,
         "crop": crop_settings(),
@@ -240,6 +260,8 @@ def public_settings() -> dict:
         "api_key_hint": mask_api_key(config["api_key"]),
         "keep_alive": config["keep_alive"],
         "unload_on_idle": config["unload_on_idle"],
+        "billboard_crop_enabled": config["billboard_crop_enabled"],
+        "billboard_crop_available": billboard_crop_available(),
     }
 
 
@@ -251,6 +273,7 @@ def update_settings(
     api_key: str | None = None,
     keep_alive: str | None = None,
     unload_on_idle: bool | None = None,
+    billboard_crop_enabled: bool | None = None,
 ) -> dict:
     """Persist the supplied settings; return the public view."""
 
@@ -283,6 +306,13 @@ def update_settings(
 
     if unload_on_idle is not None:
         settings_store.set_value(QWEN_UNLOAD_IDLE_KEY, bool(unload_on_idle))
+
+    if billboard_crop_enabled is not None:
+        try:
+            from app.billboard.config import set_enabled as set_billboard_enabled
+        except ImportError as exc:
+            raise ValueError("billboard crop option is not installed") from exc
+        set_billboard_enabled(bool(billboard_crop_enabled))
 
     return public_settings()
 

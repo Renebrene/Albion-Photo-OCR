@@ -4,7 +4,7 @@ Pydantic response models for the read-only web API.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -188,6 +188,20 @@ class QwenJobRequest(BaseModel):
     model: str | None = Field(default=None, max_length=200)
 
 
+class QwenRescanRequest(BaseModel):
+    """Destructive QWEN rescan for one upload/capture date range."""
+
+    date_from: date
+    date_to: date
+    date_mode: str = Field(default="upload", pattern="^(upload|capture)$")
+
+    @model_validator(mode="after")
+    def validate_range(self):
+        if self.date_to < self.date_from:
+            raise ValueError("date_to must not be earlier than date_from")
+        return self
+
+
 class QwenModelRequest(BaseModel):
     """Select the QWEN model used for metadata extraction."""
 
@@ -206,6 +220,7 @@ class QwenSettingsUpdate(BaseModel):
     api_key: str | None = Field(default=None, max_length=512)
     keep_alive: str | None = Field(default=None, max_length=32)
     unload_on_idle: bool | None = None
+    billboard_crop_enabled: bool | None = None
 
 
 class CollectionSummary(BaseModel):
