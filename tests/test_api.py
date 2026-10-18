@@ -181,7 +181,7 @@ def test_address_filter_is_built_from_the_fingerprints():
 
 @requires_db
 @requires_db
-def test_stats_for_the_status_bar():
+def test_stats_for_the_status_bar(sample_photo):
     """Counts for the footer: photos/videos, facets and latest upload times."""
 
     response = client.get("/api/v1/stats")
@@ -200,7 +200,7 @@ def test_stats_for_the_status_bar():
 
 
 @requires_db
-def test_photos_date_filter():
+def test_photos_date_filter(sample_photo):
     all_time = client.get(
         "/api/v1/photos?date_from=2000-01-01&date_to=2099-12-31&limit=5"
     ).json()
@@ -289,7 +289,7 @@ def test_fingerprints_endpoint():
 
 
 @requires_db
-def test_data_storage_stats():
+def test_data_storage_stats(sample_photo):
     data = client.get("/api/v1/data/storage").json()
     assert set(data) == {
         "rows",

@@ -100,7 +100,7 @@ def test_enqueue_qwen_records_the_source():
 
 
 @requires_db
-def test_qwen_stats_reports_base_size_and_runs():
+def test_qwen_stats_reports_base_size_and_runs(sample_photo):
     from app.api import repository
 
     with get_connection() as conn:

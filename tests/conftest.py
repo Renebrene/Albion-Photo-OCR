@@ -100,6 +100,52 @@ def probe_fingerprints():
 
 
 @pytest.fixture
+def sample_photo():
+    """
+    One registered photo for DB tests that assert on a non-empty corpus.
+
+    They used to rely on the operational database having photos, so a fresh
+    disposable database made them fail. The row is removed afterwards.
+    """
+
+    from app.ingest.database import get_connection
+
+    photo_id = "PH_" + "a" * 24
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM public.photos WHERE photo_id = %s",
+                (photo_id,),
+            )
+            cur.execute(
+                """
+                INSERT INTO public.photos
+                    (photo_id, source_path, filename, sha256,
+                     container_format, frame_count, width, height,
+                     size_bytes, taken_at)
+                VALUES (%s, %s, %s, %s, 'JPEG', 1, 16, 12, 1024,
+                        '2026-01-02 03:04:05')
+                """,
+                (
+                    photo_id,
+                    "/tmp/scene-test-photo.jpg",
+                    "scene-test-photo.jpg",
+                    "b" * 64,
+                ),
+            )
+
+    yield photo_id
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM public.photos WHERE photo_id = %s",
+                (photo_id,),
+            )
+
+
+@pytest.fixture
 def make_jpeg(tmp_path):
     """
     Create a small valid JPEG file and return its path.
