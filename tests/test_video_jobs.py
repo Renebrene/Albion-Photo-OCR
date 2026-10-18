@@ -23,6 +23,10 @@ def test_worker_dispatches_transcode_only_and_persists_derivative_result(monkeyp
         lambda **kwargs: {"video_id": kwargs["video_id"], "status": "DONE", "profile": kwargs["profile"]},
     )
     monkeypatch.setattr(video_repository, "update_derivative", lambda *args, **kwargs: updated.append((args, kwargs)))
+    monkeypatch.setattr(video_repository, "register_completed_derivative", lambda _id: "VI_" + "cd" * 12)
+    monkeypatch.setattr(video_repository, "registered_asset_source", lambda _id: {"source_path": "/tmp/copy.mp4", "duration_seconds": 1.0})
+    from app.preview import video as preview_video
+    monkeypatch.setattr(preview_video, "build_video_poster", lambda *_args, **_kwargs: None)
 
     result = worker._execute({
         "id": 10,
@@ -37,6 +41,7 @@ def test_worker_dispatches_transcode_only_and_persists_derivative_result(monkeyp
 
     assert result["status"] == "DONE"
     assert result["profile"] == "strong_720p"
+    assert result["asset_video_id"] == "VI_" + "cd" * 12
     assert updated == []  # run_transcode records DONE atomically after validation
 
 

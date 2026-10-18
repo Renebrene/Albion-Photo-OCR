@@ -272,7 +272,7 @@ def _execute(job: dict) -> dict:
 
         derivative_id = int(payload["derivative_id"])
         try:
-            return run_trim(
+            result = run_trim(
                 video_id=str(payload["video_id"]),
                 derivative_id=derivative_id,
                 source_sha256=str(payload["source_sha256"]),
@@ -281,6 +281,17 @@ def _execute(job: dict) -> dict:
                 job_id=int(job["id"]),
                 progress=job_control(int(job["id"])),
             )
+            asset_id = video_repository.register_completed_derivative(derivative_id)
+            if asset_id:
+                from app.api.config import VIDEO_PREVIEW_ROOT
+                from app.preview.video import build_video_poster
+
+                asset = video_repository.registered_asset_source(asset_id)
+                try:
+                    build_video_poster(asset_id, asset["source_path"], VIDEO_PREVIEW_ROOT, duration_seconds=asset["duration_seconds"])
+                except Exception as exc:  # poster is non-critical after validated asset registration
+                    print(f"[video-worker] poster generation failed for {asset_id}: {exc.__class__.__name__}", flush=True)
+            return {**result, "asset_video_id": asset_id}
         except VideoTranscodeCancelled as exc:
             video_repository.update_derivative(
                 derivative_id, status="CANCELLED", job_id=int(job["id"]), error_message=str(exc)
@@ -304,7 +315,7 @@ def _execute(job: dict) -> dict:
 
         derivative_id = int(payload["derivative_id"])
         try:
-            return run_transcode(
+            result = run_transcode(
                 video_id=str(payload["video_id"]),
                 derivative_id=derivative_id,
                 profile=str(payload["profile"]),
@@ -312,6 +323,17 @@ def _execute(job: dict) -> dict:
                 job_id=int(job["id"]),
                 progress=job_control(int(job["id"])),
             )
+            asset_id = video_repository.register_completed_derivative(derivative_id)
+            if asset_id:
+                from app.api.config import VIDEO_PREVIEW_ROOT
+                from app.preview.video import build_video_poster
+
+                asset = video_repository.registered_asset_source(asset_id)
+                try:
+                    build_video_poster(asset_id, asset["source_path"], VIDEO_PREVIEW_ROOT, duration_seconds=asset["duration_seconds"])
+                except Exception as exc:  # poster is non-critical after validated asset registration
+                    print(f"[video-worker] poster generation failed for {asset_id}: {exc.__class__.__name__}", flush=True)
+            return {**result, "asset_video_id": asset_id}
         except VideoTranscodeCancelled as exc:
             video_repository.update_derivative(
                 derivative_id, status="CANCELLED", job_id=int(job["id"]),

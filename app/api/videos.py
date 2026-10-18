@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, R
 from fastapi.responses import StreamingResponse
 
 from app.api import video_repository
-from app.api.config import ORIGINALS_ROOTS, VIDEO_PREVIEW_ROOT, VIDEO_STORYBOARD_ROOT
+from app.api.config import ORIGINALS_ROOTS, VIDEO_DERIVATIVES_ROOT, VIDEO_PREVIEW_ROOT, VIDEO_STORYBOARD_ROOT
 from app.api.file_access import allowed_media_path
 from app.api.schemas import VideoSummary, VideoTitleUpdate, VideoTranscodeRequest, VideoTrimRequest
 from app.api.auth import require_scope
@@ -43,9 +43,10 @@ def _source(video_id: str) -> tuple[Path, dict]:
     row = video_repository.video_source(video_id)
     if row is None:
         raise HTTPException(status_code=404, detail="video not found")
-    if not ORIGINALS_ROOTS:
+    allowed_roots = [*ORIGINALS_ROOTS, VIDEO_DERIVATIVES_ROOT]
+    if not ORIGINALS_ROOTS and not VIDEO_DERIVATIVES_ROOT.is_dir():
         raise HTTPException(status_code=503, detail="originals are not configured")
-    path = allowed_media_path(row["source_path"], ORIGINALS_ROOTS)
+    path = allowed_media_path(row["source_path"], allowed_roots)
     if path is None:
         raise HTTPException(status_code=404, detail="video source not found")
     return path, row

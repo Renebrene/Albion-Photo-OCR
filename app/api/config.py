@@ -21,6 +21,9 @@ VIDEO_PREVIEW_ROOT = Path(
 VIDEO_STORYBOARD_ROOT = Path(
     os.getenv("SCENE_VIDEO_STORYBOARD_ROOT", str(VIDEO_PREVIEW_ROOT / "storyboards"))
 )
+VIDEO_DERIVATIVES_ROOT = Path(
+    os.getenv("SCENE_VIDEO_DERIVATIVES_ROOT", str(Path(os.getenv("SCENE_DATA", "data")) / "video_derivatives"))
+)
 
 # Fingerprint artifacts (FAISS + metadata) live next to the data directory.
 FINGERPRINTS_ROOT = Path(
@@ -40,6 +43,28 @@ ORIGINALS_ROOTS = [
     for root in os.getenv("SCENE_ORIGINALS_ROOTS", "").split(",")
     if root.strip()
 ]
+
+
+def display_source_directory(source_path: str) -> str:
+    """Return a display-safe directory relative to an allowed originals root."""
+    try:
+        parent = Path(source_path).resolve(strict=False).parent
+    except (OSError, RuntimeError, ValueError):
+        return ""
+    roots = [(root, root.name or "Исходники") for root in ORIGINALS_ROOTS]
+    roots.append((VIDEO_DERIVATIVES_ROOT, "Отредактированные видео"))
+    for root, label in roots:
+        try:
+            root_resolved = root.resolve(strict=False)
+            relative = parent.relative_to(root_resolved)
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if root == VIDEO_DERIVATIVES_ROOT:
+            return label
+        if relative == Path("."):
+            return label
+        return relative.as_posix()
+    return ""
 
 # --- Working (source) folder for INGEST ------------------------------------
 # The folder the ingest scans for new photos. It is selected in the UI and

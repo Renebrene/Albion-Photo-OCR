@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 
 import pytest
 
 from app.api import file_access
+from app.ingest.video_integrity import metadata_identity_hash
 from app.video import transcode
 
 
@@ -30,12 +30,14 @@ def _setup_transcode(monkeypatch, tmp_path):
     source_root.mkdir()
     source = source_root / "clip.mp4"
     source.write_bytes(b"original-source-content")
-    source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    source_digest = metadata_identity_hash(source.name, "2026-10-15", source.stat().st_size)
     output_root = tmp_path / "derivatives"
     monkeypatch.setattr(transcode, "ORIGINALS_ROOTS", [source_root])
     monkeypatch.setattr(transcode, "video_source", lambda _video_id: {
         "source_path": str(source), "filename": source.name,
-        "sha256": source_digest, "duration_seconds": 2.0,
+        "sha256": source_digest, "identity_hash": source_digest,
+        "identity_scheme": "metadata-v1", "identity_date": None, "taken_at": None,
+        "duration_seconds": 2.0, "size_bytes": source.stat().st_size,
     })
     monkeypatch.setattr(transcode, "derivatives_root", lambda: output_root)
     monkeypatch.setattr(transcode, "choose_worker_mode", lambda: ("libx264", 2))
@@ -45,12 +47,15 @@ def _setup_transcode(monkeypatch, tmp_path):
     monkeypatch.setattr(transcode, "update_derivative", lambda *args, **kwargs: updates.append((args, kwargs)))
     monkeypatch.setattr(transcode, "check_video_file", lambda path: {
         "integrity_status": "VALID",
+        "filename": Path(path).name,
+        "identity_hash": metadata_identity_hash(Path(path).name, "2026-10-15", Path(path).stat().st_size),
+        "identity_date": "2026-10-15",
+        "taken_at": None,
         "video_codec": "h264",
         "width": 640,
         "height": 360,
         "duration_seconds": 2.0,
         "fps": 25.0,
-        "sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest(),
         "size_bytes": Path(path).stat().st_size,
     })
     return source, source_digest, output_root, updates

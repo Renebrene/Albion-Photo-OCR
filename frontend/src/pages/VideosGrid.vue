@@ -35,6 +35,15 @@ const isStaff = computed(
 const canPlayVideos = computed(() => isStaff.value)
 const canWriteVideos = computed(() => isStaff.value)
 const canDownloadVideos = computed(() => isStaff.value)
+const MAX_EDIT_VIDEO_BYTES = 1_610_612_736
+const MAX_EDIT_VIDEO_DURATION_SECONDS = 600
+function editLimitReason(video) {
+  if (!video) return ''
+  if (Number(video.size_bytes) > MAX_EDIT_VIDEO_BYTES) return 'Редактирование ограничено размером до 1,5 ГиБ'
+  if (Number(video.duration_seconds) > MAX_EDIT_VIDEO_DURATION_SECONDS) return 'Редактирование ограничено длительностью до 10 минут'
+  return ''
+}
+const editBlockedReason = computed(() => editLimitReason(selectedVideo.value || currentVideo.value))
 const { items, nextCursor, loading, error, query, dateMode, dateFrom, dateTo, selectedVideoId } = storeToRefs(store)
 const viewMode = ref('tiles')
 const detailsOpen = ref(false)
@@ -176,7 +185,8 @@ async function pollTranscode() {
     if (['DONE', 'FAILED', 'CANCELLED'].includes(transcodeInfo.value.status)) {
       stopTranscodePolling()
       if (transcodeInfo.value.status === 'DONE') {
-        Notify.create({ type: 'positive', message: 'Сжатая копия готова' })
+        Notify.create({ type: 'positive', message: 'Копия добавлена в видеогалерею' })
+        await loadPage({ reset: true })
       } else if (transcodeInfo.value.status === 'FAILED') {
         transcodeError.value = transcodeInfo.value.error_message || 'Конвертация завершилась ошибкой'
       }
@@ -340,7 +350,10 @@ async function pollTrim() {
     if (['DONE', 'FAILED', 'CANCELLED'].includes(trimInfo.value.status)) {
       if (trimTimer !== null) clearInterval(trimTimer)
       trimTimer = null
-      if (trimInfo.value.status === 'DONE') Notify.create({ type: 'positive', message: 'Обрезанный клип готов' })
+      if (trimInfo.value.status === 'DONE') {
+        Notify.create({ type: 'positive', message: 'Копия добавлена в видеогалерею' })
+        await loadPage({ reset: true })
+      }
       if (trimInfo.value.status === 'FAILED') trimError.value = trimInfo.value.error_message || 'Обрезка завершилась ошибкой'
     }
   } catch (err) {
@@ -462,7 +475,7 @@ onBeforeUnmount(() => {
       <q-space />
       <span v-if="selectedVideo && canDownloadVideos" class="text-caption ellipsis">Выбрано: {{ selectedVideo.filename }}</span>
       <q-btn v-if="canDownloadVideos" color="primary" icon="download" label="Скачать" :disable="!selectedVideo" :loading="downloading" @click="downloadOriginal" />
-      <q-btn v-if="canWriteVideos" color="secondary" icon="compress" label="Сжать" :disable="!selectedVideo" :loading="transcodeSubmitting">
+      <q-btn v-if="canWriteVideos" color="secondary" icon="compress" label="Сжать" :disable="!selectedVideo || Boolean(editLimitReason(selectedVideo))" :loading="transcodeSubmitting">
         <q-menu anchor="bottom right" self="top right">
           <q-list dense style="min-width: 210px">
             <q-item v-for="profile in transcodeProfiles" :key="profile.value" clickable v-close-popup @click="startTranscode(profile.value)">
@@ -470,7 +483,7 @@ onBeforeUnmount(() => {
             </q-item>
           </q-list>
         </q-menu>
-        <q-tooltip>Сделать H.264/MP4 копию, оригинал останется без изменений</q-tooltip>
+        <q-tooltip>{{ editLimitReason(selectedVideo) || 'Сделать H.264/MP4 копию, оригинал останется без изменений' }}</q-tooltip>
       </q-btn>
       <q-btn v-if="canDownloadVideos && activeTranscode?.status === 'DONE'" outline color="positive" icon="download" label="Скачать сжатое" @click="downloadTranscoded" />
       <CloudLinkButton
@@ -499,6 +512,7 @@ onBeforeUnmount(() => {
           </div>
           <q-card-section class="q-pa-sm">
             <div class="video-filename ellipsis" :title="video.filename">{{ video.filename }}</div>
+            <div class="video-meta ellipsis" :title="video.source_directory">{{ video.source_directory || 'Каталог не указан' }}</div>
             <div class="video-title ellipsis">{{ video.display_title || ' ' }}</div>
             <div class="video-meta">{{ formatCapture(video.taken_at) }}</div>
             <div class="video-meta">{{ formatDuration(video.duration_seconds) }} / {{ formatMegabytes(video.size_bytes) }}</div>
@@ -518,6 +532,7 @@ onBeforeUnmount(() => {
           <q-item-section clickable @click="openDetails(video)">
             <div class="video-list-first">
               <span class="video-filename">{{ video.filename }}</span>
+              <i class="video-directory">{{ video.source_directory || 'Каталог не указан' }}</i>
               <i>{{ formatCapture(video.taken_at) }}</i>
               <i>{{ formatDuration(video.duration_seconds) }}</i>
               <i>{{ formatMegabytes(video.size_bytes) }}</i>
@@ -534,8 +549,11 @@ onBeforeUnmount(() => {
       <div v-if="nextCursor && !loading" class="row justify-center q-pa-md"><q-btn outline label="Загрузить ещё" @click="loadPage()" /></div>
     </div>
 
-    <q-dialog v-model="detailsOpen" maximized @hide="closeDetails">
-      <q-card class="video-details-page">
+    <q-dialog v-model="detailsOpen" :maximized="false" @hide="closeDetails">
+      <q-card
+        class="video-details-page"
+        style="width: 900px; max-width: calc(100vw - 32px); max-height: min(820px, calc(100vh - 48px))"
+      >
         <q-toolbar class="bg-primary text-white">
           <q-toolbar-title class="ellipsis">{{ currentVideo?.filename }}</q-toolbar-title>
           <q-btn flat round dense icon="close" v-close-popup />
@@ -553,6 +571,7 @@ onBeforeUnmount(() => {
             <q-card-section class="panel-head"><div class="panel-title">Сведения о видео</div></q-card-section>
             <q-card-section class="q-gutter-sm">
               <div><b>Файл:</b> {{ currentVideo?.filename }}</div>
+              <div><b>Каталог:</b> {{ currentVideo?.source_directory || '—' }}</div>
               <div><b>Съёмка:</b> {{ formatCapture(currentVideo?.taken_at) }}</div>
               <div><b>Длительность:</b> {{ formatDuration(currentVideo?.duration_seconds) }}</div>
               <div><b>Размер:</b> {{ currentVideo?.width }} × {{ currentVideo?.height }}</div>
@@ -566,7 +585,7 @@ onBeforeUnmount(() => {
               <div v-else><b>Название:</b> {{ currentVideo?.display_title || '—' }}</div>
               <template v-if="canWriteVideos">
                 <q-separator />
-                <q-btn outline color="secondary" icon="content_cut" label="Обрезать фрагмент" @click="enterTrimMode" />
+                <q-btn outline color="secondary" icon="content_cut" label="Обрезать фрагмент" :disable="Boolean(editLimitReason(currentVideo))" @click="enterTrimMode"><q-tooltip v-if="editLimitReason(currentVideo)">{{ editLimitReason(currentVideo) }}</q-tooltip></q-btn>
               </template>
             </q-card-section>
           </q-card>
@@ -657,19 +676,20 @@ onBeforeUnmount(() => {
 .video-list-first { display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
 .video-list-first i { font-style: italic; white-space: nowrap; }
 .video-list-title { font-weight: 700; padding-top: 3px; }
-.video-details-page { display: flex; flex-direction: column; min-height: 0; }
-.video-details-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); gap: 16px; min-height: 0; flex: 1; overflow: auto; }
+.video-details-page { width: 900px; max-width: calc(100vw - 32px); max-height: calc(100vh - 48px); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.video-details-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.9fr); gap: 12px; min-height: 0; flex: 1; overflow: auto; align-items: start; }
 .trim-editor { min-height: 0; flex: 1; overflow: auto; }
-.trim-editor-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 16px; min-height: 0; }
+.trim-editor-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-height: 0; align-items: start; }
 .trim-main { min-width: 0; }
-.trim-player-wrap { min-height: 240px; }
-.trim-player { background: #111; }
-.storyboard-card { align-self: start; }
-.storyboard-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: calc(100vh - 190px); overflow: auto; }
+.trim-player-wrap { min-height: 0; }
+.trim-player { background: #111; max-height: 42vh; }
+.storyboard-card { align-self: start; min-height: 0; }
+.storyboard-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; max-height: calc(100vh - 230px); overflow: auto; }
 .storyboard-frame { border: 0; padding: 0; background: transparent; cursor: pointer; text-align: left; min-width: 0; }
 .storyboard-frame span { display: block; padding: 2px 4px; color: #666; font-size: 0.75rem; }
 .video-player-wrap { background: #111; min-height: 0; display: flex; align-items: center; justify-content: center; }
-.video-player { width: 100%; max-height: calc(100vh - 100px); aspect-ratio: 16 / 9; }
-.video-detail-card { align-self: start; }
-@media (max-width: 850px) { .video-details-layout, .trim-editor-layout { grid-template-columns: 1fr; } .video-list-first { gap: 6px 12px; } .storyboard-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: none; } }
+.video-player { width: 100%; max-height: 50vh; aspect-ratio: 16 / 9; object-fit: contain; }
+.video-detail-card { align-self: start; min-width: 0; }
+@media (max-width: 850px) { .video-details-page { width: calc(100vw - 24px); max-height: calc(100vh - 24px); } .video-details-layout, .trim-editor-layout { grid-template-columns: minmax(0, 1fr); } .video-details-layout { overflow: auto; } .video-list-first { gap: 6px 12px; } .storyboard-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: none; } .video-player { max-height: 42vh; } }
+@media (max-height: 760px) { .video-details-page { max-height: calc(100vh - 24px); } .video-player { max-height: 40vh; } .trim-player { max-height: 34vh; } .storyboard-grid { max-height: calc(100vh - 270px); } }
 </style>

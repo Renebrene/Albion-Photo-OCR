@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import shutil
@@ -10,6 +9,7 @@ import subprocess
 import tempfile
 import time
 from functools import lru_cache
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -17,7 +17,7 @@ from PIL import Image
 
 from app.api.config import ORIGINALS_ROOTS, SOURCE_ROOTS, VIDEO_STORYBOARD_ROOT
 from app.api.file_access import allowed_media_path
-from app.api.video_repository import update_derivative, video_source
+from app.api.video_repository import update_derivative, validate_video_edit_limits, video_source
 from app.core.errors import redact_absolute_paths
 from app.ingest.video_integrity import check_video_file
 from app.video.profiles import PROFILES
@@ -40,14 +40,6 @@ def derivatives_root() -> Path:
 
 def _within(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def _ffmpeg() -> str:
@@ -253,6 +245,7 @@ def generate_storyboard(
     source = allowed_media_path(source_record["source_path"], ORIGINALS_ROOTS)
     if source is None:
         raise ValueError("исходное видео недоступно в разрешённом корне")
+    _facts, source_stat = _validate_source_metadata(source, source_record)
     duration = float(source_record["duration_seconds"])
     if duration <= 0:
         raise ValueError("invalid source duration")
@@ -331,7 +324,8 @@ def generate_storyboard(
             raise
         finally:
             temporary.unlink(missing_ok=True)
-    if _sha256(source) != source_sha256:
+    stat_after = source.stat()
+    if (stat_after.st_size, stat_after.st_mtime_ns) != source_stat:
         raise RuntimeError("исходник изменился во время storyboard generation")
     valid_count = sum(
         _valid_storyboard_frame(target_dir / f"{index:02d}.jpg", root)
@@ -342,6 +336,44 @@ def generate_storyboard(
     if progress:
         progress(STORYBOARD_FRAME_COUNT, STORYBOARD_FRAME_COUNT, "VIDEO_STORYBOARD")
     return {"video_id": video_id, "source_sha256": source_sha256, "frames": valid_count, "created": created}
+
+
+def _copy_output_path(source_path: str, target_dir: Path, derivative_id: int) -> Path:
+    """Return the requested copy name, adding an operation suffix on collision."""
+    stem = Path(source_path).stem
+    candidate = target_dir / f"{stem}_копия.mp4"
+    return candidate if not candidate.exists() else target_dir / f"{stem}_копия_{derivative_id}.mp4"
+
+
+def _validate_source_metadata(source: Path, source_record: dict) -> tuple[dict, tuple[int, int]]:
+    before = source.stat()
+    facts = check_video_file(source)
+    after = source.stat()
+    if facts["integrity_status"] != "VALID" or (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+        raise ValueError("исходный видеофайл изменился или не прошёл проверку метаданных")
+    if facts["filename"] != source_record["filename"] or facts["size_bytes"] != source_record["size_bytes"]:
+        raise ValueError("имя или размер исходного видео изменились после регистрации")
+    if source_record.get("identity_scheme") == "metadata-v1":
+        if facts["identity_hash"] != source_record.get("identity_hash"):
+            raise ValueError("метаданные исходного видео изменились после регистрации")
+    elif source_record.get("taken_at") and facts.get("taken_at") != source_record["taken_at"]:
+        raise ValueError("дата съёмки исходного видео изменилась после регистрации")
+    return facts, (after.st_size, after.st_mtime_ns)
+
+
+def _validate_edit_source(source: Path, source_record: dict) -> tuple[dict, tuple[int, int]]:
+    facts, stat_key = _validate_source_metadata(source, source_record)
+    validate_video_edit_limits(facts["size_bytes"], facts["duration_seconds"])
+    return facts, stat_key
+
+
+def _output_identity_date(facts: dict) -> date:
+    value = facts.get("taken_at")
+    if value is not None:
+        if isinstance(value, datetime):
+            return value.astimezone(timezone.utc).date()
+        return date.fromisoformat(str(value)[:10])
+    return date.fromisoformat(facts["identity_date"])
 
 
 def _trim_filter() -> str:
@@ -369,12 +401,13 @@ def run_trim(
         raise ValueError("invalid trim range")
     source_record = video_source(video_id)
     if source_record is None or source_record["sha256"] != source_sha256:
-        raise ValueError("исходный видеофайл изменился или отсутствует")
-    if end_seconds > float(source_record["duration_seconds"]):
-        raise ValueError("trim end exceeds source duration")
+        raise ValueError("исходное видео изменилось после постановки задания")
     source = allowed_media_path(source_record["source_path"], ORIGINALS_ROOTS)
     if source is None:
         raise ValueError("исходное видео недоступно в разрешённом корне")
+    source_facts, source_stat = _validate_edit_source(source, source_record)
+    if end_seconds > float(source_facts["duration_seconds"]):
+        raise ValueError("trim end exceeds source duration")
 
     output_root = derivatives_root()
     source_roots = [root.expanduser().resolve() for root in (*ORIGINALS_ROOTS, *SOURCE_ROOTS)]
@@ -384,7 +417,7 @@ def run_trim(
     target_dir.mkdir(parents=True, exist_ok=True)
     if target_dir.resolve(strict=True) != target_dir:
         raise ValueError("video derivative path escapes its managed root")
-    destination = target_dir / f"trim-{derivative_id}.mp4"
+    destination = _copy_output_path(source_record["source_path"], target_dir, derivative_id)
     temp_fd, temp_name = tempfile.mkstemp(prefix=f".trim-{job_id}-", suffix=".tmp.mp4", dir=target_dir)
     os.close(temp_fd)
     temporary = Path(temp_name)
@@ -421,12 +454,14 @@ def run_trim(
         expected_duration = end_seconds - start_seconds
         if abs(actual_duration - expected_duration) > 0.25:
             raise RuntimeError("trim output duration differs from selected range")
-        if _sha256(source) != source_sha256:
+        stat_after = source.stat()
+        if (stat_after.st_size, stat_after.st_mtime_ns) != source_stat:
             raise RuntimeError("исходник изменился во время обрезки")
 
         os.replace(temporary, destination)
         result = {
-            "output_path": str(destination), "output_sha256": checked["sha256"],
+            "output_path": str(destination), "output_sha256": None,
+            "output_identity_date": _output_identity_date(checked),
             "output_size_bytes": checked["size_bytes"], "width": checked["width"],
             "height": checked["height"], "duration_seconds": checked["duration_seconds"],
             "fps": checked["fps"], "video_codec": checked["video_codec"], "encoder": "libx264",
@@ -466,10 +501,11 @@ def run_transcode(
         raise ValueError("неизвестный профиль видео")
     source_record = video_source(video_id)
     if source_record is None or source_record["sha256"] != source_sha256:
-        raise ValueError("исходный видеофайл изменился или отсутствует")
+        raise ValueError("исходное видео изменилось после постановки задания")
     source = allowed_media_path(source_record["source_path"], ORIGINALS_ROOTS)
     if source is None:
         raise ValueError("исходное видео недоступно в разрешённом корне")
+    _source_facts, source_stat = _validate_edit_source(source, source_record)
 
     output_root = derivatives_root()
     source_roots = [root.expanduser().resolve() for root in (*ORIGINALS_ROOTS, *SOURCE_ROOTS)]
@@ -481,7 +517,7 @@ def run_transcode(
     target_dir.mkdir(parents=True, exist_ok=True)
     if target_dir.resolve(strict=True) != target_dir:
         raise ValueError("video derivative path escapes its managed root")
-    destination = target_dir / f"{profile}.mp4"
+    destination = _copy_output_path(source_record["source_path"], target_dir, derivative_id)
     ffmpeg = _ffmpeg()
     resolved_encoder = os.getenv("SCENE_VIDEO_ENCODER_RESOLVED")
     if resolved_encoder in {"libx264", "h264_nvenc"}:
@@ -531,13 +567,15 @@ def run_transcode(
             raise RuntimeError("выходное разрешение превышает выбранный профиль")
         if abs((checked["fps"] or 0) - 25) > 0.1:
             raise RuntimeError("выходная частота кадров не равна 25 fps")
-        if _sha256(source) != source_sha256:
+        stat_after = source.stat()
+        if (stat_after.st_size, stat_after.st_mtime_ns) != source_stat:
             raise RuntimeError("исходник изменился во время конвертации")
 
         os.replace(temporary, destination)
         result = {
             "output_path": str(destination),
-            "output_sha256": checked["sha256"],
+            "output_sha256": None,
+            "output_identity_date": _output_identity_date(checked),
             "output_size_bytes": checked["size_bytes"],
             "width": checked["width"],
             "height": checked["height"],

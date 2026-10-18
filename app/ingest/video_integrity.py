@@ -1,8 +1,7 @@
-"""Read-only integrity and metadata checks for source video assets.
+"""Read-only metadata checks for source video assets.
 
-This path is deliberately separate from photo integrity. It probes and fully
-reads the video stream, computes a SHA-256 identity, and never writes to the
-source file. Inference (DINO/HYBRID/QWEN) is not part of video INGEST.
+This path is deliberately separate from photo integrity. It probes container
+metadata and file stats without reading video contents or writing to the source.
 """
 
 from __future__ import annotations
@@ -18,10 +17,7 @@ from typing import Any
 from app.core.errors import redact_paths
 
 SUPPORTED_VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".mpeg", ".mpg"}
-DEFAULT_MAX_VIDEO_BYTES = 300 * 1024 * 1024
-DEFAULT_MAX_VIDEO_SECONDS = 20.0
-DEFAULT_PROBE_TIMEOUT_SECONDS = 30.0
-DEFAULT_DECODE_TIMEOUT_SECONDS = 180.0
+DEFAULT_PROBE_TIMEOUT_SECONDS = 60.0
 
 
 def _positive_env(name: str, default: float) -> float:
@@ -30,14 +26,6 @@ def _positive_env(name: str, default: float) -> float:
     except (TypeError, ValueError):
         return default
     return value if value > 0 else default
-
-
-def max_video_bytes() -> int:
-    return int(_positive_env("SCENE_INGEST_MAX_VIDEO_BYTES", DEFAULT_MAX_VIDEO_BYTES))
-
-
-def max_video_seconds() -> float:
-    return _positive_env("SCENE_INGEST_MAX_VIDEO_SECONDS", DEFAULT_MAX_VIDEO_SECONDS)
 
 
 def discover_video_files(directory: str | Path, *, recursive: bool = True) -> list[Path]:
@@ -52,12 +40,14 @@ def discover_video_files(directory: str | Path, *, recursive: bool = True) -> li
     )
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+def metadata_identity_hash(filename: str, identity_date: str, size_bytes: int) -> str:
+    """Hash a canonical JSON tuple; this is not a hash of file contents."""
+    payload = json.dumps(
+        [Path(filename).name, str(identity_date), int(size_bytes)],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _rational(value: str | None) -> float | None:
@@ -134,23 +124,6 @@ def _probe(path: Path) -> dict[str, Any]:
     return metadata
 
 
-def _decode_check(path: Path) -> None:
-    ffmpeg = os.getenv("SCENE_FFMPEG_BIN", "ffmpeg")
-    timeout = _positive_env("SCENE_INGEST_DECODE_TIMEOUT", DEFAULT_DECODE_TIMEOUT_SECONDS)
-    result = _run(
-        [
-            ffmpeg,
-            "-nostdin", "-v", "error", "-xerror",
-            "-i", str(path),
-            "-map", "0:v:0",
-            "-f", "null", "-",
-        ],
-        timeout=timeout,
-    )
-    if result.returncode != 0:
-        raise ValueError("полная проверка декодирования видео не пройдена")
-
-
 def _metadata_fields(probe: dict[str, Any], size_bytes: int) -> dict[str, Any]:
     streams = probe.get("streams")
     if not isinstance(streams, list):
@@ -218,7 +191,9 @@ def check_video_file(path: str | Path) -> dict[str, Any]:
         "exists": path.exists(),
         "is_file": path.is_file(),
         "extension_valid": path.suffix.lower() in SUPPORTED_VIDEO_EXTENSIONS,
-        "sha256": None,
+        "sha256": None,  # retained only for legacy records; new video ingest does not hash contents
+        "identity_hash": None,
+        "identity_date": None,
         "integrity_status": "INVALID",
         "error": None,
         "container_format": None,
@@ -244,26 +219,27 @@ def check_video_file(path: str | Path) -> dict[str, Any]:
         result["size_bytes"] = size_bytes
         if size_bytes <= 0:
             raise ValueError("видеофайл пуст")
-        if size_bytes > max_video_bytes():
-            raise ValueError(f"видеофайл превышает лимит {max_video_bytes()} байт")
 
-        digest = _sha256(path)
+        # No file-content reads: identity uses only basename, capture day, and size.
         fields = _metadata_fields(_probe(path), size_bytes)
-        if fields["duration_seconds"] > max_video_seconds():
-            raise ValueError(
-                f"длительность превышает лимит {max_video_seconds():.0f} секунд"
-            )
-        _decode_check(path)
+        capture_date = fields["taken_at"]
+        identity_date = (
+            capture_date.astimezone(timezone.utc).date().isoformat()
+            if capture_date is not None
+            else datetime.fromtimestamp(before.st_mtime, timezone.utc).date().isoformat()
+        )
+        identity_hash = metadata_identity_hash(path.name, identity_date, size_bytes)
 
         after = path.stat()
         if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
             raise ValueError("файл изменился во время INGEST; повторите сканирование")
 
         result.update(fields)
-        result["sha256"] = digest
+        result["identity_hash"] = identity_hash
+        result["identity_date"] = identity_date
         result["integrity_status"] = "VALID"
     except FileNotFoundError:
-        result["error"] = "ffprobe/ffmpeg не установлен или файл исчез во время проверки"
+        result["error"] = "ffprobe не установлен или файл исчез во время проверки"
     except subprocess.TimeoutExpired:
         result["error"] = "проверка видео превысила допустимое время"
     except ValueError as exc:

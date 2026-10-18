@@ -1926,6 +1926,9 @@ function tagList(meta) {
                   >
                     {{ clientBrand(photo) }}
                   </div>
+                  <div v-if="photo.source_directory" class="ellipsis text-caption text-grey-7" :title="photo.source_directory">
+                    {{ photo.source_directory }}
+                  </div>
                 </q-card-section>
 
                 <!-- right-click context menu -->
@@ -2036,11 +2039,13 @@ function tagList(meta) {
                        дата загрузки) — третьей строкой, чтобы настройка не
                        потеряла смысл. -->
                   <q-item-label
-                    v-if="extraListFields(photo).length"
+                    v-if="extraListFields(photo).length || photo.source_directory"
                     caption
                     class="ellipsis text-grey-7"
+                    :title="photo.source_directory"
                   >
-                    {{ extraListFields(photo).join(' · ') }}
+                    <template v-if="extraListFields(photo).length">{{ extraListFields(photo).join(' · ') }}</template>
+                    <template v-if="photo.source_directory">{{ extraListFields(photo).length ? ' · ' : '' }}{{ photo.source_directory }}</template>
                   </q-item-label>
                 </q-item-section>
                 <q-item-section side>
@@ -2243,9 +2248,6 @@ function tagList(meta) {
           <div class="col ellipsis">
             <div class="text-subtitle1 ellipsis">
               {{ current?.simple_address || current?.address || 'адрес не определён' }}
-              <span v-if="viewerIndex >= 0" class="text-grey-7">
-                ({{ viewerIndex + 1 }})
-              </span>
             </div>
             <div class="text-caption text-grey-7 ellipsis">
               {{ current?.filename }}
@@ -2493,9 +2495,14 @@ function tagList(meta) {
                   QWEN-метаданных нет.
                 </div>
 
-                <div class="q-mt-md">
-                  <div class="text-caption text-grey">ID</div>
-                  <div class="ellipsis">{{ current?.photo_id }}</div>
+                <div v-if="current?.source_directory" class="q-mt-md text-caption text-grey-7 ellipsis" :title="current.source_directory">
+                  Исходный каталог: {{ current.source_directory }}
+                </div>
+                <div class="q-mt-xs row items-center no-wrap text-caption">
+                  <span class="text-grey q-mr-xs">ID:</span>
+                  <span class="ellipsis">{{ current?.photo_id }}</span>
+                  <q-space />
+                  <span v-if="viewerIndex >= 0" class="text-grey q-ml-sm">№ {{ viewerIndex + 1 }}</span>
                 </div>
               </template>
             </q-card-section>

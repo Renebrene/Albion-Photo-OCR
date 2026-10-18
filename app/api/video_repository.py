@@ -4,23 +4,33 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from psycopg.types.json import Json
 
-from app.api.config import VIDEO_STORYBOARD_ROOT
+from app.api.config import VIDEO_STORYBOARD_ROOT, display_source_directory
 from app.ingest.database import get_connection
 from app.video.profiles import PROFILES
 
 STORYBOARD_FRAME_COUNT = 8
+MAX_EDIT_VIDEO_BYTES = 1_610_612_736  # 1.5 GiB
+MAX_EDIT_VIDEO_DURATION_SECONDS = 10 * 60
+
+
+def validate_video_edit_limits(size_bytes: int, duration_seconds: float) -> None:
+    if int(size_bytes) > MAX_EDIT_VIDEO_BYTES:
+        raise ValueError("редактирование доступно для видео размером не более 1,5 ГиБ")
+    if float(duration_seconds) > MAX_EDIT_VIDEO_DURATION_SECONDS:
+        raise ValueError("редактирование доступно для видео длительностью не более 10 минут")
 
 _VIDEO_FIELDS = """
     video_id, filename, display_title, container_format, video_codec,
     width, height, duration_seconds, fps, frame_count, size_bytes,
-    taken_at, created_at
+    taken_at, created_at, source_path, identity_hash, identity_date, identity_scheme
 """
 
 
@@ -39,6 +49,7 @@ def _video_row(row) -> dict:
         "size_bytes": int(row[10]),
         "taken_at": row[11],
         "created_at": row[12],
+        "source_directory": display_source_directory(str(row[13])) if row[13] else "",
     }
 
 
@@ -94,13 +105,21 @@ def video_source(video_id: str) -> dict | None:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT source_path, filename, size_bytes, sha256, duration_seconds FROM public.video_assets WHERE video_id = %s",
+                """SELECT source_path,filename,size_bytes,COALESCE(identity_hash,sha256),duration_seconds,
+                          sha256,identity_hash,identity_date,identity_scheme,taken_at
+                   FROM public.video_assets WHERE video_id=%s""",
                 (video_id,),
             )
             row = cur.fetchone()
     if row is None:
         return None
-    return {"source_path": row[0], "filename": row[1], "size_bytes": int(row[2]), "sha256": row[3], "duration_seconds": float(row[4])}
+    return {
+        "source_path": row[0], "filename": row[1], "size_bytes": int(row[2]),
+        "sha256": str(row[3]) if row[3] is not None else None,
+        "duration_seconds": float(row[4]), "content_sha256": row[5],
+        "identity_hash": row[6], "identity_date": row[7], "identity_scheme": row[8],
+        "taken_at": row[9],
+    }
 
 
 def update_display_title(video_id: str, title: str) -> dict | None:
@@ -254,13 +273,15 @@ def enqueue_transcode(video_id: str, profile: str) -> dict | None:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT sha256 FROM public.video_assets WHERE video_id=%s FOR UPDATE",
+                "SELECT COALESCE(identity_hash,sha256),size_bytes,duration_seconds,identity_scheme FROM public.video_assets WHERE video_id=%s FOR UPDATE",
                 (video_id,),
             )
             asset = cur.fetchone()
             if asset is None:
                 return None
+            validate_video_edit_limits(asset[1], asset[2])
             source_sha256 = str(asset[0])
+            source_identity_scheme = str(asset[3])
             cur.execute(
                 """SELECT derivative_id, status, job_id, output_path
                    FROM public.video_derivatives
@@ -278,17 +299,18 @@ def enqueue_transcode(video_id: str, profile: str) -> dict | None:
                 derivative_id = int(row[0])
                 cur.execute(
                     """UPDATE public.video_derivatives SET status='PENDING', job_id=NULL,
-                       output_path=NULL, output_sha256=NULL, output_size_bytes=NULL,
+                       output_path=NULL, output_sha256=NULL, output_size_bytes=NULL, output_identity_date=NULL,
                        width=NULL, height=NULL, duration_seconds=NULL, fps=NULL,
                        video_codec=NULL, encoder=NULL, error_message=NULL,
-                       started_at=NULL, finished_at=NULL WHERE derivative_id=%s""",
-                    (derivative_id,),
+                       source_identity_scheme=%s, started_at=NULL, finished_at=NULL WHERE derivative_id=%s""",
+                    (source_identity_scheme, derivative_id),
                 )
             else:
                 cur.execute(
-                    """INSERT INTO public.video_derivatives(video_id, profile, source_sha256, status)
-                       VALUES (%s, %s, %s, 'PENDING') RETURNING derivative_id""",
-                    (video_id, profile, source_sha256),
+                    """INSERT INTO public.video_derivatives(
+                           video_id,profile,source_sha256,source_identity_scheme,status
+                       ) VALUES (%s,%s,%s,%s,'PENDING') RETURNING derivative_id""",
+                    (video_id, profile, source_sha256, source_identity_scheme),
                 )
                 derivative_id = int(cur.fetchone()[0])
 
@@ -324,7 +346,7 @@ def enqueue_storyboard(video_id: str) -> dict | None:
 
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT sha256 FROM public.video_assets WHERE video_id=%s FOR UPDATE", (video_id,))
+            cur.execute("SELECT COALESCE(identity_hash,sha256) FROM public.video_assets WHERE video_id=%s FOR UPDATE", (video_id,))
             asset = cur.fetchone()
             if asset is None:
                 return None
@@ -398,13 +420,15 @@ def enqueue_trim(video_id: str, start_seconds: float, end_seconds: float) -> dic
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT sha256, duration_seconds FROM public.video_assets WHERE video_id=%s FOR UPDATE",
+                "SELECT COALESCE(identity_hash,sha256),duration_seconds,size_bytes,identity_scheme FROM public.video_assets WHERE video_id=%s FOR UPDATE",
                 (video_id,),
             )
             asset = cur.fetchone()
             if asset is None:
                 return None
+            validate_video_edit_limits(asset[2], asset[1])
             source_sha256 = str(asset[0])
+            source_identity_scheme = str(asset[3])
             if end > float(asset[1]):
                 raise ValueError("trim end exceeds source duration")
             cur.execute(
@@ -427,16 +451,17 @@ def enqueue_trim(video_id: str, start_seconds: float, end_seconds: float) -> dic
                     """UPDATE public.video_derivatives SET status='PENDING',job_id=NULL,
                        output_path=NULL,output_sha256=NULL,output_size_bytes=NULL,
                        width=NULL,height=NULL,duration_seconds=NULL,fps=NULL,
-                       video_codec=NULL,encoder=NULL,error_message=NULL,
+                       video_codec=NULL,encoder=NULL,error_message=NULL,source_identity_scheme=%s,
                        started_at=NULL,finished_at=NULL WHERE derivative_id=%s""",
-                    (derivative_id,),
+                    (source_identity_scheme, derivative_id),
                 )
             else:
                 cur.execute(
                     """INSERT INTO public.video_derivatives(
-                           video_id,profile,source_sha256,status,operation_kind,start_seconds,end_seconds,operation_key
-                       ) VALUES (%s,'trim',%s,'PENDING','TRIM',%s,%s,%s) RETURNING derivative_id""",
-                    (video_id, source_sha256, start, end, operation_key),
+                           video_id,profile,source_sha256,source_identity_scheme,status,
+                           operation_kind,start_seconds,end_seconds,operation_key
+                       ) VALUES (%s,'trim',%s,%s,'PENDING','TRIM',%s,%s,%s) RETURNING derivative_id""",
+                    (video_id, source_sha256, source_identity_scheme, start, end, operation_key),
                 )
                 derivative_id = int(cur.fetchone()[0])
             payload = {
@@ -522,6 +547,92 @@ def derivative_source(video_id: str, derivative_id: int) -> dict | None:
     return {"source_path": row[0], "sha256": row[1], "size_bytes": int(row[2])}
 
 
+def _register_completed_derivative(cur, derivative_id: int) -> str:
+    """Expose one validated managed derivative as a durable video-grid asset."""
+    cur.execute(
+        """SELECT d.asset_video_id,d.video_id,d.output_path,d.output_sha256,d.output_size_bytes,
+                  d.width,d.height,d.duration_seconds,d.fps,d.video_codec,d.derivative_id,
+                  a.taken_at,d.output_identity_date,d.source_identity_scheme
+           FROM public.video_derivatives d
+           JOIN public.video_assets a ON a.video_id=d.video_id
+           WHERE d.derivative_id=%s AND d.status='DONE' FOR UPDATE OF d""",
+        (derivative_id,),
+    )
+    row = cur.fetchone()
+    if row is None:
+        raise LookupError("completed video derivative not found")
+    if row[0]:
+        return str(row[0])
+    path = Path(row[2])
+    try:
+        root = Path(os.getenv("SCENE_VIDEO_DERIVATIVES_ROOT", str(Path(os.getenv("SCENE_DATA", "data")) / "video_derivatives"))).expanduser().resolve(strict=True)
+        path = path.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise ValueError("готовая копия видео отсутствует") from exc
+    if root not in path.parents or not path.is_file() or not row[4]:
+        raise ValueError("готовая копия видео отсутствует")
+    stat = path.stat()
+    if stat.st_size != int(row[4]):
+        raise ValueError("размер готовой копии видео изменился")
+    legacy_hash = row[3]
+    identity_date = None
+    identity_hash = None
+    if legacy_hash is not None:
+        video_id = f"VI_{str(legacy_hash)[:24]}"
+    else:
+        from app.ingest.video_register import metadata_identity_hash
+
+        identity_date = row[12] or row[11] or datetime.fromtimestamp(stat.st_mtime, timezone.utc).date()
+        if isinstance(identity_date, datetime):
+            identity_date = identity_date.astimezone(timezone.utc).date()
+        identity_date = identity_date if isinstance(identity_date, date) else date.fromisoformat(str(identity_date))
+        identity_hash = metadata_identity_hash(path.name, identity_date, stat.st_size)
+        video_id = f"VI_{identity_hash[:24]}"
+    cur.execute(
+        """INSERT INTO public.video_assets(
+               video_id,source_path,filename,sha256,identity_hash,identity_date,identity_scheme,
+               container_format,video_codec,width,height,duration_seconds,fps,frame_count,
+               size_bytes,taken_at,parent_video_id,source_derivative_id
+           ) VALUES (%s,%s,%s,%s,%s,%s,%s,'mp4',%s,%s,%s,%s,%s,NULL,%s,%s,%s,%s)
+           ON CONFLICT (video_id) DO NOTHING""",
+        (video_id,str(path),path.name,legacy_hash,identity_hash,identity_date,
+         "legacy-content-sha256" if legacy_hash is not None else "metadata-v1",
+         str(row[9]),int(row[5]),int(row[6]),float(row[7]),row[8],int(row[4]),
+         row[11],str(row[1]),int(row[10])),
+    )
+    lookup_sql = (
+        "SELECT video_id FROM public.video_assets WHERE sha256=%s" if legacy_hash is not None
+        else "SELECT video_id FROM public.video_assets WHERE identity_hash=%s"
+    )
+    cur.execute(lookup_sql, (legacy_hash if legacy_hash is not None else identity_hash,))
+    identity = cur.fetchone()
+    if identity is None:
+        raise RuntimeError("не удалось зарегистрировать копию видео")
+    video_id = str(identity[0])
+    cur.execute(
+        "UPDATE public.video_derivatives SET asset_video_id=%s WHERE derivative_id=%s",
+        (video_id, derivative_id),
+    )
+    return video_id
+
+
+def register_completed_derivative(derivative_id: int) -> str:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            return _register_completed_derivative(cur, derivative_id)
+
+
+def registered_asset_source(video_id: str) -> dict | None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT source_path,duration_seconds FROM public.video_assets WHERE video_id=%s",
+                (video_id,),
+            )
+            row = cur.fetchone()
+    return {"source_path": row[0], "duration_seconds": float(row[1])} if row else None
+
+
 def update_derivative(
     derivative_id: int,
     *,
@@ -537,7 +648,7 @@ def update_derivative(
                 """UPDATE public.video_derivatives SET status=%s,
                      job_id=COALESCE(%s, job_id), error_message=%s,
                      output_path=%s, output_sha256=%s, output_size_bytes=%s,
-                     width=%s, height=%s, duration_seconds=%s, fps=%s,
+                     output_identity_date=%s, width=%s, height=%s, duration_seconds=%s, fps=%s,
                      video_codec=%s, encoder=%s,
                      operation_kind=COALESCE(%s, operation_kind),
                      start_seconds=COALESCE(%s, start_seconds),
@@ -548,7 +659,7 @@ def update_derivative(
                 (
                     status, job_id, error_message,
                     fields.get("output_path"), fields.get("output_sha256"), fields.get("output_size_bytes"),
-                    fields.get("width"), fields.get("height"), fields.get("duration_seconds"),
+                    fields.get("output_identity_date"), fields.get("width"), fields.get("height"), fields.get("duration_seconds"),
                     fields.get("fps"), fields.get("video_codec"), fields.get("encoder"),
                     fields.get("operation_kind"), fields.get("start_seconds"), fields.get("end_seconds"),
                     status == "RUNNING", status in {"DONE", "FAILED", "CANCELLED"}, derivative_id,
@@ -556,6 +667,8 @@ def update_derivative(
             )
             if cur.rowcount != 1:
                 raise LookupError("video derivative not found")
+            if status == "DONE":
+                _register_completed_derivative(cur, derivative_id)
 
 
 def issue_playback_ticket(

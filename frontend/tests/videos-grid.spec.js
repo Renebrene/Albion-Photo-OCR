@@ -14,6 +14,7 @@ const item = {
   video_id: `VI_${'a'.repeat(24)}`,
   filename: 'clip.MP4',
   display_title: 'У входа',
+  source_directory: 'проект/объект-1',
   container_format: 'mov,mp4,m4a',
   video_codec: 'h264',
   width: 1920,
@@ -34,6 +35,8 @@ function response(body, status = 200) {
 }
 
 beforeEach(() => {
+  item.size_bytes = 5 * 1024 * 1024
+  item.duration_seconds = 12.5
   calls = []
   setActivePinia(createPinia())
   global.fetch = fetchMock = vi.fn(async (url, options = {}) => {
@@ -94,6 +97,7 @@ describe('видеогалерея', () => {
     await flushPromises()
     expect(calls.some((call) => call.path.endsWith('/v1/videos'))).toBe(true)
     expect(wrapper.text()).toContain('clip.MP4')
+    expect(wrapper.text()).toContain('проект/объект-1')
     expect(wrapper.text()).toContain('У входа')
     expect(wrapper.text()).toContain('14-10-26')
     expect(wrapper.text()).toContain('12.5 с / 5.0 МБ')
@@ -138,6 +142,11 @@ describe('видеогалерея', () => {
     await flushPromises()
 
     expect(calls.some((call) => call.path.endsWith('/playback-ticket'))).toBe(true)
+    const detailsCard = document.body.querySelector('.video-details-page')
+    expect(detailsCard).toBeTruthy()
+    expect(detailsCard.style.width).toBe('900px')
+    expect(detailsCard.style.maxWidth).toBe('calc(100vw - 32px)')
+    expect(document.body.querySelector('.q-dialog__inner--maximized')).toBeNull()
     const titleInput = document.body.querySelector('input[maxlength="300"]')
     expect(titleInput).toBeTruthy()
     titleInput.value = 'Камера восточного входа'
@@ -201,6 +210,35 @@ describe('видеогалерея', () => {
     expect(trimCall).toBeTruthy()
     expect(JSON.parse(trimCall.body)).toEqual({ start_seconds: 0, end_seconds: 12.5 })
     expect(document.body.textContent).toContain('Скачать клип')
+    wrapper.unmount()
+  })
+
+  it('keeps large videos visible and playable but disables editing', async () => {
+    item.size_bytes = 1_610_612_737
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.text()).toContain('clip.MP4')
+    expect(wrapper.find('.video-card .q-checkbox').exists()).toBe(true)
+    const detailsButton = wrapper.findAll('button').find((button) => button.html().includes('more_horiz'))
+    await detailsButton.trigger('click')
+    await flushPromises()
+    expect(calls.some((call) => call.path.endsWith('/playback-ticket'))).toBe(true)
+    const trimButton = Array.from(document.body.querySelectorAll('button')).find((button) => button.textContent.includes('Обрезать фрагмент'))
+    expect(trimButton.disabled).toBe(true)
+    wrapper.unmount()
+    item.size_bytes = 5 * 1024 * 1024
+  })
+
+  it('disables editing above ten minutes but leaves playback available', async () => {
+    item.duration_seconds = 600.1
+    const wrapper = mountPage()
+    await flushPromises()
+    const detailsButton = wrapper.findAll('button').find((button) => button.html().includes('more_horiz'))
+    await detailsButton.trigger('click')
+    await flushPromises()
+    expect(calls.some((call) => call.path.endsWith('/playback-ticket'))).toBe(true)
+    const trimButton = Array.from(document.body.querySelectorAll('button')).find((button) => button.textContent.includes('Обрезать фрагмент'))
+    expect(trimButton.disabled).toBe(true)
     wrapper.unmount()
   })
 

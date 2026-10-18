@@ -19,6 +19,7 @@ class PhotoSummary(BaseModel):
 
     photo_id: str = Field(pattern=r"^PH_[0-9a-f]{24}$")
     filename: str
+    source_directory: str = ""
     width: int
     height: int
     container_format: str
@@ -52,6 +53,7 @@ class PhotoPage(BaseModel):
 class VideoSummary(BaseModel):
     video_id: str = Field(pattern=r"^VI_[0-9a-f]{24}$")
     filename: str
+    source_directory: str = ""
     display_title: str = ""
     container_format: str
     video_codec: str

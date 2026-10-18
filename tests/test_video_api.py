@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -177,6 +179,45 @@ def test_download_requires_originals_scope_and_uses_attachment_ticket(tmp_path, 
     assert response.status_code == 200
     assert response.content == b"download-me"
     assert response.headers["content-disposition"].startswith("attachment;")
+
+
+def test_transcode_and_trim_enqueue_return_limit_errors(monkeypatch):
+    monkeypatch.setenv("SCENE_AUTH_REQUIRED", "0")
+    monkeypatch.setenv("SCENE_API_TOKENS", "")
+    message = "редактирование доступно для видео размером не более 1,5 ГиБ"
+    monkeypatch.setattr(videos.video_repository, "enqueue_transcode", lambda *_args: (_ for _ in ()).throw(ValueError(message)))
+    monkeypatch.setattr(videos.video_repository, "enqueue_trim", lambda *_args: (_ for _ in ()).throw(ValueError(message)))
+    client = TestClient(make_app())
+    video_id = "VI_" + "ef" * 12
+    assert client.post(f"/api/v1/videos/{video_id}/transcodes", json={"profile": "strong_720p"}).status_code == 422
+    response = client.post(f"/api/v1/videos/{video_id}/trim", json={"start_seconds": 0, "end_seconds": 1})
+    assert response.status_code == 422
+    assert response.json()["detail"] == message
+
+
+def test_source_directory_is_relative_to_allowed_roots_and_hides_untrusted_paths(tmp_path, monkeypatch):
+    from app.api import config
+
+    root = tmp_path / "originals"
+    nested = root / "project" / "site"
+    nested.mkdir(parents=True)
+    monkeypatch.setattr(config, "ORIGINALS_ROOTS", [root])
+    assert config.display_source_directory(str(nested / "photo.jpg")) == "project/site"
+    assert config.display_source_directory("/etc/passwd") == ""
+
+
+def test_edit_limit_boundaries_allow_exact_caps():
+    from app.api.video_repository import (
+        MAX_EDIT_VIDEO_BYTES,
+        MAX_EDIT_VIDEO_DURATION_SECONDS,
+        validate_video_edit_limits,
+    )
+
+    validate_video_edit_limits(MAX_EDIT_VIDEO_BYTES, MAX_EDIT_VIDEO_DURATION_SECONDS)
+    with pytest.raises(ValueError, match="1,5 ГиБ"):
+        validate_video_edit_limits(MAX_EDIT_VIDEO_BYTES + 1, 1)
+    with pytest.raises(ValueError, match="10 минут"):
+        validate_video_edit_limits(1, MAX_EDIT_VIDEO_DURATION_SECONDS + 0.001)
 
 
 def test_video_title_write_is_validated_by_scope(tmp_path, monkeypatch):

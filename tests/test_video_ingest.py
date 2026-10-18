@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -60,7 +59,7 @@ def _video_file(path: Path) -> Path:
     return path
 
 
-def test_video_integrity_hashes_file_and_extracts_metadata_read_only(tmp_path, monkeypatch):
+def test_video_integrity_uses_metadata_identity_without_reading_contents(tmp_path, monkeypatch):
     source = _video_file(tmp_path / "папка with spaces" / "sample.MP4")
     original_bytes = source.read_bytes()
     calls = _install_probe(monkeypatch)
@@ -68,7 +67,11 @@ def test_video_integrity_hashes_file_and_extracts_metadata_read_only(tmp_path, m
     result = video_integrity.check_video_file(source)
 
     assert result["integrity_status"] == "VALID"
-    assert result["sha256"] == hashlib.sha256(original_bytes).hexdigest()
+    assert result["sha256"] is None
+    assert result["identity_hash"] == video_integrity.metadata_identity_hash(
+        source.name, "2026-10-15", len(original_bytes)
+    )
+    assert result["identity_date"] == "2026-10-15"
     assert result["container_format"].startswith("mov")
     assert result["video_codec"] == "h264"
     assert (result["width"], result["height"]) == (1920, 1080)
@@ -77,9 +80,28 @@ def test_video_integrity_hashes_file_and_extracts_metadata_read_only(tmp_path, m
     assert result["frame_count"] == 50
     assert result["size_bytes"] == len(original_bytes)
     assert result["taken_at"].isoformat() == "2026-10-15T08:12:30+00:00"
-    assert [call[0][0] for call in calls] == ["ffprobe", "ffmpeg"]
+    assert [call[0][0] for call in calls] == ["ffprobe"]
     assert source.read_bytes() == original_bytes
     assert all(call[0].count(str(source)) == 1 for call in calls)
+
+
+def test_video_identity_date_falls_back_to_utc_mtime_date(tmp_path, monkeypatch):
+    source = _video_file(tmp_path / "fallback.mp4")
+    stamp = 1_796_140_800  # 2026-12-01T00:00:00Z
+    import os
+
+    os.utime(source, (stamp, stamp))
+    calls = _install_probe(monkeypatch, _probe_json(creation_time=None))
+
+    result = video_integrity.check_video_file(source)
+
+    assert result["integrity_status"] == "VALID"
+    assert result["taken_at"] is None
+    assert result["identity_date"] == "2026-12-01"
+    assert result["identity_hash"] == video_integrity.metadata_identity_hash(
+        source.name, "2026-12-01", source.stat().st_size
+    )
+    assert len(calls) == 1
 
 
 def test_video_integrity_rejects_unsupported_extension_without_running_tools(tmp_path, monkeypatch):
@@ -97,16 +119,16 @@ def test_video_integrity_rejects_unsupported_extension_without_running_tools(tmp
     assert "расширение" in result["error"]
 
 
-def test_video_integrity_rejects_duration_over_configured_limit(tmp_path, monkeypatch):
+def test_video_integrity_accepts_duration_above_old_ingest_limit(tmp_path, monkeypatch):
     source = _video_file(tmp_path / "long.mp4")
     calls = _install_probe(monkeypatch, _probe_json(duration="21"))
     monkeypatch.setenv("SCENE_INGEST_MAX_VIDEO_SECONDS", "20")
 
     result = video_integrity.check_video_file(source)
 
-    assert result["integrity_status"] == "INVALID"
-    assert "длительность" in result["error"]
-    assert len(calls) == 1  # no expensive full decode after metadata rejects it
+    assert result["integrity_status"] == "VALID"
+    assert result["duration_seconds"] == 21
+    assert len(calls) == 1  # ingest does not run a full decode
 
 
 def test_video_integrity_handles_missing_ffmpeg_as_actionable_error(tmp_path, monkeypatch):
@@ -119,22 +141,25 @@ def test_video_integrity_handles_missing_ffmpeg_as_actionable_error(tmp_path, mo
     result = video_integrity.check_video_file(source)
 
     assert result["integrity_status"] == "INVALID"
-    assert "ffprobe/ffmpeg не установлен" in result["error"]
+    assert "ffprobe не установлен" in result["error"]
 
 
-def test_video_identity_uses_separate_namespace_and_full_hash():
-    digest = "ab" * 32
-    assert video_register.create_video_identity(digest) == "VI_" + digest[:24]
-    with pytest.raises(ValueError):
-        video_register.create_video_identity("PH_" + "0" * 24)
+def test_video_identity_hashes_basename_date_and_size_only():
+    digest = video_register.metadata_identity_hash("folder/clip.mp4", "2026-10-15", 1234)
+    assert video_register.create_video_identity("clip.mp4", "2026-10-15", 1234) == "VI_" + digest[:24]
+    assert video_register.metadata_identity_hash("clip.mp4", "2026-10-15", 1235) != digest
+    assert video_register.metadata_identity_hash("clip.mp4", "2026-10-16", 1234) != digest
+    assert video_register.metadata_identity_hash("other.mp4", "2026-10-15", 1234) != digest
 
 
 def test_register_video_validates_nullable_fields_and_metadata():
-    digest = "12" * 32
+    identity_hash = video_register.metadata_identity_hash("clip.mp4", "2026-10-15", 900)
     record = video_register.register_video(
         source_path="/tmp/source/clip.mp4",
         filename="clip.mp4",
-        sha256=digest,
+        sha256=None,
+        identity_hash=identity_hash,
+        identity_date="2026-10-15",
         container_format="mov,mp4,m4a",
         video_codec="h264",
         width=1920,
@@ -146,14 +171,18 @@ def test_register_video_validates_nullable_fields_and_metadata():
         taken_at=None,
     )
 
-    assert record.video_id == "VI_" + digest[:24]
+    assert record.video_id == "VI_" + identity_hash[:24]
+    assert record.sha256 is None
+    assert record.identity_hash == identity_hash
     assert record.fps is None
     assert record.frame_count is None
     assert record.taken_at is None
 
     with pytest.raises(ValueError):
         video_register.register_video(
-            source_path="x", filename="x.mp4", sha256=digest,
+            source_path="x", filename="x.mp4", sha256=None,
+            identity_hash=video_register.metadata_identity_hash("x.mp4", "2026-10-15", 10),
+            identity_date="2026-10-15",
             container_format="mp4", video_codec="h264", width=0,
             height=1080, duration_seconds=2, size_bytes=10,
         )
@@ -172,7 +201,10 @@ def test_ingest_directory_keeps_video_out_of_photo_records(tmp_path, monkeypatch
         "check_video_file",
         lambda _path: {
             "integrity_status": "VALID", "source_path": str(video_path),
-            "filename": video_path.name, "sha256": "34" * 32,
+            "filename": video_path.name, "sha256": None,
+            "identity_hash": video_register.metadata_identity_hash(
+                video_path.name, "2026-10-15", video_path.stat().st_size
+            ), "identity_date": "2026-10-15",
             "container_format": "mp4", "video_codec": "h264", "width": 640,
             "height": 360, "duration_seconds": 2.0, "fps": 25.0,
             "frame_count": 50, "size_bytes": video_path.stat().st_size,

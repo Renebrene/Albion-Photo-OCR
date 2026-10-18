@@ -88,10 +88,22 @@ def test_repo_schema_files_are_discoverable():
     assert "028_video_transcodes" in versions
     assert "029_photo_preview_jobs" in versions
     assert "030_video_trim" in versions
+    assert "041_video_registered_derivatives" in versions
     # 000 is the superuser bootstrap step, never a migration.
     assert not any(v.startswith("000_") for v in versions)
     # Every file has a 64-char sha256 checksum.
     assert all(len(m.checksum) == 64 for m in migrations)
+
+
+def test_video_identity_migration_preserves_legacy_hashes_and_adds_metadata_keys():
+    sql = (REPO_ROOT / "schema/041_video_registered_derivatives.sql").read_text(encoding="utf-8")
+    assert "ADD COLUMN identity_hash CHAR(64)" in sql
+    assert "ALTER COLUMN sha256 DROP NOT NULL" in sql
+    assert "CREATE UNIQUE INDEX ux_video_assets_identity_hash" in sql
+    assert "legacy-content-sha256" in sql
+    assert "metadata-v1" in sql
+    assert "output_identity_date" in sql
+    assert "video_derivatives_done_output_check" in sql
 
 
 def test_video_trim_migration_preserves_job_types_and_operation_uniqueness():

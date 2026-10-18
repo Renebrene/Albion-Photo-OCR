@@ -543,19 +543,13 @@ DATABASE IDENTITY CHECK и последующая регистрация нов�
 
 Папочный `INGEST_DIR` теперь дополнительно находит video-файлы и обрабатывает их отдельной веткой; JPEG/MPO pipeline и таблица `public.photos` остаются без изменений.
 
-Поддерживаемые расширения: `.mp4`, `.m4v`, `.mov`, `.mpeg`, `.mpg` (регистр не важен). Расширение служит только предварительным фильтром: содержимое проверяется `ffprobe`, затем полностью декодируется `ffmpeg -xerror` без записи в источник. SHA-256 вычисляется по всему физическому файлу; `video_id = VI_ + первые 24 hex SHA-256`, полный digest хранится и проверяется для identity.
+Поддерживаемые расширения: `.mp4`, `.m4v`, `.mov`, `.mpeg`, `.mpg` (регистр не важен). Расширение служит только предварительным фильтром: содержимое и metadata проверяются `ffprobe`; INGEST использует только stat, не вычисляет hash содержимого и не читает видео целиком. Новые ID — `VI_` + первые 24 hex SHA-256 от однозначно сериализованных `[basename, UTC-дата YYYY-MM-DD, size_bytes]`; дата берётся из embedded `creation_time`, при отсутствии — UTC-день mtime. Поэтому одинаковые имя/дата/размер имеют одинаковый ID даже при разных bytes. Зарегистрированные до migration 041 строки и их старые content-SHA ID сохраняются без rewrite.
 
-Начальные пределы конфигурируются через environment file:
+Регистрация и отображение не ограничены размером/длительностью. Для metadata probe задаётся `SCENE_INGEST_PROBE_TIMEOUT` (по умолчанию 60 секунд); бинарники — `SCENE_FFPROBE_BIN=/usr/bin/ffprobe`, `SCENE_FFMPEG_BIN=/usr/bin/ffmpeg`. Лимиты ingest `SCENE_INGEST_MAX_VIDEO_BYTES` и `SCENE_INGEST_MAX_VIDEO_SECONDS` больше не применяются. Отдельные пределы операций редактирования описаны в `docs/video.md`.
 
-- `SCENE_INGEST_MAX_VIDEO_BYTES=314572800` (300 MiB);
-- `SCENE_INGEST_MAX_VIDEO_SECONDS=20`;
-- `SCENE_INGEST_PROBE_TIMEOUT=30`;
-- `SCENE_INGEST_DECODE_TIMEOUT=180`;
-- `SCENE_FFPROBE_BIN=/usr/bin/ffprobe`, `SCENE_FFMPEG_BIN=/usr/bin/ffmpeg`.
+`video_assets` (`schema/026_video_assets.sql` + additive `schema/041_video_registered_derivatives.sql`) хранит отдельную video identity, контейнер/кодек, разрешение, длительность, fps, число кадров (NULL, если источник не сообщает), размер файла, best-effort `taken_at` из creation_time и `created_at` как время регистрации. Metadata identity hash и identity date хранятся отдельно от `sha256`; в новых rows `sha256` остаётся NULL, legacy content-SHA значения не переписываются. При отсутствии creation_time `taken_at` остаётся NULL (mtime используется только как fallback для identity date); файл не получает выдуманную дату съёмки.
 
-`video_assets` (`schema/026_video_assets.sql`) хранит отдельную video identity, контейнер/кодек, разрешение, длительность, fps, число кадров (NULL, если источник не сообщает), размер файла, best-effort `taken_at` из creation_time и `created_at` как время регистрации. При отсутствии creation_time `taken_at` остаётся NULL; файл не получает выдуманную дату съёмки.
-
-Сводка `ingest_directory()` сохраняет прежние photo-поля и добавляет `videos` со счётчиками `discovered/valid/invalid/registered/existing`, конфликтами и ограниченным списком ошибок. Повторное сканирование использует полную SHA-256 identity для видео (без filename+size short-cut). Ни `VIDEO` записи, ни derivatives не вставляются в `photos`; DINO, HYBRID, QWEN, photo-preview и fingerprint-build jobs для видео не создаются.
+Сводка `ingest_directory()` сохраняет прежние photo-поля и добавляет `videos` со счётчиками `discovered/valid/invalid/registered/existing`, конфликтами и ограниченным списком ошибок. Повторное сканирование новых видео использует metadata identity; legacy assets по возможности повторно сопоставляются по исходному пути и зарегистрированным метаданным без изменения старого ID. Ни `VIDEO` записи, ни derivatives не вставляются в `photos`; DINO, HYBRID, QWEN, photo-preview и fingerprint-build jobs для видео не создаются.
 
 Для запуска нужен установленный runtime `ffmpeg`/`ffprobe`, видимый сервисам systemd. Если бинарь отсутствует, видео попадёт в INVALID с понятной ошибкой, фото-ingest продолжится. Для зарегистрированного видео INGEST best-effort создаёт poster JPEG по `video_id` в `SCENE_VIDEO_PREVIEW_ROOT` (по умолчанию `<SCENE_PREVIEW_ROOT>/videos`); это производный файл, оригинал не меняется. Ошибка poster не отменяет регистрацию видео.
 

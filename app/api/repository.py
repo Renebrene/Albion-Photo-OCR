@@ -10,6 +10,7 @@ from __future__ import annotations
 from psycopg.types.json import Json
 
 from app.api import fingerprints
+from app.api.config import display_source_directory
 from app.api.schemas import (
     DinoBatchSummary,
     DinoRunSummary,
@@ -56,7 +57,8 @@ _PHOTO_BASE = """
             AS qwen_described,
         p.created_at AS created_at,
         p.taken_at AS taken_at,
-        p.size_bytes AS size_bytes
+        p.size_bytes AS size_bytes,
+        p.source_path AS source_path
     FROM public.photos AS p
     LEFT JOIN public.photo_qwen AS q ON q.photo_id = p.photo_id
 """
@@ -85,7 +87,7 @@ _PHOTO_DERIVED = """
 
 _PHOTO_SELECT = (
     "SELECT photo_id, filename, width, height, container_format, "
-    "address, client, brand, category, created_at, taken_at, size_bytes, "
+    "address, client, brand, category, created_at, taken_at, size_bytes, source_path, "
     "legal_address, simple_address, qwen_status, qwen_described "
     "FROM (" + _PHOTO_DERIVED + ") AS t"
 )
@@ -105,10 +107,11 @@ def _photo_row(row) -> PhotoSummary:
         created_at=row[9],
         taken_at=row[10],
         size_bytes=row[11],
-        legal_address=row[12],
-        simple_address=row[13],
-        qwen_status=row[14],
-        qwen_described=bool(row[15]) if row[15] is not None else None,
+        source_directory=display_source_directory(row[12]) if row[12] else "",
+        legal_address=row[13],
+        simple_address=row[14],
+        qwen_status=row[15],
+        qwen_described=bool(row[16]) if row[16] is not None else None,
     )
 
 

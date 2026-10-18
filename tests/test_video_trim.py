@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 
 import pytest
 
 from app.video import transcode
+from app.ingest.video_integrity import metadata_identity_hash
 from app.api import video_repository
 from app.api.schemas import VideoTrimRequest
 from pydantic import ValidationError
@@ -16,22 +16,31 @@ def _setup_trim(monkeypatch, tmp_path):
     source_root.mkdir()
     source = source_root / "synthetic.mp4"
     source.write_bytes(b"synthetic-source")
-    source_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+    source_sha = metadata_identity_hash(source.name, "2026-10-15", source.stat().st_size)
     output_root = tmp_path / "derivatives"
     monkeypatch.setattr(transcode, "ORIGINALS_ROOTS", [source_root])
     monkeypatch.setattr(transcode, "SOURCE_ROOTS", [source_root])
     monkeypatch.setattr(transcode, "video_source", lambda _video_id: {
-        "source_path": str(source), "sha256": source_sha, "duration_seconds": 10.0,
+        "source_path": str(source), "filename": source.name, "sha256": source_sha,
+        "identity_hash": source_sha, "identity_scheme": "metadata-v1", "identity_date": None,
+        "taken_at": None, "duration_seconds": 10.0, "size_bytes": source.stat().st_size,
     })
     monkeypatch.setattr(transcode, "derivatives_root", lambda: output_root)
     monkeypatch.setattr(transcode, "_ffmpeg", lambda: "/fake/ffmpeg")
     monkeypatch.setenv("SCENE_VIDEO_TRANSCODE_THREADS", "2")
     monkeypatch.setattr(transcode, "update_derivative", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(transcode, "check_video_file", lambda path: {
-        "integrity_status": "VALID", "video_codec": "h264", "width": 640, "height": 360,
-        "duration_seconds": 3.0, "fps": 25.0, "sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest(),
-        "size_bytes": Path(path).stat().st_size,
-    })
+    def checked(path):
+        path = Path(path)
+        return {
+            "integrity_status": "VALID", "filename": path.name,
+            "video_codec": "h264", "width": 640, "height": 360,
+            "duration_seconds": 10.0 if path == source else 3.0, "fps": 25.0,
+            "identity_hash": metadata_identity_hash(path.name, "2026-10-15", path.stat().st_size),
+            "identity_date": "2026-10-15", "taken_at": None,
+            "size_bytes": path.stat().st_size,
+        }
+
+    monkeypatch.setattr(transcode, "check_video_file", checked)
     return source, source_sha, output_root
 
 
@@ -48,6 +57,19 @@ def test_trim_request_schema_rejects_invalid_ranges():
             VideoTrimRequest(**payload)
 
 
+def _storyboard_source(monkeypatch, source, duration):
+    monkeypatch.setattr(transcode, "video_source", lambda _video_id: {
+        "source_path": str(source), "filename": source.name, "sha256": "ef" * 32,
+        "identity_scheme": "legacy-content-sha256", "taken_at": None,
+        "duration_seconds": duration, "size_bytes": source.stat().st_size,
+    })
+    monkeypatch.setattr(transcode, "check_video_file", lambda path: {
+        "integrity_status": "VALID", "filename": Path(path).name,
+        "size_bytes": Path(path).stat().st_size, "duration_seconds": duration,
+        "taken_at": None,
+    })
+
+
 def test_storyboard_creates_bounded_jpegs_without_touching_source(monkeypatch, tmp_path):
     from PIL import Image
 
@@ -55,14 +77,12 @@ def test_storyboard_creates_bounded_jpegs_without_touching_source(monkeypatch, t
     source_root.mkdir()
     source = source_root / "synthetic.mp4"
     source.write_bytes(b"synthetic-video")
-    source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    source_hash = "ef" * 32
     storyboard_root = tmp_path / "storyboards"
     monkeypatch.setattr(transcode, "ORIGINALS_ROOTS", [source_root])
     monkeypatch.setattr(transcode, "SOURCE_ROOTS", [source_root])
     monkeypatch.setattr(transcode, "VIDEO_STORYBOARD_ROOT", storyboard_root)
-    monkeypatch.setattr(transcode, "video_source", lambda _video_id: {
-        "source_path": str(source), "sha256": source_hash, "duration_seconds": 12.0,
-    })
+    _storyboard_source(monkeypatch, source, 12.0)
 
     class CompletedProcess:
         returncode = 0
@@ -93,13 +113,11 @@ def test_storyboard_cancellation_terminates_ffmpeg_child(tmp_path, monkeypatch):
     source_root.mkdir()
     source = source_root / "synthetic.mp4"
     source.write_bytes(b"synthetic-video")
-    source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    source_hash = "ef" * 32
     monkeypatch.setattr(transcode, "ORIGINALS_ROOTS", [source_root])
     monkeypatch.setattr(transcode, "SOURCE_ROOTS", [source_root])
     monkeypatch.setattr(transcode, "VIDEO_STORYBOARD_ROOT", tmp_path / "storyboards")
-    monkeypatch.setattr(transcode, "video_source", lambda _vid: {
-        "source_path": str(source), "sha256": source_hash, "duration_seconds": 10.0,
-    })
+    _storyboard_source(monkeypatch, source, 10.0)
 
     class Process:
         returncode = None
@@ -137,7 +155,7 @@ def test_storyboard_rejects_symlinked_video_directory(tmp_path, monkeypatch):
     source_root.mkdir()
     source = source_root / "synthetic.mp4"
     source.write_bytes(b"synthetic-video")
-    source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    source_hash = "ef" * 32
     storyboard_root = tmp_path / "storyboards"
     storyboard_root.mkdir()
     outside = tmp_path / "outside"
@@ -146,9 +164,7 @@ def test_storyboard_rejects_symlinked_video_directory(tmp_path, monkeypatch):
     monkeypatch.setattr(transcode, "ORIGINALS_ROOTS", [source_root])
     monkeypatch.setattr(transcode, "SOURCE_ROOTS", [source_root])
     monkeypatch.setattr(transcode, "VIDEO_STORYBOARD_ROOT", storyboard_root)
-    monkeypatch.setattr(transcode, "video_source", lambda _vid: {
-        "source_path": str(source), "sha256": source_hash, "duration_seconds": 10.0,
-    })
+    _storyboard_source(monkeypatch, source, 10.0)
 
     with pytest.raises(ValueError, match="escapes"):
         transcode.generate_storyboard(video_id="VI_" + "78" * 12, source_sha256=source_hash)
@@ -180,7 +196,7 @@ def test_trim_publishes_unique_derivative_and_preserves_source(tmp_path, monkeyp
         start_seconds=2.0, end_seconds=5.0, job_id=77, progress=lambda *_args: None,
     )
 
-    output = output_root / ("VI_" + "12" * 12) / "trim-14.mp4"
+    output = output_root / ("VI_" + "12" * 12) / "synthetic_копия.mp4"
     assert output.read_bytes() == b"trimmed-output"
     assert source.read_bytes() == original
     assert result["status"] == "DONE"
@@ -214,6 +230,10 @@ def test_trim_worker_dispatches_trim_job(monkeypatch):
     calls = []
     monkeypatch.setattr(transcode, "run_trim", lambda **kwargs: calls.append(kwargs) or {"status": "DONE"})
     monkeypatch.setattr(worker, "job_control", lambda _job_id: lambda *_args: None)
+    monkeypatch.setattr(video_repository, "register_completed_derivative", lambda _id: "VI_" + "ab" * 12)
+    monkeypatch.setattr(video_repository, "registered_asset_source", lambda _id: {"source_path": "/tmp/copy.mp4", "duration_seconds": 1.0})
+    from app.preview import video as preview_video
+    monkeypatch.setattr(preview_video, "build_video_poster", lambda *_args, **_kwargs: None)
 
     result = worker._execute({
         "id": 99,
@@ -227,7 +247,7 @@ def test_trim_worker_dispatches_trim_job(monkeypatch):
         },
     })
 
-    assert result == {"status": "DONE"}
+    assert result == {"status": "DONE", "asset_video_id": "VI_" + "ab" * 12}
     assert calls[0]["start_seconds"] == 1.25
     assert calls[0]["end_seconds"] == 4.5
 
