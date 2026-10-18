@@ -39,6 +39,15 @@ data/inbox/
 *.sqlite
 *.sqlite3
 
+# Generated media derivatives (for video edits)
+data/video_derivatives/
+
+# Temporary copies of source files
+app/ingest/runner.py.tmp.*
+
+# Local JS tooling dependencies
+node_modules/
+
 # OS / editor
 .DS_Store
 Thumbs.db
