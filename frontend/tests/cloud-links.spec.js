@@ -64,7 +64,9 @@ describe('облачные ссылки', () => {
     await wrapper.find('button').trigger('click')
     await flushPromises()
 
-    expect(global.fetch.mock.calls[1][0]).toContain('include_unready=true')
+    const pollUrl = new URL(global.fetch.mock.calls[1][0], 'http://localhost')
+    expect(pollUrl.searchParams.get('include_unready')).toBe('true')
+    expect(pollUrl.searchParams.get('all')).toBe('false')
     expect(document.body.textContent).toContain('FAILED')
     expect(document.body.textContent).toContain('Albion отклонил API-ключ')
     wrapper.unmount()

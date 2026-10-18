@@ -36,7 +36,7 @@ function mergeLinks(rows) {
 async function poll() {
   attempts += 1
   try {
-    const data = await fetchMediaLinks({ all: true, limit: 200, includeUnready: true })
+    const data = await fetchMediaLinks({ limit: 200, includeUnready: true })
     mergeLinks(data.items || [])
     if (!hasPending.value || attempts >= 150) stopPolling()
   } catch (err) {
