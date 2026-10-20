@@ -353,13 +353,68 @@ const filteredAddresses = computed(() => {
   )
 })
 
+// Поиск в панели идёт по всей базе, а не по показанным 100 клиентам:
+// подсказки приходят из /v1/search/suggestions и включают бренды.
+const remoteClientItems = ref([])
+let clientSuggestTimer = null
+
+watch(clientSearch, (value) => {
+  if (clientSuggestTimer !== null) window.clearTimeout(clientSuggestTimer)
+
+  const term = String(value || '').trim()
+
+  if (term.length < 2) {
+    remoteClientItems.value = []
+    return
+  }
+
+  clientSuggestTimer = window.setTimeout(async () => {
+    try {
+      const data = await fetchSearchSuggestions(term, 20)
+      const items = (data.items || [])
+        .filter((item) => item.kind === 'client' || item.kind === 'brand')
+        .map((item) => ({
+          value: item.value,
+          kind: item.kind,
+          count: item.uses,
+        }))
+
+      // Пока шёл запрос, текст мог измениться — применяем только актуальный.
+      if (String(clientSearch.value || '').trim() === term) {
+        remoteClientItems.value = items
+      }
+    } catch {
+      remoteClientItems.value = []
+    }
+  }, 250)
+})
+
 const filteredClients = computed(() => {
   const term = clientSearch.value.trim().toLowerCase()
-  if (!term) return clients.value
 
-  return clients.value.filter((item) =>
-    String(item.client).toLowerCase().includes(term),
+  const local = clients.value
+    .filter((item) => !term || String(item.client).toLowerCase().includes(term))
+    .map((item) => ({
+      value: item.client,
+      kind: 'client',
+      count: item.count,
+    }))
+
+  if (!term) return local
+
+  const seen = new Set(
+    local.map((item) => `client:${String(item.value).toLowerCase()}`),
   )
+  const remote = []
+
+  for (const item of remoteClientItems.value) {
+    const key = `${item.kind}:${String(item.value).toLowerCase()}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    remote.push(item)
+  }
+
+  return [...local, ...remote]
 })
 
 // Подсказка-автодополнение: первый подходящий вариант под полем. Enter
@@ -375,7 +430,9 @@ const clientHint = computed(() => {
   const term = clientSearch.value.trim()
   if (!term) return ''
   const first = filteredClients.value[0]
-  return first ? `→ ${first.client}` : 'нет совпадений'
+  return first
+    ? `→ ${first.value}${first.kind === 'brand' ? ' (бренд)' : ''}`
+    : 'нет совпадений'
 })
 
 async function pickFirstAddress() {
@@ -385,7 +442,187 @@ async function pickFirstAddress() {
 
 async function pickFirstClient() {
   const first = filteredClients.value[0]
-  if (first) await pickClient(first.client)
+  if (first) await pickClientEntry(first)
+}
+
+async function pickClientEntry(item) {
+  if (item.kind === 'brand') await pickBrand(item.value)
+  else await pickClient(item.value)
+}
+
+// ---- строка тегов: адреса, клиенты, бренд, тег, категория ----------------
+// Одна строка между поиском и фильтрами: выбранное в панелях видно целиком,
+// а при переполнении она прокручивается колесом по горизонтали.
+const tagsRowEl = ref(null)
+
+const activeAddressCollection = computed(
+  () =>
+    store.collections.find(
+      (item) =>
+        item.collection_id === store.addressCollectionId
+        && item.scope === 'addresses',
+    ) || null,
+)
+
+const activeClientCollection = computed(
+  () =>
+    store.collections.find(
+      (item) =>
+        item.collection_id === store.clientCollectionId
+        && item.scope === 'clients',
+    ) || null,
+)
+
+const allAddressesSelected = computed(
+  () =>
+    addresses.value.length > 0
+    && addresses.value.every((item) =>
+      store.selectedAddresses.includes(item.address),
+    ),
+)
+
+const allClientsSelected = computed(
+  () =>
+    clients.value.length > 0
+    && clients.value.every((item) =>
+      store.selectedClients.includes(item.client),
+    ),
+)
+
+function addressTagLabel(item) {
+  return item.name || item.simple_address || item.address
+}
+
+const addressTags = computed(() => {
+  if (activeAddressCollection.value) {
+    return [
+      {
+        key: 'address-collection',
+        label: activeAddressCollection.value.name,
+        type: 'address-collection',
+        icon: 'bookmark',
+      },
+    ]
+  }
+
+  if (allAddressesSelected.value) {
+    return [{ key: 'addresses-all', label: 'Все', type: 'addresses-all' }]
+  }
+
+  return store.selectedAddresses.map((value) => {
+    const found = addresses.value.find((item) => item.address === value)
+
+    return {
+      key: `address:${value}`,
+      label: found ? addressTagLabel(found) : value,
+      type: 'address',
+      value,
+    }
+  })
+})
+
+const clientTags = computed(() => {
+  if (activeClientCollection.value) {
+    return [
+      {
+        key: 'client-collection',
+        label: activeClientCollection.value.name,
+        type: 'client-collection',
+        icon: 'bookmark',
+      },
+    ]
+  }
+
+  if (allClientsSelected.value) {
+    return [{ key: 'clients-all', label: 'Все', type: 'clients-all' }]
+  }
+
+  return store.selectedClients.map((value) => ({
+    key: `client:${value}`,
+    label: `Клиент: ${value}`,
+    type: 'client',
+    value,
+  }))
+})
+
+const activeTags = computed(() => [
+  ...addressTags.value,
+  ...clientTags.value,
+  ...(selectedBrand.value
+    ? [{ key: 'brand', label: `Бренд: ${selectedBrand.value}`, type: 'brand' }]
+    : []),
+  ...(selectedTag.value
+    ? [{ key: 'tag', label: `Тег: ${selectedTag.value}`, type: 'tag' }]
+    : []),
+  ...(selectedCategory.value
+    ? [
+        {
+          key: 'category',
+          label: `Категория: ${selectedCategory.value}`,
+          type: 'category',
+        },
+      ]
+    : []),
+])
+
+// В заголовке панели клиентов: выбранные в списке + бренд из тега.
+const clientSelectionCount = computed(
+  () => store.selectedClients.length + (selectedBrand.value ? 1 : 0),
+)
+
+function tagColor(type) {
+  if (type === 'address' || type === 'address-collection') return 'primary'
+  if (type === 'addresses-all' || type === 'clients-all') return 'grey-7'
+  return 'secondary'
+}
+
+async function removeTag(tag) {
+  switch (tag.type) {
+    case 'address':
+      toggleValue(store.selectedAddresses, tag.value)
+      break
+    case 'client':
+      toggleValue(store.selectedClients, tag.value)
+      break
+    case 'brand':
+      selectedBrand.value = null
+      break
+    case 'tag':
+      selectedTag.value = null
+      break
+    case 'category':
+      selectedCategory.value = null
+      break
+    case 'addresses-all':
+      store.selectedAddresses = []
+      break
+    case 'clients-all':
+      store.selectedClients = []
+      break
+    case 'address-collection':
+      store.addressCollectionId = null
+      store.selectedAddresses = []
+      store._syncCollectionId()
+      break
+    case 'client-collection':
+      store.clientCollectionId = null
+      store.selectedClients = []
+      store._syncCollectionId()
+      break
+    default:
+      return
+  }
+
+  await apply()
+}
+
+function onTagsWheel(event) {
+  const el = tagsRowEl.value
+
+  if (!el || el.scrollWidth <= el.clientWidth) return
+
+  event.preventDefault()
+  el.scrollLeft += (event.deltaX || 0) + (event.deltaY || 0)
 }
 
 // Диапазоны дат считает общий модуль (локальный календарь, см. его шапку).
@@ -550,6 +787,7 @@ onBeforeUnmount(() => {
   stopQwenElapsed()
 
   if (suggestTimer !== null) window.clearTimeout(suggestTimer)
+  if (clientSuggestTimer !== null) window.clearTimeout(clientSuggestTimer)
   if (pipelineSyncTimer !== null) window.clearInterval(pipelineSyncTimer)
 })
 
@@ -824,6 +1062,40 @@ async function pickClient(client) {
   await apply()
 }
 
+// Бренд из панели — точный фильтр (как и подсказка главного поиска), но
+// выбранные клиенты он не сбрасывает: в строке тегов видно оба фильтра.
+async function pickBrand(brand) {
+  const searching = Boolean(clientSearch.value.trim())
+  const same = selectedBrand.value
+    && String(selectedBrand.value).toLowerCase() === String(brand).toLowerCase()
+
+  if (searching) {
+    store.selectedClients = []
+    selectedBrand.value = brand
+    clientSearch.value = ''
+    q.value = ''
+  } else if (same) {
+    selectedBrand.value = null
+  } else {
+    selectedBrand.value = brand
+  }
+
+  await apply()
+}
+
+// Подсветка в правом списке: клиенты — по выбору, бренды — по тегу «Бренд».
+function isClientActive(item) {
+  if (item.kind === 'brand') {
+    return (
+      Boolean(selectedBrand.value)
+      && String(selectedBrand.value).toLowerCase()
+        === String(item.value).toLowerCase()
+    )
+  }
+
+  return store.selectedClients.includes(item.value)
+}
+
 async function selectAllAddresses() {
   store.selectedAddresses = filteredAddresses.value.map((item) => item.address)
   await apply()
@@ -835,7 +1107,10 @@ async function clearAddresses() {
 }
 
 async function selectAllClients() {
-  store.selectedClients = filteredClients.value.map((item) => item.client)
+  store.selectedClients = filteredClients.value
+    .filter((item) => item.kind === 'client')
+    .map((item) => item.value)
+  selectedBrand.value = null
   await apply()
 }
 
@@ -1987,40 +2262,27 @@ function tagList(meta) {
           </q-btn>
         </div>
 
-        <!-- Точные фильтры, выбранные из подсказок поиска: видно, что активно. -->
+        <!-- Строка тегов: выбранные адреса, клиенты, бренд, тег, категория.
+             Одна строка между поиском и фильтрами; при переполнении
+             прокручивается колесом, полоса прокрутки скрыта. -->
         <div
-          v-if="selectedBrand || selectedTag || selectedCategory"
-          class="row items-center q-gutter-xs q-mb-sm"
+          v-if="activeTags.length"
+          ref="tagsRowEl"
+          class="tags-row q-mb-sm"
+          @wheel="onTagsWheel"
         >
           <q-chip
-            v-if="selectedBrand"
+            v-for="tag in activeTags"
+            :key="tag.key"
             dense
             removable
-            color="secondary"
+            :icon="tag.icon"
+            :color="tagColor(tag.type)"
             text-color="white"
-            @remove="clearStructured('brand')"
+            class="tag-chip"
+            @remove="removeTag(tag)"
           >
-            Бренд: {{ selectedBrand }}
-          </q-chip>
-          <q-chip
-            v-if="selectedTag"
-            dense
-            removable
-            color="secondary"
-            text-color="white"
-            @remove="clearStructured('tag')"
-          >
-            Тег: {{ selectedTag }}
-          </q-chip>
-          <q-chip
-            v-if="selectedCategory"
-            dense
-            removable
-            color="secondary"
-            text-color="white"
-            @remove="clearStructured('category')"
-          >
-            Категория: {{ selectedCategory }}
+            {{ tag.label }}
           </q-chip>
         </div>
 
@@ -2485,11 +2747,20 @@ function tagList(meta) {
           :style="{ height: display.sideListHeight + 'px' }"
         >
           <q-card-section class="panel-head q-pb-xs row items-center">
-            <div class="panel-title col">
-              Клиент/бренд
-              <q-tooltip v-if="textSearchActive">
-                Недоступно, пока активен поиск по тексту
-              </q-tooltip>
+            <div class="panel-title col row items-center no-wrap">
+              <span>
+                Клиент/бренд
+                <span class="client-summary">(выбрано {{ clientSelectionCount }})</span>
+                <q-tooltip v-if="textSearchActive">
+                  Недоступно, пока активен поиск по тексту
+                </q-tooltip>
+              </span>
+              <q-icon name="help_outline" size="16px" class="client-help q-ml-xs">
+                <q-tooltip>
+                  Отображается не более 100 клиентов. Полный список доступен
+                  в поиске
+                </q-tooltip>
+              </q-icon>
             </div>
             <!-- Одна кнопка: пока ничего не выбрано — «Все», иначе «Снять». -->
             <q-btn
@@ -2537,13 +2808,21 @@ function tagList(meta) {
             <q-list dense :disable="textSearchActive">
               <q-item
                 v-for="item in filteredClients"
-                :key="item.client"
+                :key="`${item.kind}:${item.value}`"
                 clickable
-                :active="store.selectedClients.includes(item.client)"
+                :active="isClientActive(item)"
                 active-class="bg-secondary text-white"
-                @click="pickClient(item.client)"
+                @click="pickClientEntry(item)"
               >
-                <q-item-section>{{ item.client }}</q-item-section>
+                <q-item-section>
+                  <div class="ellipsis">{{ item.value }}</div>
+                  <div
+                    v-if="item.kind === 'brand'"
+                    class="text-caption text-grey-7"
+                  >
+                    бренд
+                  </div>
+                </q-item-section>
                 <q-item-section side>{{ item.count }}</q-item-section>
               </q-item>
               <q-item v-if="!filteredClients.length">
@@ -3220,6 +3499,47 @@ function tagList(meta) {
 .photos-page {
   height: calc(100vh - var(--app-chrome, 85px));
   overflow: hidden;
+}
+
+/* Строка тегов: одна линия без рамки; полоса прокрутки скрыта, колесо
+   мыши прокручивает её по горизонтали (см. onTagsWheel). */
+.tags-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: none;      /* Firefox */
+  -ms-overflow-style: none;   /* старый Edge */
+}
+
+.tags-row::-webkit-scrollbar {
+  display: none;
+  height: 0;
+}
+
+.tag-chip {
+  flex: 0 0 auto;
+}
+
+.client-summary {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 300;
+  white-space: nowrap;
+  color: #455a64;
+}
+
+body.body--dark .client-summary {
+  color: #b0bec5;
+}
+
+.client-help {
+  color: #78909c;
+  cursor: help;
 }
 
 /* Живая строка о ходе DINO/HYBRID: не должна растягивать панель фильтров. */
