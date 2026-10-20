@@ -128,3 +128,21 @@ def test_stats_pass_the_selected_period(monkeypatch):
     }
     assert response.json()["period_photos"] == 3
     assert response.json()["period_videos"] == 4
+
+
+def test_tag_facets_combine_with_or():
+    """
+    Клиенты, бренд, тег и категория — альтернативы, а не уточнения:
+    выбранный бренд добавляет свои фото к выбранным клиентам.
+    """
+
+    where, params = repository._photo_where(
+        clients=["Клиент"],
+        brand="СТС",
+        tag="канал СТС",
+    )
+
+    assert " OR LOWER(t.brand) = LOWER(%s)" in where
+    assert " AND LOWER(t.brand)" not in where
+    assert " OR EXISTS (" in where
+    assert params == ["Клиент", "Клиент", "СТС", "канал СТС"]

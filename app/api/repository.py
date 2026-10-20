@@ -147,6 +147,11 @@ def _photo_where(
 
     clauses: list[str] = []
     params: list[object] = []
+    # Теги (адреса, клиенты, бренд, тег, категория) складываются по ИЛИ:
+    # выбранный бренд не сужает выбранных клиентов, а добавляет их фото.
+    # Свободный текст, даты и «только распознанные» остаются отдельными
+    # условиями И.
+    tag_clauses: list[str] = []
 
     if not ids and cursor:
         clauses.append("t.photo_id > %s")
@@ -207,7 +212,7 @@ def _photo_where(
             )
             params.extend([value, value])
 
-        clauses.append("(" + " OR ".join(parts) + ")")
+        tag_clauses.append("(" + " OR ".join(parts) + ")")
 
     if clients:
         # Exact value (case-insensitive), not a substring: selecting «СТС»
@@ -225,18 +230,18 @@ def _photo_where(
                 "  AND LOWER(ca.canonical) = LOWER(%s)))"
             )
             params.extend([value, value])
-        clauses.append("(" + " OR ".join(parts) + ")")
+        tag_clauses.append("(" + " OR ".join(parts) + ")")
 
     if brand:
-        clauses.append("LOWER(t.brand) = LOWER(%s)")
+        tag_clauses.append("LOWER(t.brand) = LOWER(%s)")
         params.append(brand)
 
     if category:
-        clauses.append("LOWER(t.category) = LOWER(%s)")
+        tag_clauses.append("LOWER(t.category) = LOWER(%s)")
         params.append(category)
 
     if tag:
-        clauses.append(
+        tag_clauses.append(
             "EXISTS ("
             "  SELECT 1 FROM public.photo_qwen AS qq"
             "  CROSS JOIN LATERAL jsonb_array_elements_text("
@@ -246,6 +251,9 @@ def _photo_where(
             "    AND LOWER(item) = LOWER(%s))"
         )
         params.append(tag)
+
+    if tag_clauses:
+        clauses.append("(" + " OR ".join(tag_clauses) + ")")
 
     if date_from:
         clauses.append(f"{date_column} >= %s::date")
