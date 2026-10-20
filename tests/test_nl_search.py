@@ -105,3 +105,37 @@ def test_enqueue_requires_read_scope(monkeypatch):
         headers={"Authorization": "Bearer tok"},
     )
     assert response.status_code == 403
+
+
+def test_run_does_not_pass_a_human_address_as_a_fingerprint_filter(monkeypatch):
+    """QWEN отдаёт «Комарова 13», а фильтр `addresses` ждёт id слепка.
+
+    Раньше адрес передавался в addresses и обнулял все термины запроса.
+    """
+
+    monkeypatch.setattr(
+        nl_search,
+        "build_filters",
+        lambda query: {
+            "q": None,
+            "client": "Яндекс.Еда",
+            "brand": None,
+            "category": None,
+            "address": "Комарова 13",
+        },
+    )
+
+    seen = []
+
+    def fake_list_photos(*, limit, query=None, addresses=None):
+        seen.append((query, addresses))
+        return [_Item("PH_a")], None
+
+    from app.api import repository
+
+    monkeypatch.setattr(repository, "list_photos", fake_list_photos)
+
+    result = nl_search.run("вывеска Яндекс.Еды на Комаровой")
+
+    assert seen == [("Яндекс.Еда", None), ("Комарова 13", None)]
+    assert result["photo_ids"] == ["PH_a"]

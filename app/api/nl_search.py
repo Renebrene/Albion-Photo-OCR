@@ -103,8 +103,10 @@ def run(query: str, *, limit: int = MAX_PER_TERM) -> dict:
         if term
     ]
 
-    addresses = [filters["address"]] if filters.get("address") else None
-
+    # `filters["address"]` — человеческий адрес («Комарова 13»), а не id
+    # слепка. Передавать его в `addresses` нельзя: точный фильтр по id давал
+    # ноль результатов по всем терминам. Адрес и так участвует как term:
+    # свободный `q` ищет его по legal/simple.
     seen: dict[str, None] = {}
     truncated = False
 
@@ -112,7 +114,6 @@ def run(query: str, *, limit: int = MAX_PER_TERM) -> dict:
         items, next_cursor = repository.list_photos(
             limit=limit,
             query=term,
-            addresses=addresses,
         )
 
         if next_cursor is not None:

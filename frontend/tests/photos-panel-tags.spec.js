@@ -142,7 +142,7 @@ describe('строка тегов', () => {
     expect(tags.text()).toContain('Клиент: Клиент А')
     expect(tags.text()).toContain('Комарова 13')
     expect(tags.text()).not.toContain('Адрес:')
-    expect(wrapper.text()).toContain('(выбрано 1)')
+    expect(wrapper.find('.client-summary').text()).toBe('(1)')
     wrapper.unmount()
   })
 
@@ -227,7 +227,7 @@ describe('строка тегов', () => {
     await flushPromises()
     await nextTick()
 
-    expect(wrapper.find('.client-summary').text()).toContain('выбрано 1')
+    expect(wrapper.find('.client-summary').text()).toBe('(1)')
     wrapper.unmount()
   })
 
@@ -268,10 +268,17 @@ describe('строка тегов', () => {
     const wrapper = await mountGrid()
     const display = useDisplayStore()
 
+    // Смена режима сама сбрасывает выделение.
     store.selectedClients = ['Клиент А']
     display.addressClientMode = 'client'
     await flushPromises()
     await nextTick()
+
+    expect(store.selectedClients).toEqual([])
+
+    store.selectedClients = ['Клиент А']
+    await store.loadAddresses()
+    await flushPromises()
 
     const calls = () =>
       global.fetch.mock.calls

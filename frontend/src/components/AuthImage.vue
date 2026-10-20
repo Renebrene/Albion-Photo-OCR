@@ -140,8 +140,21 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div v-if="lazy" ref="rootEl" class="auth-image">
-    <q-img v-if="src" :src="src" :ratio="ratioValue" />
+  <!-- Один корень: иначе @click/class от родителя (плитка грида) не
+       наследуются, и клик по превью не открывает фото. -->
+  <div class="auth-image-root">
+    <div v-if="lazy" ref="rootEl" class="auth-image">
+      <q-img v-if="src" :src="src" :ratio="ratioValue" />
+      <div
+        v-else-if="failed"
+        class="flex flex-center bg-grey-3 text-grey"
+        :style="ratioValue ? { aspectRatio: String(ratioValue) } : { minHeight: '48px' }"
+      >
+        <q-icon name="broken_image" />
+      </div>
+      <q-skeleton v-else :style="ratioValue ? { aspectRatio: String(ratioValue) } : { minHeight: '48px' }" />
+    </div>
+    <q-img v-else-if="src" :src="src" :ratio="ratioValue" />
     <div
       v-else-if="failed"
       class="flex flex-center bg-grey-3 text-grey"
@@ -151,18 +164,10 @@ onBeforeUnmount(() => {
     </div>
     <q-skeleton v-else :style="ratioValue ? { aspectRatio: String(ratioValue) } : { minHeight: '48px' }" />
   </div>
-  <q-img v-else-if="src" :src="src" :ratio="ratioValue" />
-  <div
-    v-else-if="failed"
-    class="flex flex-center bg-grey-3 text-grey"
-    :style="ratioValue ? { aspectRatio: String(ratioValue) } : { minHeight: '48px' }"
-  >
-    <q-icon name="broken_image" />
-  </div>
-  <q-skeleton v-else :style="ratioValue ? { aspectRatio: String(ratioValue) } : { minHeight: '48px' }" />
 </template>
 
 <style scoped>
+.auth-image-root,
 .auth-image {
   display: block;
   width: 100%;

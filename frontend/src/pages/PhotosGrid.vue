@@ -124,6 +124,16 @@ const combineMode = computed(() => display.addressClientMode)
 watch(
   () => display.addressClientMode,
   async () => {
+    // Смена режима меняет смысл выбранных адресов/клиентов — сбрасываем
+    // выделение и подборки, чтобы грид не показывал старую комбинацию.
+    store.selectedAddresses = []
+    store.selectedClients = []
+    store.addressCollectionId = null
+    store.clientCollectionId = null
+    store.collectionId = null
+    addressSearch.value = ''
+    clientSearch.value = ''
+
     // Новый режим меняет и выдачу, и счётчики обеих панелей.
     await store.loadFacets()
     await apply()
@@ -858,6 +868,19 @@ onBeforeUnmount(() => {
 // Arrow keys page through the gallery in the order it is displayed.
 function onKeydown(event) {
   if (!viewerOpen.value) return
+  if (event.defaultPrevented) return
+
+  // Поверх просмотра могут быть открыты редактор описания/адреса, подборка
+  // или сохранённый поиск: стрелки не должны листать фото за диалогом.
+  if (
+    addressEditOpen.value
+    || qwenEditOpen.value
+    || bucketOpen.value
+    || saveSearchOpen.value
+    || manualOpen.value
+  ) {
+    return
+  }
 
   // В поле описания стрелки двигают курсор, а не листают фото. Без этой
   // проверки preventDefault() ниже съедал ArrowLeft/ArrowRight в textarea.
@@ -1923,18 +1946,35 @@ async function saveQwenEditor() {
   }
 }
 
+// Каждый open() получает номер: поздний ответ от предыдущего фото не должен
+// перезаписать details уже открытого (иначе редактор сохранит чужие поля).
+let detailsRequest = 0
+
 async function loadDetails(photo) {
+  const request = ++detailsRequest
+  const photoId = photo.photo_id
+
   try {
-    details.value = await fetchPhotoDetails(photo.photo_id)
+    const data = await fetchPhotoDetails(photoId)
+
+    if (request !== detailsRequest || current.value?.photo_id !== photoId) return
+    details.value = data
   } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
+    if (request === detailsRequest && current.value?.photo_id === photoId) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
   }
 
   // История — вспомогательный блок: её отсутствие не должно ломать карточку.
   try {
-    qwenHistory.value = (await fetchQwenHistory(photo.photo_id, 10)).items || []
+    const items = (await fetchQwenHistory(photoId, 10)).items || []
+
+    if (request !== detailsRequest || current.value?.photo_id !== photoId) return
+    qwenHistory.value = items
   } catch {
-    qwenHistory.value = []
+    if (request === detailsRequest && current.value?.photo_id === photoId) {
+      qwenHistory.value = []
+    }
   }
 }
 
@@ -1948,7 +1988,7 @@ async function open(photo) {
   try {
     await loadDetails(photo)
   } finally {
-    detailsLoading.value = false
+    if (current.value?.photo_id === photo.photo_id) detailsLoading.value = false
   }
 }
 
@@ -1972,6 +2012,10 @@ const canNext = computed(
 )
 
 async function stepPhoto(delta) {
+  // После фонового обновления текущего фото может не быть в загруженной
+  // странице (индекс −1): стрелка не должна открывать первое фото.
+  if (viewerIndex.value < 0) return
+
   const target = sortedItems.value[viewerIndex.value + delta]
 
   if (target) await open(target)
@@ -2882,7 +2926,7 @@ function tagList(meta) {
                   class="mode-label"
                   :class="{ 'mode-label--lead': combineMode !== 'address' }"
                 >Клиент/бренд</span>
-                <span class="client-summary">({{ clientSelectionCount ? `выбрано ${clientSelectionCount}` : '' }})</span>
+                <span class="client-summary">({{ clientSelectionCount || '' }})</span>
                 <q-tooltip v-if="textSearchActive">
                   Недоступно, пока активен поиск по тексту
                 </q-tooltip>

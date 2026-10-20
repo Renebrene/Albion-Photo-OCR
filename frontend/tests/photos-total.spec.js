@@ -144,3 +144,48 @@ describe('фоновая синхронизация и ИИ-поиск', () => {
     expect(seenIds).toBe(200)
   })
 })
+
+describe('гонка запросов', () => {
+  it('поздний ответ старого фильтра не попадает в новую выдачу', async () => {
+    let resolveOld = null
+    const oldResponse = new Promise((resolve) => {
+      resolveOld = resolve
+    })
+
+    global.fetch = vi.fn((url) => {
+      const params = new URL(String(url), 'http://localhost').searchParams
+
+      if (params.get('q') === 'old') return oldResponse
+
+      return Promise.resolve(
+        json({
+          items: [{ photo_id: 'PH_new' }],
+          next_cursor: null,
+          total: 1,
+        }),
+      )
+    })
+
+    setActivePinia(createPinia())
+    const store = usePhotosStore()
+
+    store.query = 'old'
+    const pending = store.loadPage()
+
+    store.query = 'new'
+    await store.refresh()
+
+    resolveOld(
+      json({
+        items: [{ photo_id: 'PH_old' }],
+        next_cursor: 'PH_old_cursor',
+        total: 99,
+      }),
+    )
+    await pending
+
+    expect(store.items.map((item) => item.photo_id)).toEqual(['PH_new'])
+    expect(store.nextCursor).toBeNull()
+    expect(store.total).toBe(1)
+  })
+})

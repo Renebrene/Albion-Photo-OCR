@@ -71,6 +71,9 @@ function normalizeAddressValue(addresses, value) {
 export const usePhotosStore = defineStore('photos', {
   state: () => ({
     items: [],
+    // Номер поколения фильтра: ответы старых запросов после смены фильтра
+    // отбрасываются, иначе они дописывают чужие строки и курсор.
+    generation: 0,
     nextCursor: null,
     // Size of the whole filtered set. The API returns it on the first page
     // only; later pages keep it unchanged.
@@ -123,7 +126,7 @@ export const usePhotosStore = defineStore('photos', {
   },
 
   actions: {
-    async loadPage() {
+    async loadPage(generation = this.generation) {
       this.loading = true
       this.error = null
 
@@ -132,7 +135,17 @@ export const usePhotosStore = defineStore('photos', {
           filterParams(this, { limit: PAGE_SIZE, cursor: this.nextCursor }),
         )
 
-        this.items.push(...page.items)
+        // Пока запрос летел, фильтр сменился: строки и курсор уже не те.
+        if (generation !== this.generation) return
+
+        const seen = new Set(this.items.map((item) => item.photo_id))
+
+        for (const item of page.items) {
+          if (seen.has(item.photo_id)) continue
+          seen.add(item.photo_id)
+          this.items.push(item)
+        }
+
         this.nextCursor = page.next_cursor
 
         // null on continuation pages: the set is unchanged while scrolling.
@@ -140,17 +153,18 @@ export const usePhotosStore = defineStore('photos', {
           this.total = page.total
         }
       } catch (err) {
-        this.error = err.message
+        if (generation === this.generation) this.error = err.message
       } finally {
-        this.loading = false
+        if (generation === this.generation) this.loading = false
       }
     },
 
     async refresh() {
+      this.generation += 1
       this.items = []
       this.nextCursor = null
       this.total = null
-      await this.loadPage()
+      await this.loadPage(this.generation)
     },
 
     /**
@@ -165,12 +179,17 @@ export const usePhotosStore = defineStore('photos', {
 
       if (!count || this.loading || count > 500) return
 
+      const generation = this.generation
+
       try {
         // /v1/photos отдаёт не больше 100 строк за запрос: при длинной
         // прокрутке старый limit=count получал 422, который глушился catch.
         const page = await fetchPhotos(
           filterParams(this, { limit: Math.min(count, PAGE_SIZE) }),
         )
+
+        // Фильтр сменился, пока шёл запрос — не подменяем новые строки.
+        if (generation !== this.generation) return
 
         const byId = new Map(page.items.map((item) => [item.photo_id, item]))
         this.items = this.items.map((item) => byId.get(item.photo_id) || item)
