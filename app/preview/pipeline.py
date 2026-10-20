@@ -175,33 +175,49 @@ def run(
         middle_size=middle_size,
     )
 
-    with ProcessPoolExecutor(max_workers=worker_count) as executor:
-        for record, future in bounded_submit(
-            executor,
-            worker,
-            records,
-            window=default_window(worker_count),
-        ):
-            try:
-                result = future.result()
-            except Exception as exc:
-                raise RuntimeError(
-                    f"PREVIEW failed for {record.photo_id}: {exc}"
-                ) from exc
+    def _consume(result: PreviewResult) -> None:
+        nonlocal database_updated, database_skipped
 
-            results.append(result)
+        results.append(result)
 
-            if not result.ready:
-                continue
+        if not result.ready:
+            return
 
-            if _is_preview_up_to_date(result):
-                # Row already matches the validated result: nothing to write.
-                database_skipped += 1
-                continue
+        if _is_preview_up_to_date(result):
+            # Row already matches the validated result: nothing to write.
+            database_skipped += 1
+            return
 
-            db_record = _to_database_record(result)
-            upsert_preview(db_record)
-            database_updated += 1
+        db_record = _to_database_record(result)
+        upsert_preview(db_record)
+        database_updated += 1
+
+    if len(records) == 1:
+        # Every PHOTO_PREVIEW job is one record. Spawning a pool (and six
+        # processes under the old default) for a single item was pure
+        # overhead; job-level parallelism lives in the worker's --parallel.
+        try:
+            _consume(worker(records[0]))
+        except Exception as exc:
+            raise RuntimeError(
+                f"PREVIEW failed for {records[0].photo_id}: {exc}"
+            ) from exc
+    else:
+        with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            for record, future in bounded_submit(
+                executor,
+                worker,
+                records,
+                window=default_window(worker_count),
+            ):
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"PREVIEW failed for {record.photo_id}: {exc}"
+                    ) from exc
+
+                _consume(result)
 
     return PreviewPipelineResult(
         results=tuple(results),

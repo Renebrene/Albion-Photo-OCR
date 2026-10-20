@@ -1,0 +1,130 @@
+"""Фильтры грида: лимит списков, «только после HYBRID» и период в счётчиках."""
+
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+
+from app.api import repository
+from app.api.main import app
+
+client = TestClient(app, raise_server_exceptions=False)
+
+
+def test_many_client_filters_do_not_return_422(monkeypatch):
+    """
+    «Все» в панели клиентов отправляет каждого клиента отдельным параметром.
+    Раньше список был ограничен 64 значениями и запрос падал с 422.
+    """
+
+    monkeypatch.setattr(repository, "list_photos", lambda **kwargs: ([], None))
+    monkeypatch.setattr(repository, "count_photos", lambda **kwargs: 0)
+
+    params = [("limit", "100")] + [
+        ("client", f"client-{index}") for index in range(90)
+    ]
+
+    response = client.get("/api/v1/photos", params=params)
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+
+
+def test_the_grid_asks_only_for_recognized_photos(monkeypatch):
+    seen: dict = {}
+
+    def fake_list_photos(**kwargs):
+        seen.update(kwargs)
+        return [], None
+
+    monkeypatch.setattr(repository, "list_photos", fake_list_photos)
+    monkeypatch.setattr(repository, "count_photos", lambda **kwargs: 0)
+
+    response = client.get("/api/v1/photos")
+
+    assert response.status_code == 200
+    assert seen["recognized_only"] is True
+
+
+def test_structured_suggestions_pass_exact_filters(monkeypatch):
+    seen: dict = {}
+
+    def fake_list_photos(**kwargs):
+        seen.update(kwargs)
+        return [], None
+
+    monkeypatch.setattr(repository, "list_photos", fake_list_photos)
+    monkeypatch.setattr(repository, "count_photos", lambda **kwargs: 0)
+
+    response = client.get(
+        "/api/v1/photos",
+        params={"brand": "СТС", "tag": "реклама", "category": "щит"},
+    )
+
+    assert response.status_code == 200
+    assert seen["brand"] == "СТС"
+    assert seen["tag"] == "реклама"
+    assert seen["category"] == "щит"
+
+
+def test_addresses_pass_the_selected_period(monkeypatch):
+    seen: dict = {}
+
+    def fake_addresses(**kwargs):
+        seen.update(kwargs)
+        return []
+
+    monkeypatch.setattr(repository, "list_addresses", fake_addresses)
+
+    response = client.get(
+        "/api/v1/addresses",
+        params={
+            "date_from": "2026-10-01",
+            "date_to": "2026-10-31",
+            "date_mode": "capture",
+        },
+    )
+
+    assert response.status_code == 200
+    assert seen == {
+        "limit": 1000,
+        "date_from": "2026-10-01",
+        "date_to": "2026-10-31",
+        "date_mode": "capture",
+    }
+
+
+def test_stats_pass_the_selected_period(monkeypatch):
+    seen: dict = {}
+
+    def fake_stats(**kwargs):
+        seen.update(kwargs)
+        return {
+            "photos": 1,
+            "videos": 2,
+            "period_photos": 3,
+            "period_videos": 4,
+            "addresses": 5,
+            "clients": 6,
+            "last_photo_at": None,
+            "last_video_at": None,
+        }
+
+    monkeypatch.setattr(repository, "stats", fake_stats)
+
+    response = client.get(
+        "/api/v1/stats",
+        params={
+            "date_from": "2026-10-01",
+            "date_to": "2026-10-31",
+            "date_mode": "upload",
+        },
+    )
+
+    assert response.status_code == 200
+    assert seen == {
+        "date_from": "2026-10-01",
+        "date_to": "2026-10-31",
+        "date_mode": "upload",
+    }
+    assert response.json()["period_photos"] == 3
+    assert response.json()["period_videos"] == 4

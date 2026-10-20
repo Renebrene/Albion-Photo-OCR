@@ -15,6 +15,7 @@ import {
   fetchPhotoDetails,
   fetchSearchSuggestions,
   fetchRunActivity,
+  fetchSortStatus,
   savePhotoQwenText,
   fetchAddressDirectory,
   clearPhotoAddressOverride,
@@ -64,6 +65,10 @@ const { items, error, loading, addresses, clients, savedSearches } =
 
 const q = ref('')
 const dateMode = ref('upload')
+// Точные фильтры, выбранные из подсказок поиска.
+const selectedBrand = ref(null)
+const selectedTag = ref(null)
+const selectedCategory = ref(null)
 
 // ---- smart search by an uploaded photo (item 2; photos only for now) ----
 const mediaInput = ref(null)
@@ -326,6 +331,63 @@ const periodLabel = computed(() => {
     : `За период ${count} фото`
 })
 
+// «Адреса»: сколько адресов реально получили вердикт HYBRID (всего) и
+// сколько из них имеют фото в выбранном периоде. Зелёный `*xx` — период.
+const recognizedAddressCount = computed(
+  () => addresses.value.filter((item) => (item.count || 0) > 0).length,
+)
+// ---- быстрый поиск по панелям «Адреса» и «Клиент/бренд» ----
+// Выпадающего списка нет: ввод фильтрует сам список (автодополнение по
+// имеющимся названиям). Enter выбирает первый подходящий адрес/клиента.
+const addressSearch = ref('')
+const clientSearch = ref('')
+
+const filteredAddresses = computed(() => {
+  const term = addressSearch.value.trim().toLowerCase()
+  if (!term) return addresses.value
+
+  return addresses.value.filter((item) =>
+    [item.name, item.address, item.simple_address, item.legal_address]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(term)),
+  )
+})
+
+const filteredClients = computed(() => {
+  const term = clientSearch.value.trim().toLowerCase()
+  if (!term) return clients.value
+
+  return clients.value.filter((item) =>
+    String(item.client).toLowerCase().includes(term),
+  )
+})
+
+// Подсказка-автодополнение: первый подходящий вариант под полем. Enter
+// выбирает его, клик по списку — тоже.
+const addressHint = computed(() => {
+  const term = addressSearch.value.trim()
+  if (!term) return ''
+  const first = filteredAddresses.value[0]
+  return first ? `→ ${first.name}` : 'нет совпадений'
+})
+
+const clientHint = computed(() => {
+  const term = clientSearch.value.trim()
+  if (!term) return ''
+  const first = filteredClients.value[0]
+  return first ? `→ ${first.client}` : 'нет совпадений'
+})
+
+async function pickFirstAddress() {
+  const first = filteredAddresses.value[0]
+  if (first) await pickAddress(first.address)
+}
+
+async function pickFirstClient() {
+  const first = filteredClients.value[0]
+  if (first) await pickClient(first.client)
+}
+
 // Диапазоны дат считает общий модуль (локальный календарь, см. его шапку).
 function currentDates() {
   return periodRange(period.value, {
@@ -334,21 +396,103 @@ function currentDates() {
   })
 }
 
-// Пока идёт пайплайн, адреса HYBRID и статусы QWEN меняются на месте:
-// обновляем уже показанные строки, не сбрасывая прокрутку.
+// Пока идёт пайплайн, число распознанных фото растёт: грид показывает фото
+// только после HYBRID, поэтому одних обновлённых строк мало — нужен полный
+// перечит, когда меняется размер выборки. Заодно показываем, сколько
+// совпадений уже нашлось (это же число видно на вкладке «Сортировка»).
 let pipelineSyncTimer = null
 let pipelineSyncTick = 0
+let pipelineWasActive = false
+const pipelineStatus = ref(null)
+
+const pipelineStatusText = computed(() => {
+  const status = pipelineStatus.value
+  if (!status) return ''
+
+  const parts = []
+  if (status.label) parts.push(status.label)
+  if (status.matched !== null && status.total !== null) {
+    parts.push(`совпадений ${status.matched} из ${status.total}`)
+  }
+  return parts.join(' · ')
+})
+
+async function pipelineStage() {
+  const data = await fetchRunActivity()
+
+  if (!data.active) return null
+
+  // Совпадения считает тот же модуль, что и вкладку «Сортировка»; у Гостя
+  // нет jobs:read — для него остаётся только общее сообщение о стадии.
+  let matched = null
+  let total = null
+
+  if (canUseCollective.value) {
+    try {
+      const status = await fetchSortStatus()
+      const stats = status?.current || status?.last?.stats || null
+      matched = stats?.matched ?? null
+      total = stats?.total ?? null
+    } catch {
+      // Сводка — вспомогательная: стадия всё равно покажется.
+    }
+  }
+
+  return {
+    label: data.message || 'идёт обновление базы',
+    matched,
+    total,
+  }
+}
 
 async function syncDuringPipeline() {
   try {
-    const data = await fetchRunActivity()
+    const status = await pipelineStage()
 
-    if (!data.active) return
+    if (!status) {
+      // Пайплайн только что закончился: перечитываем грид один раз, чтобы
+      // последние сработавшие HYBRID-совпадения попали на экран.
+      if (pipelineWasActive) {
+        pipelineWasActive = false
+        pipelineStatus.value = null
+        await store.refresh()
+        await store.loadFacets()
+        Notify.create({
+          type: 'positive',
+          message: 'Обновление базы завершено — галерея обновлена',
+        })
+      }
+      return
+    }
 
-    await store.syncLoaded()
+    pipelineWasActive = true
+    pipelineStatus.value = status
+
+    const known = store.total
+    const total = await store.countFiltered()
+
+    // Пока шёл запрос, пользователь мог сменить фильтр — тогда разница
+    // относится к фильтру, а не к пайплайну: следующий тик всё увидит сам.
+    if (total === null || store.total !== known) return
+
+    if (total !== known) {
+      await store.refresh()
+
+      if (known !== null && total > known) {
+        Notify.create({
+          type: 'info',
+          message: `Распознано новых фото: +${total - known}`,
+        })
+      }
+    } else {
+      // Размер набора не изменился — обновляем QWEN-поля на месте, не
+      // сбрасывая прокрутку.
+      await store.syncLoaded()
+    }
+
     pipelineSyncTick += 1
 
-    if (pipelineSyncTick % 3 === 0) await store.loadFacets()
+    if (pipelineSyncTick % 3 === 0) await store.loadAddresses()
   } catch {
     // Фоновое обновление не должно влиять на работу грида.
   }
@@ -370,10 +514,17 @@ onMounted(async () => {
   customFrom.value = null
   customTo.value = null
   dateMode.value = 'upload'
+  clearStructuredFilters()
+  addressSearch.value = ''
+  clientSearch.value = ''
 
   await store.loadFacets()
   loadQwenModels()
   apply()
+
+  // Если прогон уже идёт, стадия и число совпадений появляются сразу, а не
+  // через первый десятисекундный тик.
+  void syncDuringPipeline()
 
   if (gridScrollEl.value) gridScrollEl.value.scrollTop = 0
   pipelineSyncTimer = window.setInterval(syncDuringPipeline, 10_000)
@@ -406,6 +557,22 @@ onBeforeUnmount(() => {
 function onKeydown(event) {
   if (!viewerOpen.value) return
 
+  // В поле описания стрелки двигают курсор, а не листают фото. Без этой
+  // проверки preventDefault() ниже съедал ArrowLeft/ArrowRight в textarea.
+  const target = event.target
+
+  if (
+    target instanceof HTMLElement
+    && (
+      target.isContentEditable
+      || target.tagName === 'INPUT'
+      || target.tagName === 'TEXTAREA'
+      || target.tagName === 'SELECT'
+    )
+  ) {
+    return
+  }
+
   if (event.key === 'ArrowLeft') {
     event.preventDefault()
     stepPhoto(-1)
@@ -427,6 +594,9 @@ async function apply(overrideQuery = undefined) {
     q: query,
     addresses: [...store.selectedAddresses],
     clients: [...store.selectedClients],
+    brand: selectedBrand.value,
+    tag: selectedTag.value,
+    category: selectedCategory.value,
     dateFrom,
     dateTo,
     dateMode: dateMode.value,
@@ -541,14 +711,79 @@ async function loadSuggestions(term) {
   }
 }
 
-function pickSuggestion(value) {
-  if (value !== String(q.value || '')) suggestMuted = true
+function clearStructuredFilters() {
+  selectedBrand.value = null
+  selectedTag.value = null
+  selectedCategory.value = null
+}
 
-  q.value = value
+async function clearStructured(kind) {
+  if (kind === 'brand') selectedBrand.value = null
+  if (kind === 'tag') selectedTag.value = null
+  if (kind === 'category') selectedCategory.value = null
+  await apply()
+}
+
+async function pickSuggestion(item) {
+  if (!item) return
+
+  const kind = item.kind
+  const value = item.value
+
   suggestOpen.value = false
   suggestItems.value = []
   suggestLayout.value = null
-  apply(value)
+  suggestMuted = true
+
+  // A suggestion is a structured choice: clear the free-text query and every
+  // previous filter. Otherwise «СТС» would also match «Ростсельмаш» as a
+  // substring of the address.
+  q.value = ''
+  store.selectedAddresses = []
+  store.selectedClients = []
+  clearStructuredFilters()
+
+  if (kind === 'layout') {
+    // The converted layout is still a text search.
+    q.value = value
+    await apply(value)
+    return
+  }
+
+  if (kind === 'client') {
+    store.selectedClients = [value]
+  } else if (kind === 'brand') {
+    selectedBrand.value = value
+  } else if (kind === 'tag') {
+    selectedTag.value = value
+  } else if (kind === 'category') {
+    selectedCategory.value = value
+  } else if (kind === 'address') {
+    const wanted = String(value || '').trim().toLowerCase()
+    const found = addresses.value.find((entry) =>
+      [entry.name, entry.address, entry.simple_address, entry.legal_address]
+        .filter(Boolean)
+        .some((candidate) => String(candidate).trim().toLowerCase() === wanted),
+    )
+
+    if (found) {
+      store.selectedAddresses = [found.address]
+    } else {
+      // The panel keeps its own names (aliases/display names); if the exact
+      // suggestion is not there, fall back to the text search rather than
+      // leaving an empty grid.
+      q.value = value
+      await apply(value)
+      return
+    }
+  } else {
+    // Unknown kind: keep the old substring behaviour.
+    q.value = value
+    await apply(value)
+    return
+  }
+
+  await apply()
 }
 
 function toggleValue(list, value) {
@@ -558,17 +793,39 @@ function toggleValue(list, value) {
 }
 
 async function pickAddress(address) {
+  // Выбор из отфильтрованного поиска — одиночный: прошлый выбор сбрасываем,
+  // чтобы выбранный адрес подсветился и грид показал именно его.
+  if (addressSearch.value.trim()) {
+    store.selectedAddresses = [address]
+    store.selectedClients = []
+    clearStructuredFilters()
+    q.value = ''
+    addressSearch.value = ''
+    await apply()
+    return
+  }
+
   toggleValue(store.selectedAddresses, address)
   await apply()
 }
 
 async function pickClient(client) {
+  if (clientSearch.value.trim()) {
+    store.selectedClients = [client]
+    store.selectedAddresses = []
+    clearStructuredFilters()
+    q.value = ''
+    clientSearch.value = ''
+    await apply()
+    return
+  }
+
   toggleValue(store.selectedClients, client)
   await apply()
 }
 
 async function selectAllAddresses() {
-  store.selectedAddresses = addresses.value.map((item) => item.address)
+  store.selectedAddresses = filteredAddresses.value.map((item) => item.address)
   await apply()
 }
 
@@ -578,7 +835,7 @@ async function clearAddresses() {
 }
 
 async function selectAllClients() {
-  store.selectedClients = clients.value.map((item) => item.client)
+  store.selectedClients = filteredClients.value.map((item) => item.client)
   await apply()
 }
 
@@ -597,6 +854,9 @@ async function reset() {
   store.collectionId = null
   store.addressCollectionId = null
   store.clientCollectionId = null
+  clearStructuredFilters()
+  addressSearch.value = ''
+  clientSearch.value = ''
   store.clearSelection()
   await apply()
 }
@@ -1472,7 +1732,13 @@ function tagList(meta) {
           :style="{ height: display.sideListHeight + 'px' }"
         >
           <q-card-section class="panel-head q-pb-xs row items-center">
-            <div class="panel-title col">Адреса</div>
+            <div class="panel-title col">
+              Адреса
+              <span class="address-summary">
+                <span class="period-count">({{ store.selectedAddresses.length }})</span>
+                {{ recognizedAddressCount }}
+              </span>
+            </div>
             <!-- Одна кнопка: пока ничего не выбрано — «Все», иначе «Снять». -->
             <q-btn
               dense
@@ -1494,11 +1760,29 @@ function tagList(meta) {
               </q-tooltip>
             </q-btn>
           </q-card-section>
+          <q-card-section class="q-pt-none q-pb-xs">
+            <q-input
+              v-model="addressSearch"
+              dense
+              outlined
+              clearable
+              placeholder="Поиск адреса"
+              class="panel-search"
+              @keyup.enter="pickFirstAddress"
+            >
+              <template #prepend>
+                <q-icon name="search" />
+              </template>
+            </q-input>
+            <div v-if="addressHint" class="text-caption text-grey-7 q-mt-xs">
+              {{ addressHint }}
+            </div>
+          </q-card-section>
           <q-separator />
           <q-scroll-area class="col">
             <q-list dense>
               <q-item
-                v-for="item in addresses"
+                v-for="item in filteredAddresses"
                 :key="item.address"
                 clickable
                 :active="store.selectedAddresses.includes(item.address)"
@@ -1506,14 +1790,21 @@ function tagList(meta) {
                 @click="pickAddress(item.address)"
               >
                 <q-item-section>
-                  {{ item.name }}
-                  <q-tooltip v-if="item.name !== item.address">
-                    {{ item.address }}
-                  </q-tooltip>
+                  <div class="address-line">
+                    <span class="address-name">
+                      {{ item.name }}
+                      <q-tooltip v-if="item.name !== item.address">
+                        {{ item.address }}
+                      </q-tooltip>
+                    </span>
+                    <span class="address-count">
+                      <span class="period-count">({{ item.period_count || 0 }})</span>
+                      {{ item.count }}
+                    </span>
+                  </div>
                 </q-item-section>
-                <q-item-section side>{{ item.count }}</q-item-section>
               </q-item>
-              <q-item v-if="!addresses.length">
+              <q-item v-if="!filteredAddresses.length">
                 <q-item-section class="text-caption text-grey">
                   Нет адресов
                 </q-item-section>
@@ -1577,7 +1868,7 @@ function tagList(meta) {
                 <q-item
                   v-if="suggestLayout"
                   clickable
-                  @click="pickSuggestion(suggestLayout.query)"
+                  @click="pickSuggestion({ kind: 'layout', value: suggestLayout.query })"
                 >
                   <q-item-section avatar>
                     <q-icon name="keyboard" />
@@ -1596,7 +1887,7 @@ function tagList(meta) {
                   v-for="item in suggestItems"
                   :key="`${item.kind}:${item.value}`"
                   clickable
-                  @click="pickSuggestion(item.value)"
+                  @click="pickSuggestion(item)"
                 >
                   <q-item-section avatar>
                     <q-icon :name="suggestionIcon(item.kind)" />
@@ -1696,11 +1987,57 @@ function tagList(meta) {
           </q-btn>
         </div>
 
+        <!-- Точные фильтры, выбранные из подсказок поиска: видно, что активно. -->
+        <div
+          v-if="selectedBrand || selectedTag || selectedCategory"
+          class="row items-center q-gutter-xs q-mb-sm"
+        >
+          <q-chip
+            v-if="selectedBrand"
+            dense
+            removable
+            color="secondary"
+            text-color="white"
+            @remove="clearStructured('brand')"
+          >
+            Бренд: {{ selectedBrand }}
+          </q-chip>
+          <q-chip
+            v-if="selectedTag"
+            dense
+            removable
+            color="secondary"
+            text-color="white"
+            @remove="clearStructured('tag')"
+          >
+            Тег: {{ selectedTag }}
+          </q-chip>
+          <q-chip
+            v-if="selectedCategory"
+            dense
+            removable
+            color="secondary"
+            text-color="white"
+            @remove="clearStructured('category')"
+          >
+            Категория: {{ selectedCategory }}
+          </q-chip>
+        </div>
+
         <!-- Действия над выбором, сортировка, вид и настройки — одной строкой.
              Выбранные адреса и клиенты здесь не повторяются: их подсвечивают
              боковые панели. -->
         <div class="row items-center q-gutter-xs q-mb-sm">
           <span class="text-caption text-grey-8">{{ periodLabel }}</span>
+          <!-- Пока идёт DINO/HYBRID: стадия и число совпадений; грид
+               перечитывается сам, когда появляются распознанные фото. -->
+          <span
+            v-if="pipelineStatusText"
+            class="row items-center no-wrap text-caption text-primary pipeline-live"
+          >
+            <q-spinner-dots size="14px" class="q-mr-xs" />
+            {{ pipelineStatusText }}
+          </span>
           <q-badge v-if="store.selectedCount" color="primary">
             выбрано: {{ store.selectedCount }}
           </q-badge>
@@ -1896,6 +2233,7 @@ function tagList(meta) {
                 <AuthImage
                   :url="previewUrl(photo.photo_id, 'small')"
                   :ratio="4 / 3"
+                  lazy
                   class="cursor-pointer"
                   @click="open(photo)"
                 />
@@ -1928,9 +2266,6 @@ function tagList(meta) {
                     class="ellipsis text-caption text-weight-bold font-italic"
                   >
                     {{ tileMeta(photo) }}
-                  </div>
-                  <div v-if="photo.source_directory" class="ellipsis text-caption text-grey-7" :title="photo.source_directory">
-                    Каталог: {{ photo.source_directory }}
                   </div>
                   <div
                     v-if="clientBrand(photo)"
@@ -2178,11 +2513,30 @@ function tagList(meta) {
               </q-tooltip>
             </q-btn>
           </q-card-section>
+          <q-card-section class="q-pt-none q-pb-xs">
+            <q-input
+              v-model="clientSearch"
+              :disable="textSearchActive"
+              dense
+              outlined
+              clearable
+              placeholder="Поиск клиента или бренда"
+              class="panel-search"
+              @keyup.enter="pickFirstClient"
+            >
+              <template #prepend>
+                <q-icon name="search" />
+              </template>
+            </q-input>
+            <div v-if="clientHint" class="text-caption text-grey-7 q-mt-xs">
+              {{ clientHint }}
+            </div>
+          </q-card-section>
           <q-separator />
           <q-scroll-area class="col">
             <q-list dense :disable="textSearchActive">
               <q-item
-                v-for="item in clients"
+                v-for="item in filteredClients"
                 :key="item.client"
                 clickable
                 :active="store.selectedClients.includes(item.client)"
@@ -2192,7 +2546,7 @@ function tagList(meta) {
                 <q-item-section>{{ item.client }}</q-item-section>
                 <q-item-section side>{{ item.count }}</q-item-section>
               </q-item>
-              <q-item v-if="!clients.length">
+              <q-item v-if="!filteredClients.length">
                 <q-item-section class="text-caption text-grey">
                   Нет клиентов
                 </q-item-section>
@@ -2866,6 +3220,61 @@ function tagList(meta) {
 .photos-page {
   height: calc(100vh - var(--app-chrome, 85px));
   overflow: hidden;
+}
+
+/* Живая строка о ходе DINO/HYBRID: не должна растягивать панель фильтров. */
+.pipeline-live {
+  max-width: 40vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Счётчик адресов за выбранный период: зелёный тонкий шрифт перед общим. */
+.period-count {
+  color: #2e7d32;
+  font-weight: 300;
+  font-size: 12px;
+  margin-right: 10px;
+}
+
+body.body--dark .period-count {
+  color: #81c784;
+}
+
+/* Строка адреса: имя и числа всегда на одной линии. */
+.address-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.address-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.address-count {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.address-summary {
+  margin-left: 8px;
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: nowrap;
+  color: #455a64;
+  font-weight: 500;
+}
+
+body.body--dark .address-summary {
+  color: #cfd8dc;
 }
 
 /* Полоса-разделитель между блоком фильтров и сеткой фотографий. */

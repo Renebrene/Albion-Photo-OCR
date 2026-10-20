@@ -26,6 +26,31 @@ let persistTimer = null
 // in memory at once.
 const PAGE_SIZE = 100
 
+/**
+ * Параметры /v1/photos для текущих фильтров.
+ *
+ * Один и тот же набор нужен странице, фоновому syncLoaded() и проверке
+ * «сколько фото сейчас в выборке» — поэтому он собирается здесь.
+ */
+function filterParams(state, { limit, cursor = null }) {
+  return {
+    limit,
+    cursor,
+    q: state.query || null,
+    address: state.selectedAddresses.length ? state.selectedAddresses : null,
+    client: state.selectedClients.length ? state.selectedClients : null,
+    brand: state.brand || null,
+    tag: state.tag || null,
+    category: state.category || null,
+    date_from: state.dateFrom || null,
+    date_to: state.dateTo || null,
+    date_mode: state.dateMode || 'upload',
+    // Подборка на фото не влияет: она восстанавливает выбор адресов или
+    // клиентов, а грид фильтруется уже по нему.
+    ids: state.nlIds.length ? state.nlIds : null,
+  }
+}
+
 export const usePhotosStore = defineStore('photos', {
   state: () => ({
     items: [],
@@ -40,6 +65,11 @@ export const usePhotosStore = defineStore('photos', {
     query: '',
     selectedAddresses: [],
     selectedClients: [],
+    // Structured values chosen from the search suggestions. They are exact
+    // filters (brand/tag/category), unlike the substring `query`.
+    brand: null,
+    tag: null,
+    category: null,
     dateFrom: null,
     dateTo: null,
     // Which date the range filter uses: upload date or EXIF capture date.
@@ -78,21 +108,9 @@ export const usePhotosStore = defineStore('photos', {
       this.error = null
 
       try {
-        const page = await fetchPhotos({
-          limit: PAGE_SIZE,
-          cursor: this.nextCursor,
-          q: this.query || null,
-          address: this.selectedAddresses.length
-            ? this.selectedAddresses
-            : null,
-          client: this.selectedClients.length ? this.selectedClients : null,
-          date_from: this.dateFrom || null,
-          date_to: this.dateTo || null,
-          date_mode: this.dateMode || 'upload',
-          // Подборка на фото не влияет: она восстанавливает выбор адресов или
-          // клиентов, а грид фильтруется уже по нему.
-          ids: this.nlIds.length ? this.nlIds : null,
-        })
+        const page = await fetchPhotos(
+          filterParams(this, { limit: PAGE_SIZE, cursor: this.nextCursor }),
+        )
 
         this.items.push(...page.items)
         this.nextCursor = page.next_cursor
@@ -128,17 +146,7 @@ export const usePhotosStore = defineStore('photos', {
       if (!count || this.loading || count > 500) return
 
       try {
-        const page = await fetchPhotos({
-          limit: count,
-          cursor: null,
-          q: this.query || null,
-          address: this.selectedAddresses.length ? this.selectedAddresses : null,
-          client: this.selectedClients.length ? this.selectedClients : null,
-          date_from: this.dateFrom || null,
-          date_to: this.dateTo || null,
-          date_mode: this.dateMode || 'upload',
-          ids: this.nlIds.length ? this.nlIds : null,
-        })
+        const page = await fetchPhotos(filterParams(this, { limit: count }))
 
         const byId = new Map(page.items.map((item) => [item.photo_id, item]))
         this.items = this.items.map((item) => byId.get(item.photo_id) || item)
@@ -147,12 +155,32 @@ export const usePhotosStore = defineStore('photos', {
       }
     },
 
+    /**
+     * Сколько фото сейчас в отфильтрованном наборе.
+     *
+     * Грид показывает только распознанные фото, поэтому во время HYBRID это
+     * число растёт — по нему страница понимает, что пора перечитать грид.
+     * null при ошибке: фоновая проверка не должна ничего ломать.
+     */
+    async countFiltered() {
+      try {
+        const page = await fetchPhotos(filterParams(this, { limit: 1 }))
+        return page.total ?? null
+      } catch {
+        return null
+      }
+    },
+
     async loadFacets() {
       this.facetsLoading = true
 
       try {
         const [addresses, clients, collections, searches] = await Promise.all([
-          fetchAddresses(),
+          fetchAddresses({
+            dateFrom: this.dateFrom,
+            dateTo: this.dateTo,
+            dateMode: this.dateMode,
+          }),
           fetchClients(),
           fetchCollections(),
           fetchSavedSearches(),
@@ -165,6 +193,25 @@ export const usePhotosStore = defineStore('photos', {
         this.error = err.message
       } finally {
         this.facetsLoading = false
+      }
+    },
+
+    /**
+     * Пересчитать счётчики адресов за выбранный период.
+     *
+     * Панель не должна перезагружать клиентов и подборки на каждую смену
+     * фильтра — нужны только счётчики.
+     */
+    async loadAddresses() {
+      try {
+        const data = await fetchAddresses({
+          dateFrom: this.dateFrom,
+          dateTo: this.dateTo,
+          dateMode: this.dateMode,
+        })
+        this.addresses = data.items || []
+      } catch {
+        // Счётчики — вспомогательные: грид продолжает работать.
       }
     },
 
@@ -181,6 +228,9 @@ export const usePhotosStore = defineStore('photos', {
       q = '',
       addresses = [],
       clients = [],
+      brand = null,
+      tag = null,
+      category = null,
       dateFrom = null,
       dateTo = null,
       dateMode = 'upload',
@@ -190,12 +240,17 @@ export const usePhotosStore = defineStore('photos', {
       this.query = q
       this.selectedAddresses = addresses
       this.selectedClients = clients
+      this.brand = brand
+      this.tag = tag
+      this.category = category
       this.dateFrom = dateFrom
       this.dateTo = dateTo
       this.dateMode = dateMode
       this.collectionId = collectionId
       this.nlIds = ids
       await this.refresh()
+      // Counters follow the same period as the grid.
+      await this.loadAddresses()
     },
 
     /**

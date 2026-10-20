@@ -122,8 +122,15 @@ def list_photos(
     limit: int = Query(50, ge=1, le=100),
     cursor: str | None = Query(None, max_length=64),
     q: str | None = Query(None, max_length=256),
-    address: list[str] | None = Query(None, max_length=64),
-    client: list[str] | None = Query(None, max_length=64),
+    # `max_length` on a list query parameter limits the NUMBER of values.
+    # The clients panel shows at most 100, so «Все» can send at most 100.
+    address: list[str] | None = Query(None, max_length=1000),
+    client: list[str] | None = Query(None, max_length=100),
+    # Structured values chosen from the search suggestions. Matched exactly,
+    # unlike the free-text `q` (which is deliberately a substring search).
+    brand: str | None = Query(None, max_length=200),
+    tag: str | None = Query(None, max_length=200),
+    category: str | None = Query(None, max_length=200),
     date_from: str | None = Query(None, max_length=10),
     date_to: str | None = Query(None, max_length=10),
     date_mode: str = Query("upload", pattern="^(upload|capture)$"),
@@ -150,6 +157,12 @@ def list_photos(
         date_mode=date_mode,
         collection_id=collection_id,
         ids=ids,
+        brand=brand,
+        tag=tag,
+        category=category,
+        # The grid shows a photo only after HYBRID has assigned an address
+        # (or after a manual override); videos are a separate list.
+        recognized_only=True,
     )
 
     # The grid label («За период N фото») needs the size of the whole filtered
@@ -167,6 +180,10 @@ def list_photos(
             date_mode=date_mode,
             collection_id=collection_id,
             ids=ids,
+            brand=brand,
+            tag=tag,
+            category=category,
+            recognized_only=True,
         )
 
     return {
@@ -177,10 +194,18 @@ def list_photos(
 
 
 @read_router.get("/v1/stats", response_model=None)
-def get_stats():
-    """Counts for the status bar: photos, addresses, clients, last upload."""
+def get_stats(
+    date_from: str | None = Query(None, max_length=10),
+    date_to: str | None = Query(None, max_length=10),
+    date_mode: str = Query("upload", pattern="^(upload|capture)$"),
+):
+    """Counts for the status bar: totals, period counts, addresses, clients."""
 
-    return repository.stats()
+    return repository.stats(
+        date_from=date_from,
+        date_to=date_to,
+        date_mode=date_mode,
+    )
 
 
 @read_router.get("/v1/system", response_model=None)
@@ -381,12 +406,28 @@ def data_export(format: str = Query("json", pattern=r"^(json|csv)$")):
 
 
 @read_router.get("/v1/addresses", response_model=None)
-def list_addresses(limit: int = Query(1000, ge=1, le=5000)):
-    return {"items": repository.list_addresses(limit=limit)}
+def list_addresses(
+    limit: int = Query(1000, ge=1, le=5000),
+    date_from: str | None = Query(None, max_length=10),
+    date_to: str | None = Query(None, max_length=10),
+    date_mode: str = Query("upload", pattern="^(upload|capture)$"),
+):
+    # `count` is all-time (the panel must not lose it when a period is picked);
+    # `period_count` repeats the count inside the caller's date range.
+    return {
+        "items": repository.list_addresses(
+            limit=limit,
+            date_from=date_from,
+            date_to=date_to,
+            date_mode=date_mode,
+        )
+    }
 
 
 @read_router.get("/v1/clients", response_model=None)
-def list_clients(limit: int = Query(1000, ge=1, le=5000)):
+def list_clients(limit: int = Query(100, ge=1, le=5000)):
+    """Клиенты/бренды для правой панели: не больше 100, по алфавиту."""
+
     return {"items": repository.list_clients(limit=limit)}
 
 

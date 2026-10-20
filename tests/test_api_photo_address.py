@@ -154,8 +154,10 @@ def test_address_filter_ignores_recognized_id_after_override(monkeypatch):
     sql, params = captured["queries"][0]
     assert "NOT EXISTS" in sql
     assert "photo_address_overrides" in sql
-    assert sql.count("mfp.fingerprint_id ILIKE") == 1
-    assert params[:2] == ["%89_v33%", "%89_v33%"]
+    # The address panel sends an exact id; match it exactly so 89_v33 does
+    # not also pull 189_v33.
+    assert sql.count("LOWER(mfp.fingerprint_id) = LOWER(%s)") == 1
+    assert params[:2] == ["89_v33", "89_v33"]
     assert params[-1] == 11  # limit + 1 for the next-page probe
 
 

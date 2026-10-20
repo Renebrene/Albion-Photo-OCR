@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Dark, Notify } from 'quasar'
 import { useRouter } from 'vue-router'
 
@@ -99,7 +99,16 @@ function measureChrome() {
 // тесты), обычное обращение обрушило бы всё приложение, а не подпись в подвале.
 const build = typeof __APP_BUILD__ === 'string' ? __APP_BUILD__ : '—'
 
-const stats = ref({ photos: null, videos: null, addresses: null, clients: null, last_photo_at: null, last_video_at: null })
+const stats = ref({
+  photos: null,
+  videos: null,
+  period_photos: null,
+  period_videos: null,
+  addresses: null,
+  clients: null,
+  last_photo_at: null,
+  last_video_at: null,
+})
 const statsDialogOpen = ref(false)
 const mediaStats = ref(null)
 const mediaStatsLoading = ref(false)
@@ -107,11 +116,41 @@ let statsTimer = null
 
 async function loadStats() {
   try {
-    stats.value = await fetchStats()
+    // «Медиа за период» follows the grid's current date filter.
+    stats.value = await fetchStats({
+      dateFrom: photos.dateFrom,
+      dateTo: photos.dateTo,
+      dateMode: photos.dateMode,
+    })
   } catch {
     // Подвал — вспомогательная информация: без неё окно работает как обычно.
   }
 }
+
+// Период меняется в гриде; подвал должен обновиться сразу, не ждать минуту.
+watch(
+  () => [photos.dateFrom, photos.dateTo, photos.dateMode],
+  () => {
+    if (session.user) void loadStats()
+  },
+)
+
+const periodLabel = computed(() => {
+  const from = photos.dateFrom
+  const to = photos.dateTo
+
+  if (!from && !to) return 'За всё время'
+
+  const fmt = (value) => {
+    if (!value) return '…'
+    const [year, month, day] = String(value).split('-')
+    return year && month && day ? `${day}.${month}.${year}` : String(value)
+  }
+
+  if (from && to && from === to) return `За ${fmt(from)}`
+
+  return `За период ${fmt(from)} — ${fmt(to)}`
+})
 
 // «14.10.2026» — дата последнего добавления фото.
 const lastPhoto = computed(() => {
@@ -326,29 +365,44 @@ function toggleDark() {
         <q-space />
 
         <span class="footer-item">
-          Фото: <b>{{ stats.photos === null ? '—' : stats.photos }}</b>
+          Всего медиа:
+          <q-icon name="photo" size="16px" class="footer-icon" />
+          <b>{{ stats.photos === null ? '—' : stats.photos }}</b>
+          <span class="footer-sep">/</span>
+          <q-icon name="videocam" size="16px" class="footer-icon" />
+          <b>{{ stats.videos === null || stats.videos === undefined ? '—' : stats.videos }}</b>
         </span>
         <span class="footer-dot">·</span>
         <span class="footer-item">
-          Видео: <b>{{ stats.videos === null || stats.videos === undefined ? '—' : stats.videos }}</b>
+          {{ periodLabel }}:
+          <q-icon name="photo" size="16px" class="footer-icon" />
+          <b>{{ stats.period_photos === null ? '—' : stats.period_photos }}</b>
+          <span class="footer-sep">/</span>
+          <q-icon name="videocam" size="16px" class="footer-icon" />
+          <b>{{ stats.period_videos === null || stats.period_videos === undefined ? '—' : stats.period_videos }}</b>
         </span>
         <span class="footer-dot">·</span>
         <span class="footer-item">
-          Адреса: <b>{{ stats.addresses === null ? '—' : stats.addresses }}</b>
+          Адресов: <b>{{ stats.addresses === null ? '—' : stats.addresses }}</b>
         </span>
         <span class="footer-dot">·</span>
         <span class="footer-item">
-          Клиенты: <b>{{ stats.clients === null ? '—' : stats.clients }}</b>
+          Клиентов: <b>{{ stats.clients === null ? '—' : stats.clients }}</b>
         </span>
         <span class="footer-dot">·</span>
         <span class="footer-item">
-          Последнее фото: <b class="footer-last">{{ lastPhoto }}</b>
-          <q-tooltip>{{ lastPhotoFull }}</q-tooltip>
-        </span>
-        <span class="footer-dot">·</span>
-        <span class="footer-item">
-          Последнее видео: <b class="footer-last">{{ lastVideo }}</b>
-          <q-tooltip>{{ lastVideoFull }}</q-tooltip>
+          Последнее медиа:
+          <span class="footer-date">
+            <q-icon name="photo" size="16px" class="footer-icon" />
+            <b class="footer-last">{{ lastPhoto }}</b>
+            <q-tooltip>{{ lastPhotoFull }}</q-tooltip>
+          </span>
+          <span class="footer-sep">/</span>
+          <span class="footer-date">
+            <q-icon name="videocam" size="16px" class="footer-icon" />
+            <b class="footer-last">{{ lastVideo }}</b>
+            <q-tooltip>{{ lastVideoFull }}</q-tooltip>
+          </span>
         </span>
         <q-btn flat dense no-caps label="Статистика" class="q-ml-sm" @click="openStats" />
 
@@ -441,6 +495,27 @@ function toggleDark() {
 .footer-item {
   font-size: 12px;
   white-space: nowrap;
+}
+
+.footer-icon {
+  vertical-align: -3px;
+  margin: 0 2px 0 4px;
+}
+
+.footer-sep {
+  color: #9e9e9e;
+  margin: 0 2px;
+}
+
+.footer-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+body.body--dark .footer-icon,
+body.body--dark .footer-sep {
+  color: #b0bec5;
 }
 
 .footer-dot {

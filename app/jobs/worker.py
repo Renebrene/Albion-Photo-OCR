@@ -519,6 +519,23 @@ def _video_worker(
             time.sleep(interval)
 
 
+def _preview_worker(
+    types: list[str],
+    interval: float,
+    label: str,
+    exclude_types: list[str] | None = None,
+) -> None:
+    """One PHOTO_PREVIEW worker in --parallel mode; no torch/model imports."""
+
+    print(f"[preview-worker {label}] watching {types}", flush=True)
+
+    while True:
+        job_type = run_once(types, exclude_types=exclude_types)
+
+        if job_type is None:
+            time.sleep(interval)
+
+
 def _requeue_stale_jobs(minutes: int, *, video_only: bool, preview_only: bool = False) -> dict:
     if preview_only:
         return {"jobs": jobs.requeue_stale(older_than_minutes=minutes, types=["PHOTO_PREVIEW"])}
@@ -688,8 +705,8 @@ def main() -> None:
     if preview_only and args.watch and args.requeue_stale is not None:
         _requeue_stale_jobs(args.requeue_stale, video_only=False, preview_only=True)
 
-    if preview_only and args.watch:
-        print(f"[preview-worker] watching {types}; preview pool is controlled by SCENE_PREVIEW_WORKERS", flush=True)
+    if preview_only and args.watch and parallel == 1:
+        print(f"[preview-worker] watching {types} (single process)", flush=True)
         while True:
             job_type = run_once(types, exclude_types=excluded_types)
             if job_type is None:
@@ -711,7 +728,17 @@ def main() -> None:
 
     if parallel > 1 and args.watch and types:
         threads = max(1, (os.cpu_count() or 1) // parallel)
-        if video_only:
+        if preview_only:
+            print(
+                f"[worker] {parallel} preview processes, types={types}",
+                flush=True,
+            )
+            target = _preview_worker
+            process_args = [
+                (types, args.interval, f"{index + 1}/{parallel}", excluded_types)
+                for index in range(parallel)
+            ]
+        elif video_only:
             print(
                 f"[worker] {parallel} video transcode workers, encoder={os.environ['SCENE_VIDEO_ENCODER_RESOLVED']}, "
                 f"{threads} CPU threads per worker",

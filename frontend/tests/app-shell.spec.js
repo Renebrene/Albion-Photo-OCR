@@ -162,7 +162,16 @@ function installFetch({
     }
 
     if (path.endsWith('/v1/stats')) {
-      return json({ photos: 1, videos: 0, addresses: 1, clients: 0, last_photo_at: null, last_video_at: null })
+      return json({
+        photos: 1,
+        videos: 0,
+        period_photos: 1,
+        period_videos: 0,
+        addresses: 1,
+        clients: 0,
+        last_photo_at: null,
+        last_video_at: null,
+      })
     }
 
     if (path.endsWith('/v1/media/statistics')) return json({ photos: 1, videos: 0, months: [] })
@@ -238,7 +247,13 @@ describe('оболочка приложения', () => {
     expect(caption).toContain('photo.jpg')
     expect(caption).toContain('17.07.2025 · 4.0 МБ')
     expect(caption).toContain('Клиент А, Бренд Б')
-    expect(caption).toContain('Каталог: test')
+    // В плитке путь к каталогу убран; он остаётся в списке и окне просмотра.
+    expect(caption).not.toContain('Каталог: test')
+
+    // Подвал: общий итог, счётчики за период и последнее медиа.
+    expect(caption).toContain('Всего медиа')
+    expect(caption).toContain('За период')
+    expect(caption).toContain('Последнее медиа')
 
     wrapper.unmount()
   })
@@ -610,12 +625,18 @@ describe('оболочка приложения', () => {
 
     // Клик по пункту меню в happy-dom не доходит до обработчика Quasar —
     // вызываем тот же метод, который привязан к пункту.
-    wrapper.findComponent(PhotosGrid).vm.pickSuggestion('Рязанка')
+    wrapper.findComponent(PhotosGrid).vm.pickSuggestion({
+      value: 'Рязанка',
+      kind: 'brand',
+    })
     await flushPromises()
 
+    // Подсказка — это точный фильтр, а не текст запроса: «СТС» не должен
+    // находить «Ростсельмаш» как подстроку адреса.
     const photoRequests = urls.filter((url) => url.includes('/v1/photos?'))
-    expect(new URL(photoRequests[photoRequests.length - 1], 'http://localhost').searchParams.get('q'))
-      .toBe('Рязанка')
+    const last = new URL(photoRequests[photoRequests.length - 1], 'http://localhost')
+    expect(last.searchParams.get('brand')).toBe('Рязанка')
+    expect(last.searchParams.get('q')).toBe(null)
 
     wrapper.unmount()
   })

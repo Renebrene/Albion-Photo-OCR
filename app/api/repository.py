@@ -126,6 +126,10 @@ def _photo_where(
     date_mode: str = "upload",
     collection_id: int | None = None,
     ids: list[str] | None = None,
+    brand: str | None = None,
+    tag: str | None = None,
+    category: str | None = None,
+    recognized_only: bool = False,
 ) -> tuple[str, list[object]]:
     """
     WHERE-часть запроса фото и её параметры.
@@ -184,40 +188,64 @@ def _photo_where(
     if addresses:
         # A manually corrected photo belongs ONLY to the chosen address: the
         # recognised fingerprint is ignored while an override exists.
+        # Values come from the address panel, so match them exactly
+        # (case-insensitive) rather than by substring: selecting 78_v33 must
+        # not also pull 178_v33.
         parts = []
         for value in addresses:
-            like = f"%{value}%"
             parts.append(
                 "((NOT EXISTS ("
                 "   SELECT 1 FROM public.photo_address_overrides AS ov"
                 "   WHERE ov.photo_id = t.photo_id)"
-                "  AND t.address ILIKE %s)"
+                "  AND LOWER(t.address) = LOWER(%s))"
                 " OR EXISTS ("
                 "   SELECT 1 FROM public.photo_address_overrides AS ov"
                 "   JOIN public.address_fingerprints AS mfp"
                 "     ON mfp.address_id = ov.address_id AND mfp.active"
                 "   WHERE ov.photo_id = t.photo_id"
-                "     AND mfp.fingerprint_id ILIKE %s))"
+                "     AND LOWER(mfp.fingerprint_id) = LOWER(%s)))"
             )
-            params.extend([like, like])
+            params.extend([value, value])
 
         clauses.append("(" + " OR ".join(parts) + ")")
 
     if clients:
-        # Match either the raw QWEN client or any alias mapping to a
-        # canonical value that matches (client_aliases). `kind = 'client'`:
-        # the same dictionary also holds brands (schema/035), and a brand
-        # alias must not pull photos by their client.
+        # Exact value (case-insensitive), not a substring: selecting «СТС»
+        # must not also pull a client whose name merely contains «стс».
+        # A raw spelling is folded through the alias dictionary to the chosen
+        # canonical client. `kind = 'client'`: the dictionary also holds
+        # brands, and a brand alias must not pull photos by their client.
         parts = []
         for value in clients:
-            like = f"%{value}%"
             parts.append(
-                "(t.client ILIKE %s OR t.client IN ("
-                "SELECT alias FROM public.client_aliases "
-                "WHERE kind = 'client' AND canonical ILIKE %s))"
+                "(LOWER(t.client) = LOWER(%s) OR EXISTS ("
+                "SELECT 1 FROM public.client_aliases AS ca "
+                "WHERE LOWER(ca.alias) = LOWER(t.client) "
+                "  AND ca.kind = 'client' "
+                "  AND LOWER(ca.canonical) = LOWER(%s)))"
             )
-            params.extend([like, like])
+            params.extend([value, value])
         clauses.append("(" + " OR ".join(parts) + ")")
+
+    if brand:
+        clauses.append("LOWER(t.brand) = LOWER(%s)")
+        params.append(brand)
+
+    if category:
+        clauses.append("LOWER(t.category) = LOWER(%s)")
+        params.append(category)
+
+    if tag:
+        clauses.append(
+            "EXISTS ("
+            "  SELECT 1 FROM public.photo_qwen AS qq"
+            "  CROSS JOIN LATERAL jsonb_array_elements_text("
+            "    CASE WHEN jsonb_typeof(qq.tags) = 'array' THEN qq.tags END"
+            "  ) AS item"
+            "  WHERE qq.photo_id = t.photo_id"
+            "    AND LOWER(item) = LOWER(%s))"
+        )
+        params.append(tag)
 
     if date_from:
         clauses.append(f"{date_column} >= %s::date")
@@ -239,6 +267,18 @@ def _photo_where(
         clauses.append("t.photo_id = ANY(%s)")
         params.append(list(ids))
 
+    if recognized_only:
+        # The grid shows a photo only after recognition has produced an
+        # address: a DONE HYBRID verdict with a final id, or a manual override.
+        # Videos live in a separate list and are not affected.
+        clauses.append(
+            "(EXISTS (SELECT 1 FROM public.hybrid_results AS hr"
+            " WHERE hr.photo_id = t.photo_id AND hr.status = 'DONE'"
+            "   AND hr.hybrid_final_id IS NOT NULL)"
+            " OR EXISTS (SELECT 1 FROM public.photo_address_overrides AS ov"
+            " WHERE ov.photo_id = t.photo_id))"
+        )
+
     if not clauses:
         return "", params
 
@@ -255,6 +295,10 @@ def count_photos(
     date_mode: str = "upload",
     collection_id: int | None = None,
     ids: list[str] | None = None,
+    brand: str | None = None,
+    tag: str | None = None,
+    category: str | None = None,
+    recognized_only: bool = False,
 ) -> int:
     """Сколько фото подходит под те же фильтры, что и грид."""
 
@@ -267,6 +311,10 @@ def count_photos(
         date_mode=date_mode,
         collection_id=collection_id,
         ids=ids,
+        brand=brand,
+        tag=tag,
+        category=category,
+        recognized_only=recognized_only,
     )
     sql = "SELECT count(*) FROM (" + _PHOTO_SELECT + where + ") AS filtered"
 
@@ -288,6 +336,10 @@ def list_photos(
     date_mode: str = "upload",
     collection_id: int | None = None,
     ids: list[str] | None = None,
+    brand: str | None = None,
+    tag: str | None = None,
+    category: str | None = None,
+    recognized_only: bool = False,
 ) -> tuple[list[PhotoSummary], str | None]:
     """
     Return one page of registered photos ordered by photo_id.
@@ -318,6 +370,10 @@ def list_photos(
         date_mode=date_mode,
         collection_id=collection_id,
         ids=ids,
+        brand=brand,
+        tag=tag,
+        category=category,
+        recognized_only=recognized_only,
     )
     sql = _PHOTO_SELECT + where
 
@@ -512,7 +568,13 @@ def all_photo_ids() -> list[str]:
             return [row[0] for row in cur.fetchall()]
 
 
-def list_addresses(*, limit: int = 1000) -> list[dict]:
+def list_addresses(
+    *,
+    limit: int = 1000,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    date_mode: str = "upload",
+) -> list[dict]:
     """
     The address filter of the photo page: one entry per fingerprint.
 
@@ -530,15 +592,35 @@ def list_addresses(*, limit: int = 1000) -> list[dict]:
     the panel shows.
     """
 
+    if date_mode not in {"upload", "capture"}:
+        raise ValueError("date_mode must be 'upload' or 'capture'")
+
+    date_column = "t.taken_at" if date_mode == "capture" else "t.created_at"
+    period_parts: list[str] = []
+    period_params: list[object] = []
+
+    if date_from:
+        period_parts.append(f"{date_column} >= %s::date")
+        period_params.append(date_from)
+
+    if date_to:
+        period_parts.append(f"{date_column} < (%s::date + interval '1 day')")
+        period_params.append(date_to)
+
+    period_sql = " AND ".join(period_parts) or "TRUE"
+
     with get_connection() as conn:
         with conn.cursor() as cur:
             # Photo counts per address panel entry. A manual override moves the
             # photo to the chosen address's representative fingerprint, so the
-            # counters match what the address filter returns.
+            # counters match what the address filter returns. `period_count`
+            # repeats the same count with the caller's date range; `count`
+            # stays all-time and ignores the filter.
             cur.execute(
                 """
                 SELECT COALESCE(mapped.fingerprint_id, t.address) AS address,
-                       count(*) AS count
+                       count(*) AS count,
+                       count(*) FILTER (WHERE """ + period_sql + """) AS period_count
                 FROM (""" + _PHOTO_SELECT + """) AS t
                 LEFT JOIN public.photo_address_overrides AS ov
                        ON ov.photo_id = t.photo_id
@@ -555,10 +637,26 @@ def list_addresses(*, limit: int = 1000) -> list[dict]:
                 ) AS mapped ON TRUE
                 WHERE COALESCE(mapped.fingerprint_id, t.address) IS NOT NULL
                   AND COALESCE(mapped.fingerprint_id, t.address) <> ''
+                  AND (
+                    EXISTS (
+                        SELECT 1 FROM public.hybrid_results AS hr
+                        WHERE hr.photo_id = t.photo_id
+                          AND hr.status = 'DONE'
+                          AND hr.hybrid_final_id IS NOT NULL
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM public.photo_address_overrides AS ov2
+                        WHERE ov2.photo_id = t.photo_id
+                    )
+                  )
                 GROUP BY COALESCE(mapped.fingerprint_id, t.address)
-                """
+                """,
+                period_params,
             )
-            counts = {row[0]: int(row[1]) for row in cur.fetchall()}
+            counts = {
+                row[0]: (int(row[1]), int(row[2]))
+                for row in cur.fetchall()
+            }
 
             # Every fingerprint, archived ones included: an archived fingerprint
             # still recognises photos, and those must keep their name.
@@ -593,15 +691,19 @@ def list_addresses(*, limit: int = 1000) -> list[dict]:
             continue
 
         listed.add(fingerprint_id)
+        count, period_count = counts.get(fingerprint_id, (0, 0))
         items.append(
             {
                 "address": fingerprint_id,
                 "name": name,
-                "count": counts.get(fingerprint_id, 0),
+                "simple_address": row[3],
+                "legal_address": row[4],
+                "count": count,
+                "period_count": period_count,
             }
         )
 
-    for fingerprint_id, count in counts.items():
+    for fingerprint_id, (count, period_count) in counts.items():
         if fingerprint_id in listed or fingerprint_id in inactive:
             continue
 
@@ -609,7 +711,10 @@ def list_addresses(*, limit: int = 1000) -> list[dict]:
             {
                 "address": fingerprint_id,
                 "name": known.get(fingerprint_id, fingerprint_id),
+                "simple_address": None,
+                "legal_address": None,
                 "count": count,
+                "period_count": period_count,
             }
         )
 
@@ -619,13 +724,37 @@ def list_addresses(*, limit: int = 1000) -> list[dict]:
     return items[:limit]
 
 
-def stats() -> dict:
+def stats(
+    *,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    date_mode: str = "upload",
+) -> dict:
     """
     Counts for the status bar at the bottom of the window.
 
-    `last_photo_at` is when the corpus last grew (INGEST writes created_at), so
-    the window can show how fresh it is.
+    `photos`/`videos` and `last_*` are all-time. `period_photos`/`period_videos`
+    repeat the counts with the caller's date range. `addresses` counts the
+    addresses that actually received a HYBRID verdict (or a manual override),
+    not every row of the address directory.
     """
+
+    if date_mode not in {"upload", "capture"}:
+        raise ValueError("date_mode must be 'upload' or 'capture'")
+
+    date_column = "created_at" if date_mode == "upload" else "taken_at"
+    period_parts: list[str] = []
+    period_params: list[object] = []
+
+    if date_from:
+        period_parts.append(f"{date_column} >= %s::date")
+        period_params.append(date_from)
+
+    if date_to:
+        period_parts.append(f"{date_column} < (%s::date + interval '1 day')")
+        period_params.append(date_to)
+
+    period_sql = " AND ".join(period_parts) or "TRUE"
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -633,26 +762,86 @@ def stats() -> dict:
                 """
                 SELECT
                     (SELECT count(*) FROM public.photos),
-                    (SELECT count(*) FROM public.address_directory
-                      WHERE active),
+                    (SELECT count(*) FROM public.photos WHERE """ + period_sql + """),
                     (SELECT count(DISTINCT client) FROM public.photo_qwen
                       WHERE client IS NOT NULL AND client <> ''),
                     (SELECT max(created_at) FROM public.photos)
-                """
+                """,
+                period_params,
             )
             row = cur.fetchone()
+
+            # Recognised addresses: a HYBRID final id or a manual override.
+            # The same mapping as the address panel keeps the footer in sync.
+            cur.execute(
+                """
+                SELECT count(DISTINCT COALESCE(mapped.fingerprint_id, t.address))
+                FROM (""" + _PHOTO_SELECT + """) AS t
+                LEFT JOIN public.photo_address_overrides AS ov
+                       ON ov.photo_id = t.photo_id
+                LEFT JOIN LATERAL (
+                    SELECT f.fingerprint_id
+                    FROM public.address_fingerprints AS f
+                    JOIN public.fingerprints AS reg
+                      ON reg.fingerprint_id = f.fingerprint_id
+                     AND reg.active
+                    WHERE f.address_id = ov.address_id
+                      AND f.active
+                    ORDER BY f.fingerprint_id
+                    LIMIT 1
+                ) AS mapped ON TRUE
+                WHERE COALESCE(mapped.fingerprint_id, t.address) IS NOT NULL
+                  AND COALESCE(mapped.fingerprint_id, t.address) <> ''
+                  AND (
+                    EXISTS (
+                        SELECT 1 FROM public.hybrid_results AS hr
+                        WHERE hr.photo_id = t.photo_id
+                          AND hr.status = 'DONE'
+                          AND hr.hybrid_final_id IS NOT NULL
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM public.photo_address_overrides AS ov2
+                        WHERE ov2.photo_id = t.photo_id
+                    )
+                  )
+                """
+            )
+            addresses = int(cur.fetchone()[0])
+
             cur.execute("SELECT to_regclass('public.video_assets')")
             has_video_table = cur.fetchone()[0] is not None
+
             if has_video_table:
-                cur.execute("SELECT count(*), max(created_at) FROM public.video_assets")
-                video_count, last_video_at = cur.fetchone()
+                # Videos have no EXIF capture date: their period always uses
+                # the registration time.
+                video_parts: list[str] = []
+                video_params: list[object] = []
+
+                if date_from:
+                    video_parts.append("created_at >= %s::date")
+                    video_params.append(date_from)
+
+                if date_to:
+                    video_parts.append("created_at < (%s::date + interval '1 day')")
+                    video_params.append(date_to)
+
+                video_period_sql = " AND ".join(video_parts) or "TRUE"
+                cur.execute(
+                    "SELECT count(*), max(created_at), "
+                    "count(*) FILTER (WHERE " + video_period_sql + ") "
+                    "FROM public.video_assets",
+                    video_params,
+                )
+                video_count, last_video_at, period_videos = cur.fetchone()
             else:
-                video_count, last_video_at = 0, None
+                video_count, last_video_at, period_videos = 0, None, 0
 
     return {
         "photos": int(row[0]),
         "videos": int(video_count),
-        "addresses": int(row[1]),
+        "period_photos": int(row[1]),
+        "period_videos": int(period_videos),
+        "addresses": addresses,
         "clients": int(row[2]),
         "last_photo_at": row[3],
         "last_video_at": last_video_at,
@@ -782,7 +971,7 @@ def suggest_terms(term: str, *, limit: int = 8) -> list[dict]:
             ]
 
 
-def list_clients(*, limit: int = 1000) -> list[dict]:
+def list_clients(*, limit: int = 100) -> list[dict]:
     """
     Distinct QWEN clients with photo counts.
 

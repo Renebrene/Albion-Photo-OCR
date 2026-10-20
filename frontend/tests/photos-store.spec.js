@@ -415,4 +415,28 @@ describe('photos store', () => {
       ),
     ).toBe(false)
   })
+
+  it('loadAddresses passes the current period to the address counters', async () => {
+    let addressesUrl = ''
+
+    routes.unshift({
+      method: 'GET',
+      match: (p) => p === '/api/v1/addresses',
+      respond: (url) => {
+        addressesUrl = String(url)
+        return jsonResponse({ items: [] })
+      },
+    })
+
+    const store = usePhotosStore()
+    store.dateFrom = '2026-10-01'
+    store.dateTo = '2026-10-31'
+    store.dateMode = 'capture'
+
+    await store.loadAddresses()
+
+    expect(addressesUrl).toContain('date_from=2026-10-01')
+    expect(addressesUrl).toContain('date_to=2026-10-31')
+    expect(addressesUrl).toContain('date_mode=capture')
+  })
 })

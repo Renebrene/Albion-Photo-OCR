@@ -1,14 +1,17 @@
 # systemd deployment (scene-api + scene-worker)
 
-Two long-running services cover the web app:
+Several long-running services cover the web app:
 
 | Unit | Runs | Maps to legacy |
 |---|---|---|
 | `scene-api.service` | FastAPI app + built Quasar SPA (`app.api.main:app`) | `dashboard.service` |
-| `scene-worker.service` | deferred job worker (`app.jobs.worker`) | `lora.service` (worker) |
-| `scene-builder.service` (user unit) | parallel fingerprint builder (`app.jobs.worker --watch --only FINGERPRINT_BUILD --parallel 3`) | — |
+| `scene-worker.service` | general queue: DINO/HYBRID/INGEST/MEDIA_EXPORT/NL; excludes preview, QWEN, video and billboard jobs | `lora.service` (worker) |
+| `scene-builder.service` (user unit) | parallel fingerprint builder (`--only FINGERPRINT_BUILD --parallel 3`) | — |
+| `scene-qwen-worker.service` (user unit) | isolated `QWEN_PHOTO` queue poller | — |
 | `scene-video-worker.service` (user unit) | isolated `VIDEO_TRANSCODE` / `VIDEO_TRIM` / `VIDEO_STORYBOARD` jobs; smoke-gated NVENC or CPU | — |
-| `scene-preview-worker.service` (user unit) | isolated `PHOTO_PREVIEW` queue poller; parallel CPU work runs in `app.preview.pipeline` | — |
+| `scene-preview-worker.service` (user unit) | `PHOTO_PREVIEW --parallel 3`: each job is one photo, so the job-level parallelism is what speeds the stage up | — |
+| `scene-billboard-worker.service` (user unit) | `BILLBOARD_DETECT --parallel 2`: detector/crop branch for QWEN, kept off the general queue | — |
+| `scene-pipeline-worker.service` (user unit) | resumable pipeline supervisor (`--pipeline`); claims no jobs | — |
 
 Inference (DINO/HYBRID) and QWEN run **only** in the worker — never inside the
 API process. The API serves `frontend/dist` statically, so there is no separate

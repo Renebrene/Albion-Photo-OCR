@@ -170,8 +170,18 @@ export function fetchSystem() {
 }
 
 // Counts for the status bar: photos, addresses, clients, last upload.
-export function fetchStats() {
-  return getJson(`${BASE}/v1/stats`)
+// Shared `date_from/date_to/date_mode` suffix for the grid-aware endpoints.
+function dateQuery({ dateFrom = null, dateTo = null, dateMode = 'upload' } = {}) {
+  const params = new URLSearchParams()
+  if (dateFrom) params.set('date_from', dateFrom)
+  if (dateTo) params.set('date_to', dateTo)
+  if (dateMode) params.set('date_mode', dateMode)
+  const text = params.toString()
+  return text ? `?${text}` : ''
+}
+
+export function fetchStats(options = {}) {
+  return getJson(`${BASE}/v1/stats${dateQuery(options)}`)
 }
 
 export function fetchFingerprints() {
@@ -259,6 +269,9 @@ export function fetchPhotos({
   q = null,
   address = null,
   client = null,
+  brand = null,
+  tag = null,
+  category = null,
   date_from = null,
   date_to = null,
   date_mode = null,
@@ -272,6 +285,10 @@ export function fetchPhotos({
   // `address`/`client` accept a single value or an array (OR semantics).
   if (address) [].concat(address).forEach((v) => params.append('address', v))
   if (client) [].concat(client).forEach((v) => params.append('client', v))
+  // Structured values chosen from search suggestions: exact, not substring.
+  if (brand) params.set('brand', brand)
+  if (tag) params.set('tag', tag)
+  if (category) params.set('category', category)
   if (date_from) params.set('date_from', date_from)
   if (date_to) params.set('date_to', date_to)
   // Date filter source: upload date (default) or EXIF capture date.
@@ -769,8 +786,8 @@ export function fetchCollectionMembers(collectionId, memberType = 'photo') {
   )
 }
 
-export function fetchAddresses() {
-  return getJson(`${BASE}/v1/addresses`)
+export function fetchAddresses(options = {}) {
+  return getJson(`${BASE}/v1/addresses${dateQuery(options)}`)
 }
 
 export function fetchClients() {

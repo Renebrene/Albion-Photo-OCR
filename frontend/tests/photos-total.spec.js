@@ -53,4 +53,46 @@ describe('total в гриде', () => {
     await store.refresh()
     expect(store.total).toBe(7)
   })
+
+  it('countFiltered запрашивает только total с текущими фильтрами', async () => {
+    const urls = []
+
+    global.fetch = vi.fn(async (url) => {
+      urls.push(String(url))
+      const params = new URL(String(url), 'http://localhost').searchParams
+
+      // Первая страница грида, затем дешёвая проверка размера выборки.
+      if (params.get('limit') === '1') {
+        return json({ items: [], next_cursor: null, total: 5 })
+      }
+
+      return json({ items: [], next_cursor: null, total: 12 })
+    })
+
+    setActivePinia(createPinia())
+    const store = usePhotosStore()
+
+    store.query = 'СТС'
+    store.dateMode = 'capture'
+
+    await store.refresh()
+    expect(store.total).toBe(12)
+
+    const total = await store.countFiltered()
+    expect(total).toBe(5)
+
+    const probe = new URL(urls.at(-1), 'http://localhost').searchParams
+    expect(probe.get('limit')).toBe('1')
+    expect(probe.get('q')).toBe('СТС')
+    expect(probe.get('date_mode')).toBe('capture')
+  })
+
+  it('countFiltered возвращает null при ошибке', async () => {
+    global.fetch = vi.fn(async () => json({ detail: 'boom' }, 500))
+
+    setActivePinia(createPinia())
+    const store = usePhotosStore()
+
+    await expect(store.countFiltered()).resolves.toBeNull()
+  })
 })

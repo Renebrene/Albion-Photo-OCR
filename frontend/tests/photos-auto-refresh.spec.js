@@ -1,0 +1,132 @@
+// Грид показывает только распознанные фото, поэтому во время HYBRID он должен
+// перечитываться сам, когда меняется размер выборки, и сообщать о совпадениях.
+// @vitest-environment happy-dom
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { h } from 'vue'
+import { flushPromises, mount } from '@vue/test-utils'
+import { Notify, QLayout, QPageContainer, Quasar } from 'quasar'
+import { createPinia, setActivePinia } from 'pinia'
+
+import PhotosGrid from '../src/pages/PhotosGrid.vue'
+
+Notify.create = vi.fn()
+
+let photoTotal = 2
+
+function json(body, status = 200) {
+  return { ok: status < 400, status, json: async () => body }
+}
+
+const photo = {
+  photo_id: 'PH_' + 'a'.repeat(24),
+  filename: 'photo.jpg',
+  width: 100,
+  height: 100,
+  container_format: 'JPEG',
+  address: '78_v33',
+  simple_address: 'Комарова 13',
+  client: 'Клиент А',
+  brand: 'Бренд Б',
+  source_directory: 'test',
+  taken_at: '2025-07-17 11:43:19',
+  size_bytes: 4194304,
+}
+
+function installFetch() {
+  global.fetch = vi.fn(async (url) => {
+    const parsed = new URL(String(url), 'http://localhost')
+    const path = parsed.pathname
+
+    if (path.endsWith('/v1/photos')) {
+      // Дешёвая проверка размера выборки запрашивает одну строку.
+      if (parsed.searchParams.get('limit') === '1') {
+        return json({ items: [], next_cursor: null, total: photoTotal })
+      }
+
+      return json({ items: [photo], next_cursor: null, total: photoTotal })
+    }
+
+    if (path.endsWith('/v1/runs/activity')) {
+      return json({
+        active: { kind: 'pipeline', run_id: 1, stage: 'HYBRID' },
+        message: 'идёт «Обновление базы» (стадия HYBRID)',
+      })
+    }
+
+    if (path.endsWith('/v1/sort/status')) {
+      return json({
+        current: { total: 10, done: 7, failed: 0, matched: 3 },
+        last: null,
+      })
+    }
+
+    if (path.endsWith('/v1/qwen/settings')) return json({ models: {} })
+
+    return json({ items: [] })
+  })
+}
+
+beforeEach(() => {
+  vi.useFakeTimers()
+  photoTotal = 2
+  Notify.create = vi.fn()
+  setActivePinia(createPinia())
+  installFetch()
+})
+
+afterEach(() => {
+  vi.useRealTimers()
+  delete global.fetch
+  vi.restoreAllMocks()
+})
+
+// QPage рендерится только внутри QLayout/QPageContainer — оборачиваем так же,
+// как App.vue. Render-функция: runtime-компилятор шаблонов в тестах не подключён.
+const Host = {
+  render: () =>
+    h(QLayout, null, {
+      default: () => h(QPageContainer, null, { default: () => h(PhotosGrid) }),
+    }),
+}
+
+async function mountGrid() {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+
+  const wrapper = mount(Host, {
+    global: { plugins: [Quasar, pinia] },
+  })
+  await flushPromises()
+  return wrapper
+}
+
+describe('грид следит за HYBRID', () => {
+  it('перечитывает выборку и сообщает о новых распознанных фото', async () => {
+    const wrapper = await mountGrid()
+
+    expect(wrapper.text()).toContain('За период 2 фото')
+
+    // HYBRID доработал ещё одно фото: размер выборки вырос.
+    photoTotal = 3
+    await vi.advanceTimersByTimeAsync(10_000)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('За период 3 фото')
+    expect(Notify.create).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Распознано новых фото: +1' }),
+    )
+    wrapper.unmount()
+  })
+
+  it('показывает стадию и число совпадений во время HYBRID', async () => {
+    const wrapper = await mountGrid()
+
+    await vi.advanceTimersByTimeAsync(10_000)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('стадия HYBRID')
+    expect(wrapper.text()).toContain('совпадений 3 из 10')
+    wrapper.unmount()
+  })
+})

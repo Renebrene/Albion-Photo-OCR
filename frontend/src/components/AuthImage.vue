@@ -8,6 +8,10 @@ import { acquireImageUrl, releaseImageUrl } from '../api/client'
 const props = defineProps({
   url: { type: String, required: true },
   ratio: { type: [Number, String], default: undefined },
+  // Grids with hundreds of cards: release the blob URL when the card is far
+  // outside the viewport and load it again on return. Off by default so the
+  // list thumbnails and the viewer keep their exact layout.
+  lazy: { type: Boolean, default: false },
 })
 
 // Quasar's q-img runs `Number(ratio)`, so a string like "16/9" becomes NaN and
@@ -79,16 +83,75 @@ async function load(url) {
   }
 }
 
-onMounted(() => load(props.url))
-watch(() => props.url, (url) => load(url))
+// Lazy mode: the intersection observer keeps only the visible window of the
+// grid in memory. `visible` starts false so a card below the fold does not
+// fetch until it approaches the viewport.
+const rootEl = ref(null)
+let observer = null
+let visible = !props.lazy
+const LAZY_MARGIN = '1200px 0px'
+
+function startLoading() {
+  if (!src.value && !failed.value) load(props.url)
+}
+
+function stopLoading() {
+  requestId += 1
+  releaseHeld()
+  src.value = ''
+  failed.value = false
+}
+
+onMounted(() => {
+  if (!props.lazy || typeof IntersectionObserver === 'undefined') {
+    visible = true
+    load(props.url)
+    return
+  }
+
+  observer = new IntersectionObserver(
+    (entries) => {
+      visible = Boolean(entries[0]?.isIntersecting)
+
+      if (visible) startLoading()
+      else stopLoading()
+    },
+    { rootMargin: LAZY_MARGIN },
+  )
+
+  if (rootEl.value) observer.observe(rootEl.value)
+  else {
+    visible = true
+    load(props.url)
+  }
+})
+
+watch(() => props.url, (url) => {
+  if (!props.lazy || visible) load(url)
+  else stopLoading()
+})
+
 onBeforeUnmount(() => {
+  observer?.disconnect()
+  observer = null
   requestId += 1
   releaseHeld()
 })
 </script>
 
 <template>
-  <q-img v-if="src" :src="src" :ratio="ratioValue" />
+  <div v-if="lazy" ref="rootEl" class="auth-image">
+    <q-img v-if="src" :src="src" :ratio="ratioValue" />
+    <div
+      v-else-if="failed"
+      class="flex flex-center bg-grey-3 text-grey"
+      :style="ratioValue ? { aspectRatio: String(ratioValue) } : { minHeight: '48px' }"
+    >
+      <q-icon name="broken_image" />
+    </div>
+    <q-skeleton v-else :style="ratioValue ? { aspectRatio: String(ratioValue) } : { minHeight: '48px' }" />
+  </div>
+  <q-img v-else-if="src" :src="src" :ratio="ratioValue" />
   <div
     v-else-if="failed"
     class="flex flex-center bg-grey-3 text-grey"
@@ -98,3 +161,10 @@ onBeforeUnmount(() => {
   </div>
   <q-skeleton v-else :style="ratioValue ? { aspectRatio: String(ratioValue) } : { minHeight: '48px' }" />
 </template>
+
+<style scoped>
+.auth-image {
+  display: block;
+  width: 100%;
+}
+</style>
