@@ -137,7 +137,7 @@ def list_photos(
     if collection_id is not None and repository.get_collection(
         collection_id, _principal_user_id(principal)
     ) is None:
-        return {"items": [], "next_cursor": None}
+        return {"items": [], "next_cursor": None, "total": 0}
 
     items, next_cursor = repository.list_photos(
         limit=limit,
@@ -151,9 +151,28 @@ def list_photos(
         collection_id=collection_id,
         ids=ids,
     )
+
+    # The grid label («За период N фото») needs the size of the whole filtered
+    # set, not just the loaded page. Count once, on the first page: subsequent
+    # pages are the same set while the user scrolls.
+    total = None
+
+    if cursor is None:
+        total = repository.count_photos(
+            query=q,
+            addresses=address,
+            clients=client,
+            date_from=date_from,
+            date_to=date_to,
+            date_mode=date_mode,
+            collection_id=collection_id,
+            ids=ids,
+        )
+
     return {
         "items": [item.model_dump() for item in items],
         "next_cursor": next_cursor,
+        "total": total,
     }
 
 

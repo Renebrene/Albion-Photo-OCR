@@ -413,7 +413,7 @@ onBeforeUnmount(stopStatsPolling)
 <template>
   <div style="max-width: 1180px">
     <div class="row q-col-gutter-md">
-      <div class="col-12 col-md-5">
+      <div class="col-12 col-sm-6 col-lg-3">
         <div class="text-h6 q-mb-md">Модель QWEN</div>
 
     <div v-if="error" class="q-mb-md">
@@ -557,8 +557,10 @@ onBeforeUnmount(stopStatsPolling)
         </div>
       </q-card-section>
     </q-card>
+      </div>
 
-    <q-card v-if="stats" flat bordered class="q-mt-md">
+      <div class="col-12 col-sm-6 col-lg-3">
+    <q-card v-if="stats" flat bordered>
       <q-card-section>
         <div class="text-subtitle1 q-mb-sm">Метаданные QWEN</div>
 
@@ -659,7 +661,7 @@ onBeforeUnmount(stopStatsPolling)
       </div>
 
       <!-- Справа: статистика присвоения описаний -->
-      <div class="col-12 col-md-3">
+      <div class="col-12 col-sm-6 col-lg-3">
         <q-card flat bordered class="fit">
           <q-card-section>
             <div class="text-subtitle1 q-mb-sm">Статистика описаний</div>
@@ -711,7 +713,7 @@ onBeforeUnmount(stopStatsPolling)
       </div>
 
       <!-- Третья колонка: текстовый лог прежних описаний. -->
-      <div class="col-12 col-md-4">
+      <div class="col-12 col-sm-6 col-lg-3">
         <q-card flat bordered class="fit">
           <q-card-section>
             <div class="row items-center q-mb-sm">

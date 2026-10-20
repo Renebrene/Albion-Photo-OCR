@@ -107,8 +107,9 @@ const manualQwenText = computed(() => {
   if (qwenElapsedSeconds.value > 0) return `QWEN завершил за ${qwenElapsedSeconds.value} с`
   return 'В очереди QWEN…'
 })
-// По умолчанию — все фото: грид подгружает их страницами по мере прокрутки.
-const period = ref('all')
+// По умолчанию — текущий месяц: так переключатель «Дата загрузки / съёмки»
+// сразу меняет выдачу, а не показывает один и тот же полный список.
+const period = ref('month')
 const customFrom = ref(null)
 const customTo = ref(null)
 
@@ -311,20 +312,19 @@ const dateModes = [
 
 const periods = PERIODS
 
-// "Выбрать / снять" is one button: it flips between the two states.
-const allLoadedSelected = computed(
-  () =>
-    items.value.length > 0 &&
-    items.value.every((photo) => store.isSelected(photo.photo_id)),
-)
+// «За период N фото»: размер всего отфильтрованного набора, а не загруженной
+// страницы. `total` приходит с первой страницей; для «Все даты» подпись иная.
+const periodLabel = computed(() => {
+  const count = store.total
 
-function toggleSelectAll() {
-  if (allLoadedSelected.value) {
-    store.clearSelection()
-  } else {
-    store.selectAllCurrent()
+  if (count === null || count === undefined) {
+    return period.value === 'all' ? 'Всего фото' : 'За период …'
   }
-}
+
+  return period.value === 'all'
+    ? `Всего ${count} фото`
+    : `За период ${count} фото`
+})
 
 // Диапазоны дат считает общий модуль (локальный календарь, см. его шапку).
 function currentDates() {
@@ -357,7 +357,7 @@ async function syncDuringPipeline() {
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
 
-  // Вход на главную всегда начинает с полного грида: старые выделения
+  // Вход на главную всегда начинает с текущего месяца: старые выделения
   // адресов/клиентов, строка поиска и период не восстанавливаются.
   store.selectedAddresses = []
   store.selectedClients = []
@@ -366,7 +366,7 @@ onMounted(async () => {
   store.clientCollectionId = null
   store.nlIds = []
   q.value = ''
-  period.value = 'all'
+  period.value = 'month'
   customFrom.value = null
   customTo.value = null
   dateMode.value = 'upload'
@@ -589,7 +589,7 @@ async function clearClients() {
 
 async function reset() {
   q.value = ''
-  period.value = 'all'
+  period.value = 'month'
   customFrom.value = null
   customTo.value = null
   store.selectedAddresses = []
@@ -1700,18 +1700,7 @@ function tagList(meta) {
              Выбранные адреса и клиенты здесь не повторяются: их подсвечивают
              боковые панели. -->
         <div class="row items-center q-gutter-xs q-mb-sm">
-          <q-btn
-            dense
-            :icon="allLoadedSelected ? 'deselect' : 'select_all'"
-            :label="allLoadedSelected ? 'Снять' : 'Выбрать'"
-            :color="allLoadedSelected ? 'grey-7' : 'primary'"
-            flat
-            @click="toggleSelectAll"
-          >
-            <q-tooltip>
-              Выбрать все загруженные фото или снять выбор
-            </q-tooltip>
-          </q-btn>
+          <span class="text-caption text-grey-8">{{ periodLabel }}</span>
           <q-badge v-if="store.selectedCount" color="primary">
             выбрано: {{ store.selectedCount }}
           </q-badge>
@@ -2947,6 +2936,14 @@ body.body--dark .grid-divider {
 .grid-scroll {
   min-height: 0;
   overflow-y: auto;
+  /* Один тон с шапками боковых панелей: сетка отделяется от белой страницы. */
+  background: #eef0f3;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+body.body--dark .grid-scroll {
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .photo-grid {

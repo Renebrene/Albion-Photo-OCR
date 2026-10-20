@@ -30,6 +30,9 @@ export const usePhotosStore = defineStore('photos', {
   state: () => ({
     items: [],
     nextCursor: null,
+    // Size of the whole filtered set. The API returns it on the first page
+    // only; later pages keep it unchanged.
+    total: null,
     loading: false,
     error: null,
 
@@ -93,6 +96,11 @@ export const usePhotosStore = defineStore('photos', {
 
         this.items.push(...page.items)
         this.nextCursor = page.next_cursor
+
+        // null on continuation pages: the set is unchanged while scrolling.
+        if (page.total !== null && page.total !== undefined) {
+          this.total = page.total
+        }
       } catch (err) {
         this.error = err.message
       } finally {
@@ -103,6 +111,7 @@ export const usePhotosStore = defineStore('photos', {
     async refresh() {
       this.items = []
       this.nextCursor = null
+      this.total = null
       await this.loadPage()
     },
 

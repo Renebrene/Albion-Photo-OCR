@@ -115,9 +115,8 @@ def _photo_row(row) -> PhotoSummary:
     )
 
 
-def list_photos(
+def _photo_where(
     *,
-    limit: int,
     cursor: str | None = None,
     query: str | None = None,
     addresses: list[str] | None = None,
@@ -127,24 +126,14 @@ def list_photos(
     date_mode: str = "upload",
     collection_id: int | None = None,
     ids: list[str] | None = None,
-) -> tuple[list[PhotoSummary], str | None]:
+) -> tuple[str, list[object]]:
     """
-    Return one page of registered photos ordered by photo_id.
+    WHERE-часть запроса фото и её параметры.
 
-    `addresses` are recognition results (HYBRID/DINO) and `clients` are the
-    QWEN metadata; both accept several values with OR semantics (matching the
-    legacy multi-select panels). `query` searches several fields at once
-    (filename, client, brand, category, description, tags, address) and also
-    resolves client/brand through the alias dictionary, so the canonical name
-    finds the raw spellings QWEN produced. date_from/date_to filter by the upload date
-    (photos.created_at) or, with date_mode="capture", by the EXIF capture
-    date (photos.taken_at; photos without one are not matched). Fetches
-    limit + 1 rows to detect a further page.
-
-    `ids` switches the page to the caller's own order (a ranked search): the
-    page is then taken by *rank offset*, and the cursor carries that offset as
-    "rank:N". A photo_id cursor cannot continue a ranked list - it would both
-    skip and repeat rows - so it is ignored in that mode.
+    Вынесена из `list_photos`, чтобы счётчик «За период N фото» использовал
+    ровно те же условия, что и сам грид: иначе подпись и выдача расходятся.
+    Курсор сюда передаётся только для постраничного продолжения; счётчик
+    вызывает функцию с `cursor=None`.
     """
 
     if date_mode not in {"upload", "capture"}:
@@ -152,7 +141,6 @@ def list_photos(
 
     date_column = "t.taken_at" if date_mode == "capture" else "t.created_at"
 
-    sql = _PHOTO_SELECT
     clauses: list[str] = []
     params: list[object] = []
 
@@ -247,12 +235,96 @@ def list_photos(
         )
         params.append(collection_id)
 
+    if ids:
+        clauses.append("t.photo_id = ANY(%s)")
+        params.append(list(ids))
+
+    if not clauses:
+        return "", params
+
+    return " WHERE " + " AND ".join(clauses), params
+
+
+def count_photos(
+    *,
+    query: str | None = None,
+    addresses: list[str] | None = None,
+    clients: list[str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    date_mode: str = "upload",
+    collection_id: int | None = None,
+    ids: list[str] | None = None,
+) -> int:
+    """Сколько фото подходит под те же фильтры, что и грид."""
+
+    where, params = _photo_where(
+        query=query,
+        addresses=addresses,
+        clients=clients,
+        date_from=date_from,
+        date_to=date_to,
+        date_mode=date_mode,
+        collection_id=collection_id,
+        ids=ids,
+    )
+    sql = "SELECT count(*) FROM (" + _PHOTO_SELECT + where + ") AS filtered"
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return int(cur.fetchone()[0])
+
+
+def list_photos(
+    *,
+    limit: int,
+    cursor: str | None = None,
+    query: str | None = None,
+    addresses: list[str] | None = None,
+    clients: list[str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    date_mode: str = "upload",
+    collection_id: int | None = None,
+    ids: list[str] | None = None,
+) -> tuple[list[PhotoSummary], str | None]:
+    """
+    Return one page of registered photos ordered by photo_id.
+
+    `addresses` are recognition results (HYBRID/DINO) and `clients` are the
+    QWEN metadata; both accept several values with OR semantics (matching the
+    legacy multi-select panels). `query` searches several fields at once
+    (filename, client, brand, category, description, tags, address) and also
+    resolves client/brand through the alias dictionary, so the canonical name
+    finds the raw spellings QWEN produced. date_from/date_to filter by the upload date
+    (photos.created_at) or, with date_mode="capture", by the EXIF capture
+    date (photos.taken_at; photos without one are not matched). Fetches
+    limit + 1 rows to detect a further page.
+
+    `ids` switches the page to the caller's own order (a ranked search): the
+    page is then taken by *rank offset*, and the cursor carries that offset as
+    "rank:N". A photo_id cursor cannot continue a ranked list - it would both
+    skip and repeat rows - so it is ignored in that mode.
+    """
+
+    where, params = _photo_where(
+        cursor=cursor,
+        query=query,
+        addresses=addresses,
+        clients=clients,
+        date_from=date_from,
+        date_to=date_to,
+        date_mode=date_mode,
+        collection_id=collection_id,
+        ids=ids,
+    )
+    sql = _PHOTO_SELECT + where
+
     order_param: list[str] | None = None
     offset = 0
 
     if ids:
-        clauses.append("t.photo_id = ANY(%s)")
-        params.append(list(ids))
         # Preserve the caller's order (e.g. a ranked search result) instead of
         # re-sorting by photo_id: the array position is the intended rank.
         order_param = list(ids)
@@ -262,9 +334,6 @@ def list_photos(
                 offset = max(0, int(cursor[len("rank:"):]))
             except ValueError:
                 offset = 0
-
-    if clauses:
-        sql += " WHERE " + " AND ".join(clauses)
 
     if order_param is not None:
         sql += (
