@@ -368,6 +368,9 @@ watch(clientSearch, (value) => {
     return
   }
 
+  // Старые результаты не должны показываться под новым запросом.
+  remoteClientItems.value = []
+
   clientSuggestTimer = window.setTimeout(async () => {
     try {
       const data = await fetchSearchSuggestions(term, 20)
@@ -436,11 +439,16 @@ const clientHint = computed(() => {
 })
 
 async function pickFirstAddress() {
+  // Пустой Enter не должен выбирать первый адрес из полного списка.
+  if (!addressSearch.value.trim()) return
+
   const first = filteredAddresses.value[0]
   if (first) await pickAddress(first.address)
 }
 
 async function pickFirstClient() {
+  if (!clientSearch.value.trim()) return
+
   const first = filteredClients.value[0]
   if (first) await pickClientEntry(first)
 }
@@ -1378,7 +1386,14 @@ async function runManualSearch() {
       return
     }
     const ids = (job.result && job.result.photo_ids) || []
-    Notify.create({ type: 'info', message: `ИИ-поиск: найдено ${ids.length}` })
+    const shown = Math.min(ids.length, 200)
+    Notify.create({
+      type: 'info',
+      message:
+        ids.length > shown
+          ? `ИИ-поиск: найдено ${ids.length}, показаны первые ${shown}`
+          : `ИИ-поиск: найдено ${ids.length}`,
+    })
     await store.applyNlResults(ids)
     closeManual()
   } catch (err) {
@@ -1443,13 +1458,16 @@ async function runMediaSearch() {
     const truncated = result.truncated
     const described = result.qwen && result.qwen.description
 
+    const shown = Math.min(ids.length, 200)
+
     Notify.create({
-      type: truncated ? 'warning' : 'info',
-      message: truncated
-        ? `ИИ-поиск: показаны первые ${ids.length} (есть ещё совпадения)`
-        : `ИИ-поиск: найдено ${ids.length}${
-            described ? ` — «${described}»` : ''
-          }`,
+      type: truncated || ids.length > shown ? 'warning' : 'info',
+      message:
+        truncated || ids.length > shown
+          ? `ИИ-поиск: показаны первые ${shown} (есть ещё совпадения)`
+          : `ИИ-поиск: найдено ${ids.length}${
+              described ? ` — «${described}»` : ''
+            }`,
     })
 
     await store.applyNlResults(ids)
@@ -2294,11 +2312,12 @@ function tagList(meta) {
           />
           <q-btn
             v-else
+            class="apply-search"
             dense
             color="primary"
             icon="search"
             label="Поиск"
-            @click="apply"
+            @click="apply()"
           />
 
           <q-spinner-dots v-if="mediaBusy" color="teal" size="24px" />
@@ -2404,7 +2423,7 @@ function tagList(meta) {
             option-value="value"
             label="Дата"
             style="min-width: 140px"
-            @update:model-value="apply"
+            @update:model-value="apply()"
           />
 
           <!-- период: компактно, свой период — двумя полями в этой же строке -->
@@ -2419,7 +2438,7 @@ function tagList(meta) {
             option-value="value"
             label="Период"
             style="min-width: 150px"
-            @update:model-value="apply"
+            @update:model-value="apply()"
           />
           <template v-if="period === 'custom'">
             <q-input
@@ -2429,7 +2448,7 @@ function tagList(meta) {
               outlined
               label="С"
               style="width: 130px"
-              @blur="apply"
+              @blur="apply()"
             />
             <q-input
               v-model="customTo"
@@ -2438,7 +2457,7 @@ function tagList(meta) {
               outlined
               label="По"
               style="width: 130px"
-              @blur="apply"
+              @blur="apply()"
             />
           </template>
 

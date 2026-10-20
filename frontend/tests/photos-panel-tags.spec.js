@@ -259,6 +259,42 @@ describe('строка тегов', () => {
     wrapper.unmount()
   })
 
+  it('Enter в пустом поиске адресов ничего не выбирает', async () => {
+    const wrapper = await mountGrid()
+
+    const input = wrapper
+      .findAll('input')
+      .find((item) => item.attributes('placeholder') === 'Поиск адреса')
+
+    await input.trigger('keyup.enter')
+    await flushPromises()
+
+    expect(store.selectedAddresses).toEqual([])
+    wrapper.unmount()
+  })
+
+  it('кнопка «Поиск» не отправляет событие клика как текст запроса', async () => {
+    const wrapper = await mountGrid()
+
+    global.fetch.mockClear()
+
+    const button = wrapper.find('.apply-search')
+
+    expect(button.exists()).toBe(true)
+    await button.trigger('click')
+    await flushPromises()
+
+    const photoCalls = global.fetch.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes('/v1/photos'))
+
+    expect(photoCalls.length).toBeGreaterThan(0)
+
+    const params = new URL(photoCalls.at(-1), 'http://localhost').searchParams
+    expect(params.get('q')).toBeNull()
+    wrapper.unmount()
+  })
+
   it('пустая выдача объясняет фильтры и даёт снять бренд/тег', async () => {
     const wrapper = await mountGrid()
 

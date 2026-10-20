@@ -146,7 +146,11 @@ export const usePhotosStore = defineStore('photos', {
       if (!count || this.loading || count > 500) return
 
       try {
-        const page = await fetchPhotos(filterParams(this, { limit: count }))
+        // /v1/photos отдаёт не больше 100 строк за запрос: при длинной
+        // прокрутке старый limit=count получал 422, который глушился catch.
+        const page = await fetchPhotos(
+          filterParams(this, { limit: Math.min(count, PAGE_SIZE) }),
+        )
 
         const byId = new Map(page.items.map((item) => [item.photo_id, item]))
         this.items = this.items.map((item) => byId.get(item.photo_id) || item)
@@ -342,6 +346,8 @@ export const usePhotosStore = defineStore('photos', {
     // ---- natural-language search ----
 
     async applyNlResults(ids) {
+      // Сервер принимает не больше 200 ids за запрос, а ИИ-поиск отдаёт до
+      // 500: лишние значения давали 422 и пустой грид.
       await this.applyFilters({
         q: this.query,
         addresses: this.selectedAddresses,
@@ -350,7 +356,7 @@ export const usePhotosStore = defineStore('photos', {
         dateTo: this.dateTo,
         dateMode: this.dateMode,
         collectionId: this.collectionId,
-        ids,
+        ids: Array.isArray(ids) ? ids.slice(0, 200) : ids,
       })
     },
 

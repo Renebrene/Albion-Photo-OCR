@@ -96,3 +96,51 @@ describe('total в гриде', () => {
     await expect(store.countFiltered()).resolves.toBeNull()
   })
 })
+
+describe('фоновая синхронизация и ИИ-поиск', () => {
+  it('syncLoaded не просит у API больше 100 строк', async () => {
+    let seenLimit = null
+
+    global.fetch = vi.fn(async (url) => {
+      const params = new URL(String(url), 'http://localhost').searchParams
+      seenLimit = params.get('limit')
+      return json({ items: [], next_cursor: null, total: 150 })
+    })
+
+    setActivePinia(createPinia())
+    const store = usePhotosStore()
+
+    store.items = Array.from({ length: 150 }, (_, index) => ({
+      photo_id: `PH_${String(index).padStart(24, '0')}`,
+      filename: `${index}.jpg`,
+    }))
+
+    await store.syncLoaded()
+
+    expect(seenLimit).toBe('100')
+  })
+
+  it('applyNlResults обрезает ids до серверного лимита 200', async () => {
+    let seenIds = 0
+
+    global.fetch = vi.fn(async (url) => {
+      const text = String(url)
+
+      // applyFilters после страницы обновляет и счётчики адресов.
+      if (!text.includes('/v1/photos')) return json({ items: [] })
+
+      const params = new URL(text, 'http://localhost').searchParams
+      seenIds = params.getAll('ids').length
+      return json({ items: [], next_cursor: null, total: 0 })
+    })
+
+    setActivePinia(createPinia())
+    const store = usePhotosStore()
+
+    await store.applyNlResults(
+      Array.from({ length: 300 }, (_, index) => `PH_${index}`),
+    )
+
+    expect(seenIds).toBe(200)
+  })
+})
