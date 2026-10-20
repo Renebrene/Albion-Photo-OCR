@@ -440,3 +440,94 @@ describe('photos store', () => {
     expect(addressesUrl).toContain('date_mode=capture')
   })
 })
+
+describe('подборки и структурные фильтры', () => {
+  it('ручное изменение выбора снимает активную подборку', async () => {
+    routes.push({
+      method: 'GET',
+      match: (p) => p === '/api/v1/collections/7/members',
+      respond: () => jsonResponse({ items: ['78_v33', '79_v33'] }),
+    })
+
+    const store = usePhotosStore()
+    await store.applyCollection({
+      collection_id: 7,
+      name: 'Центр',
+      scope: 'addresses',
+    })
+
+    expect(store.addressCollectionId).toBe(7)
+
+    await store.applyFilters({
+      addresses: ['78_v33'],
+      collectionId: 7,
+    })
+
+    expect(store.addressCollectionId).toBe(null)
+    expect(store.collectionId).toBe(null)
+  })
+
+  it('смена периода при том же выборе оставляет подборку активной', async () => {
+    routes.push({
+      method: 'GET',
+      match: (p) => p === '/api/v1/collections/7/members',
+      respond: () => jsonResponse({ items: ['78_v33', '79_v33'] }),
+    })
+
+    const store = usePhotosStore()
+    await store.applyCollection({
+      collection_id: 7,
+      name: 'Центр',
+      scope: 'addresses',
+    })
+
+    await store.applyFilters({
+      addresses: ['79_v33', '78_v33'],
+      dateFrom: '2026-10-01',
+      collectionId: 7,
+    })
+
+    expect(store.addressCollectionId).toBe(7)
+  })
+
+  it('ИИ-результаты сохраняют структурные фильтры', async () => {
+    const store = usePhotosStore()
+    store.brand = 'СТС'
+    store.tag = 'канал СТС'
+    store.category = 'реклама'
+
+    await store.applyNlResults(['PH_x'])
+
+    const url = lastPhotosUrl()
+    expect(url).toContain('brand=%D0%A1%D0%A2%D0%A1')
+    expect(url).toContain('tag=')
+    expect(url).toContain('category=')
+  })
+
+  it('сохранённый поиск включает бренд, тег и категорию', async () => {
+    const posts = []
+
+    routes.push({
+      method: 'POST',
+      match: (p) => p === '/api/v1/searches',
+      respond: (_url, options) => {
+        posts.push(JSON.parse(options.body))
+        return jsonResponse({ search_id: 1 })
+      },
+    })
+
+    const store = usePhotosStore()
+    store.query = 'вывеска'
+    store.brand = 'СТС'
+    store.tag = 'канал СТС'
+    store.category = 'реклама'
+
+    await store.saveCurrentSearch('Мой поиск')
+
+    expect(posts[0].filters).toMatchObject({
+      brand: 'СТС',
+      tag: 'канал СТС',
+      category: 'реклама',
+    })
+  })
+})

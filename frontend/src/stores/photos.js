@@ -59,6 +59,15 @@ function filterParams(state, { limit, cursor = null }) {
  * хранят id слепка. Панель отдаёт список активных слепков адреса, поэтому
  * старый id можно развернуть в юридический адрес.
  */
+/** Совпадают ли два набора значений (порядок не важен). */
+function sameValues(left, right) {
+  if (left.length !== right.length) return false
+
+  const values = new Set(left)
+
+  return right.every((value) => values.has(value))
+}
+
 function normalizeAddressValue(addresses, value) {
   const found = (addresses || []).find(
     (item) =>
@@ -102,6 +111,10 @@ export const usePhotosStore = defineStore('photos', {
     collectionId: null,
     addressCollectionId: null,
     clientCollectionId: null,
+    // Состав активной подборки: по нему видно, изменил ли пользователь
+    // выделение вручную (тогда подборка больше не активна).
+    addressCollectionValues: [],
+    clientCollectionValues: [],
     nlIds: [],
 
     // side panels (mirroring the legacy UI)
@@ -331,6 +344,7 @@ export const usePhotosStore = defineStore('photos', {
       this.combine = combine
       this.collectionId = collectionId
       this.nlIds = ids
+      this._dropStaleCollections()
       await this.refresh()
       // Counters follow the same period as the grid.
       await this.loadAddresses()
@@ -349,6 +363,41 @@ export const usePhotosStore = defineStore('photos', {
       this.collectionId = this.addressCollectionId ?? this.clientCollectionId ?? null
     },
 
+    /**
+     * Снять активную подборку, если выделение изменили вручную.
+     *
+     * Пока набор совпадает с составом подборки (например, пользователь
+     * поменял только период), подборка остаётся активной. Любое ручное
+     * добавление/снятие адреса или клиента делает её неактуальной.
+     */
+    _dropStaleCollections() {
+      if (
+        this.addressCollectionId !== null
+        && !sameValues(this.addressCollectionValues, this.selectedAddresses)
+      ) {
+        const previous = this.addressCollectionId
+        this.addressCollectionId = null
+        this.addressCollectionValues = []
+
+        if (this.collectionId === previous) {
+          this.collectionId = this.clientCollectionId ?? null
+        }
+      }
+
+      if (
+        this.clientCollectionId !== null
+        && !sameValues(this.clientCollectionValues, this.selectedClients)
+      ) {
+        const previous = this.clientCollectionId
+        this.clientCollectionId = null
+        this.clientCollectionValues = []
+
+        if (this.collectionId === previous) {
+          this.collectionId = this.addressCollectionId ?? null
+        }
+      }
+    },
+
     isCollectionActive(collection) {
       const collectionId = collection.scope === 'clients'
         ? this.clientCollectionId
@@ -363,8 +412,13 @@ export const usePhotosStore = defineStore('photos', {
       if (this[activeKey] === collection.collection_id) {
         this[activeKey] = null
 
-        if (isClients) this.selectedClients = []
-        else this.selectedAddresses = []
+        if (isClients) {
+          this.selectedClients = []
+          this.clientCollectionValues = []
+        } else {
+          this.selectedAddresses = []
+          this.addressCollectionValues = []
+        }
 
         this._syncCollectionId()
         await this.refresh()
@@ -381,11 +435,15 @@ export const usePhotosStore = defineStore('photos', {
       )
       const values = data.items || []
 
-      if (isClients) this.selectedClients = values
-      else {
-        this.selectedAddresses = values.map((value) =>
+      if (isClients) {
+        this.selectedClients = values
+        this.clientCollectionValues = [...values]
+      } else {
+        const normalized = values.map((value) =>
           normalizeAddressValue(this.addresses, value),
         )
+        this.selectedAddresses = normalized
+        this.addressCollectionValues = [...normalized]
       }
 
       // The other scope keeps its own active collection and selected values.
@@ -428,7 +486,15 @@ export const usePhotosStore = defineStore('photos', {
       await addCollectionMembers(id, { member_type: memberType, values })
 
       await this.loadCollections()
-      this[isClients ? 'clientCollectionId' : 'addressCollectionId'] = id
+
+      if (isClients) {
+        this.clientCollectionId = id
+        this.clientCollectionValues = [...values]
+      } else {
+        this.addressCollectionId = id
+        this.addressCollectionValues = [...values]
+      }
+
       this._syncCollectionId()
 
       return id
@@ -443,6 +509,9 @@ export const usePhotosStore = defineStore('photos', {
         q: this.query,
         addresses: this.selectedAddresses,
         clients: this.selectedClients,
+        brand: this.brand,
+        tag: this.tag,
+        category: this.category,
         dateFrom: this.dateFrom,
         dateTo: this.dateTo,
         dateMode: this.dateMode,
@@ -467,6 +536,9 @@ export const usePhotosStore = defineStore('photos', {
         q: this.query,
         addresses: this.selectedAddresses,
         clients: this.selectedClients,
+        brand: this.brand,
+        tag: this.tag,
+        category: this.category,
         date_from: this.dateFrom,
         date_to: this.dateTo,
         date_mode: this.dateMode,
@@ -543,10 +615,32 @@ export const usePhotosStore = defineStore('photos', {
 
     async deleteCollectionById(collectionId) {
       await deleteCollectionApi(collectionId)
-      if (this.addressCollectionId === collectionId) this.addressCollectionId = null
-      if (this.clientCollectionId === collectionId) this.clientCollectionId = null
+      let cleared = false
+
+      if (this.addressCollectionId === collectionId) {
+        this.addressCollectionId = null
+        this.addressCollectionValues = []
+        this.selectedAddresses = []
+        cleared = true
+      }
+
+      if (this.clientCollectionId === collectionId) {
+        this.clientCollectionId = null
+        this.clientCollectionValues = []
+        this.selectedClients = []
+        cleared = true
+      }
+
       this._syncCollectionId()
       await this.loadCollections()
+
+      // Активную подборку удалили — грид и счётчики должны вернуться к
+      // состоянию без неё, а не показывать старую выдачу.
+      if (cleared) {
+        await this.refresh()
+        await this.loadAddresses()
+        if (this.combine === 'address') await this.loadClients()
+      }
     },
   },
 })

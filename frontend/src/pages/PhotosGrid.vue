@@ -130,6 +130,8 @@ watch(
     store.selectedClients = []
     store.addressCollectionId = null
     store.clientCollectionId = null
+    store.addressCollectionValues = []
+    store.clientCollectionValues = []
     store.collectionId = null
     addressSearch.value = ''
     clientSearch.value = ''
@@ -631,11 +633,13 @@ async function removeTag(tag) {
       break
     case 'address-collection':
       store.addressCollectionId = null
+      store.addressCollectionValues = []
       store.selectedAddresses = []
       store._syncCollectionId()
       break
     case 'client-collection':
       store.clientCollectionId = null
+      store.clientCollectionValues = []
       store.selectedClients = []
       store._syncCollectionId()
       break
@@ -1218,6 +1222,7 @@ async function clearClients() {
 async function reset() {
   q.value = ''
   period.value = 'month'
+  dateMode.value = 'upload'
   customFrom.value = null
   customTo.value = null
   store.selectedAddresses = []
@@ -1225,9 +1230,21 @@ async function reset() {
   store.collectionId = null
   store.addressCollectionId = null
   store.clientCollectionId = null
+  store.addressCollectionValues = []
+  store.clientCollectionValues = []
   clearStructuredFilters()
   addressSearch.value = ''
   clientSearch.value = ''
+  suggestOpen.value = false
+  suggestItems.value = []
+  suggestLayout.value = null
+  suggestMuted = false
+  hadSearchTerm = false
+  stopQwenElapsed()
+  mediaFile.value = null
+  mediaStage.value = ''
+  mediaJobId.value = null
+  autoMode.value = true
   store.clearSelection()
   await apply()
 }
@@ -1263,8 +1280,10 @@ function onMediaChosen(event) {
   event.target.value = '' // allow re-picking the same file
 
   if (file) {
-    // A media query and a text query are mutually exclusive.
+    // A media query and a text query are mutually exclusive: убираем и уже
+    // применённый текстовый фильтр, иначе поиск по файлу молча сузится им.
     q.value = ''
+    apply('')
   }
 
   if (autoMode.value) {
@@ -1558,7 +1577,21 @@ async function applySavedSearch(search) {
   const filters = search.filters || {}
 
   q.value = filters.q || ''
-  store.collectionId = filters.collection_id || null
+  // Программно восстановленный запрос тоже должен корректно очищаться.
+  hadSearchTerm = Boolean(q.value)
+
+  addressSearch.value = ''
+  clientSearch.value = ''
+
+  selectedBrand.value = filters.brand || null
+  selectedTag.value = filters.tag || null
+  selectedCategory.value = filters.category || null
+
+  // Сохранённый поиск заменяет подборки, а не смешивается с ними.
+  store.addressCollectionId = null
+  store.clientCollectionId = null
+  store.addressCollectionValues = []
+  store.clientCollectionValues = []
 
   const from = filters.date_from || null
   const to = filters.date_to || null
@@ -1571,6 +1604,9 @@ async function applySavedSearch(search) {
     q: q.value,
     addresses: filters.addresses || [],
     clients: filters.clients || [],
+    brand: selectedBrand.value,
+    tag: selectedTag.value,
+    category: selectedCategory.value,
     dateFrom: from,
     dateTo: to,
     dateMode: dateMode.value,
@@ -2079,7 +2115,8 @@ async function addOneToBucket(photo) {
 
   if (!store.selectedAddresses.includes(value)) {
     store.selectedAddresses = [...store.selectedAddresses, value]
-    await store.refresh()
+    // Через apply(), чтобы активная подборка снялась и счётчики обновились.
+    await apply()
   }
 
   await openBucketDialog('addresses')
