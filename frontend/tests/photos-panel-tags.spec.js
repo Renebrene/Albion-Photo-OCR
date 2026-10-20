@@ -9,6 +9,7 @@ import { Notify, QLayout, QPageContainer, Quasar } from 'quasar'
 import { createPinia, setActivePinia } from 'pinia'
 
 import PhotosGrid from '../src/pages/PhotosGrid.vue'
+import { useDisplayStore } from '../src/stores/display'
 import { usePhotosStore } from '../src/stores/photos'
 
 Notify.create = vi.fn()
@@ -218,7 +219,7 @@ describe('строка тегов', () => {
   it('в заголовке панели есть счётчик выбранного и знак вопроса', async () => {
     const wrapper = await mountGrid()
 
-    expect(wrapper.text()).toContain('(выбрано 0)')
+    expect(wrapper.find('.client-summary').text()).toBe('()')
     expect(wrapper.find('.client-help').exists()).toBe(true)
 
     store.selectedClients = ['Клиент А']
@@ -226,7 +227,7 @@ describe('строка тегов', () => {
     await flushPromises()
     await nextTick()
 
-    expect(wrapper.text()).toContain('(выбрано 1)')
+    expect(wrapper.find('.client-summary').text()).toContain('выбрано 1')
     wrapper.unmount()
   })
 
@@ -260,6 +261,34 @@ describe('строка тегов', () => {
     await nextTick()
 
     expect(wrapper.find('.tags-row').text()).toContain('Все')
+    wrapper.unmount()
+  })
+
+  it('режим приоритета клиентов сужает адреса и пересчитывает счётчики', async () => {
+    const wrapper = await mountGrid()
+    const display = useDisplayStore()
+
+    store.selectedClients = ['Клиент А']
+    display.addressClientMode = 'client'
+    await flushPromises()
+    await nextTick()
+
+    const calls = () =>
+      global.fetch.mock.calls
+        .map(([url]) => String(url))
+        .filter((url) => url.includes('/v1/addresses'))
+
+    let params = new URL(calls().at(-1), 'http://localhost').searchParams
+    expect(params.getAll('client')).toEqual(['Клиент А'])
+    expect(wrapper.text()).toContain('□')
+
+    // Сняли выбор — адреса и их счётчики возвращаются к полному списку.
+    store.selectedClients = []
+    await store.loadAddresses()
+    await flushPromises()
+
+    params = new URL(calls().at(-1), 'http://localhost').searchParams
+    expect(params.getAll('client')).toEqual([])
     wrapper.unmount()
   })
 

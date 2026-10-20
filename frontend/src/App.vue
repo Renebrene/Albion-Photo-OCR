@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 
 import PipelineUpdateButton from './components/PipelineUpdateButton.vue'
 import { fetchMediaStatistics, fetchStats } from './api/client'
-import { useDisplayStore } from './stores/display'
+import { ADDRESS_CLIENT_MODES, useDisplayStore } from './stores/display'
 import { usePhotosStore } from './stores/photos'
 import { useSessionStore } from './stores/session'
 
@@ -364,6 +364,31 @@ function toggleDark() {
 
         <q-space />
 
+        <!-- Режим совместного выбора адресов и клиентов: ○ объединение,
+             △ приоритет адресов, □ приоритет клиентов. -->
+        <div class="footer-mode row items-center no-wrap q-mr-sm">
+          <q-btn
+            v-for="mode in ADDRESS_CLIENT_MODES"
+            :key="mode.value"
+            flat
+            dense
+            round
+            class="mode-btn"
+            :color="display.addressClientMode === mode.value ? 'primary' : 'grey-7'"
+            :label="mode.symbol"
+            @click="display.addressClientMode = mode.value"
+          >
+            <q-tooltip>
+              {{ mode.label }}: {{ mode.value === 'union'
+                ? 'показываются фото любого из выбранных адресов или клиентов'
+                : mode.value === 'address'
+                  ? 'выбранные адреса задают набор, клиенты уточняют его'
+                  : 'выбранные клиенты задают набор, адреса уточняют его' }}
+            </q-tooltip>
+          </q-btn>
+        </div>
+        <span class="footer-dot">·</span>
+
         <span class="footer-item">
           Всего медиа:
           <q-icon name="photo" size="16px" class="footer-icon" />
@@ -495,6 +520,15 @@ function toggleDark() {
 .footer-item {
   font-size: 12px;
   white-space: nowrap;
+}
+
+/* Переключатель режима адреса/клиенты: три компактные кнопки-символа. */
+.mode-btn {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 4px;
+  font-size: 15px;
+  line-height: 1;
 }
 
 .footer-icon {

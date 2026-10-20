@@ -49,6 +49,14 @@ export const DOWNLOAD_NAME_MODES = [
   { value: 'legal', label: 'Адрес (юридический)' },
 ]
 
+// Как складываются адреса и клиенты: ○ объединение, △ приоритет адресов,
+// □ приоритет клиентов. Режим живёт в настройках пользователя.
+export const ADDRESS_CLIENT_MODES = [
+  { value: 'union', symbol: '○', label: 'Адреса ИЛИ клиенты' },
+  { value: 'address', symbol: '△', label: 'Приоритет адресов' },
+  { value: 'client', symbol: '□', label: 'Приоритет клиентов' },
+]
+
 const DEFAULT_TILE_COLUMNS = 'auto'
 const DEFAULT_PANEL_WIDTH = 340
 const DEFAULT_SIDE_LIST_HEIGHT = 300
@@ -78,6 +86,7 @@ export const useDisplayStore = defineStore('display', () => {
   const tileColumns = ref(DEFAULT_TILE_COLUMNS)
   const listFields = ref([...DEFAULT_LIST_FIELDS])
   const downloadNameMode = ref(DEFAULT_DOWNLOAD_NAME_MODE)
+  const addressClientMode = ref('union')
   const leftPanelWidth = ref(DEFAULT_PANEL_WIDTH)
   const rightPanelWidth = ref(DEFAULT_PANEL_WIDTH)
   const sideListHeight = ref(DEFAULT_SIDE_LIST_HEIGHT)
@@ -109,6 +118,12 @@ export const useDisplayStore = defineStore('display', () => {
     )
       ? saved.downloadNameMode
       : DEFAULT_DOWNLOAD_NAME_MODE
+
+    addressClientMode.value = ADDRESS_CLIENT_MODES.some(
+      (option) => option.value === saved.addressClientMode,
+    )
+      ? saved.addressClientMode
+      : 'union'
 
     leftPanelWidth.value = clamp(
       saved.leftPanelWidth ?? DEFAULT_PANEL_WIDTH,
@@ -144,6 +159,7 @@ export const useDisplayStore = defineStore('display', () => {
       tileColumns: tileColumns.value,
       listFields: [...listFields.value],
       downloadNameMode: downloadNameMode.value,
+      addressClientMode: addressClientMode.value,
       leftPanelOpen: leftPanelOpen.value,
       rightPanelOpen: rightPanelOpen.value,
       leftPanelWidth: leftPanelWidth.value,
@@ -256,6 +272,7 @@ export const useDisplayStore = defineStore('display', () => {
       tileColumns,
       listFields,
       downloadNameMode,
+      addressClientMode,
       leftPanelOpen,
       rightPanelOpen,
       leftPanelWidth,

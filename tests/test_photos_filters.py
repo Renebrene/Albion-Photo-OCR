@@ -90,6 +90,7 @@ def test_addresses_pass_the_selected_period(monkeypatch):
         "date_from": "2026-10-01",
         "date_to": "2026-10-31",
         "date_mode": "capture",
+        "clients": None,
     }
 
 
@@ -146,3 +147,46 @@ def test_tag_facets_combine_with_or():
     assert " AND LOWER(t.brand)" not in where
     assert " OR EXISTS (" in where
     assert params == ["Клиент", "Клиент", "СТС", "канал СТС"]
+
+
+def test_combine_union_ors_all_tag_facets():
+    where, params = repository._photo_where(
+        addresses=["addr:5"],
+        clients=["Клиент"],
+        brand="СТС",
+        combine="union",
+    )
+
+    assert params == [5, 5, "Клиент", "Клиент", "СТС"]
+    assert " OR LOWER(t.brand)" in where
+
+
+def test_combine_address_makes_the_address_the_universe():
+    where, params = repository._photo_where(
+        addresses=["addr:5"],
+        clients=["Клиент"],
+        brand="СТС",
+        combine="address",
+    )
+
+    assert params == [5, 5, "Клиент", "Клиент", "СТС"]
+    assert ") AND (" in where
+
+
+def test_combine_client_prioritises_clients_and_keeps_param_order():
+    where, params = repository._photo_where(
+        addresses=["addr:5"],
+        clients=["Клиент"],
+        brand="СТС",
+        combine="client",
+    )
+
+    assert params == ["Клиент", "Клиент", 5, 5, "СТС"]
+    assert ") AND (" in where
+
+
+def test_combine_rejects_unknown_mode():
+    import pytest
+
+    with pytest.raises(ValueError):
+        repository._photo_where(addresses=["addr:5"], combine="nope")

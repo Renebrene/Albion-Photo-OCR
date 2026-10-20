@@ -118,6 +118,18 @@ const period = ref('month')
 const customFrom = ref(null)
 const customTo = ref(null)
 
+// ○ объединение, △ приоритет адресов, □ приоритет клиентов.
+const combineMode = computed(() => display.addressClientMode)
+
+watch(
+  () => display.addressClientMode,
+  async () => {
+    // Новый режим меняет и выдачу, и счётчики обеих панелей.
+    await store.loadFacets()
+    await apply()
+  },
+)
+
 // Grid presentation (mirrors the legacy list/tile toggle + sorting).
 const viewMode = ref('tiles')
 const sortKey = ref('filename')
@@ -890,6 +902,7 @@ async function apply(overrideQuery = undefined) {
     dateFrom,
     dateTo,
     dateMode: dateMode.value,
+    combine: combineMode.value,
     collectionId: store.collectionId,
   })
 }
@@ -1538,6 +1551,7 @@ async function applySavedSearch(search) {
     dateFrom: from,
     dateTo: to,
     dateMode: dateMode.value,
+    combine: combineMode.value,
     collectionId: filters.collection_id || null,
   })
 }
@@ -2086,9 +2100,14 @@ function tagList(meta) {
         >
           <q-card-section class="panel-head q-pb-xs row items-center">
             <div class="panel-title col">
-              Адреса
+              <span v-if="combineMode === 'union'" class="mode-symbol">○</span>
+              <span v-else-if="combineMode === 'address'" class="mode-symbol">△</span>
+              <span
+                class="mode-label"
+                :class="{ 'mode-label--lead': combineMode !== 'client' }"
+              >Адреса</span>
               <span class="address-summary">
-                <span class="period-count">({{ store.selectedAddresses.length }})</span>
+                <span class="period-count">({{ store.selectedAddresses.length || '' }})</span>
                 {{ recognizedAddressCount }}
               </span>
             </div>
@@ -2151,8 +2170,8 @@ function tagList(meta) {
                       </q-tooltip>
                     </span>
                     <span class="address-count">
-                      <span class="period-count">({{ item.period_count || 0 }})</span>
-                      {{ item.count }}
+                      <span class="period-count">({{ item.period_count || '' }})</span>
+                      {{ item.count || '' }}
                     </span>
                   </div>
                 </q-item-section>
@@ -2856,9 +2875,14 @@ function tagList(meta) {
         >
           <q-card-section class="panel-head q-pb-xs row items-center">
             <div class="panel-title col row items-center no-wrap">
+              <span v-if="combineMode === 'union'" class="mode-symbol">○</span>
+              <span v-else-if="combineMode === 'client'" class="mode-symbol">□</span>
               <span>
-                Клиент/бренд
-                <span class="client-summary">(выбрано {{ clientSelectionCount }})</span>
+                <span
+                  class="mode-label"
+                  :class="{ 'mode-label--lead': combineMode !== 'address' }"
+                >Клиент/бренд</span>
+                <span class="client-summary">({{ clientSelectionCount ? `выбрано ${clientSelectionCount}` : '' }})</span>
                 <q-tooltip v-if="textSearchActive">
                   Недоступно, пока активен поиск по тексту
                 </q-tooltip>
@@ -3679,6 +3703,17 @@ body.body--dark .client-summary {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Символ режима у заголовка панели и подчёркивание ведущего фильтра. */
+.mode-symbol {
+  margin-right: 4px;
+  font-weight: 600;
+}
+
+.mode-label--lead {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 /* Счётчик адресов за выбранный период: зелёный тонкий шрифт перед общим. */

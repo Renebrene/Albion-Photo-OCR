@@ -134,6 +134,9 @@ def list_photos(
     date_from: str | None = Query(None, max_length=10),
     date_to: str | None = Query(None, max_length=10),
     date_mode: str = Query("upload", pattern="^(upload|capture)$"),
+    # How address and client selections combine: union (join), or one facet
+    # leads and the other refines inside it.
+    combine: str = Query("union", pattern="^(union|address|client)$"),
     collection_id: int | None = Query(None, ge=1),
     ids: list[str] | None = Query(None, max_length=200),
     principal=Depends(require_scope("read")),
@@ -163,6 +166,7 @@ def list_photos(
         # The grid shows a photo only after HYBRID has assigned an address
         # (or after a manual override); videos are a separate list.
         recognized_only=True,
+        combine=combine,
     )
 
     # The grid label («За период N фото») needs the size of the whole filtered
@@ -184,6 +188,7 @@ def list_photos(
             tag=tag,
             category=category,
             recognized_only=True,
+            combine=combine,
         )
 
     return {
@@ -411,24 +416,35 @@ def list_addresses(
     date_from: str | None = Query(None, max_length=10),
     date_to: str | None = Query(None, max_length=10),
     date_mode: str = Query("upload", pattern="^(upload|capture)$"),
+    client: list[str] | None = Query(None, max_length=100),
 ):
     # `count` is all-time (the panel must not lose it when a period is picked);
     # `period_count` repeats the count inside the caller's date range.
+    # `client` narrows the list in client-priority mode.
     return {
         "items": repository.list_addresses(
             limit=limit,
             date_from=date_from,
             date_to=date_to,
             date_mode=date_mode,
+            clients=client,
         )
     }
 
 
 @read_router.get("/v1/clients", response_model=None)
-def list_clients(limit: int = Query(100, ge=1, le=5000)):
-    """Клиенты/бренды для правой панели: не больше 100, по алфавиту."""
+def list_clients(
+    limit: int = Query(100, ge=1, le=5000),
+    address: list[str] | None = Query(None, max_length=1000),
+):
+    """Клиенты/бренды для правой панели: не больше 100, по алфавиту.
 
-    return {"items": repository.list_clients(limit=limit)}
+    `address` narrowing is used in address-priority mode.
+    """
+
+    return {
+        "items": repository.list_clients(limit=limit, addresses=address)
+    }
 
 
 @read_router.get("/v1/search/suggestions", response_model=None)

@@ -45,6 +45,7 @@ function filterParams(state, { limit, cursor = null }) {
     date_from: state.dateFrom || null,
     date_to: state.dateTo || null,
     date_mode: state.dateMode || 'upload',
+    combine: state.combine || 'union',
     // Подборка на фото не влияет: она восстанавливает выбор адресов или
     // клиентов, а грид фильтруется уже по нему.
     ids: state.nlIds.length ? state.nlIds : null,
@@ -90,6 +91,9 @@ export const usePhotosStore = defineStore('photos', {
     dateTo: null,
     // Which date the range filter uses: upload date or EXIF capture date.
     dateMode: 'upload',
+    // union — адреса и клиенты объединяются; address — адреса задают
+    // вселенную, клиенты уточняют; client — наоборот.
+    combine: 'union',
     // The two collection panels select independently. collectionId remains the
     // most recently picked one for saved searches/backwards compatibility.
     collectionId: null,
@@ -200,8 +204,19 @@ export const usePhotosStore = defineStore('photos', {
             dateFrom: this.dateFrom,
             dateTo: this.dateTo,
             dateMode: this.dateMode,
+            // В приоритете по клиентам список адресов сужается ими.
+            clients:
+              this.combine === 'client' && this.selectedClients.length
+                ? this.selectedClients
+                : null,
           }),
-          fetchClients(),
+          fetchClients({
+            // В приоритете по адресам список клиентов сужается ими.
+            addresses:
+              this.combine === 'address' && this.selectedAddresses.length
+                ? this.selectedAddresses
+                : [],
+          }),
           fetchCollections(),
           fetchSavedSearches(),
         ])
@@ -228,10 +243,35 @@ export const usePhotosStore = defineStore('photos', {
           dateFrom: this.dateFrom,
           dateTo: this.dateTo,
           dateMode: this.dateMode,
+          clients:
+            this.combine === 'client' && this.selectedClients.length
+              ? this.selectedClients
+              : null,
         })
         this.addresses = data.items || []
       } catch {
         // Счётчики — вспомогательные: грид продолжает работать.
+      }
+    },
+
+    /**
+     * Пересчитать клиентов с учётом выбранных адресов.
+     *
+     * Нужен в режиме приоритета по адресам: панель показывает только тех
+     * клиентов, которые встречаются на выбранных адресах. При снятии выбора
+     * возвращается полный список.
+     */
+    async loadClients() {
+      try {
+        const data = await fetchClients({
+          addresses:
+            this.combine === 'address' && this.selectedAddresses.length
+              ? this.selectedAddresses
+              : [],
+        })
+        this.clients = data.items || []
+      } catch {
+        // Вспомогательная панель: грид продолжает работать.
       }
     },
 
@@ -254,6 +294,7 @@ export const usePhotosStore = defineStore('photos', {
       dateFrom = null,
       dateTo = null,
       dateMode = 'upload',
+      combine = 'union',
       collectionId = null,
       ids = [],
     } = {}) {
@@ -268,11 +309,14 @@ export const usePhotosStore = defineStore('photos', {
       this.dateFrom = dateFrom
       this.dateTo = dateTo
       this.dateMode = dateMode
+      this.combine = combine
       this.collectionId = collectionId
       this.nlIds = ids
       await this.refresh()
       // Counters follow the same period as the grid.
       await this.loadAddresses()
+      // В приоритете по адресам список клиентов сужается выбранными адресами.
+      if (this.combine === 'address') await this.loadClients()
     },
 
     /**
@@ -305,6 +349,9 @@ export const usePhotosStore = defineStore('photos', {
 
         this._syncCollectionId()
         await this.refresh()
+        // Сняли подборку — счётчики адресов возвращаются к полному списку.
+        await this.loadAddresses()
+        if (this.combine === 'address') await this.loadClients()
         return
       }
 
@@ -326,6 +373,9 @@ export const usePhotosStore = defineStore('photos', {
       this[activeKey] = collection.collection_id
       this._syncCollectionId()
       await this.refresh()
+      // В приоритете по клиентам адресная панель пересчитывается сразу.
+      await this.loadAddresses()
+      if (this.combine === 'address') await this.loadClients()
     },
 
     /** Сохранить текущий выбор адресов (или клиентов) как подборку. */
@@ -377,6 +427,7 @@ export const usePhotosStore = defineStore('photos', {
         dateFrom: this.dateFrom,
         dateTo: this.dateTo,
         dateMode: this.dateMode,
+        combine: this.combine,
         collectionId: this.collectionId,
         ids: Array.isArray(ids) ? ids.slice(0, 200) : ids,
       })

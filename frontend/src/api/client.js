@@ -275,6 +275,7 @@ export function fetchPhotos({
   date_from = null,
   date_to = null,
   date_mode = null,
+  combine = null,
   collection_id = null,
   ids = null,
 } = {}) {
@@ -293,6 +294,8 @@ export function fetchPhotos({
   if (date_to) params.set('date_to', date_to)
   // Date filter source: upload date (default) or EXIF capture date.
   if (date_mode) params.set('date_mode', date_mode)
+  // How address and client selections combine (union|address|client).
+  if (combine) params.set('combine', combine)
   if (collection_id) params.set('collection_id', String(collection_id))
   if (ids) [].concat(ids).forEach((v) => params.append('ids', v))
 
@@ -787,11 +790,29 @@ export function fetchCollectionMembers(collectionId, memberType = 'photo') {
 }
 
 export function fetchAddresses(options = {}) {
-  return getJson(`${BASE}/v1/addresses${dateQuery(options)}`)
+  const base = `${BASE}/v1/addresses${dateQuery(options)}`
+  const clients = [].concat(options.clients || []).filter(Boolean)
+
+  if (!clients.length) return getJson(base)
+
+  const extra = clients
+    .map((value) => `client=${encodeURIComponent(value)}`)
+    .join('&')
+
+  return getJson(`${base}${base.includes('?') ? '&' : '?'}${extra}`)
 }
 
-export function fetchClients() {
-  return getJson(`${BASE}/v1/clients`)
+export function fetchClients({ addresses = [] } = {}) {
+  const base = `${BASE}/v1/clients`
+  const values = [].concat(addresses || []).filter(Boolean)
+
+  if (!values.length) return getJson(base)
+
+  const extra = values
+    .map((value) => `address=${encodeURIComponent(value)}`)
+    .join('&')
+
+  return getJson(`${base}?${extra}`)
 }
 
 export function fetchDinoBatches({ limit = 50, cursor = null } = {}) {

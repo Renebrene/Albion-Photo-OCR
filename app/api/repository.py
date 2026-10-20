@@ -135,6 +135,7 @@ def _photo_where(
     tag: str | None = None,
     category: str | None = None,
     recognized_only: bool = False,
+    combine: str = "union",
 ) -> tuple[str, list[object]]:
     """
     WHERE-часть запроса фото и её параметры.
@@ -147,6 +148,9 @@ def _photo_where(
 
     if date_mode not in {"upload", "capture"}:
         raise ValueError("date_mode must be 'upload' or 'capture'")
+
+    if combine not in {"union", "address", "client"}:
+        raise ValueError("combine must be 'union', 'address' or 'client'")
 
     date_column = "t.taken_at" if date_mode == "capture" else "t.created_at"
 
@@ -195,13 +199,14 @@ def _photo_where(
         )
         params.extend([like] * 11)
 
+    address_parts: list[str] = []
+    address_params: list[object] = []
+
     if addresses:
         # The panel sends ``addr:<address_id>`` — a legal address may have
         # several active fingerprints. Legacy fingerprint ids stay supported
         # for old collections and saved searches. A manual override wins over
         # the recognised id; archived fingerprints never match.
-        parts = []
-
         for value in addresses:
             text = str(value).strip()
 
@@ -211,7 +216,7 @@ def _photo_where(
                 except ValueError:
                     continue
 
-                parts.append(
+                address_parts.append(
                     "(EXISTS ("
                     "   SELECT 1 FROM public.photo_address_overrides AS ov"
                     "   WHERE ov.photo_id = t.photo_id"
@@ -227,10 +232,10 @@ def _photo_where(
                     "   WHERE af.address_id = %s AND af.active"
                     "     AND LOWER(af.fingerprint_id) = LOWER(t.address))))"
                 )
-                params.extend([address_id, address_id])
+                address_params.extend([address_id, address_id])
                 continue
 
-            parts.append(
+            address_parts.append(
                 "(EXISTS ("
                 "   SELECT 1 FROM public.photo_address_overrides AS ov"
                 "   JOIN public.address_fingerprints AS af"
@@ -251,10 +256,10 @@ def _photo_where(
                 "     AND af2.active"
                 "     AND LOWER(t.address) = LOWER(af2.fingerprint_id))))"
             )
-            params.extend([text, text])
+            address_params.extend([text, text])
 
-        if parts:
-            tag_clauses.append("(" + " OR ".join(parts) + ")")
+    client_parts: list[str] = []
+    client_params: list[object] = []
 
     if clients:
         # Exact value (case-insensitive), not a substring: selecting «СТС»
@@ -262,28 +267,29 @@ def _photo_where(
         # A raw spelling is folded through the alias dictionary to the chosen
         # canonical client. `kind = 'client'`: the dictionary also holds
         # brands, and a brand alias must not pull photos by their client.
-        parts = []
         for value in clients:
-            parts.append(
+            client_parts.append(
                 "(LOWER(t.client) = LOWER(%s) OR EXISTS ("
                 "SELECT 1 FROM public.client_aliases AS ca "
                 "WHERE LOWER(ca.alias) = LOWER(t.client) "
                 "  AND ca.kind = 'client' "
                 "  AND LOWER(ca.canonical) = LOWER(%s)))"
             )
-            params.extend([value, value])
-        tag_clauses.append("(" + " OR ".join(parts) + ")")
+            client_params.extend([value, value])
+
+    other_clauses: list[str] = []
+    other_params: list[object] = []
 
     if brand:
-        tag_clauses.append("LOWER(t.brand) = LOWER(%s)")
-        params.append(brand)
+        other_clauses.append("LOWER(t.brand) = LOWER(%s)")
+        other_params.append(brand)
 
     if category:
-        tag_clauses.append("LOWER(t.category) = LOWER(%s)")
-        params.append(category)
+        other_clauses.append("LOWER(t.category) = LOWER(%s)")
+        other_params.append(category)
 
     if tag:
-        tag_clauses.append(
+        other_clauses.append(
             "EXISTS ("
             "  SELECT 1 FROM public.photo_qwen AS qq"
             "  CROSS JOIN LATERAL jsonb_array_elements_text("
@@ -292,10 +298,49 @@ def _photo_where(
             "  WHERE qq.photo_id = t.photo_id"
             "    AND LOWER(item) = LOWER(%s))"
         )
-        params.append(tag)
+        other_params.append(tag)
 
-    if tag_clauses:
-        clauses.append("(" + " OR ".join(tag_clauses) + ")")
+    address_clause = (
+        "(" + " OR ".join(address_parts) + ")" if address_parts else None
+    )
+    client_clause = (
+        "(" + " OR ".join(client_parts) + ")" if client_parts else None
+    )
+
+    # union — все теги альтернативы; address/client — приоритетная сторона
+    # задаёт вселенную, остальные теги объединяются внутри неё.
+    if combine == "address" and address_clause:
+        inner = ([client_clause] if client_clause else []) + other_clauses
+
+        if inner:
+            clauses.append(
+                "(" + address_clause + " AND (" + " OR ".join(inner) + "))"
+            )
+            params.extend(address_params + client_params + other_params)
+        else:
+            clauses.append(address_clause)
+            params.extend(address_params)
+    elif combine == "client" and client_clause:
+        inner = ([address_clause] if address_clause else []) + other_clauses
+
+        if inner:
+            clauses.append(
+                "(" + client_clause + " AND (" + " OR ".join(inner) + "))"
+            )
+            params.extend(client_params + address_params + other_params)
+        else:
+            clauses.append(client_clause)
+            params.extend(client_params)
+    else:
+        parts = (
+            ([address_clause] if address_clause else [])
+            + ([client_clause] if client_clause else [])
+            + other_clauses
+        )
+
+        if parts:
+            clauses.append("(" + " OR ".join(parts) + ")")
+            params.extend(address_params + client_params + other_params)
 
     if date_from:
         clauses.append(f"{date_column} >= %s::date")
@@ -349,6 +394,7 @@ def count_photos(
     tag: str | None = None,
     category: str | None = None,
     recognized_only: bool = False,
+    combine: str = "union",
 ) -> int:
     """Сколько фото подходит под те же фильтры, что и грид."""
 
@@ -365,6 +411,7 @@ def count_photos(
         tag=tag,
         category=category,
         recognized_only=recognized_only,
+        combine=combine,
     )
     sql = "SELECT count(*) FROM (" + _PHOTO_SELECT + where + ") AS filtered"
 
@@ -390,6 +437,7 @@ def list_photos(
     tag: str | None = None,
     category: str | None = None,
     recognized_only: bool = False,
+    combine: str = "union",
 ) -> tuple[list[PhotoSummary], str | None]:
     """
     Return one page of registered photos ordered by photo_id.
@@ -424,6 +472,7 @@ def list_photos(
         tag=tag,
         category=category,
         recognized_only=recognized_only,
+        combine=combine,
     )
     sql = _PHOTO_SELECT + where
 
@@ -624,6 +673,7 @@ def list_addresses(
     date_from: str | None = None,
     date_to: str | None = None,
     date_mode: str = "upload",
+    clients: list[str] | None = None,
 ) -> list[dict]:
     """
     The address filter of the photo page: one entry per legal address.
@@ -657,6 +707,17 @@ def list_addresses(
 
     period_sql = " AND ".join(period_parts) or "TRUE"
 
+    # В режиме приоритета по клиентам адреса сужаются до тех, где эти
+    # клиенты есть; счётчики считаются по тому же условию.
+    client_sql = ""
+    client_params: list[object] = []
+
+    if clients:
+        client_where, client_params = _photo_where(clients=clients)
+        client_sql = client_where.removeprefix(" WHERE ")
+
+    client_filter = f"AND ({client_sql})" if client_sql else ""
+
     with get_connection() as conn:
         with conn.cursor() as cur:
             # Фото считаются по юридическому адресу из справочника: у адреса
@@ -683,16 +744,19 @@ def list_addresses(
                     FROM t
                     LEFT JOIN public.photo_address_overrides AS ov
                            ON ov.photo_id = t.photo_id
-                    WHERE EXISTS (
-                        SELECT 1 FROM public.hybrid_results AS hr
-                        WHERE hr.photo_id = t.photo_id
-                          AND hr.status = 'DONE'
-                          AND hr.hybrid_final_id IS NOT NULL
+                    WHERE (
+                        EXISTS (
+                            SELECT 1 FROM public.hybrid_results AS hr
+                            WHERE hr.photo_id = t.photo_id
+                              AND hr.status = 'DONE'
+                              AND hr.hybrid_final_id IS NOT NULL
+                        )
+                        OR EXISTS (
+                            SELECT 1 FROM public.photo_address_overrides AS ov2
+                            WHERE ov2.photo_id = t.photo_id
+                        )
                     )
-                    OR EXISTS (
-                        SELECT 1 FROM public.photo_address_overrides AS ov2
-                        WHERE ov2.photo_id = t.photo_id
-                    )
+                    """ + client_filter + """
                 )
                 SELECT d.address_id, d.simple_address, d.legal_address,
                        count(e.photo_id) AS count,
@@ -701,12 +765,13 @@ def list_addresses(
                 LEFT JOIN eff AS e ON e.address_id = d.address_id
                 WHERE d.active
                 GROUP BY d.address_id, d.simple_address, d.legal_address
+                """ + ("HAVING count(e.photo_id) > 0 " if clients else "") + """
                 ORDER BY lower(COALESCE(NULLIF(btrim(d.simple_address), ''),
                                         d.legal_address)),
                          d.address_id
                 LIMIT %s
                 """,
-                period_params + [limit],
+                client_params + period_params + [limit],
             )
             rows = cur.fetchall()
 
@@ -1000,26 +1065,43 @@ def suggest_terms(term: str, *, limit: int = 8) -> list[dict]:
             ]
 
 
-def list_clients(*, limit: int = 100) -> list[dict]:
+def list_clients(
+    *,
+    limit: int = 100,
+    addresses: list[str] | None = None,
+    recognized_only: bool = True,
+) -> list[dict]:
     """
     Distinct QWEN clients with photo counts.
 
     Aliased raw values are folded into their canonical client (client_aliases).
+    With ``addresses`` the list is narrowed to clients present on those
+    addresses (client-priority mode) and counts follow the same predicate as
+    the grid.
     """
+
+    where_sql, where_params = _photo_where(
+        addresses=addresses,
+        recognized_only=recognized_only,
+    )
+    extra = where_sql.removeprefix(" WHERE ")
+
+    if extra:
+        extra = " AND (" + extra + ")"
 
     sql = (
         "SELECT COALESCE(a.canonical, t.client) AS client, count(*) AS count "
         "FROM (" + _PHOTO_SELECT + ") AS t "
         "LEFT JOIN public.client_aliases AS a "
         "       ON a.alias = t.client AND a.kind = 'client' "
-        "WHERE t.client IS NOT NULL AND t.client <> '' "
+        "WHERE t.client IS NOT NULL AND t.client <> ''" + extra + " "
         "GROUP BY COALESCE(a.canonical, t.client) "
         "ORDER BY lower(COALESCE(a.canonical, t.client)) LIMIT %s"
     )
 
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, (limit,))
+            cur.execute(sql, where_params + [limit])
             return [
                 {"client": row[0], "count": int(row[1])}
                 for row in cur.fetchall()

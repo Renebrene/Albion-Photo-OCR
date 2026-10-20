@@ -15,6 +15,7 @@ import PhotosGrid from '../src/pages/PhotosGrid.vue'
 import VideosGrid from '../src/pages/VideosGrid.vue'
 import Technical from '../src/pages/Technical.vue'
 import { setToken } from '../src/api/client'
+import { useDisplayStore } from '../src/stores/display'
 
 const calls = []
 const urls = []
@@ -678,6 +679,22 @@ describe('оболочка приложения', () => {
     // Сразу после входа оболочка обязана запросить фотографии.
     expect(calls.some((path) => path.endsWith('/v1/photos'))).toBe(true)
     expect(calls).toContain('/api/v1/stats')
+
+    wrapper.unmount()
+  })
+
+  it('переключатель режима адреса/клиенты живёт в подвале', async () => {
+    const wrapper = await mountShell()
+    const display = useDisplayStore()
+
+    const square = wrapper
+      .findAll('button')
+      .find((button) => button.text().trim() === '□')
+
+    expect(square).toBeTruthy()
+    await square.trigger('click')
+
+    expect(display.addressClientMode).toBe('client')
 
     wrapper.unmount()
   })

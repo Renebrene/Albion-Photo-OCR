@@ -230,3 +230,35 @@ def test_save_manual_qwen_text_requires_photo(monkeypatch):
     )
 
     assert response.status_code == 404
+
+
+def test_address_list_narrows_to_clients(monkeypatch):
+    """В приоритете по клиентам адреса сужаются до адресов этих клиентов."""
+
+    from app.api import repository
+
+    captured = {}
+    _fake_connection(monkeypatch, repository, captured)
+
+    repository.list_addresses(limit=10, clients=["Клиент"])
+
+    sql, params = captured["queries"][0]
+    assert "HAVING count(e.photo_id) > 0" in sql
+    assert "LOWER(ca.canonical) = LOWER(%s)" in sql
+    assert params == ["Клиент", "Клиент", 10]
+
+
+def test_client_list_narrows_to_addresses(monkeypatch):
+    """В приоритете по адресам клиенты сужаются до клиентов этих адресов."""
+
+    from app.api import repository
+
+    captured = {}
+    _fake_connection(monkeypatch, repository, captured)
+
+    repository.list_clients(limit=10, addresses=["addr:5"])
+
+    sql, params = captured["queries"][0]
+    assert "af.address_id = %s AND af.active" in sql
+    assert "public.hybrid_results" in sql
+    assert params == [5, 5, 10]
