@@ -372,8 +372,8 @@ function toggleDark() {
             :key="mode.value"
             flat
             dense
-            round
             class="mode-btn"
+            :class="{ 'mode-btn--active': display.addressClientMode === mode.value }"
             :color="display.addressClientMode === mode.value ? 'primary' : 'grey-7'"
             :label="mode.symbol"
             @click="display.addressClientMode = mode.value"
@@ -522,13 +522,36 @@ function toggleDark() {
   white-space: nowrap;
 }
 
-/* Переключатель режима адреса/клиенты: три компактные кнопки-символа. */
+/* Переключатель режима адреса/клиенты: один тёмный блок с тремя
+   одинаковыми квадратными кнопками-символами. */
+.footer-mode {
+  background: rgba(0, 0, 0, 0.10);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+
 .mode-btn {
-  min-width: 24px;
-  min-height: 24px;
-  padding: 0 4px;
-  font-size: 15px;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  min-height: 26px;
+  padding: 0;
+  font-size: 14px;
   line-height: 1;
+  border-radius: 6px;
+}
+
+.mode-btn :deep(.q-btn__content) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.mode-btn--active {
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
 }
 
 .footer-icon {
