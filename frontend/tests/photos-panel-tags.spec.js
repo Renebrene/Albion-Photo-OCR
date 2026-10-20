@@ -54,7 +54,9 @@ function installFetch() {
       return json({
         items: [
           {
-            address: '78_v33',
+            address: 'addr:78',
+            address_id: 78,
+            fingerprints: ['78_v33'],
             name: 'Комарова 13',
             simple_address: 'Комарова 13',
             legal_address: 'г. Ростов-на-Дону, ул. Комарова, 13',
@@ -62,7 +64,9 @@ function installFetch() {
             period_count: 2,
           },
           {
-            address: '79_v33',
+            address: 'addr:79',
+            address_id: 79,
+            fingerprints: ['79_v33'],
             name: 'Ленина 5',
             simple_address: 'Ленина 5',
             legal_address: 'г. Ростов-на-Дону, ул. Ленина, 5',
@@ -128,7 +132,7 @@ describe('строка тегов', () => {
     const wrapper = await mountGrid()
 
     store.selectedClients = ['Клиент А']
-    store.selectedAddresses = ['78_v33']
+    store.selectedAddresses = ['addr:78']
     await flushPromises()
     await nextTick()
 
@@ -164,7 +168,7 @@ describe('строка тегов', () => {
     store.clientCollectionId = 5
     store.addressCollectionId = 6
     store.selectedClients = ['Клиент А']
-    store.selectedAddresses = ['78_v33']
+    store.selectedAddresses = ['addr:78']
     await flushPromises()
     await nextTick()
 
@@ -230,7 +234,7 @@ describe('строка тегов', () => {
     const wrapper = await mountGrid()
 
     // Отмечен весь список адресов (2 из 2) и клиентов (2 из 2).
-    store.selectedAddresses = ['78_v33', '79_v33']
+    store.selectedAddresses = ['addr:78', 'addr:79']
     store.selectedClients = ['Клиент А', 'Клиент Б']
     await flushPromises()
     await nextTick()
@@ -338,7 +342,7 @@ describe('строка тегов', () => {
     const wrapper = await mountGrid()
 
     store.selectedClients = ['Клиент А', 'Клиент Б']
-    store.selectedAddresses = ['78_v33']
+    store.selectedAddresses = ['addr:78']
     await flushPromises()
     await nextTick()
 

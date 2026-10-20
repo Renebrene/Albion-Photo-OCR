@@ -2011,8 +2011,16 @@ async function addOneToBucket(photo) {
     return
   }
 
-  if (!store.selectedAddresses.includes(address)) {
-    store.selectedAddresses = [...store.selectedAddresses, address]
+  // Панель работает с юридическими адресами (addr:<id>), а у фото хранится
+  // id слепка: находим адрес по списку активных слепков.
+  const entry = addresses.value.find(
+    (item) =>
+      item.address === address || (item.fingerprints || []).includes(address),
+  )
+  const value = entry ? entry.address : address
+
+  if (!store.selectedAddresses.includes(value)) {
+    store.selectedAddresses = [...store.selectedAddresses, value]
     await store.refresh()
   }
 

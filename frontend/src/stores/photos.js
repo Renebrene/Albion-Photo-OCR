@@ -51,6 +51,22 @@ function filterParams(state, { limit, cursor = null }) {
   }
 }
 
+/**
+ * Привести значение адреса к идентификатору панели.
+ *
+ * Новые значения — `addr:<address_id>`; старые подборки и сохранённые поиски
+ * хранят id слепка. Панель отдаёт список активных слепков адреса, поэтому
+ * старый id можно развернуть в юридический адрес.
+ */
+function normalizeAddressValue(addresses, value) {
+  const found = (addresses || []).find(
+    (item) =>
+      item.address === value || (item.fingerprints || []).includes(value),
+  )
+
+  return found ? found.address : value
+}
+
 export const usePhotosStore = defineStore('photos', {
   state: () => ({
     items: [],
@@ -242,7 +258,9 @@ export const usePhotosStore = defineStore('photos', {
       ids = [],
     } = {}) {
       this.query = q
-      this.selectedAddresses = addresses
+      this.selectedAddresses = addresses.map((value) =>
+        normalizeAddressValue(this.addresses, value),
+      )
       this.selectedClients = clients
       this.brand = brand
       this.tag = tag
@@ -298,7 +316,11 @@ export const usePhotosStore = defineStore('photos', {
       const values = data.items || []
 
       if (isClients) this.selectedClients = values
-      else this.selectedAddresses = values
+      else {
+        this.selectedAddresses = values.map((value) =>
+          normalizeAddressValue(this.addresses, value),
+        )
+      }
 
       // The other scope keeps its own active collection and selected values.
       this[activeKey] = collection.collection_id

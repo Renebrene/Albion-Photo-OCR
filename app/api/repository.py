@@ -75,8 +75,13 @@ _PHOTO_DERIVED = """
     LEFT JOIN public.address_fingerprints AS f
            ON f.fingerprint_id = t.address
           AND f.active
+    -- Архивный слепок не участвует и в отображении: имя адреса не подставляем.
+    LEFT JOIN public.fingerprints AS reg
+           ON reg.fingerprint_id = f.fingerprint_id
+          AND reg.active
     LEFT JOIN public.address_directory AS d
-           ON d.address_id = f.address_id
+           ON reg.fingerprint_id IS NOT NULL
+          AND d.address_id = f.address_id
           AND d.active
     LEFT JOIN public.photo_address_overrides AS ov
            ON ov.photo_id = t.photo_id
@@ -191,28 +196,65 @@ def _photo_where(
         params.extend([like] * 11)
 
     if addresses:
-        # A manually corrected photo belongs ONLY to the chosen address: the
-        # recognised fingerprint is ignored while an override exists.
-        # Values come from the address panel, so match them exactly
-        # (case-insensitive) rather than by substring: selecting 78_v33 must
-        # not also pull 178_v33.
+        # The panel sends ``addr:<address_id>`` — a legal address may have
+        # several active fingerprints. Legacy fingerprint ids stay supported
+        # for old collections and saved searches. A manual override wins over
+        # the recognised id; archived fingerprints never match.
         parts = []
-        for value in addresses:
-            parts.append(
-                "((NOT EXISTS ("
-                "   SELECT 1 FROM public.photo_address_overrides AS ov"
-                "   WHERE ov.photo_id = t.photo_id)"
-                "  AND LOWER(t.address) = LOWER(%s))"
-                " OR EXISTS ("
-                "   SELECT 1 FROM public.photo_address_overrides AS ov"
-                "   JOIN public.address_fingerprints AS mfp"
-                "     ON mfp.address_id = ov.address_id AND mfp.active"
-                "   WHERE ov.photo_id = t.photo_id"
-                "     AND LOWER(mfp.fingerprint_id) = LOWER(%s)))"
-            )
-            params.extend([value, value])
 
-        tag_clauses.append("(" + " OR ".join(parts) + ")")
+        for value in addresses:
+            text = str(value).strip()
+
+            if text.lower().startswith("addr:"):
+                try:
+                    address_id = int(text.split(":", 1)[1])
+                except ValueError:
+                    continue
+
+                parts.append(
+                    "(EXISTS ("
+                    "   SELECT 1 FROM public.photo_address_overrides AS ov"
+                    "   WHERE ov.photo_id = t.photo_id"
+                    "     AND ov.address_id = %s)"
+                    " OR (NOT EXISTS ("
+                    "   SELECT 1 FROM public.photo_address_overrides AS ov2"
+                    "   WHERE ov2.photo_id = t.photo_id)"
+                    "  AND EXISTS ("
+                    "   SELECT 1 FROM public.address_fingerprints AS af"
+                    "   JOIN public.fingerprints AS reg"
+                    "     ON reg.fingerprint_id = af.fingerprint_id"
+                    "    AND reg.active"
+                    "   WHERE af.address_id = %s AND af.active"
+                    "     AND LOWER(af.fingerprint_id) = LOWER(t.address))))"
+                )
+                params.extend([address_id, address_id])
+                continue
+
+            parts.append(
+                "(EXISTS ("
+                "   SELECT 1 FROM public.photo_address_overrides AS ov"
+                "   JOIN public.address_fingerprints AS af"
+                "     ON af.address_id = ov.address_id AND af.active"
+                "   JOIN public.fingerprints AS reg"
+                "     ON reg.fingerprint_id = af.fingerprint_id AND reg.active"
+                "   WHERE ov.photo_id = t.photo_id"
+                "     AND LOWER(af.fingerprint_id) = LOWER(%s))"
+                " OR (NOT EXISTS ("
+                "   SELECT 1 FROM public.photo_address_overrides AS ov2"
+                "   WHERE ov2.photo_id = t.photo_id)"
+                "  AND EXISTS ("
+                "   SELECT 1 FROM public.address_fingerprints AS af2"
+                "   JOIN public.fingerprints AS reg2"
+                "     ON reg2.fingerprint_id = af2.fingerprint_id"
+                "    AND reg2.active"
+                "   WHERE LOWER(af2.fingerprint_id) = LOWER(%s)"
+                "     AND af2.active"
+                "     AND LOWER(t.address) = LOWER(af2.fingerprint_id))))"
+            )
+            params.extend([text, text])
+
+        if parts:
+            tag_clauses.append("(" + " OR ".join(parts) + ")")
 
     if clients:
         # Exact value (case-insensitive), not a substring: selecting «СТС»
@@ -584,26 +626,24 @@ def list_addresses(
     date_mode: str = "upload",
 ) -> list[dict]:
     """
-    The address filter of the photo page: one entry per fingerprint.
+    The address filter of the photo page: one entry per legal address.
 
-    The list is built from the fingerprint registry, not from the photos, so it
-    is the list of fingerprints (each one is an address/shield) shown by name -
-    the manual name, the alias of its address, or the technical id. A
-    fingerprint stays in the panel even while no photo has been recognised as
-    it; its counter says how many photos carry its verdict.
+    The list is built from ``address_directory``, not from fingerprints: one
+    row per legal address, shown under its short (simple) name. Several active
+    fingerprints may belong to one address; their photos are summed. An
+    address without an active fingerprint stays in the panel with count 0
+    until a fingerprint is linked and photos are recognised. Archived
+    fingerprints take part in neither recognition nor the panel.
 
-    A recognised id without a registry row is appended, so a photo can never
-    become unfilterable. Archived (``active = false``) fingerprints are hidden
-    from the panel even when they still have recognised photos: hiding a
-    fingerprint is how the operator removes a duplicate/obsolete shield from
-    «Адреса». `address` is the fingerprint id the filter sends; `name` is what
-    the panel shows.
+    ``address`` is the value the filter sends (``addr:<address_id>``); legacy
+    fingerprint ids are still accepted for old collections and saved searches.
+    ``fingerprints`` lists the active ids behind the address.
     """
 
     if date_mode not in {"upload", "capture"}:
         raise ValueError("date_mode must be 'upload' or 'capture'")
 
-    date_column = "t.taken_at" if date_mode == "capture" else "t.created_at"
+    date_column = "e.taken_at" if date_mode == "capture" else "e.created_at"
     period_parts: list[str] = []
     period_params: list[object] = []
 
@@ -619,34 +659,31 @@ def list_addresses(
 
     with get_connection() as conn:
         with conn.cursor() as cur:
-            # Photo counts per address panel entry. A manual override moves the
-            # photo to the chosen address's representative fingerprint, so the
-            # counters match what the address filter returns. `period_count`
-            # repeats the same count with the caller's date range; `count`
-            # stays all-time and ignores the filter.
+            # Фото считаются по юридическому адресу из справочника: у адреса
+            # может быть несколько активных слепков, а адрес без слепков
+            # остаётся в списке с нулём. Архивные слепки не участвуют.
             cur.execute(
                 """
-                SELECT COALESCE(mapped.fingerprint_id, t.address) AS address,
-                       count(*) AS count,
-                       count(*) FILTER (WHERE """ + period_sql + """) AS period_count
-                FROM (""" + _PHOTO_SELECT + """) AS t
-                LEFT JOIN public.photo_address_overrides AS ov
-                       ON ov.photo_id = t.photo_id
-                LEFT JOIN LATERAL (
-                    SELECT f.fingerprint_id
-                    FROM public.address_fingerprints AS f
-                    JOIN public.fingerprints AS reg
-                      ON reg.fingerprint_id = f.fingerprint_id
-                     AND reg.active
-                    WHERE f.address_id = ov.address_id
-                      AND f.active
-                    ORDER BY f.fingerprint_id
-                    LIMIT 1
-                ) AS mapped ON TRUE
-                WHERE COALESCE(mapped.fingerprint_id, t.address) IS NOT NULL
-                  AND COALESCE(mapped.fingerprint_id, t.address) <> ''
-                  AND (
-                    EXISTS (
+                WITH t AS (""" + _PHOTO_SELECT + """),
+                eff AS (
+                    SELECT t.photo_id, t.created_at, t.taken_at,
+                           COALESCE(
+                               ov.address_id,
+                               (
+                                   SELECT af.address_id
+                                   FROM public.address_fingerprints AS af
+                                   JOIN public.fingerprints AS reg
+                                     ON reg.fingerprint_id = af.fingerprint_id
+                                    AND reg.active
+                                   WHERE af.fingerprint_id = t.address
+                                     AND af.active
+                                   LIMIT 1
+                               )
+                           ) AS address_id
+                    FROM t
+                    LEFT JOIN public.photo_address_overrides AS ov
+                           ON ov.photo_id = t.photo_id
+                    WHERE EXISTS (
                         SELECT 1 FROM public.hybrid_results AS hr
                         WHERE hr.photo_id = t.photo_id
                           AND hr.status = 'DONE'
@@ -656,80 +693,58 @@ def list_addresses(
                         SELECT 1 FROM public.photo_address_overrides AS ov2
                         WHERE ov2.photo_id = t.photo_id
                     )
-                  )
-                GROUP BY COALESCE(mapped.fingerprint_id, t.address)
+                )
+                SELECT d.address_id, d.simple_address, d.legal_address,
+                       count(e.photo_id) AS count,
+                       count(e.photo_id) FILTER (WHERE """ + period_sql + """) AS period_count
+                FROM public.address_directory AS d
+                LEFT JOIN eff AS e ON e.address_id = d.address_id
+                WHERE d.active
+                GROUP BY d.address_id, d.simple_address, d.legal_address
+                ORDER BY lower(COALESCE(NULLIF(btrim(d.simple_address), ''),
+                                        d.legal_address)),
+                         d.address_id
+                LIMIT %s
                 """,
-                period_params,
-            )
-            counts = {
-                row[0]: (int(row[1]), int(row[2]))
-                for row in cur.fetchall()
-            }
-
-            # Every fingerprint, archived ones included: an archived fingerprint
-            # still recognises photos, and those must keep their name.
-            cur.execute(
-                """
-                SELECT f.fingerprint_id, f.display_name, f.active,
-                       d.simple_address, d.legal_address
-                FROM public.fingerprints AS f
-                LEFT JOIN public.address_fingerprints AS af
-                       ON af.fingerprint_id = f.fingerprint_id AND af.active
-                LEFT JOIN public.address_directory AS d
-                       ON d.address_id = af.address_id AND d.active
-                """
+                period_params + [limit],
             )
             rows = cur.fetchall()
 
+            cur.execute(
+                """
+                SELECT af.address_id, af.fingerprint_id
+                FROM public.address_fingerprints AS af
+                JOIN public.fingerprints AS reg
+                  ON reg.fingerprint_id = af.fingerprint_id
+                 AND reg.active
+                WHERE af.active
+                ORDER BY af.address_id, af.fingerprint_id
+                """
+            )
+            mapped: dict[int, list[str]] = {}
+            for address_id, fingerprint_id in cur.fetchall():
+                mapped.setdefault(int(address_id), []).append(fingerprint_id)
+
     items: list[dict] = []
-    listed: set[str] = set()
-    inactive: set[str] = set()
-    known: dict[str, str] = {}
 
-    for row in rows:
-        fingerprint_id = row[0]
-        name = fingerprints.resolve_name(row[1], row[3], row[4], fingerprint_id)
+    for address_id, simple_address, legal_address, count, period_count in rows:
+        address_id = int(address_id)
+        name = (simple_address or legal_address or f"Адрес {address_id}").strip()
 
-        known[fingerprint_id] = name
-
-        if not row[2]:
-            # Hidden/archived fingerprints never enter the address panel, even
-            # if a photo was recognised as them before they were hidden.
-            inactive.add(fingerprint_id)
-            continue
-
-        listed.add(fingerprint_id)
-        count, period_count = counts.get(fingerprint_id, (0, 0))
         items.append(
             {
-                "address": fingerprint_id,
+                "address": f"addr:{address_id}",
+                "address_id": address_id,
                 "name": name,
-                "simple_address": row[3],
-                "legal_address": row[4],
-                "count": count,
-                "period_count": period_count,
+                "simple_address": simple_address,
+                "legal_address": legal_address,
+                "fingerprints": mapped.get(address_id, []),
+                "count": int(count),
+                "period_count": int(period_count),
             }
         )
 
-    for fingerprint_id, (count, period_count) in counts.items():
-        if fingerprint_id in listed or fingerprint_id in inactive:
-            continue
-
-        items.append(
-            {
-                "address": fingerprint_id,
-                "name": known.get(fingerprint_id, fingerprint_id),
-                "simple_address": None,
-                "legal_address": None,
-                "count": count,
-                "period_count": period_count,
-            }
-        )
-
-    # The panel shows names, so it is ordered by them.
-    items.sort(key=lambda item: (item["name"].casefold(), item["address"]))
-
-    return items[:limit]
+    return items
 
 
 def stats(
@@ -779,29 +794,29 @@ def stats(
             )
             row = cur.fetchone()
 
-            # Recognised addresses: a HYBRID final id or a manual override.
-            # The same mapping as the address panel keeps the footer in sync.
+            # Recognised addresses: a HYBRID final id or a manual override,
+            # folded to the legal address exactly like the panel.
             cur.execute(
                 """
-                SELECT count(DISTINCT COALESCE(mapped.fingerprint_id, t.address))
-                FROM (""" + _PHOTO_SELECT + """) AS t
-                LEFT JOIN public.photo_address_overrides AS ov
-                       ON ov.photo_id = t.photo_id
-                LEFT JOIN LATERAL (
-                    SELECT f.fingerprint_id
-                    FROM public.address_fingerprints AS f
-                    JOIN public.fingerprints AS reg
-                      ON reg.fingerprint_id = f.fingerprint_id
-                     AND reg.active
-                    WHERE f.address_id = ov.address_id
-                      AND f.active
-                    ORDER BY f.fingerprint_id
-                    LIMIT 1
-                ) AS mapped ON TRUE
-                WHERE COALESCE(mapped.fingerprint_id, t.address) IS NOT NULL
-                  AND COALESCE(mapped.fingerprint_id, t.address) <> ''
-                  AND (
-                    EXISTS (
+                WITH t AS (""" + _PHOTO_SELECT + """),
+                eff AS (
+                    SELECT COALESCE(
+                               ov.address_id,
+                               (
+                                   SELECT af.address_id
+                                   FROM public.address_fingerprints AS af
+                                   JOIN public.fingerprints AS reg
+                                     ON reg.fingerprint_id = af.fingerprint_id
+                                    AND reg.active
+                                   WHERE af.fingerprint_id = t.address
+                                     AND af.active
+                                   LIMIT 1
+                               )
+                           ) AS address_id
+                    FROM t
+                    LEFT JOIN public.photo_address_overrides AS ov
+                           ON ov.photo_id = t.photo_id
+                    WHERE EXISTS (
                         SELECT 1 FROM public.hybrid_results AS hr
                         WHERE hr.photo_id = t.photo_id
                           AND hr.status = 'DONE'
@@ -811,7 +826,13 @@ def stats(
                         SELECT 1 FROM public.photo_address_overrides AS ov2
                         WHERE ov2.photo_id = t.photo_id
                     )
-                  )
+                )
+                SELECT count(DISTINCT e.address_id)
+                FROM eff AS e
+                JOIN public.address_directory AS d
+                  ON d.address_id = e.address_id
+                 AND d.active
+                WHERE e.address_id IS NOT NULL
                 """
             )
             addresses = int(cur.fetchone()[0])

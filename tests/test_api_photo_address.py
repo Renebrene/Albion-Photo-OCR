@@ -142,7 +142,7 @@ def _fake_connection(monkeypatch, repository, captured):
 
 
 def test_address_filter_ignores_recognized_id_after_override(monkeypatch):
-    """Исправленное фото не должно находиться по старому адресу."""
+    """Исправленное фото не находится по старому слепку (legacy-значение)."""
 
     from app.api import repository
 
@@ -152,17 +152,32 @@ def test_address_filter_ignores_recognized_id_after_override(monkeypatch):
     repository.list_photos(limit=10, addresses=["89_v33"])
 
     sql, params = captured["queries"][0]
-    assert "NOT EXISTS" in sql
     assert "photo_address_overrides" in sql
-    # The address panel sends an exact id; match it exactly so 89_v33 does
-    # not also pull 189_v33.
-    assert sql.count("LOWER(mfp.fingerprint_id) = LOWER(%s)") == 1
+    assert "LOWER(af.fingerprint_id) = LOWER(%s)" in sql
+    assert "reg.active" in sql
     assert params[:2] == ["89_v33", "89_v33"]
     assert params[-1] == 11  # limit + 1 for the next-page probe
 
 
+def test_address_filter_accepts_legal_address_ids(monkeypatch):
+    """Панель отправляет addr:<address_id>; он матчит любой слепок адреса."""
+
+    from app.api import repository
+
+    captured = {}
+    _fake_connection(monkeypatch, repository, captured)
+
+    repository.list_photos(limit=10, addresses=["addr:5"])
+
+    sql, params = captured["queries"][0]
+    assert "ov.address_id = %s" in sql
+    assert "af.address_id = %s AND af.active" in sql
+    assert params[:2] == [5, 5]
+    assert params[-1] == 11
+
+
 def test_address_counts_follow_the_override(monkeypatch):
-    """Счётчики панели считают фото по адресу из override."""
+    """Панель считает фото по юридическому адресу, а не по одному слепку."""
 
     from app.api import repository
 
@@ -172,8 +187,11 @@ def test_address_counts_follow_the_override(monkeypatch):
     repository.list_addresses(limit=10)
 
     sql = captured["queries"][0][0]
-    assert "LEFT JOIN LATERAL" in sql
-    assert "COALESCE(mapped.fingerprint_id, t.address)" in sql
+    assert "public.address_directory" in sql
+    assert "COALESCE(" in sql
+    assert "ov.address_id" in sql
+    assert "count(e.photo_id)" in sql
+    assert "reg.active" in sql
 
 
 def test_save_manual_qwen_text(monkeypatch):
