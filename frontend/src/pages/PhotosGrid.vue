@@ -999,6 +999,11 @@ function clearStructuredFilters() {
   selectedCategory.value = null
 }
 
+async function clearStructuredAndApply() {
+  clearStructuredFilters()
+  await apply()
+}
+
 async function clearStructured(kind) {
   if (kind === 'brand') selectedBrand.value = null
   if (kind === 'tag') selectedTag.value = null
@@ -2774,7 +2779,30 @@ function tagList(meta) {
             v-if="!loading && !error && items.length === 0"
             class="text-grey q-mt-lg"
           >
-            Ничего не найдено.
+            <div>Ничего не найдено.</div>
+            <div
+              v-if="activeTags.length"
+              class="text-caption text-grey-7 q-mt-xs"
+            >
+              Активные фильтры: {{ activeTags.map((tag) => tag.label).join(' · ') }}
+            </div>
+            <div class="row q-gutter-sm q-mt-sm">
+              <q-btn
+                v-if="selectedBrand || selectedTag || selectedCategory"
+                dense
+                flat
+                color="primary"
+                label="Снять бренд и тег"
+                @click="clearStructuredAndApply"
+              />
+              <q-btn
+                dense
+                flat
+                color="primary"
+                label="Сбросить все фильтры"
+                @click="reset"
+              />
+            </div>
           </div>
         </div>
       </div>

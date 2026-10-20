@@ -259,6 +259,45 @@ describe('строка тегов', () => {
     wrapper.unmount()
   })
 
+  it('пустая выдача объясняет фильтры и даёт снять бренд/тег', async () => {
+    const wrapper = await mountGrid()
+
+    const input = wrapper
+      .findAll('input')
+      .find((item) => item.attributes('placeholder') === 'Поиск клиента или бренда')
+
+    await input.setValue('СТ')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    await nextTick()
+
+    const item = wrapper
+      .findAll('.q-item')
+      .find((node) => node.text().includes('СТС'))
+
+    await item.trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    store.items = []
+    await nextTick()
+
+    expect(wrapper.text()).toContain('Активные фильтры')
+    expect(wrapper.text()).toContain('Бренд: СТС')
+
+    const clear = wrapper
+      .findAll('button')
+      .find((button) => button.text().trim() === 'Снять бренд и тег')
+
+    expect(clear).toBeTruthy()
+    await clear.trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    expect(wrapper.text()).not.toContain('Бренд: СТС')
+    wrapper.unmount()
+  })
+
   it('длинная строка тегов получает курсор-подсказку и листается колесом', async () => {
     const wrapper = await mountGrid()
 
