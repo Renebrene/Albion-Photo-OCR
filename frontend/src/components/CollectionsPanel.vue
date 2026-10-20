@@ -32,6 +32,12 @@ const canEdit = computed(() => {
 
 const items = computed(() => store.collectionsFor(props.scope))
 
+// Подборка подсвечивается тем же цветом, что и её элементы в панели:
+// адреса — primary, клиенты — secondary.
+const activeClass = computed(() =>
+  props.scope === 'clients' ? 'bg-secondary text-white' : 'bg-primary text-white',
+)
+
 const title = computed(() =>
   props.scope === 'clients' ? 'Подборки клиентов' : 'Подборки адресов',
 )
@@ -83,7 +89,7 @@ async function remove(collection) {
           :key="collection.collection_id"
           clickable
           :active="store.isCollectionActive(collection)"
-          active-class="bg-secondary text-white"
+          :active-class="activeClass"
           @click="pick(collection)"
         >
           <q-item-section avatar>

@@ -383,3 +383,40 @@ def test_analysis_input_without_a_preview_root_uses_the_original(monkeypatch):
     monkeypatch.setattr(processor, "_PREVIEW_ROOT", None)
 
     assert processor.analysis_input("PH_x", "/mnt/photos/a.jpg") == "/mnt/photos/a.jpg"
+
+
+# ---- editable prompts ------------------------------------------------------
+
+
+def test_prompt_overrides_are_stored_and_reset(fake_settings):
+    view = processor.public_settings()
+
+    assert view["prompt"] == processor.PROMPT
+    assert view["default_prompt"] == processor.PROMPT
+    assert view["crop_prompt"] == view["default_crop_prompt"]
+
+    view = processor.update_settings(
+        prompt="Свой промпт",
+        crop_prompt="Свой промпт для кропа",
+    )
+
+    assert view["prompt"] == "Свой промпт"
+    assert view["crop_prompt"] == "Свой промпт для кропа"
+
+    # Пустая строка возвращает встроенный промпт.
+    view = processor.update_settings(prompt="", crop_prompt="")
+
+    assert view["prompt"] == processor.PROMPT
+    assert view["crop_prompt"] == view["default_crop_prompt"]
+
+
+def test_billboard_crop_config_uses_the_override(fake_settings):
+    from app.billboard.pipeline import BILLBOARD_PROMPT, qwen_crop_config
+
+    base = processor.resolve_settings()
+
+    assert qwen_crop_config(base)["prompt"] == BILLBOARD_PROMPT
+
+    processor.update_settings(crop_prompt="Только бренд и клиент")
+
+    assert qwen_crop_config(base)["prompt"] == "Только бренд и клиент"

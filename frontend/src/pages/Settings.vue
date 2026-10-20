@@ -36,6 +36,11 @@ const unloadOnIdle = ref(true)
 const billboardCropEnabled = ref(false)
 const billboardCropAvailable = ref(false)
 const billboardCropSaving = ref(false)
+// Промпты: действующий (его можно править) и встроенный (для сброса).
+const promptText = ref('')
+const cropPromptText = ref('')
+const defaultPrompt = ref('')
+const defaultCropPrompt = ref('')
 
 const model = ref(null)
 const available = ref([])
@@ -76,6 +81,10 @@ async function loadSettings() {
     unloadOnIdle.value = data.unload_on_idle !== false
     billboardCropAvailable.value = data.billboard_crop_available === true
     billboardCropEnabled.value = data.billboard_crop_enabled === true
+    promptText.value = data.prompt || ''
+    cropPromptText.value = data.crop_prompt || ''
+    defaultPrompt.value = data.default_prompt || ''
+    defaultCropPrompt.value = data.default_crop_prompt || ''
     model.value = data.model || null
     current.value = data.model || null
     savedModels.value = data.models || {}
@@ -359,6 +368,16 @@ async function save() {
       base_url: baseUrl.value,
       keep_alive: keepAlive.value,
       unload_on_idle: unloadOnIdle.value,
+      // Неизменённый встроенный промпт не сохраняем как override: пустая
+      // строка означает «использовать встроенный».
+      prompt:
+        promptText.value.trim() === defaultPrompt.value.trim()
+          ? ''
+          : promptText.value,
+      crop_prompt:
+        cropPromptText.value.trim() === defaultCropPrompt.value.trim()
+          ? ''
+          : cropPromptText.value,
     }
 
     // Only send the key when the user typed a new one (blank = keep as is).
@@ -544,6 +563,59 @@ onBeforeUnmount(stopStatsPolling)
         <q-banner v-else dense class="bg-grey-2 text-caption q-mb-md">
           Детектор рекламных щитов не установлен в этой версии сервера.
         </q-banner>
+
+        <div v-if="billboardCropAvailable" class="q-mb-md">
+          <q-input
+            v-model="cropPromptText"
+            type="textarea"
+            autogrow
+            dense
+            outlined
+            label="Промпт для кропа щита"
+            class="q-mb-xs"
+            :disable="!canConfigure"
+          />
+          <div class="row items-center no-wrap">
+            <div class="text-caption text-grey-8 col">
+              Именно этот текст получает модель вместе с вырезанным щитом.
+              Пустое поле или кнопка «Встроенный» возвращают стандарт.
+            </div>
+            <q-btn
+              flat
+              dense
+              size="sm"
+              label="Встроенный"
+              :disable="!canConfigure"
+              @click="cropPromptText = defaultCropPrompt"
+            />
+          </div>
+        </div>
+
+        <div class="q-mb-md">
+          <q-input
+            v-model="promptText"
+            type="textarea"
+            autogrow
+            dense
+            outlined
+            label="Промпт для полного кадра"
+            class="q-mb-xs"
+            :disable="!canConfigure"
+          />
+          <div class="row items-center no-wrap">
+            <div class="text-caption text-grey-8 col">
+              Используется, когда кроп щита выключен или щит не найден.
+            </div>
+            <q-btn
+              flat
+              dense
+              size="sm"
+              label="Встроенный"
+              :disable="!canConfigure"
+              @click="promptText = defaultPrompt"
+            />
+          </div>
+        </div>
 
         <div class="text-caption text-grey q-mb-md">
           Текущая: <b>{{ current || '—' }}</b>. Keep-alive держит модель в

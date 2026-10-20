@@ -105,6 +105,7 @@ index `ix_billboard_active_dedup`).
 | `billboard_max_side` | `1920` | сторона копии для детекции |
 | `billboard_model` | `data/models/yolov8s-worldv2.pt` | чекпоинт |
 | `billboard_classes` | billboard / digital billboard screen / advertising screen | классы YOLO-World |
+| `qwen_crop_prompt` | пусто (встроенный `BILLBOARD_PROMPT`) | промпт для кропа; правится в «Распознавании» без перезапуска |
 
 Модель загружается один раз на процесс worker. Нужен `ultralytics`
 (`pip install -e ".[billboard]"` или `uv pip install ultralytics`).

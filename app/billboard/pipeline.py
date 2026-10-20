@@ -249,11 +249,15 @@ def qwen_crop_config(base: dict) -> dict:
     banners it is usually the advertiser's legal address from fine print.
     """
 
+    # Промпт можно отредактировать в «Распознавании»; пустое значение
+    # возвращает встроенный.
+    from app.qwen.processor import crop_prompt_override
+
     return {
         **base,
         "crop": {"mode": "off", "ratio": 1.0},
         "max_image_side": CROP_MAX_SIDE,
-        "prompt": BILLBOARD_PROMPT,
+        "prompt": crop_prompt_override() or BILLBOARD_PROMPT,
         # Long fine print sometimes makes the model loop on one field until
         # the output cap; the penalty stops the repetition.
         "max_output_tokens": 768,

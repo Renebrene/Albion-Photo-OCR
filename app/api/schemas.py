@@ -221,6 +221,9 @@ class QwenSettingsUpdate(BaseModel):
     keep_alive: str | None = Field(default=None, max_length=32)
     unload_on_idle: bool | None = None
     billboard_crop_enabled: bool | None = None
+    # None = не менять, "" = вернуть встроенный промпт.
+    prompt: str | None = Field(default=None, max_length=4000)
+    crop_prompt: str | None = Field(default=None, max_length=4000)
 
 
 class CloudSettingsUpdate(BaseModel):

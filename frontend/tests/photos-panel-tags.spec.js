@@ -159,15 +159,28 @@ describe('строка тегов', () => {
 
     store.collections = [
       { collection_id: 5, name: 'Смена 1', scope: 'clients', kind: 'Моя' },
+      { collection_id: 6, name: 'Мой район', scope: 'addresses', kind: 'Моя' },
     ]
     store.clientCollectionId = 5
+    store.addressCollectionId = 6
     store.selectedClients = ['Клиент А']
+    store.selectedAddresses = ['78_v33']
     await flushPromises()
     await nextTick()
 
     const tags = wrapper.find('.tags-row')
     expect(tags.text()).toContain('Смена 1')
+    expect(tags.text()).toContain('Мой район')
     expect(tags.text()).not.toContain('Клиент: Клиент А')
+
+    // Подборки подсвечиваются цветом своей панели: адреса — primary,
+    // клиенты — secondary.
+    const items = wrapper.findAll('.q-item')
+    const clientCollection = items.find((item) => item.text().includes('Смена 1'))
+    const addressCollection = items.find((item) => item.text().includes('Мой район'))
+
+    expect(clientCollection.classes()).toContain('bg-secondary')
+    expect(addressCollection.classes()).toContain('bg-primary')
     wrapper.unmount()
   })
 
@@ -210,6 +223,70 @@ describe('строка тегов', () => {
     await nextTick()
 
     expect(wrapper.text()).toContain('(выбрано 1)')
+    wrapper.unmount()
+  })
+
+  it('выбор всего списка заменяет отдельные теги на «Все»', async () => {
+    const wrapper = await mountGrid()
+
+    // Отмечен весь список адресов (2 из 2) и клиентов (2 из 2).
+    store.selectedAddresses = ['78_v33', '79_v33']
+    store.selectedClients = ['Клиент А', 'Клиент Б']
+    await flushPromises()
+    await nextTick()
+
+    const tags = wrapper.find('.tags-row').text()
+    expect(tags).not.toContain('Комарова 13')
+    expect(tags).not.toContain('Клиент: Клиент А')
+    expect(tags.split('Все').length - 1).toBe(2)
+    wrapper.unmount()
+  })
+
+  it('кнопка «Все» в заголовке панели выбирает весь список', async () => {
+    const wrapper = await mountGrid()
+
+    const buttons = wrapper
+      .findAll('button')
+      .filter((button) => button.text().trim() === 'Все')
+
+    expect(buttons.length).toBe(2)
+
+    await buttons[0].trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    expect(wrapper.find('.tags-row').text()).toContain('Все')
+    wrapper.unmount()
+  })
+
+  it('новая подсказка поиска дополняет теги, а не стирает их', async () => {
+    const wrapper = await mountGrid()
+
+    store.selectedClients = ['Клиент А']
+    await flushPromises()
+    await nextTick()
+
+    const input = wrapper
+      .findAll('input')
+      .find((item) => item.attributes('placeholder') === 'Название файла, клиент, бренд, адрес')
+
+    await input.setValue('СТ')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    await nextTick()
+
+    const suggestion = Array.from(document.body.querySelectorAll('.q-item')).find(
+      (node) => node.textContent.includes('СТС'),
+    )
+
+    expect(suggestion).toBeTruthy()
+    suggestion.click()
+    await flushPromises()
+    await nextTick()
+
+    const tags = wrapper.find('.tags-row').text()
+    expect(tags).toContain('Клиент: Клиент А')
+    expect(tags).toContain('Бренд: СТС')
     wrapper.unmount()
   })
 })

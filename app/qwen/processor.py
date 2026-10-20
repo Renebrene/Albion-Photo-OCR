@@ -81,6 +81,10 @@ QWEN_API_KEY_KEY = "qwen_api_key"
 QWEN_KEEP_ALIVE_KEY = "qwen_keep_alive"
 QWEN_UNLOAD_IDLE_KEY = "qwen_unload_on_idle"
 BILLBOARD_CROP_ENABLED_KEY = "billboard_detect"
+# Prompt overrides: empty string = use the built-in default. Both are edited
+# in «Распознавание» without a restart.
+QWEN_PROMPT_KEY = "qwen_prompt"
+QWEN_CROP_PROMPT_KEY = "qwen_crop_prompt"
 
 
 def _stored(key: str):
@@ -192,6 +196,29 @@ def model_for_provider(provider: str) -> str:
     return QWEN_MODEL if provider == PROVIDER_OLLAMA else ""
 
 
+def prompt_override() -> str:
+    """Stored full-frame prompt, or '' when the built-in default is active."""
+
+    return str(_stored(QWEN_PROMPT_KEY) or "").strip()
+
+
+def crop_prompt_override() -> str:
+    """Stored billboard-crop prompt, or '' when the built-in default is active."""
+
+    return str(_stored(QWEN_CROP_PROMPT_KEY) or "").strip()
+
+
+def default_crop_prompt() -> str:
+    """Built-in billboard prompt (empty when the detector is not installed)."""
+
+    try:
+        from app.billboard.pipeline import BILLBOARD_PROMPT
+    except ImportError:
+        return ""
+
+    return BILLBOARD_PROMPT
+
+
 def resolve_settings() -> dict:
     """Runtime QWEN configuration (settings override environment defaults)."""
 
@@ -221,6 +248,8 @@ def resolve_settings() -> dict:
         "timeout": QWEN_TIMEOUT,
         "ollama_url": OLLAMA_URL,
         "crop": crop_settings(),
+        # Эффективный промпт: сохранённый override или встроенный.
+        "prompt": prompt_override() or PROMPT,
     }
 
 
@@ -262,6 +291,11 @@ def public_settings() -> dict:
         "unload_on_idle": config["unload_on_idle"],
         "billboard_crop_enabled": config["billboard_crop_enabled"],
         "billboard_crop_available": billboard_crop_available(),
+        # Промпты: действующий и встроенный (для кнопки «Сбросить»).
+        "prompt": config["prompt"],
+        "default_prompt": PROMPT,
+        "crop_prompt": crop_prompt_override() or default_crop_prompt(),
+        "default_crop_prompt": default_crop_prompt(),
     }
 
 
@@ -274,6 +308,8 @@ def update_settings(
     keep_alive: str | None = None,
     unload_on_idle: bool | None = None,
     billboard_crop_enabled: bool | None = None,
+    prompt: str | None = None,
+    crop_prompt: str | None = None,
 ) -> dict:
     """Persist the supplied settings; return the public view."""
 
@@ -313,6 +349,13 @@ def update_settings(
         except ImportError as exc:
             raise ValueError("billboard crop option is not installed") from exc
         set_billboard_enabled(bool(billboard_crop_enabled))
+
+    # An empty prompt resets to the built-in default; None leaves it unchanged.
+    if prompt is not None:
+        settings_store.set_value(QWEN_PROMPT_KEY, str(prompt).strip())
+
+    if crop_prompt is not None:
+        settings_store.set_value(QWEN_CROP_PROMPT_KEY, str(crop_prompt).strip())
 
     return public_settings()
 

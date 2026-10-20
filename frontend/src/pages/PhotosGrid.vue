@@ -973,13 +973,10 @@ async function pickSuggestion(item) {
   suggestLayout.value = null
   suggestMuted = true
 
-  // A suggestion is a structured choice: clear the free-text query and every
-  // previous filter. Otherwise «СТС» would also match «Ростсельмаш» as a
-  // substring of the address.
+  // Подсказка — структурный выбор: свободный текст убираем, иначе «СТС»
+  // найдёт ещё и «Ростсельмаш» подстрокой. Прежние теги при этом сохраняются:
+  // новый выбор дополняет строку тегов, а не стирает её.
   q.value = ''
-  store.selectedAddresses = []
-  store.selectedClients = []
-  clearStructuredFilters()
 
   if (kind === 'layout') {
     // The converted layout is still a text search.
@@ -989,7 +986,9 @@ async function pickSuggestion(item) {
   }
 
   if (kind === 'client') {
-    store.selectedClients = [value]
+    if (!store.selectedClients.includes(value)) {
+      store.selectedClients = [...store.selectedClients, value]
+    }
   } else if (kind === 'brand') {
     selectedBrand.value = value
   } else if (kind === 'tag') {
@@ -1005,7 +1004,11 @@ async function pickSuggestion(item) {
     )
 
     if (found) {
+      // Адрес из поиска — одиночный выбор со сбросом прежнего состояния:
+      // выбранный адрес подсвечивается в списке, грид показывает именно его.
       store.selectedAddresses = [found.address]
+      store.selectedClients = []
+      clearStructuredFilters()
     } else {
       // The panel keeps its own names (aliases/display names); if the exact
       // suggestion is not there, fall back to the text search rather than
@@ -1097,7 +1100,9 @@ function isClientActive(item) {
 }
 
 async function selectAllAddresses() {
-  store.selectedAddresses = filteredAddresses.value.map((item) => item.address)
+  // «Все» — это весь список панели, а не только отфильтрованный поиском:
+  // тогда отдельные теги адресов заменяются одним тегом «Все».
+  store.selectedAddresses = addresses.value.map((item) => item.address)
   await apply()
 }
 
@@ -1107,10 +1112,8 @@ async function clearAddresses() {
 }
 
 async function selectAllClients() {
-  store.selectedClients = filteredClients.value
-    .filter((item) => item.kind === 'client')
-    .map((item) => item.value)
-  selectedBrand.value = null
+  // Аналогично адресам: все 100 видимых клиентов, без учёта поиска в панели.
+  store.selectedClients = clients.value.map((item) => item.client)
   await apply()
 }
 

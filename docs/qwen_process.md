@@ -205,6 +205,24 @@ API: `POST /api/v1/jobs/qwen/rescan`, scope `jobs:write`. Ответ содер�
 - третьей колонкой в «Распознавании» справа от статистики;
 - внизу раскрытой «Истории описаний» на карточке фото и в окне редактирования.
 
+### 7.1 Редактируемые промпты и параллелизм (2026-10-21)
+
+- Промпты вынесены в `app_settings`: `qwen_prompt` (полный кадр) и
+  `qwen_crop_prompt` (кроп щита). Пустое значение = встроенный промпт.
+  Редактируются в «Техническом разделе → Распознавание»; действующий и
+  встроенный текст отдаёт `GET /v1/qwen/settings`
+  (`prompt`, `default_prompt`, `crop_prompt`, `default_crop_prompt`), меняет
+  `PUT` теми же полями. Перезапуск не нужен.
+- Встроенный промпт кропа уже содержит только нужные поля (description,
+  client, brand, category, tags) — погоды, людей и окружения там нет.
+- **Ollama не параллелит qwen3vl**: `OLLAMA_NUM_PARALLEL=3` логирует
+  `model architecture does not currently support parallel requests`. Замер:
+  10 кропов — 16.4 с при c=1, 16.0 с при c=2, 15.9 с при c=3 (растёт только
+  латентность). Поэтому `--parallel` у QWEN-воркера не даёт прироста.
+  Подробности и расчёт токенов — [`ollama_parallel_bench.md`](ollama_parallel_bench.md).
+- Облачные VLM для кропов — [`cloud_vlm_bench.md`](cloud_vlm_bench.md):
+  самый дешёвый надёжный вариант ~9 ₽ на 1000 фото.
+
 ## 8. Источники
 
 - `111/chat_chunks/chunk_131.md` (~520–700: схема DINO/QWEN WORKER, `qwen3-vl:4b-instruct`, `localhost:11434`).
