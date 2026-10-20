@@ -28,37 +28,117 @@ def test_upload_returns_validated_link(tmp_path, monkeypatch):
     source.write_bytes(b"image")
     seen = {}
 
-    def fake_post(url, *, headers, data, files, timeout):
+    def fake_post(url, *, headers, data, files, timeout, **kwargs):
         seen["url"] = url
         seen["key"] = headers.get("X-API-Key")
-        seen["ttl"] = data.get("ttl_days")
+        seen["data"] = dict(data)
         seen["filename"] = files["file"][0]
         return _Response(200, {
             "url": "https://files.example.ru/abc",
             "expires_at": "2027-01-15T10:00:00Z",
         })
 
-    monkeypatch.setenv("ALBION_UPLOAD_URL", "https://files.example.ru/api/upload")
+    monkeypatch.setenv("ALBION_BASE_URL", "https://files.example.ru")
     monkeypatch.setenv("ALBION_API_KEY", "alb_test")
+    monkeypatch.delenv("ALBION_FOLDER_ID", raising=False)
     monkeypatch.setattr(albion.httpx, "post", fake_post)
 
     result = albion.upload_file(source, "photo.jpg", ttl_days=90)
 
     assert result["url"] == "https://files.example.ru/abc"
     assert result["expires_at"] == datetime(2027, 1, 15, 10, 0, tzinfo=timezone.utc)
+    assert seen["url"] == "https://files.example.ru/api/v1/integration/upload"
+    assert seen["key"] == "alb_test"
+    assert seen["data"] == {"ttl_days": "90"}
+    assert seen["filename"] == "photo.jpg"
+
+
+def test_upload_sends_the_configured_folder(tmp_path, monkeypatch):
+    source = tmp_path / "photo.jpg"
+    source.write_bytes(b"image")
+    seen = {}
+
+    def fake_post(url, *, headers, data, files, timeout, **kwargs):
+        seen["data"] = dict(data)
+        return _Response(200, {"url": "https://files.example.ru/abc"})
+
+    monkeypatch.setenv("ALBION_BASE_URL", "https://files.example.ru/")
+    monkeypatch.setenv("ALBION_API_KEY", "alb_test")
+    monkeypatch.setenv("ALBION_FOLDER_ID", "folder-1")
+    monkeypatch.setattr(albion.httpx, "post", fake_post)
+
+    albion.upload_file(source, "photo.jpg", ttl_days=30)
+
+    assert seen["data"] == {"ttl_days": "30", "folder_id": "folder-1"}
+
+
+def test_verify_returns_the_token_rights(monkeypatch):
+    seen = {}
+
+    def fake_get(url, *, headers, timeout, follow_redirects):
+        seen["url"] = url
+        seen["key"] = headers.get("X-API-Key")
+        return _Response(200, {
+            "ok": True,
+            "name": "Photobase",
+            "scopes": ["upload", "download"],
+            "folder_id": "folder-1",
+        })
+
+    monkeypatch.setenv("ALBION_BASE_URL", "https://files.example.ru")
+    monkeypatch.setenv("ALBION_API_KEY", "alb_test")
+    monkeypatch.setattr(albion.httpx, "get", fake_get)
+
+    result = albion.verify()
+
+    assert result["name"] == "Photobase"
+    assert result["scopes"] == ["upload", "download"]
     assert seen == {
-        "url": "https://files.example.ru/api/upload",
+        "url": "https://files.example.ru/api/v1/integration/verify",
         "key": "alb_test",
-        "ttl": "90",
-        "filename": "photo.jpg",
     }
+
+
+def test_verify_maps_rejected_token(monkeypatch):
+    monkeypatch.setenv("ALBION_BASE_URL", "https://files.example.ru")
+    monkeypatch.setenv("ALBION_API_KEY", "alb_test")
+    monkeypatch.setattr(
+        albion.httpx, "get",
+        lambda *args, **kwargs: _Response(403, {"error": "no"}),
+    )
+
+    with pytest.raises(albion.CloudUploadError, match="нет права"):
+        albion.verify()
+
+
+def test_public_settings_never_returns_the_token(monkeypatch):
+    from app.cloud import config
+
+    monkeypatch.setenv("ALBION_BASE_URL", "https://files.example.ru")
+    monkeypatch.setenv("ALBION_API_KEY", "super-secret-key")
+    monkeypatch.setenv("ALBION_FOLDER_ID", "folder-1")
+
+    public = config.public_settings()
+
+    assert "super-secret-key" not in str(public)
+    assert public["api_key_set"] is True
+    assert public["api_key_hint"].endswith("key")
+    assert public["configured"] is True
+
+
+def test_cloud_settings_reject_non_http_url(monkeypatch):
+    from app.cloud import config
+
+    with pytest.raises(ValueError, match="http"):
+        config.update_settings(base_url="javascript:alert(1)")
 
 
 def test_upload_rejects_relative_link_and_hides_key(tmp_path, monkeypatch):
     source = tmp_path / "photo.jpg"
     source.write_bytes(b"image")
-    monkeypatch.setenv("ALBION_UPLOAD_URL", "https://files.example.ru/api/upload")
+    monkeypatch.setenv("ALBION_BASE_URL", "https://files.example.ru")
     monkeypatch.setenv("ALBION_API_KEY", "super-secret-key")
+    monkeypatch.delenv("ALBION_FOLDER_ID", raising=False)
 
     monkeypatch.setattr(
         albion.httpx, "post", lambda *args, **kwargs: _Response(200, {"url": "/relative"})
@@ -121,8 +201,10 @@ def test_media_links_require_upload_scope(monkeypatch):
 
 def test_media_links_returns_503_when_albion_is_not_configured(monkeypatch):
     monkeypatch.setenv("SCENE_API_TOKENS", "tok:upload:write")
+    monkeypatch.delenv("ALBION_BASE_URL", raising=False)
     monkeypatch.delenv("ALBION_UPLOAD_URL", raising=False)
     monkeypatch.delenv("ALBION_API_KEY", raising=False)
+    monkeypatch.delenv("ALBION_FOLDER_ID", raising=False)
     response = client.post(
         "/api/v1/media-links",
         json={"photo_ids": ["PH_" + "a" * 24]},

@@ -23,6 +23,10 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.auth import validate_token_config
+from app.api.cloud import (
+    read_router as cloud_read_router,
+    write_router as cloud_write_router,
+)
 from app.api.config import API_HOST, API_PORT, CORS_ORIGINS
 from app.api.videos import (
     originals_router as video_originals_router,
@@ -81,6 +85,8 @@ def create_app() -> FastAPI:
     app.include_router(addresses_router, prefix="/api")
     app.include_router(fingerprints_router, prefix="/api")
     app.include_router(uploads_router, prefix="/api")
+    app.include_router(cloud_read_router, prefix="/api")
+    app.include_router(cloud_write_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
     app.include_router(users_router, prefix="/api")
     app.include_router(video_public_router, prefix="/api")

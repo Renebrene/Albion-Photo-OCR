@@ -223,6 +223,16 @@ class QwenSettingsUpdate(BaseModel):
     billboard_crop_enabled: bool | None = None
 
 
+class CloudSettingsUpdate(BaseModel):
+    """Update the Albion storage settings (partial)."""
+
+    base_url: str | None = Field(default=None, max_length=512)
+    # None leaves the stored token unchanged; "" clears it.
+    api_key: str | None = Field(default=None, max_length=512)
+    folder_id: str | None = Field(default=None, max_length=128)
+    ttl_days: int | None = Field(default=None, ge=1, le=3650)
+
+
 class CollectionSummary(BaseModel):
     collection_id: int
     name: str

@@ -405,6 +405,19 @@ export function createMediaLinks({ photoIds = [], videoIds = [] } = {}) {
   })
 }
 
+// Albion storage settings: the token is never returned, only a mask.
+export function fetchCloudSettings() {
+  return getJson(`${BASE}/v1/cloud/settings`)
+}
+
+export function saveCloudSettings(payload) {
+  return putJson(`${BASE}/v1/cloud/settings`, payload)
+}
+
+export function verifyCloudConnection() {
+  return postJson(`${BASE}/v1/cloud/verify`, {})
+}
+
 export function fetchMediaLinks({ all = false, limit = 100, includeUnready = false } = {}) {
   const params = new URLSearchParams({
     all: all ? 'true' : 'false',

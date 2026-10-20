@@ -64,7 +64,8 @@ onMounted(load)
     </q-card-section>
     <q-card-section class="q-pt-none">
       <q-banner v-if="!configured" dense class="bg-orange-1 text-dark q-mb-sm">
-        Albion не настроен: задайте ALBION_UPLOAD_URL и ALBION_API_KEY.
+        Albion не настроен: заполните адрес и токен в блоке
+        «Файлохранилище Albion».
       </q-banner>
       <q-banner v-if="error" dense class="bg-red-1 text-negative q-mb-sm">{{ error }}</q-banner>
       <div v-if="!items.length && !error" class="text-grey text-caption">

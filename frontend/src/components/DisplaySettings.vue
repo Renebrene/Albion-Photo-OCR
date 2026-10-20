@@ -10,12 +10,6 @@ import {
   TILE_COUNTS,
   useDisplayStore,
 } from '../stores/display'
-import MediaLinksPanel from './MediaLinksPanel.vue'
-
-defineProps({
-  // The technical section shows all managers' links; the gear shows only mine.
-  allLinks: { type: Boolean, default: false },
-})
 
 const display = useDisplayStore()
 </script>
@@ -86,7 +80,5 @@ const display = useDisplayStore()
         @click="display.reset()"
       />
     </div>
-
-    <MediaLinksPanel :all="allLinks" />
   </div>
 </template>

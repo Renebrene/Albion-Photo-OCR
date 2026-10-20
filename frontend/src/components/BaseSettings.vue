@@ -10,8 +10,18 @@ import {
   TILE_COUNTS,
   useDisplayStore,
 } from '../stores/display'
+import { useSessionStore } from '../stores/session'
+import CloudSettings from './CloudSettings.vue'
+import MediaLinksPanel from './MediaLinksPanel.vue'
 
 const display = useDisplayStore()
+const session = useSessionStore()
+
+// «Ссылки Albion» в техразделе показывают ссылки всех менеджеров только
+// Администратору; остальным — свои.
+const isAdmin = computed(
+  () => !session.authEnabled || session.user?.role === 'Администратор',
+)
 
 const fileInput = ref(null) // q-file: open the system dialog
 const file = ref(null) // the chosen file
@@ -182,6 +192,14 @@ async function loadFile(file) {
           />
         </q-card-section>
       </q-card>
+    </div>
+
+    <div class="col-12 col-md-6">
+      <CloudSettings />
+    </div>
+
+    <div class="col-12 col-md-6">
+      <MediaLinksPanel :all="isAdmin" />
     </div>
   </div>
 </template>

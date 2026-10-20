@@ -113,7 +113,7 @@ const canEditClients = computed(() =>
                 <div class="text-subtitle2 q-mb-sm">
                   Настройки отображения грида
                 </div>
-                <DisplaySettings :all-links="isAdmin" />
+                <DisplaySettings />
                 <div class="text-caption text-grey q-mt-sm">
                   То же окно открывается шестерёнкой рядом с переключателем
                   «Плитка/Список» на странице фото.
