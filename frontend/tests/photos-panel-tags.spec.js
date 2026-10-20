@@ -259,6 +259,41 @@ describe('строка тегов', () => {
     wrapper.unmount()
   })
 
+  it('длинная строка тегов получает курсор-подсказку и листается колесом', async () => {
+    const wrapper = await mountGrid()
+
+    store.selectedClients = ['Клиент А', 'Клиент Б']
+    store.selectedAddresses = ['78_v33']
+    await flushPromises()
+    await nextTick()
+
+    const row = wrapper.find('.tags-row')
+    expect(row.exists()).toBe(true)
+
+    // happy-dom не считает раскладку: задаём размеры вручную и сообщаем
+    // странице о resize, как это сделал бы браузер.
+    Object.defineProperty(row.element, 'scrollWidth', { value: 600, configurable: true })
+    Object.defineProperty(row.element, 'clientWidth', { value: 300, configurable: true })
+    window.dispatchEvent(new Event('resize'))
+    await nextTick()
+
+    expect(row.classes()).toContain('is-scrollable')
+
+    let scrollLeft = 0
+    Object.defineProperty(row.element, 'scrollLeft', {
+      configurable: true,
+      get: () => scrollLeft,
+      set: (value) => { scrollLeft = value },
+    })
+
+    await row.trigger('wheel', { deltaY: 120 })
+    expect(scrollLeft).toBe(120)
+
+    await row.trigger('wheel', { deltaY: -40 })
+    expect(scrollLeft).toBe(80)
+    wrapper.unmount()
+  })
+
   it('новая подсказка поиска дополняет теги, а не стирает их', async () => {
     const wrapper = await mountGrid()
 

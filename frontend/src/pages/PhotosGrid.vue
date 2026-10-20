@@ -616,13 +616,55 @@ async function removeTag(tag) {
   await apply()
 }
 
+// Строка тегов: колесо и перетаскивание листают её по горизонтали.
+const tagsScrollable = ref(false)
+let tagsDrag = null
+
+function measureTags() {
+  const el = tagsRowEl.value
+  tagsScrollable.value = Boolean(
+    el && el.scrollWidth > el.clientWidth + 1,
+  )
+}
+
+watch(activeTags, () => nextTick(measureTags), { deep: true })
+
 function onTagsWheel(event) {
   const el = tagsRowEl.value
 
   if (!el || el.scrollWidth <= el.clientWidth) return
 
+  // Обычное колесо листает строку влево/вправо; shift+колесо и тачпад
+  // присылают deltaX — он тоже учитывается.
   event.preventDefault()
   el.scrollLeft += (event.deltaX || 0) + (event.deltaY || 0)
+}
+
+function onTagsPointerDown(event) {
+  const el = tagsRowEl.value
+
+  if (!el || event.button !== 0 || el.scrollWidth <= el.clientWidth) return
+
+  // Клик по тегу (и по крестику) — не перетаскивание.
+  if (event.target instanceof Element && event.target.closest('.q-chip')) return
+
+  tagsDrag = { x: event.clientX, left: el.scrollLeft }
+  el.classList.add('is-dragging')
+}
+
+function onTagsPointerMove(event) {
+  if (!tagsDrag) return
+
+  const el = tagsRowEl.value
+  if (!el) return
+
+  el.scrollLeft = tagsDrag.left - (event.clientX - tagsDrag.x)
+}
+
+function onTagsPointerUp() {
+  const el = tagsRowEl.value
+  if (el) el.classList.remove('is-dragging')
+  tagsDrag = null
 }
 
 // Диапазоны дат считает общий модуль (локальный календарь, см. его шапку).
@@ -737,6 +779,7 @@ async function syncDuringPipeline() {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
+  window.addEventListener('resize', measureTags)
 
   // Вход на главную всегда начинает с текущего месяца: старые выделения
   // адресов/клиентов, строка поиска и период не восстанавливаются.
@@ -783,6 +826,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('resize', measureTags)
   stopGridObserver()
   stopQwenElapsed()
 
@@ -2112,7 +2156,7 @@ function tagList(meta) {
       />
 
       <!-- RIGHT: toolbar + grid with its own vertical scroll -->
-      <div class="col column full-height q-px-xs">
+      <div class="col column full-height q-px-xs grid-main">
         <!-- unified search bar: Enter = Поиск, camera = search by a photo -->
         <div class="row items-center q-gutter-sm q-mb-sm">
           <div class="col relative-position">
@@ -2272,7 +2316,13 @@ function tagList(meta) {
           v-if="activeTags.length"
           ref="tagsRowEl"
           class="tags-row q-mb-sm"
+          :class="{ 'is-scrollable': tagsScrollable }"
           @wheel="onTagsWheel"
+          @pointerdown="onTagsPointerDown"
+          @pointermove="onTagsPointerMove"
+          @pointerup="onTagsPointerUp"
+          @pointerleave="onTagsPointerUp"
+          @pointercancel="onTagsPointerUp"
         >
           <q-chip
             v-for="tag in activeTags"
@@ -3506,6 +3556,12 @@ function tagList(meta) {
 
 /* Строка тегов: одна линия без рамки; полоса прокрутки скрыта, колесо
    мыши прокручивает её по горизонтали (см. onTagsWheel). */
+/* Правая колонка — flex-элемент: без min-width: 0 она растягивается под
+   содержимое (длинную строку тегов), и та не получает прокрутку. */
+.grid-main {
+  min-width: 0;
+}
+
 .tags-row {
   display: flex;
   align-items: center;
@@ -3515,8 +3571,25 @@ function tagList(meta) {
   overflow-x: auto;
   overflow-y: hidden;
   white-space: nowrap;
+  min-width: 0;
+  max-width: 100%;
   scrollbar-width: none;      /* Firefox */
   -ms-overflow-style: none;   /* старый Edge */
+}
+
+/* Курсор-подсказка: строку можно листать колесом или потянуть мышью. */
+.tags-row.is-scrollable {
+  cursor: grab;
+}
+
+.tags-row.is-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+/* У тегов остаётся обычный курсор: крестик должен читаться как кнопка. */
+.tags-row .q-chip {
+  cursor: default;
 }
 
 .tags-row::-webkit-scrollbar {
