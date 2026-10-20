@@ -105,6 +105,10 @@ beforeEach(() => {
     unload_on_idle: true,
     billboard_crop_enabled: true,
     billboard_crop_available: true,
+    prompt: 'Промпт полного кадра',
+    default_prompt: 'Промпт полного кадра',
+    crop_prompt: 'Промпт кропа',
+    default_crop_prompt: 'Промпт кропа',
   }
   installFetch()
 })
@@ -128,6 +132,33 @@ describe('Settings.vue', () => {
 
     expect(updated).toContainEqual({ billboard_crop_enabled: false })
     expect(qwenSettings.billboard_crop_enabled).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('saves prompts from the separate fifth-column block', async () => {
+    const wrapper = mountSettings({ role: 'Администратор' })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Промпты QWEN')
+
+    const areas = wrapper.findAll('textarea')
+    expect(areas.length).toBeGreaterThanOrEqual(2)
+
+    // Первое поле — промпт кропа; полный кадр остаётся встроенным.
+    await areas[0].setValue('Новый промпт кропа')
+
+    const save = wrapper
+      .findAll('button')
+      .find((item) => item.text().includes('Сохранить промпты'))
+
+    expect(save).toBeTruthy()
+    await save.trigger('click')
+    await flushPromises()
+
+    expect(updated).toContainEqual({
+      prompt: '',
+      crop_prompt: 'Новый промпт кропа',
+    })
     wrapper.unmount()
   })
 

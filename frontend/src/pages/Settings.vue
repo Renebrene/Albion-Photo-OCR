@@ -41,6 +41,7 @@ const promptText = ref('')
 const cropPromptText = ref('')
 const defaultPrompt = ref('')
 const defaultCropPrompt = ref('')
+const promptsSaving = ref(false)
 
 const model = ref(null)
 const available = ref([])
@@ -358,6 +359,38 @@ async function clearQueue() {
   }
 }
 
+// Неизменённый встроенный промпт не сохраняем как override: пустая строка
+// означает «использовать встроенный».
+function promptPayload() {
+  return {
+    prompt:
+      promptText.value.trim() === defaultPrompt.value.trim()
+        ? ''
+        : promptText.value,
+    crop_prompt:
+      cropPromptText.value.trim() === defaultCropPrompt.value.trim()
+        ? ''
+        : cropPromptText.value,
+  }
+}
+
+async function savePrompts() {
+  if (!canConfigure.value || promptsSaving.value) return
+
+  promptsSaving.value = true
+
+  try {
+    const data = await updateQwenSettings(promptPayload())
+    promptText.value = data?.prompt || ''
+    cropPromptText.value = data?.crop_prompt || ''
+    Notify.create({ type: 'positive', message: 'Промпты сохранены' })
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    promptsSaving.value = false
+  }
+}
+
 async function save() {
   saving.value = true
 
@@ -368,16 +401,7 @@ async function save() {
       base_url: baseUrl.value,
       keep_alive: keepAlive.value,
       unload_on_idle: unloadOnIdle.value,
-      // Неизменённый встроенный промпт не сохраняем как override: пустая
-      // строка означает «использовать встроенный».
-      prompt:
-        promptText.value.trim() === defaultPrompt.value.trim()
-          ? ''
-          : promptText.value,
-      crop_prompt:
-        cropPromptText.value.trim() === defaultCropPrompt.value.trim()
-          ? ''
-          : cropPromptText.value,
+      ...promptPayload(),
     }
 
     // Only send the key when the user typed a new one (blank = keep as is).
@@ -430,9 +454,9 @@ onBeforeUnmount(stopStatsPolling)
 </script>
 
 <template>
-  <div style="max-width: 1180px">
+  <div style="max-width: 1560px">
     <div class="row q-col-gutter-md">
-      <div class="col-12 col-sm-6 col-lg-3">
+      <div class="col-12 col-sm-6 col-lg">
         <div class="text-h6 q-mb-md">Модель QWEN</div>
 
     <div v-if="error" class="q-mb-md">
@@ -564,57 +588,8 @@ onBeforeUnmount(stopStatsPolling)
           Детектор рекламных щитов не установлен в этой версии сервера.
         </q-banner>
 
-        <div v-if="billboardCropAvailable" class="q-mb-md">
-          <q-input
-            v-model="cropPromptText"
-            type="textarea"
-            autogrow
-            dense
-            outlined
-            label="Промпт для кропа щита"
-            class="q-mb-xs"
-            :disable="!canConfigure"
-          />
-          <div class="row items-center no-wrap">
-            <div class="text-caption text-grey-8 col">
-              Именно этот текст получает модель вместе с вырезанным щитом.
-              Пустое поле или кнопка «Встроенный» возвращают стандарт.
-            </div>
-            <q-btn
-              flat
-              dense
-              size="sm"
-              label="Встроенный"
-              :disable="!canConfigure"
-              @click="cropPromptText = defaultCropPrompt"
-            />
-          </div>
-        </div>
-
-        <div class="q-mb-md">
-          <q-input
-            v-model="promptText"
-            type="textarea"
-            autogrow
-            dense
-            outlined
-            label="Промпт для полного кадра"
-            class="q-mb-xs"
-            :disable="!canConfigure"
-          />
-          <div class="row items-center no-wrap">
-            <div class="text-caption text-grey-8 col">
-              Используется, когда кроп щита выключен или щит не найден.
-            </div>
-            <q-btn
-              flat
-              dense
-              size="sm"
-              label="Встроенный"
-              :disable="!canConfigure"
-              @click="promptText = defaultPrompt"
-            />
-          </div>
+        <div class="text-caption text-grey-8 q-mb-md">
+          Промпты модели редактируются в блоке «Промпты QWEN» справа.
         </div>
 
         <div class="text-caption text-grey q-mb-md">
@@ -631,7 +606,7 @@ onBeforeUnmount(stopStatsPolling)
     </q-card>
       </div>
 
-      <div class="col-12 col-sm-6 col-lg-3">
+      <div class="col-12 col-sm-6 col-lg">
     <q-card v-if="stats" flat bordered>
       <q-card-section>
         <div class="text-subtitle1 q-mb-sm">Метаданные QWEN</div>
@@ -733,7 +708,7 @@ onBeforeUnmount(stopStatsPolling)
       </div>
 
       <!-- Справа: статистика присвоения описаний -->
-      <div class="col-12 col-sm-6 col-lg-3">
+      <div class="col-12 col-sm-6 col-lg">
         <q-card flat bordered class="fit">
           <q-card-section>
             <div class="text-subtitle1 q-mb-sm">Статистика описаний</div>
@@ -785,7 +760,7 @@ onBeforeUnmount(stopStatsPolling)
       </div>
 
       <!-- Третья колонка: текстовый лог прежних описаний. -->
-      <div class="col-12 col-sm-6 col-lg-3">
+      <div class="col-12 col-sm-6 col-lg">
         <q-card flat bordered class="fit">
           <q-card-section>
             <div class="row items-center q-mb-sm">
@@ -799,6 +774,81 @@ onBeforeUnmount(stopStatsPolling)
               История пока пуста.
             </div>
             <pre v-else class="qwen-history-text">{{ historyLog.text }}</pre>
+          </q-card-section>
+        </q-card>
+      </div>
+
+      <!-- Пятая колонка: промпты модели -->
+      <div class="col-12 col-sm-6 col-lg">
+        <q-card flat bordered class="fit">
+          <q-card-section>
+            <div class="text-subtitle1 q-mb-sm">Промпты QWEN</div>
+
+            <template v-if="billboardCropAvailable">
+              <q-input
+                v-model="cropPromptText"
+                type="textarea"
+                autogrow
+                dense
+                outlined
+                label="Промпт для кропа щита"
+                class="q-mb-xs"
+                :disable="!canConfigure"
+              />
+              <div class="row items-center no-wrap q-mb-md">
+                <div class="text-caption text-grey-8 col">
+                  Этот текст получает модель вместе с вырезанным щитом.
+                </div>
+                <q-btn
+                  flat
+                  dense
+                  size="sm"
+                  label="Встроенный"
+                  :disable="!canConfigure"
+                  @click="cropPromptText = defaultCropPrompt"
+                />
+              </div>
+            </template>
+
+            <q-input
+              v-model="promptText"
+              type="textarea"
+              autogrow
+              dense
+              outlined
+              label="Промпт для полного кадра"
+              class="q-mb-xs"
+              :disable="!canConfigure"
+            />
+            <div class="row items-center no-wrap q-mb-md">
+              <div class="text-caption text-grey-8 col">
+                Используется, когда кроп щита выключен или щит не найден.
+              </div>
+              <q-btn
+                flat
+                dense
+                size="sm"
+                label="Встроенный"
+                :disable="!canConfigure"
+                @click="promptText = defaultPrompt"
+              />
+            </div>
+
+            <div class="text-caption text-grey-8 q-mb-md">
+              Пустое поле или кнопка «Встроенный» возвращают стандартный
+              промпт. Изменения применяются сразу, без перезапуска.
+            </div>
+
+            <q-btn
+              v-if="canConfigure"
+              color="primary"
+              label="Сохранить промпты"
+              :loading="promptsSaving"
+              @click="savePrompts"
+            />
+            <div v-else class="text-caption text-grey-7">
+              Изменять промпты может только Администратор.
+            </div>
           </q-card-section>
         </q-card>
       </div>
