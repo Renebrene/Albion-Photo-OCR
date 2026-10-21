@@ -317,6 +317,36 @@ describe('photos store', () => {
     expect(store.addressCollectionId).toBe(null)
   })
 
+  it('a slow loadFacets does not restore an old collections list', async () => {
+    const pending = []
+
+    routes = routes.map((route) =>
+      route.match('/api/v1/collections')
+        ? {
+            ...route,
+            respond: () => new Promise((resolve) => pending.push(resolve)),
+          }
+        : route,
+    )
+
+    const store = usePhotosStore()
+    const facets = store.loadFacets()
+    const fresh = store.loadCollections()
+
+    pending[1](jsonResponse({
+      items: [{ collection_id: 2, name: 'Новая', scope: 'clients' }],
+    }))
+    await fresh
+    pending[0](jsonResponse({
+      items: [{ collection_id: 1, name: 'Старая', scope: 'clients' }],
+    }))
+    await facets
+
+    expect(store.collections).toEqual([
+      { collection_id: 2, name: 'Новая', scope: 'clients' },
+    ])
+  })
+
   it('collectionsFor keeps only the requested scope', () => {
     const store = usePhotosStore()
     store.collections = [

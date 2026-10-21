@@ -130,6 +130,7 @@ afterEach(() => {
   vi.useRealTimers()
   delete global.fetch
   vi.restoreAllMocks()
+  document.body.innerHTML = ''
 })
 
 describe('строка тегов', () => {
@@ -650,6 +651,38 @@ describe('строка тегов', () => {
     )
 
     expect(entry.address).toBe('addr:79')
+  })
+
+  it('подсказки работают с первого символа после выбора подсказки', async () => {
+    const wrapper = await mountGrid()
+
+    const suggestionCalls = () =>
+      global.fetch.mock.calls.filter(([url]) =>
+        String(url).includes('/v1/search/suggestions'),
+      ).length
+
+    const input = wrapper
+      .findAll('input')
+      .find((item) => item.attributes('placeholder') === 'Название файла, клиент, бренд, адрес')
+
+    await input.setValue('СТ')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    await nextTick()
+
+    const item = Array.from(document.body.querySelectorAll('.q-item'))
+      .find((node) => node.textContent.includes('СТС'))
+    item.click()
+    await flushPromises()
+    await nextTick()
+
+    const before = suggestionCalls()
+    await input.setValue('Лен')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+
+    expect(suggestionCalls()).toBeGreaterThan(before)
+    wrapper.unmount()
   })
 
   it('не показывает в подсказках уже выбранный клиент', async () => {

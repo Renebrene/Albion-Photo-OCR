@@ -1046,11 +1046,9 @@ function suggestionIcon(kind) {
 function scheduleSuggestions(value) {
   if (suggestTimer !== null) window.clearTimeout(suggestTimer)
 
-  // Выбор подсказки программно меняет q — повторный запрос не нужен.
-  if (suggestMuted) {
-    suggestMuted = false
-    return
-  }
+  // Выбор подсказки программно меняет q. Флаг снимаем, но НЕ выходим:
+  // иначе он «съедал» первый символ, набранный после выбора подсказки.
+  if (suggestMuted) suggestMuted = false
 
   const term = String(value || '').trim()
 

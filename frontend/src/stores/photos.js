@@ -31,6 +31,10 @@ let addressesRequest = 0
 // не должен перебивать более новый клик по другой.
 let addressCollectionRequest = 0
 let clientCollectionRequest = 0
+// Collections/searches can be reloaded independently (create/delete/save);
+// a slower loadFacets must not restore the pre-change list.
+let collectionsRequest = 0
+let searchesRequest = 0
 
 // The API caps one page at 100 rows; the grid loads page by page as the user
 // scrolls, so a bigger page means fewer round trips without holding everything
@@ -291,6 +295,8 @@ export const usePhotosStore = defineStore('photos', {
       const request = ++facetsRequest
       const addressToken = ++addressesRequest
       const clientToken = ++clientsRequest
+      const collectionToken = ++collectionsRequest
+      const searchToken = ++searchesRequest
       this.facetsLoading = true
 
       try {
@@ -325,8 +331,13 @@ export const usePhotosStore = defineStore('photos', {
           this.clients = clients.items || []
         }
 
-        this.collections = collections.items || []
-        this.savedSearches = searches.items || []
+        if (collectionToken === collectionsRequest) {
+          this.collections = collections.items || []
+        }
+
+        if (searchToken === searchesRequest) {
+          this.savedSearches = searches.items || []
+        }
       } catch (err) {
         if (request === facetsRequest) this.error = err.message
       } finally {
@@ -385,11 +396,16 @@ export const usePhotosStore = defineStore('photos', {
     },
 
     async loadCollections() {
+      const request = ++collectionsRequest
+
       try {
         const data = await fetchCollections()
-        this.collections = data.items || []
+
+        if (request === collectionsRequest) {
+          this.collections = data.items || []
+        }
       } catch (err) {
-        this.error = err.message
+        if (request === collectionsRequest) this.error = err.message
       }
     },
 
@@ -658,10 +674,16 @@ export const usePhotosStore = defineStore('photos', {
     // ---- saved searches ----
 
     async loadSavedSearches() {
+      const request = ++searchesRequest
+
       try {
-        this.savedSearches = (await fetchSavedSearches()).items || []
+        const data = await fetchSavedSearches()
+
+        if (request === searchesRequest) {
+          this.savedSearches = data.items || []
+        }
       } catch (err) {
-        this.error = err.message
+        if (request === searchesRequest) this.error = err.message
       }
     },
 

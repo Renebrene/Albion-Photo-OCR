@@ -244,6 +244,10 @@ def _photo_where(
                 try:
                     address_id = int(text.split(":", 1)[1])
                 except ValueError:
+                    # Never silently drop a malformed value: with address
+                    # priority it would turn into "no filter" and show ALL
+                    # photos. A false predicate yields an empty page instead.
+                    address_parts.append("FALSE")
                     continue
 
                 address_parts.append(

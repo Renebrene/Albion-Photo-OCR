@@ -205,6 +205,16 @@ def test_combine_client_prioritises_clients_and_keeps_param_order():
     assert ") AND (" in where
 
 
+def test_malformed_address_value_matches_nothing():
+    where, params = repository._photo_where(
+        addresses=["addr:not-a-number"],
+        combine="address",
+    )
+
+    assert "FALSE" in where
+    assert params == []
+
+
 def test_combine_rejects_unknown_mode():
     import pytest
 
