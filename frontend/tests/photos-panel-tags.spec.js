@@ -9,6 +9,7 @@ import { Notify, QLayout, QPageContainer, Quasar } from 'quasar'
 import { createPinia, setActivePinia } from 'pinia'
 
 import PhotosGrid from '../src/pages/PhotosGrid.vue'
+import { addressEntryForPhoto } from '../src/utils/addressForPhoto'
 import { useDisplayStore } from '../src/stores/display'
 import { usePhotosStore } from '../src/stores/photos'
 
@@ -533,6 +534,33 @@ describe('строка тегов', () => {
     expect(tags).toContain('Клиент: Клиент А')
     expect(tags).toContain('Бренд: СТС')
     wrapper.unmount()
+  })
+
+  it('«В подборку» берёт юридический адрес, а не старый слепок', () => {
+    const entry = addressEntryForPhoto(
+      [
+        {
+          address: 'addr:78', name: 'Комарова 13',
+          simple_address: 'Комарова 13',
+          legal_address: 'г. Ростов-на-Дону, ул. Комарова, 13',
+          fingerprints: ['78_v33'],
+        },
+        {
+          address: 'addr:79', name: 'Ленина 5',
+          simple_address: 'Ленина 5',
+          legal_address: 'г. Ростов-на-Дону, ул. Ленина, 5',
+          fingerprints: ['79_v33'],
+        },
+      ],
+      {
+        photo_id: 'PH_override',
+        address: '78_v33',
+        legal_address: 'г. Ростов-на-Дону, ул. Ленина, 5',
+        simple_address: 'Ленина 5',
+      },
+    )
+
+    expect(entry.address).toBe('addr:79')
   })
 
   it('новая подсказка поиска дополняет теги, а не стирает их', async () => {

@@ -43,6 +43,7 @@ import {
 } from '../stores/display'
 import { usePhotosStore } from '../stores/photos'
 import { useSessionStore } from '../stores/session'
+import { addressEntryForPhoto as findAddressEntry } from '../utils/addressForPhoto'
 import { PERIODS, periodRange } from '../utils/periodRange'
 
 const store = usePhotosStore()
@@ -2268,27 +2269,7 @@ async function saveOriginal(photo) {
  * под которым фото показано в панели. Слепок — только запасной путь.
  */
 function addressEntryForPhoto(photo) {
-  const wanted = [photo.legal_address, photo.simple_address]
-    .filter(Boolean)
-    .map((value) => String(value).trim().toLowerCase())
-
-  for (const field of ['legal_address', 'simple_address', 'name']) {
-    const found = addresses.value.find(
-      (item) =>
-        item[field]
-        && wanted.includes(String(item[field]).trim().toLowerCase()),
-    )
-
-    if (found) return found
-  }
-
-  if (!photo.address) return null
-
-  return addresses.value.find(
-    (item) =>
-      item.address === photo.address
-      || (item.fingerprints || []).includes(photo.address),
-  ) || null
+  return findAddressEntry(addresses.value, photo)
 }
 
 /** Из меню снимка: сохранить его адрес в подборку адресов. */
