@@ -217,6 +217,55 @@ describe('photos store', () => {
     expect(store.clients).toEqual([{ client: 'Новый', count: 1 }])
   })
 
+  it('late collection response does not overwrite a newer collection click', async () => {
+    const pending = []
+
+    routes.push({
+      method: 'GET',
+      match: (p) => /^\/api\/v1\/collections\/[78]\/members$/.test(p),
+      respond: () => new Promise((resolve) => pending.push(resolve)),
+    })
+
+    const store = usePhotosStore()
+    const first = store.applyCollection({
+      collection_id: 7, name: 'A', scope: 'addresses',
+    })
+    const second = store.applyCollection({
+      collection_id: 8, name: 'B', scope: 'addresses',
+    })
+
+    pending[1](jsonResponse({ items: ['addr:8'] }))
+    await second
+    pending[0](jsonResponse({ items: ['addr:7'] }))
+    await first
+
+    expect(store.selectedAddresses).toEqual(['addr:8'])
+    expect(store.addressCollectionId).toBe(8)
+  })
+
+  it('manual filter change invalidates a pending collection response', async () => {
+    const pending = []
+
+    routes.push({
+      method: 'GET',
+      match: (p) => p === '/api/v1/collections/7/members',
+      respond: () => new Promise((resolve) => pending.push(resolve)),
+    })
+
+    const store = usePhotosStore()
+    const isPending = store.applyCollection({
+      collection_id: 7, name: 'A', scope: 'addresses',
+    })
+
+    await store.applyFilters({ addresses: ['addr:9'] })
+
+    pending[0](jsonResponse({ items: ['addr:7'] }))
+    await isPending
+
+    expect(store.selectedAddresses).toEqual(['addr:9'])
+    expect(store.addressCollectionId).toBe(null)
+  })
+
   it('collectionsFor keeps only the requested scope', () => {
     const store = usePhotosStore()
     store.collections = [

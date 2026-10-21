@@ -502,6 +502,39 @@ describe('строка тегов', () => {
     wrapper.unmount()
   })
 
+  it('выбор бренда в панели не сбрасывает выбранных клиентов', async () => {
+    const wrapper = await mountGrid()
+
+    store.selectedClients = ['Клиент А']
+    await flushPromises()
+    await nextTick()
+
+    const input = wrapper
+      .findAll('input')
+      .find((item) => item.attributes('placeholder') === 'Поиск клиента или бренда')
+
+    await input.setValue('СТ')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    await nextTick()
+
+    const row = Array.from(wrapper.element.querySelectorAll('.q-item')).find(
+      (node) => node.textContent.includes('СТС'),
+    )
+
+    expect(row).toBeTruthy()
+    row.click()
+    await flushPromises()
+    await nextTick()
+
+    // Бренд добавляется к клиенту (OR), а не заменяет его.
+    expect(store.selectedClients).toEqual(['Клиент А'])
+    const tags = wrapper.find('.tags-row').text()
+    expect(tags).toContain('Клиент: Клиент А')
+    expect(tags).toContain('Бренд: СТС')
+    wrapper.unmount()
+  })
+
   it('новая подсказка поиска дополняет теги, а не стирает их', async () => {
     const wrapper = await mountGrid()
 

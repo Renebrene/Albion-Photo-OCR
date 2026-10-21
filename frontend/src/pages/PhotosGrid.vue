@@ -80,6 +80,11 @@ const qwenElapsedSeconds = ref(0)
 const manualQwenRunning = ref(false)
 let qwenTimer = null
 
+// Номера запусков ИИ-поиска. Закрытие/очистка/сброс увеличивают номер, и
+// поздний ответ старого запуска уже не трогает грид и состояние кнопок.
+let mediaRun = 0
+let manualRun = 0
+
 const mediaName = computed(() => (mediaFile.value ? mediaFile.value.name : ''))
 
 function startQwenElapsed() {
@@ -1200,7 +1205,7 @@ async function pickBrand(brand) {
     && String(selectedBrand.value).toLowerCase() === String(brand).toLowerCase()
 
   if (searching) {
-    store.selectedClients = []
+    // Бренд дополняет выбранных клиентов (OR), а не заменяет их.
     selectedBrand.value = brand
     clientSearch.value = ''
     q.value = ''
@@ -1250,6 +1255,23 @@ async function clearClients() {
 }
 
 async function reset() {
+  const mediaJob = mediaJobId.value
+  const manualJob = manualJobId.value
+
+  // Сброс отменяет и незавершённые ИИ-поиски: их поздние результаты не
+  // должны снова отфильтровать грид.
+  mediaRun += 1
+  manualRun += 1
+  mediaJobId.value = null
+  manualJobId.value = null
+  mediaBusy.value = false
+  mediaStage.value = ''
+  stopQwenElapsed()
+
+  if (mediaJob) cancelJob(mediaJob).catch(() => {})
+  if (manualJob) cancelJob(manualJob).catch(() => {})
+  if (manualOpen.value) await closeManual({ cancel: false })
+
   q.value = ''
   period.value = 'month'
   dateMode.value = 'upload'
@@ -1264,10 +1286,7 @@ async function reset() {
   suggestLayout.value = null
   suggestMuted = false
   hadSearchTerm = false
-  stopQwenElapsed()
   mediaFile.value = null
-  mediaStage.value = ''
-  mediaJobId.value = null
   autoMode.value = true
   store.clearSelection()
   await apply()
@@ -1354,13 +1373,24 @@ function seekToFrame() {
   if (el) el.currentTime = manualFrameSec.value
 }
 
-async function closeManual() {
-  // Закрытие во время распознавания отменяет job (если она ещё активна).
-  if (manualJobId.value && manualStage.value === 'describing') {
-    try { await cancelJob(manualJobId.value) } catch { /* best-effort */ }
+async function closeManual({ cancel = true } = {}) {
+  // @hide срабатывает и после программного закрытия — второй раз не работаем.
+  if (!manualOpen.value && !manualJobId.value && !manualPreviewUrl.value) {
+    return
   }
+
+  // Закрытие во время распознавания ИЛИ поиска отменяет job и делает
+  // поздний ответ недействительным.
+  const jobId = manualJobId.value
+  manualRun += 1
+
+  if (cancel && jobId) {
+    try { await cancelJob(jobId) } catch { /* best-effort */ }
+  }
+
   stopQwenElapsed()
   manualJobId.value = null
+  manualStage.value = 'idle'
   manualOpen.value = false
   if (manualPreviewUrl.value) URL.revokeObjectURL(manualPreviewUrl.value)
   manualPreviewUrl.value = null
@@ -1374,6 +1404,7 @@ function onPreviewLoad(event) {
 
 async function runDescribe() {
   if (!manualFile.value || manualStage.value === 'describing') return
+  const run = ++manualRun
   stopQwenElapsed()
   qwenElapsedSeconds.value = 0
   manualStage.value = 'describing'
@@ -1381,13 +1412,21 @@ async function runDescribe() {
   try {
     const frameSeconds = manualIsVideo.value ? manualFrameSec.value : null
     const upload = await describeMediaSearch(manualFile.value, frameSeconds)
+
+    if (run !== manualRun) {
+      if (upload?.job_id) cancelJob(upload.job_id).catch(() => {})
+      return
+    }
+
     const { job_id: jobId } = upload
     manualJobId.value = jobId
     if (upload?.media?.codec) manualCodec.value = upload.media.codec
     let job = null
     for (let i = 0; i < 60; i += 1) {
       await new Promise((resolve) => setTimeout(resolve, 1500))
+      if (run !== manualRun) return
       job = await fetchMediaSearchJob(jobId)
+      if (run !== manualRun) return
 
       if (job.status === 'RUNNING') {
         if (job.progress?.stage === 'готово') {
@@ -1399,6 +1438,7 @@ async function runDescribe() {
       }
       if (['DONE', 'FAILED', 'CANCELLED'].includes(job.status)) break
     }
+    if (run !== manualRun) return
     stopQwenElapsed()
     manualJobId.value = null
     if (!job || job.status !== 'DONE') {
@@ -1416,6 +1456,7 @@ async function runDescribe() {
     }
     manualStage.value = 'ready'
   } catch (err) {
+    if (run !== manualRun) return
     stopQwenElapsed()
     manualStage.value = 'idle'
     Notify.create({ type: 'negative', message: err.message })
@@ -1441,6 +1482,7 @@ const manualHasTerms = computed(() => Boolean(
 
 async function runManualSearch() {
   if (manualStage.value === 'searching') return
+  const run = ++manualRun
   manualStage.value = 'searching'
 
   try {
@@ -1453,17 +1495,31 @@ async function runManualSearch() {
       category: fields.category || null,
       tags: tags.length ? tags : null,
     })
+    manualJobId.value = jobId
+
+    if (run !== manualRun) {
+      cancelJob(jobId).catch(() => {})
+      manualJobId.value = null
+      return
+    }
+
     let job = null
     for (let i = 0; i < 40; i += 1) {
       await new Promise((resolve) => setTimeout(resolve, 1000))
+      if (run !== manualRun) return
       job = await fetchMediaSearchJob(jobId)
+      if (run !== manualRun) return
       if (['DONE', 'FAILED', 'CANCELLED'].includes(job.status)) break
     }
+
     if (!job || job.status !== 'DONE') {
+      if (run !== manualRun) return
       manualStage.value = 'ready'
       Notify.create({ type: 'negative', message: `Поиск: ${job ? job.status : 'таймаут'}` })
       return
     }
+
+    if (run !== manualRun) return
     const ids = (job.result && job.result.photo_ids) || []
     const shown = Math.min(ids.length, 200)
     Notify.create({
@@ -1474,23 +1530,36 @@ async function runManualSearch() {
           : `ИИ-поиск: найдено ${ids.length}`,
     })
     await store.applyNlResults(ids)
-    closeManual()
+    closeManual({ cancel: false })
   } catch (err) {
+    if (run !== manualRun) return
     manualStage.value = 'ready'
     Notify.create({ type: 'negative', message: err.message })
   }
 }
 
 
-function clearMedia() {
-  stopQwenElapsed()
-  mediaFile.value = null
+async function clearMedia() {
+  const jobId = mediaJobId.value
+
+  // Убираем файл вместе с его поиском: поздний ответ не должен вернуть ids.
+  mediaRun += 1
+  mediaJobId.value = null
+  mediaBusy.value = false
   mediaStage.value = ''
-  store.applyNlResults([])
+  mediaFile.value = null
+  stopQwenElapsed()
+
+  if (jobId) {
+    try { await cancelJob(jobId) } catch { /* best-effort */ }
+  }
+
+  await store.applyNlResults([])
 }
 
 async function runMediaSearch() {
   if (!mediaFile.value || mediaBusy.value) return
+  const run = ++mediaRun
 
   stopQwenElapsed()
   mediaBusy.value = true
@@ -1498,6 +1567,12 @@ async function runMediaSearch() {
 
   try {
     const { job_id: jobId } = await searchByMedia(mediaFile.value)
+
+    if (run !== mediaRun) {
+      cancelJob(jobId).catch(() => {})
+      return
+    }
+
     mediaJobId.value = jobId
 
     let job = null
@@ -1505,7 +1580,9 @@ async function runMediaSearch() {
     // QWEN needs a few seconds per image; poll until the worker publishes it.
     for (let i = 0; i < 60; i += 1) {
       await new Promise((resolve) => setTimeout(resolve, 1500))
+      if (run !== mediaRun) return
       job = await fetchMediaSearchJob(jobId)
+      if (run !== mediaRun) return
 
       if (job.status === 'RUNNING') {
         if (job.progress?.stage === 'готово') {
@@ -1518,6 +1595,8 @@ async function runMediaSearch() {
       }
       if (['DONE', 'FAILED', 'CANCELLED'].includes(job.status)) break
     }
+
+    if (run !== mediaRun) return
 
     if (!job || job.status === 'CANCELLED') {
       Notify.create({ type: 'info', message: 'Поиск остановлен' })
@@ -1551,21 +1630,34 @@ async function runMediaSearch() {
 
     await store.applyNlResults(ids)
   } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
+    if (run === mediaRun) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
   } finally {
-    stopQwenElapsed()
-    mediaBusy.value = false
-    mediaJobId.value = null
-    mediaStage.value = ''
+    // Новый запуск/очистка уже сменили состояние — не трогаем его.
+    if (run === mediaRun) {
+      stopQwenElapsed()
+      mediaBusy.value = false
+      mediaJobId.value = null
+      mediaStage.value = ''
+    }
   }
 }
 
 async function stopMediaSearch() {
-  if (!mediaJobId.value) return
+  const jobId = mediaJobId.value
 
+  // Останавливаем и текущий опрос сразу, не дожидаясь статуса CANCELLED.
+  mediaRun += 1
   stopQwenElapsed()
+  mediaBusy.value = false
+  mediaJobId.value = null
+  mediaStage.value = ''
+
+  if (!jobId) return
+
   try {
-    await cancelJob(mediaJobId.value)
+    await cancelJob(jobId)
     Notify.create({ type: 'info', message: 'Поиск остановлен' })
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
@@ -1923,7 +2015,10 @@ async function saveAddressOverride() {
     Notify.create({ type: 'positive', message: 'Юридический адрес обновлён' })
     addressEditOpen.value = false
     await loadDetails(current.value)
+    // Фото меняет привязку везде: строки грида, счётчики адресов и клиентов.
     await store.refresh()
+    await store.loadAddresses()
+    await store.loadClients()
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   } finally {
@@ -1942,6 +2037,8 @@ async function resetAddressOverride() {
     addressEditOpen.value = false
     await loadDetails(current.value)
     await store.refresh()
+    await store.loadAddresses()
+    await store.loadClients()
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   } finally {
@@ -2163,11 +2260,42 @@ async function saveOriginal(photo) {
   }
 }
 
+/**
+ * Юридический адрес фото: ручное исправление важнее распознанного слепка.
+ *
+ * `photo.legal_address`/`simple_address` уже собраны сервером через
+ * COALESCE(override, directory), поэтому по ним находится именно тот адрес,
+ * под которым фото показано в панели. Слепок — только запасной путь.
+ */
+function addressEntryForPhoto(photo) {
+  const wanted = [photo.legal_address, photo.simple_address]
+    .filter(Boolean)
+    .map((value) => String(value).trim().toLowerCase())
+
+  for (const field of ['legal_address', 'simple_address', 'name']) {
+    const found = addresses.value.find(
+      (item) =>
+        item[field]
+        && wanted.includes(String(item[field]).trim().toLowerCase()),
+    )
+
+    if (found) return found
+  }
+
+  if (!photo.address) return null
+
+  return addresses.value.find(
+    (item) =>
+      item.address === photo.address
+      || (item.fingerprints || []).includes(photo.address),
+  ) || null
+}
+
 /** Из меню снимка: сохранить его адрес в подборку адресов. */
 async function addOneToBucket(photo) {
-  const address = photo.address
+  const entry = addressEntryForPhoto(photo)
 
-  if (!address) {
+  if (!entry) {
     Notify.create({
       type: 'info',
       message: 'У снимка нет распознанного адреса',
@@ -2175,13 +2303,7 @@ async function addOneToBucket(photo) {
     return
   }
 
-  // Панель работает с юридическими адресами (addr:<id>), а у фото хранится
-  // id слепка: находим адрес по списку активных слепков.
-  const entry = addresses.value.find(
-    (item) =>
-      item.address === address || (item.fingerprints || []).includes(address),
-  )
-  const value = entry ? entry.address : address
+  const value = entry.address
 
   if (!store.selectedAddresses.includes(value)) {
     store.selectedAddresses = [...store.selectedAddresses, value]
@@ -3681,7 +3803,7 @@ function tagList(meta) {
     </q-dialog>
 
     <!-- Ручной режим умного поиска: превью, метаданные, правка полей QWEN. -->
-    <q-dialog v-model="manualOpen" @hide="closeManual">
+    <q-dialog v-model="manualOpen" @hide="closeManual()">
       <q-card style="width: min(680px, 94vw)">
         <q-card-section class="panel-title">Поиск по медиа — ручной режим</q-card-section>
         <q-separator />
@@ -3755,7 +3877,7 @@ function tagList(meta) {
         </q-card-section>
 
         <q-card-actions align="right">
-          <q-btn flat label="Отмена" @click="closeManual" />
+          <q-btn flat label="Отмена" @click="closeManual()" />
           <q-btn
             v-if="manualStage === 'idle'"
             color="secondary"

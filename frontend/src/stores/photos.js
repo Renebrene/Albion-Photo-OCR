@@ -27,6 +27,10 @@ let persistTimer = null
 let facetsRequest = 0
 let clientsRequest = 0
 let addressesRequest = 0
+// Подборки адресов и клиентов применяются независимо: поздний ответ одной
+// не должен перебивать более новый клик по другой.
+let addressCollectionRequest = 0
+let clientCollectionRequest = 0
 
 // The API caps one page at 100 rows; the grid loads page by page as the user
 // scrolls, so a bigger page means fewer round trips without holding everything
@@ -357,6 +361,9 @@ export const usePhotosStore = defineStore('photos', {
       collectionId = null,
       ids = [],
     } = {}) {
+      // Любое новое действие с фильтром отменяет ещё не применённую подборку.
+      addressCollectionRequest += 1
+      clientCollectionRequest += 1
       this.query = q
       this.selectedAddresses = addresses.map((value) =>
         normalizeAddressValue(this.addresses, value),
@@ -397,6 +404,8 @@ export const usePhotosStore = defineStore('photos', {
      */
     resetSelectionFilters() {
       this.selectionEpoch += 1
+      addressCollectionRequest += 1
+      clientCollectionRequest += 1
       this.selectedAddresses = []
       this.selectedClients = []
       this.addressCollectionId = null
@@ -456,6 +465,11 @@ export const usePhotosStore = defineStore('photos', {
       const epoch = this.selectionEpoch
       const isClients = collection.scope === 'clients'
       const activeKey = isClients ? 'clientCollectionId' : 'addressCollectionId'
+      const request = isClients
+        ? ++clientCollectionRequest
+        : ++addressCollectionRequest
+      const currentRequest = () =>
+        isClients ? clientCollectionRequest : addressCollectionRequest
 
       if (this[activeKey] === collection.collection_id) {
         this[activeKey] = null
@@ -472,7 +486,7 @@ export const usePhotosStore = defineStore('photos', {
         await this.refresh()
         // Сняли подборку — счётчики адресов возвращаются к полному списку.
         await this.loadAddresses()
-        if (this.combine === 'address') await this.loadClients()
+        await this.loadClients()
         return
       }
 
@@ -481,8 +495,10 @@ export const usePhotosStore = defineStore('photos', {
         collection.collection_id,
         memberType,
       )
-      // Пока шёл запрос, режим сменили и выбор сбросили — не возвращаем его.
+      // Пока шёл запрос, режим сменили, выбор сбросили или нажали другую
+      // подборку — поздний ответ не должен вернуть старый выбор.
       if (epoch !== this.selectionEpoch) return
+      if (request !== currentRequest()) return
 
       const values = data.items || []
 
@@ -507,9 +523,9 @@ export const usePhotosStore = defineStore('photos', {
       this[activeKey] = collection.collection_id
       this._syncCollectionId()
       await this.refresh()
-      // В приоритете по клиентам адресная панель пересчитывается сразу.
+      // Обе панели пересчитываются под новый выбор и текущий режим.
       await this.loadAddresses()
-      if (this.combine === 'address') await this.loadClients()
+      await this.loadClients()
     },
 
     /** Сохранить текущий выбор адресов (или клиентов) как подборку. */
@@ -675,6 +691,10 @@ export const usePhotosStore = defineStore('photos', {
     },
 
     async deleteCollectionById(collectionId) {
+      // Удаление отменяет и ещё не применённую подборку — в том числе ту,
+      // чей ответ придёт, пока DELETE ещё выполняется.
+      addressCollectionRequest += 1
+      clientCollectionRequest += 1
       await deleteCollectionApi(collectionId)
       let cleared = false
 
@@ -700,7 +720,7 @@ export const usePhotosStore = defineStore('photos', {
       if (cleared) {
         await this.refresh()
         await this.loadAddresses()
-        if (this.combine === 'address') await this.loadClients()
+        await this.loadClients()
       }
     },
   },
