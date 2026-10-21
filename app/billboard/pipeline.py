@@ -16,12 +16,17 @@ from pathlib import Path
 
 from app.billboard import database
 from app.billboard.config import CROPS_ROOT, resolve_settings
-from app.billboard.detector import detect_billboard
+from app.billboard.detector import detect_billboards
 from app.core.errors import redact_absolute_paths
 from app.ingest.database import get_registered_photo
 
 # Crops keep the banner text readable; only very large crops are shrunk.
 CROP_MAX_SIDE = int(os.getenv("SCENE_BILLBOARD_QWEN_MAX_SIDE", "2048"))
+
+# Marks a completed detection run. The crop files are deleted after QWEN, so
+# their presence alone cannot tell "one billboard" from "not detected yet".
+CROPS_MARKER = ".crops.json"
+CROPS_VERSION = 2
 
 BILLBOARD_PROMPT = (
     "Ты анализируешь вырезанный рекламный щит (баннер). "
@@ -45,6 +50,45 @@ def crop_dir(photo_id: str) -> Path:
         raise ValueError("photo_id is required")
 
     return CROPS_ROOT / photo_id
+
+
+def _existing_crops(photo_id: str) -> list[str]:
+    """Crop files of one photo, in detection order (crop_01, crop_02, ...)."""
+
+    directory = crop_dir(photo_id)
+
+    if not directory.is_dir():
+        return []
+
+    return [
+        str(path)
+        for path in sorted(directory.glob("crop_*.jpg"))
+        if path.is_file()
+    ]
+
+
+def _write_marker(directory: Path, count: int) -> None:
+    """Remember that detection completed, even when count == 1."""
+
+    import json
+
+    marker = directory / CROPS_MARKER
+    handle, temp_name = tempfile.mkstemp(
+        prefix=f".{CROPS_MARKER}.tmp-", dir=directory
+    )
+
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            json.dump({"version": CROPS_VERSION, "count": int(count)}, stream)
+
+        os.replace(temp_name, marker)
+    except Exception:
+        Path(temp_name).unlink(missing_ok=True)
+        raise
+
+
+def _marker_present(directory: Path) -> bool:
+    return (directory / CROPS_MARKER).is_file()
 
 
 def write_crop(
@@ -108,10 +152,16 @@ def write_crop(
 
 def _detect_and_store(photo_id: str, cfg: dict) -> dict:
     """
-    Detect the largest billboard, cut one crop, persist the region.
+    Detect billboards, cut one crop per billboard, persist the primary region.
 
-    Returns {"detected", "regions", "region_ids", "crop_path"}; never enqueues
-    anything (the caller decides what runs next).
+    The database keeps one ``kind='billboard'`` row per photo (the largest
+    box); extra crops are derived files in the same managed directory. They
+    are all analysed by QWEN, and the results are merged into one photo_qwen
+    row.
+
+    Returns {"detected", "regions", "region_ids", "crop_path", "crops",
+    "billboards", "score"}; never enqueues anything (the caller decides what
+    runs next).
     """
 
     record = get_registered_photo(photo_id)
@@ -119,42 +169,62 @@ def _detect_and_store(photo_id: str, cfg: dict) -> dict:
     if record is None:
         raise ValueError(f"photo not found: {photo_id}")
 
-    region = detect_billboard(record.source_path, config=cfg)
+    regions = detect_billboards(record.source_path, config=cfg)
 
-    if region is None:
+    if not regions:
         database.replace_regions(photo_id, [])
-        return {"detected": False, "regions": 0, "region_ids": [], "crop_path": None}
+        return {
+            "detected": False,
+            "regions": 0,
+            "region_ids": [],
+            "crop_path": None,
+            "crops": [],
+            "billboards": 0,
+        }
 
     # Old crops of this photo are derived artifacts; replace them as a set.
     out_dir = crop_dir(photo_id)
     shutil.rmtree(out_dir, ignore_errors=True)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    output_path = out_dir / "crop_01.jpg"
-    crop_width, crop_height = write_crop(record.source_path, region, output_path)
+    crops: list[dict] = []
 
-    prepared = {
-        **region,
-        "kind": "billboard",
-        "detector": cfg["detector"],
-        "crop_path": str(output_path),
-        "crop_width": crop_width,
-        "crop_height": crop_height,
-    }
+    for index, region in enumerate(regions, start=1):
+        output_path = out_dir / f"crop_{index:02d}.jpg"
+        crop_width, crop_height = write_crop(
+            record.source_path, region, output_path
+        )
+        crops.append(
+            {
+                **region,
+                "kind": "billboard",
+                "detector": cfg["detector"],
+                "crop_path": str(output_path),
+                "crop_width": crop_width,
+                "crop_height": crop_height,
+            }
+        )
 
-    region_ids = database.replace_regions(photo_id, [prepared])
+    _write_marker(out_dir, len(crops))
+
+    # Only the largest box has a DB row today; the unique index enforces one
+    # billboard region per photo. Extra crops stay as derived files.
+    primary = crops[0]
+    region_ids = database.replace_regions(photo_id, [primary])
 
     return {
         "detected": True,
         "regions": len(region_ids),
         "region_ids": region_ids,
-        "crop_path": str(output_path),
-        "score": prepared["score"],
+        "crop_path": primary["crop_path"],
+        "crops": [item["crop_path"] for item in crops],
+        "billboards": len(crops),
+        "score": primary["score"],
     }
 
 
 def run_detect(photo_id: str) -> dict:
-    """BILLBOARD_DETECT job: detect the billboard and prepare its crop."""
+    """BILLBOARD_DETECT job: detect billboards and prepare their crops."""
 
     cfg = resolve_settings()
 
@@ -172,18 +242,23 @@ def run_detect(photo_id: str) -> dict:
     return {"photo_id": photo_id, **{k: result[k] for k in ("detected", "regions", "region_ids")}, "score": result.get("score")}
 
 
-def ensure_crop(photo_id: str) -> str | None:
+def ensure_crops(photo_id: str) -> list[str]:
     """
-    Return the billboard crop of one photo, detecting it on demand.
+    Return all billboard crops of one photo, detecting them on demand.
 
     This is the input selector of the QWEN description pipeline: when the
-    photo has a billboard, the model analyses the crop instead of the whole
-    frame. Detection failures degrade to None (full-frame QWEN still works).
+    photo has billboards, the model analyses each crop instead of the whole
+    frame. Detection failures degrade to an empty list (full-frame QWEN still
+    works).
+
+    A completed detection leaves a marker next to the crops. Without it, an
+    old cached crop is re-detected once so a second side-by-side billboard is
+    not missed; after that the marker makes the check cheap.
     """
 
     cfg = resolve_settings()
     if not cfg["enabled"]:
-        return None
+        return []
 
     try:
         region = database.get_billboard_region(photo_id)
@@ -191,17 +266,25 @@ def ensure_crop(photo_id: str) -> str | None:
         region = None
 
     if region is not None:
-        crop_path = Path(region["crop_path"])
+        existing = _existing_crops(photo_id)
 
-        if crop_path.is_file():
-            return str(crop_path)
+        if existing and _marker_present(crop_dir(photo_id)):
+            return existing
 
     try:
         result = _detect_and_store(photo_id, cfg)
     except Exception:  # noqa: BLE001 - fall back to the full frame
-        return None
+        return []
 
-    return result.get("crop_path")
+    return list(result.get("crops") or [])
+
+
+def ensure_crop(photo_id: str) -> str | None:
+    """The primary billboard crop (backward-compatible wrapper)."""
+
+    crops = ensure_crops(photo_id)
+
+    return crops[0] if crops else None
 
 
 def discard_crop(crop_path: str | Path) -> bool:
@@ -231,12 +314,28 @@ def discard_crop(crop_path: str | Path) -> bool:
     try:
         parent = path.parent
 
-        if parent != root and parent.is_dir() and not any(parent.iterdir()):
-            parent.rmdir()
+        if parent != root and parent.is_dir():
+            # The marker describes the whole crop set; it must go away with
+            # the last crop, otherwise an empty directory looks "detected".
+            if not any(parent.glob("crop_*.jpg")):
+                (parent / CROPS_MARKER).unlink(missing_ok=True)
+
+            if not any(parent.iterdir()):
+                parent.rmdir()
     except OSError:
         pass
 
     return True
+
+
+def discard_crops(crop_paths: list[str] | tuple[str, ...]) -> None:
+    """Delete a set of temporary crops; cleanup never raises."""
+
+    for crop_path in crop_paths:
+        try:
+            discard_crop(crop_path)
+        except Exception:  # noqa: BLE001 - cleanup must not fail QWEN
+            pass
 
 
 def qwen_crop_config(base: dict) -> dict:

@@ -1,13 +1,16 @@
 """
-Zero-shot billboard detector (YOLO-World) with a largest-box filter.
+Zero-shot billboard detector (YOLO-World) with a size filter.
 
 Detection runs on a downscaled copy (small billboards are still found, and the
 copy is cheap); every bbox is mapped back to ORIGINAL image coordinates. The
 crop itself is always cut from the original at full resolution by the
 pipeline, so small banner text survives.
 
-The model is loaded once per worker process. A photo yields at most one region
-(the largest box after IoU dedup), matching the current product contract.
+The model is loaded once per worker process. One photo may contain several
+side-by-side billboards: after IoU dedup the largest box is always kept, and
+additional boxes are kept only when their area is at least
+``second_ratio`` of the largest (default 0.35). Tiny background signs and
+half-detections are ignored by that threshold.
 """
 
 from __future__ import annotations
@@ -52,13 +55,50 @@ def dedup(regions: list[dict], *, threshold: float = IOU_DEDUP) -> list[dict]:
     return survivors
 
 
+def _area(region: dict) -> float:
+    return float(region["bbox_w"]) * float(region["bbox_h"])
+
+
 def pick_largest(regions: list[dict]) -> dict | None:
     """The billboard is a single large object: keep the biggest box."""
 
     if not regions:
         return None
 
-    return max(regions, key=lambda item: item["bbox_w"] * item["bbox_h"])
+    return max(regions, key=_area)
+
+
+def select_billboards(
+    regions: list[dict],
+    *,
+    second_ratio: float = 0.35,
+    max_regions: int = 2,
+) -> list[dict]:
+    """
+    Keep the largest box plus comparable ones, biggest first.
+
+    A photo can show two panels of equal size side by side; cropping only the
+    largest silently loses the second advertiser. Boxes smaller than
+    ``second_ratio`` of the largest are treated as background noise.
+    Duplicates (IoU > 0.6) are removed first.
+    """
+
+    kept = dedup(regions)
+
+    if not kept:
+        return []
+
+    kept.sort(key=_area, reverse=True)
+    largest = _area(kept[0])
+    threshold = largest * min(max(float(second_ratio), 0.0), 1.0)
+    limit = max(1, int(max_regions))
+
+    selected = [
+        region for region in kept
+        if _area(region) >= threshold
+    ][:limit]
+
+    return selected
 
 
 def pad_bbox(
@@ -115,16 +155,17 @@ def _load_model(classes: tuple[str, ...], model_name: str):
     return model
 
 
-def detect_billboard(
+def detect_billboards(
     image_path: str | Path,
     *,
     config: dict | None = None,
-) -> dict | None:
+) -> list[dict]:
     """
-    Detect the largest billboard on one photo.
+    Detect billboards on one photo, largest first.
 
-    Returns a region dict with bbox in ORIGINAL coordinates, or None.
-    The photo is never modified.
+    Returns region dicts with bbox in ORIGINAL coordinates (possibly empty).
+    One large billboard, or several comparable ones, may be returned. The
+    photo is never modified.
     """
 
     import cv2
@@ -167,14 +208,30 @@ def detect_billboard(
             }
         )
 
-    best = pick_largest(dedup(regions))
-
-    if best is None:
-        return None
-
-    return pad_bbox(
-        best,
-        ratio=cfg["padding"],
-        image_width=orig_width,
-        image_height=orig_height,
+    selected = select_billboards(
+        regions,
+        second_ratio=cfg.get("second_ratio", 0.35),
+        max_regions=cfg.get("max_regions", 2),
     )
+
+    return [
+        pad_bbox(
+            region,
+            ratio=cfg["padding"],
+            image_width=orig_width,
+            image_height=orig_height,
+        )
+        for region in selected
+    ]
+
+
+def detect_billboard(
+    image_path: str | Path,
+    *,
+    config: dict | None = None,
+) -> dict | None:
+    """The largest billboard only (backward-compatible wrapper)."""
+
+    regions = detect_billboards(image_path, config=config)
+
+    return regions[0] if regions else None

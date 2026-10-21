@@ -7,7 +7,13 @@ from PIL import Image
 
 from app.billboard import database as billboard_db
 from app.billboard import pipeline
-from app.billboard.detector import dedup, iou, pad_bbox, pick_largest
+from app.billboard.detector import (
+    dedup,
+    iou,
+    pad_bbox,
+    pick_largest,
+    select_billboards,
+)
 from app.jobs.database import JOB_TYPES
 
 
@@ -41,6 +47,37 @@ def test_pick_largest_ignores_score():
 
     assert pick_largest([small, large]) is large
     assert pick_largest([]) is None
+
+
+def test_select_billboards_keeps_two_comparable_boxes():
+    first = _region(10, 10, 300, 200, 0.9)
+    second = _region(400, 10, 280, 200, 0.8)
+    small = _region(800, 10, 60, 40, 0.7)  # background sign
+
+    selected = select_billboards([small, second, first])
+
+    assert selected == [first, second]
+
+
+def test_select_billboards_ignores_small_second_box():
+    first = _region(10, 10, 300, 200, 0.9)
+    second = _region(400, 10, 120, 80, 0.8)  # 0.16 of the largest area
+
+    assert select_billboards([second, first]) == [first]
+
+
+def test_select_billboards_respects_limit_and_dedup():
+    first = _region(10, 10, 300, 200, 0.9)
+    duplicate = _region(11, 11, 300, 200, 0.95)
+    second = _region(400, 10, 280, 200, 0.8)
+    third = _region(800, 10, 260, 180, 0.7)
+
+    selected = select_billboards(
+        [duplicate, first, second, third],
+        max_regions=2,
+    )
+
+    assert selected == [duplicate, second]
 
 
 def test_pad_bbox_expands_on_both_sides():
@@ -109,6 +146,8 @@ def _settings():
         "classes": ("billboard",),
         "model": "unused.pt",
         "detector": "test-detector",
+        "second_ratio": 0.35,
+        "max_regions": 2,
     }
 
 
@@ -124,8 +163,8 @@ def test_run_detect_writes_region(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline, "resolve_settings", _settings)
     monkeypatch.setattr(pipeline, "CROPS_ROOT", tmp_path / "crops")
     monkeypatch.setattr(
-        pipeline, "detect_billboard",
-        lambda path, config=None: _region(100, 50, 200, 100, 0.8),
+        pipeline, "detect_billboards",
+        lambda path, config=None: [_region(100, 50, 200, 100, 0.8)],
     )
 
     saved = []
@@ -149,6 +188,41 @@ def test_run_detect_writes_region(monkeypatch, tmp_path):
     assert (rows[0]["crop_width"], rows[0]["crop_height"]) == (200, 100)
 
 
+def test_run_detect_writes_two_crops_for_two_billboards(monkeypatch, tmp_path):
+    photo_id = "PH_" + "1a" * 12
+    source = tmp_path / "source.jpg"
+    Image.new("RGB", (800, 300), (10, 20, 30)).save(source)
+
+    monkeypatch.setattr(
+        pipeline, "get_registered_photo",
+        lambda pid: SimpleNamespace(source_path=str(source)),
+    )
+    monkeypatch.setattr(pipeline, "resolve_settings", _settings)
+    monkeypatch.setattr(pipeline, "CROPS_ROOT", tmp_path / "crops")
+    monkeypatch.setattr(
+        pipeline, "detect_billboards",
+        lambda path, config=None: [
+            _region(10, 50, 300, 200, 0.9),
+            _region(400, 50, 280, 200, 0.8),
+        ],
+    )
+
+    saved = []
+    monkeypatch.setattr(
+        billboard_db, "replace_regions",
+        lambda pid, rows: saved.append((pid, rows)) or [7],
+    )
+
+    result = pipeline.run_detect(photo_id)
+
+    assert result["regions"] == 1
+    assert len(saved[0][1]) == 1  # DB keeps the primary region only
+    directory = tmp_path / "crops" / photo_id
+    assert (directory / "crop_01.jpg").is_file()
+    assert (directory / "crop_02.jpg").is_file()
+    assert (directory / pipeline.CROPS_MARKER).is_file()
+
+
 def test_run_detect_clears_regions_when_nothing_found(monkeypatch, tmp_path):
     photo_id = "PH_" + "13" * 12
     source = tmp_path / "source.jpg"
@@ -159,7 +233,7 @@ def test_run_detect_clears_regions_when_nothing_found(monkeypatch, tmp_path):
         lambda pid: SimpleNamespace(source_path=str(source)),
     )
     monkeypatch.setattr(pipeline, "resolve_settings", _settings)
-    monkeypatch.setattr(pipeline, "detect_billboard", lambda path, config=None: None)
+    monkeypatch.setattr(pipeline, "detect_billboards", lambda path, config=None: [])
 
     calls = []
     monkeypatch.setattr(
@@ -175,8 +249,12 @@ def test_run_detect_clears_regions_when_nothing_found(monkeypatch, tmp_path):
 
 
 def test_ensure_crop_returns_existing_crop(monkeypatch, tmp_path):
-    crop = tmp_path / "crop_01.jpg"
+    photo_id = "PH_" + "14" * 12
+    monkeypatch.setattr(pipeline, "CROPS_ROOT", tmp_path)
+    crop = tmp_path / photo_id / "crop_01.jpg"
+    crop.parent.mkdir(parents=True)
     Image.new("RGB", (320, 180), (5, 6, 7)).save(crop)
+    (crop.parent / pipeline.CROPS_MARKER).write_text('{"version": 2, "count": 1}')
 
     monkeypatch.setattr(
         billboard_db, "get_billboard_region",
@@ -187,7 +265,53 @@ def test_ensure_crop_returns_existing_crop(monkeypatch, tmp_path):
         lambda *a, **kw: (_ for _ in ()).throw(AssertionError("must not detect")),
     )
 
-    assert pipeline.ensure_crop("PH_" + "14" * 12) == str(crop)
+    assert pipeline.ensure_crop(photo_id) == str(crop)
+
+
+def test_ensure_crops_returns_both_cached_crops(monkeypatch, tmp_path):
+    photo_id = "PH_" + "18" * 12
+    monkeypatch.setattr(pipeline, "CROPS_ROOT", tmp_path)
+    directory = tmp_path / photo_id
+    directory.mkdir()
+    first = directory / "crop_01.jpg"
+    second = directory / "crop_02.jpg"
+    Image.new("RGB", (320, 180), (5, 6, 7)).save(first)
+    Image.new("RGB", (320, 180), (7, 6, 5)).save(second)
+    (directory / pipeline.CROPS_MARKER).write_text('{"version": 2, "count": 2}')
+
+    monkeypatch.setattr(
+        billboard_db, "get_billboard_region",
+        lambda pid: {"crop_path": str(first)},
+    )
+    monkeypatch.setattr(
+        pipeline, "_detect_and_store",
+        lambda *a, **kw: (_ for _ in ()).throw(AssertionError("must not detect")),
+    )
+
+    assert pipeline.ensure_crops(photo_id) == [str(first), str(second)]
+
+
+def test_ensure_crops_redetects_old_crop_without_marker(monkeypatch, tmp_path):
+    """A crop from an older detector has no marker: re-detect once."""
+
+    photo_id = "PH_" + "19" * 12
+    monkeypatch.setattr(pipeline, "CROPS_ROOT", tmp_path)
+    directory = tmp_path / photo_id
+    directory.mkdir()
+    old_crop = directory / "crop_01.jpg"
+    Image.new("RGB", (320, 180), (5, 6, 7)).save(old_crop)
+
+    monkeypatch.setattr(
+        billboard_db, "get_billboard_region",
+        lambda pid: {"crop_path": str(old_crop)},
+    )
+    monkeypatch.setattr(pipeline, "resolve_settings", _settings)
+    monkeypatch.setattr(
+        pipeline, "_detect_and_store",
+        lambda pid, cfg: {"crops": ["/tmp/new_01.jpg", "/tmp/new_02.jpg"]},
+    )
+
+    assert pipeline.ensure_crops(photo_id) == ["/tmp/new_01.jpg", "/tmp/new_02.jpg"]
 
 
 def test_ensure_crop_detects_on_demand(monkeypatch, tmp_path):
@@ -199,7 +323,8 @@ def test_ensure_crop_detects_on_demand(monkeypatch, tmp_path):
     monkeypatch.setattr(
         pipeline, "_detect_and_store",
         lambda pid, cfg: {"detected": True, "regions": 1,
-                          "region_ids": [7], "crop_path": str(crop)},
+                          "region_ids": [7], "crop_path": str(crop),
+                          "crops": [str(crop)]},
     )
 
     assert pipeline.ensure_crop("PH_" + "15" * 12) == str(crop)
@@ -242,6 +367,32 @@ def test_discard_crop_removes_file_and_empty_directory(monkeypatch, tmp_path):
     assert pipeline.discard_crop(crop) is True
     assert not crop.exists()
     assert not crop.parent.exists()
+
+
+def test_discard_crops_removes_marker_with_last_crop(monkeypatch, tmp_path):
+    root = tmp_path / "crops"
+    monkeypatch.setattr(pipeline, "CROPS_ROOT", root)
+
+    directory = root / "PH_test"
+    directory.mkdir(parents=True)
+    first = directory / "crop_01.jpg"
+    second = directory / "crop_02.jpg"
+    first.write_bytes(b"jpeg")
+    second.write_bytes(b"jpeg")
+    marker = directory / pipeline.CROPS_MARKER
+    marker.write_text('{"version": 2, "count": 2}')
+
+    pipeline.discard_crops([str(first)])
+
+    assert not first.exists()
+    assert second.exists()
+    assert marker.exists()  # the set is not fully cleaned yet
+
+    pipeline.discard_crops([str(second)])
+
+    assert not second.exists()
+    assert not marker.exists()
+    assert not directory.exists()
 
 
 def test_discard_crop_refuses_paths_outside_the_root(monkeypatch, tmp_path):

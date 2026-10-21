@@ -19,6 +19,8 @@ PADDING_KEY = "billboard_padding"
 MAX_SIDE_KEY = "billboard_max_side"
 MODEL_KEY = "billboard_model"
 CLASSES_KEY = "billboard_classes"
+SECOND_RATIO_KEY = "billboard_second_ratio"
+MAX_REGIONS_KEY = "billboard_max_regions"
 
 DEFAULT_CLASSES = (
     "billboard",
@@ -32,6 +34,13 @@ DEFAULT_MAX_SIDE = int(os.getenv("SCENE_BILLBOARD_MAX_SIDE", "1920"))
 DEFAULT_MODEL = os.getenv(
     "SCENE_BILLBOARD_MODEL", "data/models/yolov8s-worldv2.pt"
 )
+# A second billboard is analysed only when it is comparable in size to the
+# largest one; tiny background signs are ignored. Two is the typical number
+# on one frame (two panels side by side).
+DEFAULT_SECOND_RATIO = float(
+    os.getenv("SCENE_BILLBOARD_SECOND_RATIO", "0.35")
+)
+DEFAULT_MAX_REGIONS = int(os.getenv("SCENE_BILLBOARD_MAX_REGIONS", "2"))
 
 # Crops are derived artifacts; they live outside tracked directories.
 CROPS_ROOT = Path(os.getenv("SCENE_CROPS_ROOT", "data/crops"))
@@ -88,6 +97,26 @@ def resolve_settings() -> dict:
     if isinstance(classes, str):
         classes = [part.strip() for part in classes.split(",") if part.strip()]
 
+    second_raw = _stored(SECOND_RATIO_KEY)
+
+    try:
+        second_ratio = float(
+            second_raw if second_raw is not None else DEFAULT_SECOND_RATIO
+        )
+    except (TypeError, ValueError):
+        second_ratio = DEFAULT_SECOND_RATIO
+
+    max_regions_raw = _stored(MAX_REGIONS_KEY)
+
+    try:
+        max_regions = int(
+            max_regions_raw
+            if max_regions_raw is not None
+            else DEFAULT_MAX_REGIONS
+        )
+    except (TypeError, ValueError):
+        max_regions = DEFAULT_MAX_REGIONS
+
     return {
         "enabled": bool(enabled),
         "score": min(max(score, 0.0), 1.0),
@@ -96,4 +125,6 @@ def resolve_settings() -> dict:
         "classes": tuple(str(item) for item in classes) or DEFAULT_CLASSES,
         "model": str(_stored(MODEL_KEY) or DEFAULT_MODEL),
         "detector": DETECTOR_NAME,
+        "second_ratio": min(max(second_ratio, 0.0), 1.0),
+        "max_regions": min(max(max_regions, 1), 4),
     }

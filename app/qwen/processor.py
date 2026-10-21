@@ -931,6 +931,106 @@ def analysis_input(photo_id: str, source_path: str) -> str:
     return source_path
 
 
+MERGE_DESCRIPTION_LIMIT = 800
+MERGE_TAGS_LIMIT = 20
+
+
+def _merge_raw(raws: list) -> dict:
+    """Combine provider responses of several crops, summing token usage."""
+
+    if len(raws) == 1 and isinstance(raws[0], dict):
+        return raws[0]
+
+    usage: dict[str, int] = {}
+
+    for raw in raws:
+        if not isinstance(raw, dict):
+            continue
+
+        crop_usage = raw.get("usage")
+
+        if not isinstance(crop_usage, dict):
+            continue
+
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            value = crop_usage.get(key)
+
+            if isinstance(value, (int, float)):
+                usage[key] = usage.get(key, 0) + int(value)
+
+    combined: dict = {"crops": raws}
+
+    if usage:
+        combined["usage"] = usage
+
+    return combined
+
+
+def merge_crop_results(results: list[tuple[dict, dict, float]]) -> tuple[dict, dict, float]:
+    """
+    Merge QWEN results of several billboard crops of ONE photo.
+
+    Scalar fields (client/brand/category/address) keep the primary (largest)
+    billboard so exact filters keep working. Additional advertisers are added
+    to `tags`, and all descriptions are joined — the photo remains one row in
+    photo_qwen. Elapsed time is summed; token usage is summed in raw.
+    """
+
+    primary = dict(results[0][0] or {})
+    tags: list[str] = []
+    seen_tags: set[str] = set()
+    descriptions: list[str] = []
+
+    for fields, _, _ in results:
+        for tag in (fields or {}).get("tags") or []:
+            text = str(tag).strip()
+            key = text.casefold()
+
+            if text and key not in seen_tags:
+                seen_tags.add(key)
+                tags.append(text)
+
+        description = (fields or {}).get("description")
+
+        if description and description not in descriptions:
+            descriptions.append(description)
+
+    for key in ("description", "address", "client", "brand", "category"):
+        if primary.get(key):
+            continue
+
+        for fields, _, _ in results[1:]:
+            value = (fields or {}).get(key)
+
+            if value:
+                primary[key] = value
+                break
+
+    for fields, _, _ in results[1:]:
+        for key in ("client", "brand"):
+            value = (fields or {}).get(key)
+
+            if not value:
+                continue
+
+            text = str(value).strip()
+            folded = text.casefold()
+
+            if text and folded not in seen_tags:
+                seen_tags.add(folded)
+                tags.append(text)
+
+    if len(descriptions) > 1:
+        primary["description"] = " | ".join(descriptions)[:MERGE_DESCRIPTION_LIMIT]
+
+    primary["tags"] = tags[:MERGE_TAGS_LIMIT]
+
+    raw = _merge_raw([raw for _, raw, _ in results])
+    elapsed = sum(float(time_sec) for _, _, time_sec in results)
+
+    return primary, raw, elapsed
+
+
 def run_photo(
     photo_id: str,
     *,
@@ -966,26 +1066,31 @@ def run_photo(
 
     model = config["model"]
 
-    # The description is taken from the detected billboard crop when one
-    # exists (detection runs on demand if the background job has not finished
-    # yet). Without a billboard the full frame is analysed as before. A crop
-    # failure must never break QWEN.
+    # The description is taken from the detected billboard crops when they
+    # exist (detection runs on demand if the background job has not finished
+    # yet). A photo may show two side-by-side billboards: each crop is
+    # analysed and the results are merged into one photo_qwen row. Without a
+    # billboard the full frame is analysed as before. A crop failure must
+    # never break QWEN.
     image_path = analysis_input(photo_id, source_path)
+    crop_paths: list[str] = []
+    discard_crops = None
 
     try:
         from app.billboard.pipeline import (
-            discard_crop,
-            ensure_crop,
+            discard_crops as discard_crop_set,
+            ensure_crops,
             qwen_crop_config,
         )
 
-        crop_path = ensure_crop(photo_id)
+        crop_paths = ensure_crops(photo_id)
+        discard_crops = discard_crop_set
     except Exception:  # noqa: BLE001 - fall back to the full frame
-        crop_path = None
-        discard_crop = None
+        crop_paths = []
+        discard_crops = None
 
-    if crop_path:
-        image_path = crop_path
+    if crop_paths:
+        image_path = crop_paths[0]
         config = qwen_crop_config(config)
 
     db.mark_running(photo_id)
@@ -1005,6 +1110,23 @@ def run_photo(
         db.save_failure(photo_id, redact_absolute_paths(str(exc)))
         raise
 
+    crop_errors: list[str] = []
+
+    if len(crop_paths) > 1:
+        results = [(fields, raw, elapsed)]
+
+        for extra_path in crop_paths[1:]:
+            try:
+                extra = analyze_image(extra_path, config=config)
+            except Exception as exc:  # noqa: BLE001 - keep the primary result
+                crop_errors.append(redact_absolute_paths(str(exc)))
+                continue
+
+            results.append(extra)
+
+        if len(results) > 1:
+            fields, raw, elapsed = merge_crop_results(results)
+
     db.save_success(
         photo_id,
         fields=fields,
@@ -1013,19 +1135,18 @@ def run_photo(
         time_sec=elapsed,
     )
 
-    # The crop existed only for this recognition. Delete it after a successful
-    # save; on any failure above it stays for the retry. A later run detects
-    # the billboard again and recreates the crop on demand.
-    if crop_path and discard_crop is not None:
-        try:
-            discard_crop(crop_path)
-        except Exception:  # noqa: BLE001 - cleanup must not fail QWEN
-            pass
+    # The crops existed only for this recognition. Delete them after a
+    # successful save; on any failure above they stay for the retry. A later
+    # run detects the billboards again and recreates the crops on demand.
+    if crop_paths and discard_crops is not None:
+        discard_crops(crop_paths)
 
     return {
         "photo_id": photo_id,
         "model": model,
         "provider": config["provider"],
         "time_sec": round(elapsed, 2),
+        "billboards": len(crop_paths),
+        **({"crop_errors": crop_errors} if crop_errors else {}),
         **fields,
     }

@@ -399,14 +399,14 @@ def test_run_photo_analyses_billboard_crop_when_present(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(processor, "resolve_settings", _qwen_base_settings)
     monkeypatch.setattr(
-        billboard_pipeline, "ensure_crop",
-        lambda pid: str(crop),
+        billboard_pipeline, "ensure_crops",
+        lambda pid: [str(crop)],
     )
 
     discarded = []
     monkeypatch.setattr(
-        billboard_pipeline, "discard_crop",
-        lambda path: discarded.append(str(path)) or True,
+        billboard_pipeline, "discard_crops",
+        lambda paths: discarded.extend(str(path) for path in paths),
     )
 
     seen = {}
@@ -429,6 +429,128 @@ def test_run_photo_analyses_billboard_crop_when_present(monkeypatch, tmp_path):
     assert discarded == [str(crop)]
 
 
+def test_run_photo_merges_two_billboard_crops(monkeypatch, tmp_path):
+    """Два щита на фото: два кропа, один результат, второй клиент — в тегах."""
+
+    from app.billboard import pipeline as billboard_pipeline
+
+    first = tmp_path / "crop_01.jpg"
+    second = tmp_path / "crop_02.jpg"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+
+    monkeypatch.setattr(processor.db, "get_photo_source", lambda pid: "/tmp/source.jpg")
+    monkeypatch.setattr(processor.db, "mark_running", lambda pid: None)
+    saved = {}
+    monkeypatch.setattr(
+        processor.db, "save_success",
+        lambda pid, **kw: saved.update(kw),
+    )
+    monkeypatch.setattr(processor, "resolve_settings", _qwen_base_settings)
+    monkeypatch.setattr(
+        billboard_pipeline, "ensure_crops",
+        lambda pid: [str(first), str(second)],
+    )
+
+    discarded = []
+    monkeypatch.setattr(
+        billboard_pipeline, "discard_crops",
+        lambda paths: discarded.extend(str(path) for path in paths),
+    )
+
+    calls = []
+
+    def fake_analyze(path, config=None):
+        calls.append(str(path))
+
+        if str(path) == str(first):
+            return (
+                {
+                    "description": "Щит LADA",
+                    "client": "LADA",
+                    "brand": "LADA",
+                    "category": "авто",
+                    "tags": ["авто", "акция"],
+                },
+                {"usage": {"prompt_tokens": 100, "completion_tokens": 20,
+                           "total_tokens": 120}},
+                2.0,
+            )
+
+        return (
+            {
+                "description": "Щит ВМЕСТЕ",
+                "client": "ВМЕСТЕ",
+                "brand": "ВМЕСТЕ",
+                "category": "соцреклама",
+                "tags": ["соцреклама", "акция"],
+            },
+            {"usage": {"prompt_tokens": 90, "completion_tokens": 10,
+                       "total_tokens": 100}},
+            3.0,
+        )
+
+    monkeypatch.setattr(processor, "analyze_image", fake_analyze)
+
+    result = processor.run_photo("PH_" + "ef" * 12)
+
+    assert calls == [str(first), str(second)]
+    assert result["billboards"] == 2
+    assert result["time_sec"] == 5.0
+
+    fields = saved["fields"]
+    # Скалярные поля — от главного (самого большого) щита: точные фильтры
+    # клиента/бренда продолжают работать.
+    assert fields["client"] == "LADA"
+    assert fields["brand"] == "LADA"
+    assert fields["category"] == "авто"
+    # Второй рекламодатель не теряется — он в тегах и описании.
+    assert fields["tags"] == ["авто", "акция", "соцреклама", "ВМЕСТЕ"]
+    assert "Щит LADA" in fields["description"]
+    assert "Щит ВМЕСТЕ" in fields["description"]
+
+    # Токены двух вызовов суммируются.
+    assert saved["raw"]["usage"]["total_tokens"] == 220
+    assert discarded == [str(first), str(second)]
+
+
+def test_run_photo_keeps_primary_result_when_second_crop_fails(monkeypatch, tmp_path):
+    from app.billboard import pipeline as billboard_pipeline
+
+    first = tmp_path / "crop_01.jpg"
+    second = tmp_path / "crop_02.jpg"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+
+    monkeypatch.setattr(processor.db, "get_photo_source", lambda pid: "/tmp/source.jpg")
+    monkeypatch.setattr(processor.db, "mark_running", lambda pid: None)
+    saved = {}
+    monkeypatch.setattr(
+        processor.db, "save_success",
+        lambda pid, **kw: saved.update(kw),
+    )
+    monkeypatch.setattr(processor, "resolve_settings", _qwen_base_settings)
+    monkeypatch.setattr(
+        billboard_pipeline, "ensure_crops",
+        lambda pid: [str(first), str(second)],
+    )
+    monkeypatch.setattr(billboard_pipeline, "discard_crops", lambda paths: None)
+
+    def fake_analyze(path, config=None):
+        if str(path) == str(first):
+            return ({"description": "Первый", "client": "A", "tags": []}, {}, 1.0)
+
+        raise RuntimeError("second crop failed")
+
+    monkeypatch.setattr(processor, "analyze_image", fake_analyze)
+
+    result = processor.run_photo("PH_" + "1b" * 12)
+
+    assert saved["fields"]["client"] == "A"
+    assert saved["fields"]["description"] == "Первый"
+    assert result["crop_errors"] == ["second crop failed"]
+
+
 def test_run_photo_falls_back_to_full_frame(monkeypatch):
     from app.billboard import pipeline as billboard_pipeline
 
@@ -436,7 +558,7 @@ def test_run_photo_falls_back_to_full_frame(monkeypatch):
     monkeypatch.setattr(processor.db, "mark_running", lambda pid: None)
     monkeypatch.setattr(processor.db, "save_success", lambda pid, **kw: None)
     monkeypatch.setattr(processor, "resolve_settings", _qwen_base_settings)
-    monkeypatch.setattr(billboard_pipeline, "ensure_crop", lambda pid: None)
+    monkeypatch.setattr(billboard_pipeline, "ensure_crops", lambda pid: [])
 
     seen = {}
 
