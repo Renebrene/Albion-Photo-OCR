@@ -483,6 +483,25 @@ describe('строка тегов', () => {
     wrapper.unmount()
   })
 
+  it('показывает выбранного клиента, которого нет в списке топ-100', async () => {
+    const wrapper = await mountGrid()
+
+    store.selectedClients = ['AAA Моторс-Запад']
+    await flushPromises()
+    await nextTick()
+
+    const row = Array.from(wrapper.element.querySelectorAll('.q-item')).find(
+      (node) =>
+        node.textContent.includes('AAA Моторс-Запад')
+        && node.textContent.includes('выбран'),
+    )
+
+    expect(row).toBeTruthy()
+    // Заголовок панели и список больше не расходятся.
+    expect(wrapper.text()).toContain('(1)')
+    wrapper.unmount()
+  })
+
   it('новая подсказка поиска дополняет теги, а не стирает их', async () => {
     const wrapper = await mountGrid()
 

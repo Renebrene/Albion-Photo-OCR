@@ -439,7 +439,25 @@ const filteredClients = computed(() => {
       count: item.count,
     }))
 
-  if (!term) return local
+  if (!term) {
+    // Выбранный клиент мог не попасть в топ-100, а также прийти из старого
+    // сохранённого поиска/подсказки в другом написании (алиас). Панель должна
+    // показывать текущий выбор всегда — иначе заголовок «(1)» противоречит
+    // пустому списку.
+    const known = new Set(
+      local.map((item) => String(item.value).toLowerCase()),
+    )
+    const selectedExtra = store.selectedClients
+      .filter((value) => !known.has(String(value).toLowerCase()))
+      .map((value) => ({
+        value,
+        kind: 'client',
+        count: null,
+        selectedOnly: true,
+      }))
+
+    return [...selectedExtra, ...local]
+  }
 
   const seen = new Set(
     local.map((item) => `client:${String(item.value).toLowerCase()}`),
@@ -3027,8 +3045,8 @@ function tagList(meta) {
               </span>
               <q-icon name="help_outline" size="16px" class="client-help q-ml-xs">
                 <q-tooltip>
-                  Отображается не более 100 клиентов. Полный список доступен
-                  в поиске
+                  Отображается не более 100 клиентов; выбранные показываются
+                  всегда. Полный список доступен в поиске
                 </q-tooltip>
               </q-icon>
             </div>
@@ -3090,8 +3108,16 @@ function tagList(meta) {
                   >
                     бренд
                   </div>
+                  <div
+                    v-else-if="item.selectedOnly"
+                    class="text-caption text-grey-7"
+                  >
+                    выбран
+                  </div>
                 </q-item-section>
-                <q-item-section side>{{ item.count }}</q-item-section>
+                <q-item-section side>
+                  {{ item.count === null ? '' : item.count }}
+                </q-item-section>
               </q-item>
               <q-item v-if="!filteredClients.length">
                 <q-item-section class="text-caption text-grey">

@@ -21,6 +21,13 @@ import {
 // it never lands in the reactive store state).
 let persistTimer = null
 
+// Номера поколений запросов панелей. Медленный ответ старого режима не должен
+// перезаписывать свежий список (например, пустой список клиентов в режиме
+// приоритета адресов после возврата к объединению).
+let facetsRequest = 0
+let clientsRequest = 0
+let addressesRequest = 0
+
 // The API caps one page at 100 rows; the grid loads page by page as the user
 // scrolls, so a bigger page means fewer round trips without holding everything
 // in memory at once.
@@ -231,6 +238,9 @@ export const usePhotosStore = defineStore('photos', {
     },
 
     async loadFacets() {
+      const request = ++facetsRequest
+      const addressToken = ++addressesRequest
+      const clientToken = ++clientsRequest
       this.facetsLoading = true
 
       try {
@@ -255,14 +265,22 @@ export const usePhotosStore = defineStore('photos', {
           fetchCollections(),
           fetchSavedSearches(),
         ])
-        this.addresses = addresses.items || []
-        this.clients = clients.items || []
+        if (request !== facetsRequest) return
+
+        if (addressToken === addressesRequest) {
+          this.addresses = addresses.items || []
+        }
+
+        if (clientToken === clientsRequest) {
+          this.clients = clients.items || []
+        }
+
         this.collections = collections.items || []
         this.savedSearches = searches.items || []
       } catch (err) {
-        this.error = err.message
+        if (request === facetsRequest) this.error = err.message
       } finally {
-        this.facetsLoading = false
+        if (request === facetsRequest) this.facetsLoading = false
       }
     },
 
@@ -273,6 +291,8 @@ export const usePhotosStore = defineStore('photos', {
      * фильтра — нужны только счётчики.
      */
     async loadAddresses() {
+      const request = ++addressesRequest
+
       try {
         const data = await fetchAddresses({
           dateFrom: this.dateFrom,
@@ -283,7 +303,8 @@ export const usePhotosStore = defineStore('photos', {
               ? this.selectedClients
               : null,
         })
-        this.addresses = data.items || []
+
+        if (request === addressesRequest) this.addresses = data.items || []
       } catch {
         // Счётчики — вспомогательные: грид продолжает работать.
       }
@@ -297,6 +318,8 @@ export const usePhotosStore = defineStore('photos', {
      * возвращается полный список.
      */
     async loadClients() {
+      const request = ++clientsRequest
+
       try {
         const data = await fetchClients({
           addresses:
@@ -304,7 +327,8 @@ export const usePhotosStore = defineStore('photos', {
               ? this.selectedAddresses
               : [],
         })
-        this.clients = data.items || []
+
+        if (request === clientsRequest) this.clients = data.items || []
       } catch {
         // Вспомогательная панель: грид продолжает работать.
       }
@@ -351,8 +375,11 @@ export const usePhotosStore = defineStore('photos', {
       await this.refresh()
       // Counters follow the same period as the grid.
       await this.loadAddresses()
-      // В приоритете по адресам список клиентов сужается выбранными адресами.
-      if (this.combine === 'address') await this.loadClients()
+      // Клиентская панель должна соответствовать текущему режиму и новому
+      // выбору. В приоритете по адресам список сужается выбранными адресами;
+      // в остальных режимах возвращается полный список, поэтому панель больше
+      // не остаётся пустой от предыдущего сужения.
+      await this.loadClients()
     },
 
     /**

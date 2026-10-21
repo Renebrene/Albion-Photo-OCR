@@ -162,6 +162,61 @@ describe('photos store', () => {
     expect(lastPhotosUrl()).not.toContain('ids=')
   })
 
+  it('applyFilters refreshes the client panel in every mode', async () => {
+    let clientCalls = 0
+
+    routes = routes.map((route) =>
+      route.match('/api/v1/clients')
+        ? {
+            ...route,
+            respond: () => {
+              clientCalls += 1
+              return jsonResponse({
+                items: [{ client: 'AAA Моторс-Запад', count: 22 }],
+              })
+            },
+          }
+        : route,
+    )
+
+    const store = usePhotosStore()
+
+    await store.applyFilters({
+      clients: ['AAA Моторс-Запад'],
+      combine: 'union',
+    })
+
+    expect(clientCalls).toBeGreaterThan(0)
+    expect(store.clients).toEqual([
+      { client: 'AAA Моторс-Запад', count: 22 },
+    ])
+  })
+
+  it('ignores a stale client list response', async () => {
+    const pending = []
+
+    routes = routes.map((route) =>
+      route.match('/api/v1/clients')
+        ? {
+            ...route,
+            respond: () =>
+              new Promise((resolve) => pending.push(resolve)),
+          }
+        : route,
+    )
+
+    const store = usePhotosStore()
+    const first = store.loadClients()
+    const second = store.loadClients()
+
+    pending[1](jsonResponse({ items: [{ client: 'Новый', count: 1 }] }))
+    await second
+    pending[0](jsonResponse({ items: [] }))
+    await first
+
+    expect(store.clients).toEqual([{ client: 'Новый', count: 1 }])
+  })
+
   it('collectionsFor keeps only the requested scope', () => {
     const store = usePhotosStore()
     store.collections = [
