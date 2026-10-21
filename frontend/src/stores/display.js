@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 
-import { fetchSelection, saveSelection } from '../api/client'
+import { fetchSelection, getToken, saveSelection } from '../api/client'
 
 // Display settings for the photo grid (number of tile columns, which fields a
 // list row shows). Shared by the grid's gear dialog and the technical section.
@@ -112,8 +112,11 @@ export const useDisplayStore = defineStore('display', () => {
   const listFields = ref([...DEFAULT_LIST_FIELDS])
   const downloadNameMode = ref(DEFAULT_DOWNLOAD_NAME_MODE)
   const addressClientMode = ref('union')
+  // Desired (persisted) widths. The effective width shown in the grid is
+  // clamped to the current window and is never written back to storage.
   const leftPanelWidth = ref(DEFAULT_PANEL_WIDTH)
   const rightPanelWidth = ref(DEFAULT_PANEL_WIDTH)
+  const panelViewport = ref(0)
   const sideListHeight = ref(DEFAULT_SIDE_LIST_HEIGHT)
   const leftPanelOpen = ref(DEFAULT_SIDE_PANELS_OPEN)
   const rightPanelOpen = ref(DEFAULT_SIDE_PANELS_OPEN)
@@ -131,12 +134,23 @@ export const useDisplayStore = defineStore('display', () => {
       ? saved.tileColumns
       : DEFAULT_TILE_COLUMNS
 
-    listFields.value =
-      Array.isArray(saved.listFields) && saved.listFields.length
-        ? saved.listFields.filter((field) =>
-            LIST_FIELDS.some((option) => option.value === field),
-          )
-        : [...DEFAULT_LIST_FIELDS]
+    if (Array.isArray(saved.listFields)) {
+      const known = saved.listFields.filter((field) =>
+        LIST_FIELDS.some((option) => option.value === field),
+      )
+
+      if (known.length) {
+        // Явный пустой список — это выбор пользователя «без полей».
+        listFields.value = known
+      } else if (saved.listFields.length) {
+        // Все сохранённые значения устарели — возвращаем умолчания.
+        listFields.value = [...DEFAULT_LIST_FIELDS]
+      } else {
+        listFields.value = []
+      }
+    } else {
+      listFields.value = [...DEFAULT_LIST_FIELDS]
+    }
 
     downloadNameMode.value = DOWNLOAD_NAME_MODES.some(
       (option) => option.value === saved.downloadNameMode,
@@ -183,13 +197,13 @@ export const useDisplayStore = defineStore('display', () => {
    * Не дать панелям съесть грид: суммарная ширина открытых панелей
    * ограничена так, чтобы под грид осталось хотя бы 420 px.
    */
-  function fitPanels(viewportWidth = window.innerWidth || 0) {
-    if (!viewportWidth) return
+  function panelWidthLimit(viewportWidth = panelViewport.value) {
+    if (!viewportWidth) return PANEL_LIMITS.max
 
     const openCount =
       Number(leftPanelOpen.value) + Number(rightPanelOpen.value)
 
-    if (!openCount) return
+    if (!openCount) return PANEL_LIMITS.max
 
     const minGrid = 420
     const handles = 24
@@ -197,18 +211,29 @@ export const useDisplayStore = defineStore('display', () => {
       PANEL_LIMITS.min * openCount,
       viewportWidth - minGrid - handles,
     )
-    const allowed = Math.min(
+
+    return Math.min(
       PANEL_LIMITS.max,
       Math.max(PANEL_LIMITS.min, Math.floor(available / openCount)),
     )
-
-    if (leftPanelOpen.value) {
-      leftPanelWidth.value = Math.min(leftPanelWidth.value, allowed)
-    }
-    if (rightPanelOpen.value) {
-      rightPanelWidth.value = Math.min(rightPanelWidth.value, allowed)
-    }
   }
+
+  /**
+   * Apply the window constraint for RENDERING only.
+   *
+   * The saved widths stay untouched, so opening the page on a narrow screen
+   * no longer overwrites the user's layout with shrunken values.
+   */
+  function fitPanels(viewportWidth = window.innerWidth || 0) {
+    panelViewport.value = Number(viewportWidth) || 0
+  }
+
+  const leftPanelWidthEffective = computed(() =>
+    Math.min(leftPanelWidth.value, panelWidthLimit()),
+  )
+  const rightPanelWidthEffective = computed(() =>
+    Math.min(rightPanelWidth.value, panelWidthLimit()),
+  )
 
   function snapshot() {
     return {
@@ -305,9 +330,22 @@ export const useDisplayStore = defineStore('display', () => {
     // The settings belong to the user, not to the browser: the same blob is
     // kept on the server (under the `display` key of the selection state) so a
     // login elsewhere brings them back. Debounced, failures are ignored.
+    //
+    // Capture BOTH the user key and the token now: another tab may log in as
+    // someone else before the timer fires, and the token is read at send time.
+    const scheduledKey = storageKey()
+    const scheduledToken = getToken()
     clearTimeout(serverTimer)
     serverTimer = setTimeout(() => {
       serverTimer = null
+
+      if (
+        storageKey() !== scheduledKey
+        || getToken() !== scheduledToken
+      ) {
+        return
+      }
+
       try {
         saveSelection({ display: data }).catch(() => {})
       } catch {
@@ -326,7 +364,9 @@ export const useDisplayStore = defineStore('display', () => {
     if (!persistenceEnabled) return
 
     try {
-      await saveSelection({ display: snapshot() })
+      // keepalive lets the small settings blob survive page teardown; a plain
+      // fetch is aborted and then the older server copy wins on next login.
+      await saveSelection({ display: snapshot() }, { keepalive: true })
     } catch {
       // Offline or logged out: the local copy is all we have.
     }
@@ -339,6 +379,12 @@ export const useDisplayStore = defineStore('display', () => {
    * the next user never inherit someone else's layout.
    */
   function setUserKey(key, { migrate = false } = {}) {
+    // A pending save belongs to the previous user: drop it before switching.
+    if (serverTimer !== null) {
+      clearTimeout(serverTimer)
+      serverTimer = null
+    }
+
     storageSuffix = key ? String(key) : ''
     applyState(loadState({ migrate }))
     base.value = loadBase({ migrate })
@@ -385,6 +431,7 @@ export const useDisplayStore = defineStore('display', () => {
     tileColumns.value = DEFAULT_TILE_COLUMNS
     listFields.value = [...DEFAULT_LIST_FIELDS]
     downloadNameMode.value = DEFAULT_DOWNLOAD_NAME_MODE
+    addressClientMode.value = 'union'
     leftPanelOpen.value = DEFAULT_SIDE_PANELS_OPEN
     rightPanelOpen.value = DEFAULT_SIDE_PANELS_OPEN
     leftPanelWidth.value = DEFAULT_PANEL_WIDTH
@@ -394,11 +441,18 @@ export const useDisplayStore = defineStore('display', () => {
 
   function resizePanel(side, delta) {
     if (side === 'left') {
-      leftPanelWidth.value = clamp(leftPanelWidth.value + delta, PANEL_LIMITS)
+      // Start from the width the user actually sees (may be window-clamped).
+      leftPanelWidth.value = clamp(
+        leftPanelWidthEffective.value + delta,
+        PANEL_LIMITS,
+      )
     } else {
       // Dragging the right border right moves it right: the width grows with
       // the negative delta, because the panel sits at the other edge.
-      rightPanelWidth.value = clamp(rightPanelWidth.value - delta, PANEL_LIMITS)
+      rightPanelWidth.value = clamp(
+        rightPanelWidthEffective.value - delta,
+        PANEL_LIMITS,
+      )
     }
   }
 
@@ -415,6 +469,8 @@ export const useDisplayStore = defineStore('display', () => {
     rightPanelOpen,
     leftPanelWidth,
     rightPanelWidth,
+    leftPanelWidthEffective,
+    rightPanelWidthEffective,
     sideListHeight,
     resizePanel,
     resizeSideList,

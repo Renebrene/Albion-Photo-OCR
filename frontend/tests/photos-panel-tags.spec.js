@@ -147,16 +147,19 @@ describe('строка тегов', () => {
     wrapper.unmount()
   })
 
-  it('показывает «Все», когда отмечен весь список клиентов', async () => {
+  it('отмеченные клиенты остаются отдельными тегами', async () => {
     const wrapper = await mountGrid()
 
     store.selectedClients = ['Клиент А', 'Клиент Б']
     await flushPromises()
     await nextTick()
 
-    const tags = wrapper.find('.tags-row')
-    expect(tags.text()).toContain('Все')
-    expect(tags.text()).not.toContain('Клиент: Клиент А')
+    const tags = wrapper.find('.tags-row').text()
+    // «Все» больше не отдельное состояние клиентов: пустой выбор уже
+    // означает «все клиенты базы».
+    expect(tags).toContain('Клиент: Клиент А')
+    expect(tags).toContain('Клиент: Клиент Б')
+    expect(tags).not.toContain('Все')
     wrapper.unmount()
   })
 
@@ -232,7 +235,7 @@ describe('строка тегов', () => {
     wrapper.unmount()
   })
 
-  it('выбор всего списка заменяет отдельные теги на «Все»', async () => {
+  it('«Все» остаётся только у адресов, клиенты идут отдельными тегами', async () => {
     const wrapper = await mountGrid()
 
     // Отмечен весь список адресов (2 из 2) и клиентов (2 из 2).
@@ -243,25 +246,68 @@ describe('строка тегов', () => {
 
     const tags = wrapper.find('.tags-row').text()
     expect(tags).not.toContain('Комарова 13')
-    expect(tags).not.toContain('Клиент: Клиент А')
-    expect(tags.split('Все').length - 1).toBe(2)
+    expect(tags).toContain('Клиент: Клиент А')
+    expect(tags.split('Все').length - 1).toBe(1)
     wrapper.unmount()
   })
 
-  it('кнопка «Все» в заголовке панели выбирает весь список', async () => {
+  it('кнопка «Все» в заголовке адресов выбирает весь список', async () => {
     const wrapper = await mountGrid()
 
     const buttons = wrapper
       .findAll('button')
       .filter((button) => button.text().trim() === 'Все')
 
-    expect(buttons.length).toBe(2)
+    // У клиентов такой кнопки больше нет: пустой выбор = все клиенты.
+    expect(buttons.length).toBe(1)
 
     await buttons[0].trigger('click')
     await flushPromises()
     await nextTick()
 
     expect(wrapper.find('.tags-row').text()).toContain('Все')
+    wrapper.unmount()
+  })
+
+  it('кнопка сброса клиентов очищает выбор и бренд', async () => {
+    const wrapper = await mountGrid()
+
+    store.selectedClients = ['Клиент А']
+    await flushPromises()
+    await nextTick()
+
+    // Бренд выбирается через главный поиск; здесь достаточно проверить
+    // очистку клиентов и активной подборки.
+    store.clientCollectionId = 5
+    store.clientCollectionValues = ['Клиент А']
+
+    await wrapper.find('.client-reset').trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    expect(store.selectedClients).toEqual([])
+    expect(store.clientCollectionId).toBe(null)
+    expect(wrapper.find('.tags-row').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('«Обновить» снимает выделение фото, а «Сбросить фильтры» — нет', async () => {
+    const wrapper = await mountGrid()
+
+    store.selected = ['PH_' + 'a'.repeat(24)]
+    await wrapper.find('.grid-refresh').trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    expect(store.selected).toEqual([])
+
+    store.selected = [photo.photo_id]
+    await wrapper.find('.grid-reset').trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    // Корзина выделенных фото живёт отдельно от фильтров.
+    expect(store.selected).toEqual([photo.photo_id])
     wrapper.unmount()
   })
 
@@ -530,9 +576,17 @@ describe('строка тегов', () => {
 
     // Бренд добавляется к клиенту (OR), а не заменяет его.
     expect(store.selectedClients).toEqual(['Клиент А'])
-    const tags = wrapper.find('.tags-row').text()
+    let tags = wrapper.find('.tags-row').text()
     expect(tags).toContain('Клиент: Клиент А')
     expect(tags).toContain('Бренд: СТС')
+
+    // Сброс убирает и клиента, и бренд: пустой выбор = все клиенты базы.
+    await wrapper.find('.client-reset').trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    expect(store.selectedClients).toEqual([])
+    expect(wrapper.find('.tags-row').exists()).toBe(false)
     wrapper.unmount()
   })
 

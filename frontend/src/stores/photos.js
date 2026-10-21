@@ -226,6 +226,22 @@ export const usePhotosStore = defineStore('photos', {
     },
 
     /**
+     * Update one loaded row in place (rescanned QWEN fields, address override).
+     *
+     * Keeps lazy-loaded pages and scroll position; facets are refreshed by the
+     * caller when the client/brand/address counters changed.
+     */
+    updateLoadedPhoto(photo) {
+      const index = this.items.findIndex(
+        (item) => item.photo_id === photo.photo_id,
+      )
+
+      if (index !== -1) {
+        this.items[index] = { ...this.items[index], ...photo }
+      }
+    },
+
+    /**
      * Сколько фото сейчас в отфильтрованном наборе.
      *
      * Грид показывает только распознанные фото, поэтому во время HYBRID это
@@ -368,7 +384,9 @@ export const usePhotosStore = defineStore('photos', {
       this.selectedAddresses = addresses.map((value) =>
         normalizeAddressValue(this.addresses, value),
       )
-      this.selectedClients = clients
+      // Copy: a saved search passes its stored array, and tag toggling mutates
+      // the selected list in place.
+      this.selectedClients = [...clients]
       this.brand = brand
       this.tag = tag
       this.category = category

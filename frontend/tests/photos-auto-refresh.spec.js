@@ -119,6 +119,24 @@ describe('грид следит за HYBRID', () => {
     wrapper.unmount()
   })
 
+  it('не перечитывает грид, пока открыт просмотрщик', async () => {
+    const wrapper = await mountGrid()
+
+    await wrapper.find('.photo-card .auth-image-root').trigger('click')
+    await flushPromises()
+
+    // HYBRID доработал фото, но просмотрщик открыт: страницы не сбрасываем.
+    photoTotal = 3
+    await vi.advanceTimersByTimeAsync(10_000)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('За период 2 фото')
+    expect(Notify.create).not.toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Распознано новых фото: +1' }),
+    )
+    wrapper.unmount()
+  })
+
   it('показывает стадию и число совпадений во время HYBRID', async () => {
     const wrapper = await mountGrid()
 

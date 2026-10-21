@@ -48,6 +48,50 @@ describe('display store', () => {
     expect(display.listFields).toEqual(['filename', 'client'])
   })
 
+  it('keeps an explicitly empty listFields and recovers from all-unknown ones', () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ listFields: [] }),
+    )
+
+    expect(useDisplayStore().listFields).toEqual([])
+
+    setActivePinia(createPinia())
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ listFields: ['nope', 'also-nope'] }),
+    )
+
+    expect(useDisplayStore().listFields).toEqual([
+      'filename', 'address', 'client',
+    ])
+  })
+
+  it('reset() also restores the ○ △ □ mode', () => {
+    const display = useDisplayStore()
+
+    display.addressClientMode = 'client'
+    display.reset()
+
+    expect(display.addressClientMode).toBe('union')
+  })
+
+  it('flushes settings with keepalive for page teardown', async () => {
+    const calls = []
+    global.fetch = async (url, options = {}) => {
+      calls.push({ url: String(url), options })
+      return { ok: true, status: 200, json: async () => ({}) }
+    }
+
+    const display = useDisplayStore()
+
+    await display.flush()
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].options.keepalive).toBe(true)
+    delete global.fetch
+  })
+
   it('persists changes and reset() restores the defaults', async () => {
     const display = useDisplayStore()
 
@@ -499,7 +543,7 @@ describe('настройки за пользователем и размеры �
     display.setUserKey('')
   })
 
-  it('не даёт панелям сжать грид до нуля', () => {
+  it('не даёт панелям сжать грид, не портя сохранённую ширину', () => {
     const display = useDisplayStore()
 
     display.leftPanelOpen = true
@@ -509,10 +553,18 @@ describe('настройки за пользователем и размеры �
 
     display.fitPanels(1000)
 
-    expect(display.leftPanelWidth).toBeGreaterThanOrEqual(PANEL_LIMITS.min)
-    expect(display.rightPanelWidth).toBeGreaterThanOrEqual(PANEL_LIMITS.min)
-    expect(display.leftPanelWidth + display.rightPanelWidth).toBeLessThanOrEqual(
-      1000 - 420,
+    // Сохранённое значение остаётся желаемым; окно ограничивает только
+    // фактическую ширину при отрисовке.
+    expect(display.leftPanelWidth).toBe(620)
+    expect(display.rightPanelWidth).toBe(620)
+    expect(display.leftPanelWidthEffective).toBeGreaterThanOrEqual(
+      PANEL_LIMITS.min,
     )
+    expect(display.rightPanelWidthEffective).toBeGreaterThanOrEqual(
+      PANEL_LIMITS.min,
+    )
+    expect(
+      display.leftPanelWidthEffective + display.rightPanelWidthEffective,
+    ).toBeLessThanOrEqual(1000 - 420)
   })
 })

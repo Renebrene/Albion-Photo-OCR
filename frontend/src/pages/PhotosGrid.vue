@@ -229,7 +229,10 @@ async function rescanPhoto(provider) {
 
     if (!job) {
       Notify.create({ type: 'warning', message: 'Задание всё ещё выполняется' })
-    } else if (job.status === 'DONE') {
+      return
+    }
+
+    if (job.status === 'DONE') {
       Notify.create({ type: 'positive', message: 'Описание обновлено' })
     } else {
       Notify.create({
@@ -238,7 +241,23 @@ async function rescanPhoto(provider) {
       })
     }
 
-    await loadDetails(current.value)
+    // Строка грида обновляется всегда, даже если пользователь успел
+    // перелистнуть на другое фото. Детали и историю читаем только для
+    // открытого фото; панели пересчитываем из-за client/brand/category.
+    if (current.value?.photo_id === photoId) {
+      await loadDetails(current.value)
+
+      if (details.value?.photo) {
+        store.updateLoadedPhoto(details.value.photo)
+      }
+    } else {
+      const data = await fetchPhotoDetails(photoId).catch(() => null)
+
+      if (data?.photo) store.updateLoadedPhoto(data.photo)
+    }
+
+    await store.loadClients()
+    await store.loadAddresses()
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   } finally {
@@ -549,14 +568,6 @@ const allAddressesSelected = computed(
     ),
 )
 
-const allClientsSelected = computed(
-  () =>
-    clients.value.length > 0
-    && clients.value.every((item) =>
-      store.selectedClients.includes(item.client),
-    ),
-)
-
 function addressTagLabel(item) {
   return item.name || item.simple_address || item.address
 }
@@ -601,10 +612,6 @@ const clientTags = computed(() => {
     ]
   }
 
-  if (allClientsSelected.value) {
-    return [{ key: 'clients-all', label: 'Все', type: 'clients-all' }]
-  }
-
   return store.selectedClients.map((value) => ({
     key: `client:${value}`,
     label: `Клиент: ${value}`,
@@ -640,7 +647,7 @@ const clientSelectionCount = computed(
 
 function tagColor(type) {
   if (type === 'address' || type === 'address-collection') return 'primary'
-  if (type === 'addresses-all' || type === 'clients-all') return 'grey-7'
+  if (type === 'addresses-all') return 'grey-7'
   return 'secondary'
 }
 
@@ -663,9 +670,6 @@ async function removeTag(tag) {
       break
     case 'addresses-all':
       store.selectedAddresses = []
-      break
-    case 'clients-all':
-      store.selectedClients = []
       break
     case 'address-collection':
       store.addressCollectionId = null
@@ -800,6 +804,11 @@ async function pipelineStage() {
 }
 
 async function syncDuringPipeline() {
+  // Не трогаем грид, пока он занят загрузкой или открыт просмотрщик:
+  // refresh() заменил бы лениво загруженные страницы первой и сломал бы
+  // навигацию по открытому фото. Следующий тик повторит попытку.
+  if (store.loading || viewerOpen.value) return
+
   try {
     const status = await pipelineStage()
 
@@ -1244,14 +1253,14 @@ async function clearAddresses() {
   await apply()
 }
 
-async function selectAllClients() {
-  // Аналогично адресам: все 100 видимых клиентов, без учёта поиска в панели.
-  store.selectedClients = clients.value.map((item) => item.client)
-  await apply()
-}
-
-async function clearClients() {
+async function resetClientSelection() {
+  // Пустой выбор = «все клиенты и бренды базы»: фильтр по клиенту/бренду
+  // просто не отправляется. Поэтому отдельная кнопка «Все» не нужна.
   store.selectedClients = []
+  selectedBrand.value = null
+  store.clientCollectionId = null
+  store.clientCollectionValues = []
+  store._syncCollectionId()
   await apply()
 }
 
@@ -1288,9 +1297,15 @@ async function reset() {
   suggestMuted = false
   hadSearchTerm = false
   mediaFile.value = null
-  autoMode.value = true
-  store.clearSelection()
+  // «Сбросить фильтры» не трогает корзину выделенных фото: она живёт
+  // отдельно от фильтров. Снять выделение можно кнопкой «Обновить».
   await apply()
+}
+
+async function refreshGrid() {
+  // Обновление — это и есть явный сброс выделения в гриде.
+  store.clearSelection()
+  await store.refresh()
 }
 
 // ---- smart search by an uploaded photo ----
@@ -2006,20 +2021,46 @@ async function openAddressEditor() {
   }
 }
 
+/**
+ * Bring the grid row and both facets up to date after an address change.
+ *
+ * A full refresh is needed only when the address is part of the active
+ * filter (the photo may leave/enter the filtered set). Otherwise the loaded
+ * row is updated in place, so lazily loaded pages and scroll survive.
+ */
+async function applyAddressChange(photoId) {
+  if (current.value?.photo_id === photoId) {
+    await loadDetails(current.value)
+
+    if (details.value?.photo) {
+      store.updateLoadedPhoto(details.value.photo)
+    }
+  } else {
+    const data = await fetchPhotoDetails(photoId).catch(() => null)
+
+    if (data?.photo) store.updateLoadedPhoto(data.photo)
+  }
+
+  await store.loadAddresses()
+  await store.loadClients()
+
+  if (store.selectedAddresses.length) {
+    await store.refresh()
+    await store.loadAddresses()
+  }
+}
+
 async function saveAddressOverride() {
   if (!current.value || !addressChoice.value || addressSaving.value) return
 
   addressSaving.value = true
+  const photoId = current.value.photo_id
 
   try {
-    await setPhotoAddressOverride(current.value.photo_id, addressChoice.value)
+    await setPhotoAddressOverride(photoId, addressChoice.value)
     Notify.create({ type: 'positive', message: 'Юридический адрес обновлён' })
     addressEditOpen.value = false
-    await loadDetails(current.value)
-    // Фото меняет привязку везде: строки грида, счётчики адресов и клиентов.
-    await store.refresh()
-    await store.loadAddresses()
-    await store.loadClients()
+    await applyAddressChange(photoId)
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   } finally {
@@ -2031,15 +2072,13 @@ async function resetAddressOverride() {
   if (!current.value || addressSaving.value) return
 
   addressSaving.value = true
+  const photoId = current.value.photo_id
 
   try {
-    await clearPhotoAddressOverride(current.value.photo_id)
+    await clearPhotoAddressOverride(photoId)
     Notify.create({ type: 'info', message: 'Исправление снято' })
     addressEditOpen.value = false
-    await loadDetails(current.value)
-    await store.refresh()
-    await store.loadAddresses()
-    await store.loadClients()
+    await applyAddressChange(photoId)
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   } finally {
@@ -2345,7 +2384,7 @@ function tagList(meta) {
       <div
         v-if="display.leftPanelOpen"
         class="left-panel q-pr-xs"
-        :style="{ width: display.leftPanelWidth + 'px', flex: '0 0 auto' }"
+        :style="{ width: display.leftPanelWidthEffective + 'px', flex: '0 0 auto' }"
       >
         <q-card
           flat bordered
@@ -2606,10 +2645,10 @@ function tagList(meta) {
             {{ mediaStageText }}
           </span>
 
-          <q-btn dense flat icon="refresh" :disable="mediaBusy" @click="store.refresh()">
-            <q-tooltip>Обновить</q-tooltip>
+          <q-btn class="grid-refresh" dense flat icon="refresh" :disable="mediaBusy" @click="refreshGrid()">
+            <q-tooltip>Обновить и снять выделение фото</q-tooltip>
           </q-btn>
-          <q-btn dense flat icon="restart_alt" :disable="mediaBusy" @click="reset">
+          <q-btn class="grid-reset" dense flat icon="restart_alt" :disable="mediaBusy" @click="reset">
             <q-tooltip>Сбросить фильтры и результаты поиска</q-tooltip>
           </q-btn>
         </div>
@@ -3127,7 +3166,7 @@ function tagList(meta) {
       <div
         v-if="display.rightPanelOpen"
         class="right-panel q-pl-xs"
-        :style="{ width: display.rightPanelWidth + 'px', flex: '0 0 auto' }"
+        :style="{ width: display.rightPanelWidthEffective + 'px', flex: '0 0 auto' }"
       >
         <q-card
           flat
@@ -3149,27 +3188,27 @@ function tagList(meta) {
               <q-icon name="help_outline" size="16px" class="client-help q-ml-xs">
                 <q-tooltip>
                   Отображается не более 100 клиентов; выбранные показываются
-                  всегда. Полный список доступен в поиске
+                  всегда. Без выделения учитываются все клиенты и бренды базы.
+                  Полный список доступен в поиске
                 </q-tooltip>
               </q-icon>
             </div>
-            <!-- Одна кнопка: пока ничего не выбрано — «Все», иначе «Снять». -->
+            <!-- Пустой выбор означает «все клиенты и бренды»; кнопка только
+                 снимает конкретное выделение. -->
             <q-btn
+              class="client-reset"
               dense
               flat
               size="sm"
-              :label="store.selectedClients.length ? 'Снять' : 'Все'"
-              @click="
-                store.selectedClients.length
-                  ? clearClients()
-                  : selectAllClients()
-              "
+              icon="filter_alt_off"
+              :disable="!clientSelectionCount"
+              @click="resetClientSelection()"
             >
               <q-tooltip>
                 {{
-                  store.selectedClients.length
-                    ? 'Снять выделение клиентов'
-                    : 'Выбрать всех клиентов'
+                  clientSelectionCount
+                    ? 'Сбросить выбор клиентов и брендов — будут учтены все'
+                    : 'Ничего не выбрано: учитываются все клиенты и бренды'
                 }}
               </q-tooltip>
             </q-btn>

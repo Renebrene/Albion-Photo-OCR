@@ -742,8 +742,8 @@ export function fetchSelection() {
   return getJson(`${BASE}/v1/selection`)
 }
 
-export function saveSelection(state) {
-  return putJson(`${BASE}/v1/selection`, { state })
+export function saveSelection(state, options = {}) {
+  return putJson(`${BASE}/v1/selection`, { state }, options)
 }
 
 export function fetchSavedSearches() {
@@ -891,11 +891,12 @@ export function fetchQwenStats() {
   return getJson(`${BASE}/v1/qwen/stats`)
 }
 
-async function putJson(url, body) {
+async function putJson(url, body, { keepalive = false } = {}) {
   const response = await fetch(url, {
     method: 'PUT',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(body),
+    keepalive,
   })
 
   if (!response.ok) {

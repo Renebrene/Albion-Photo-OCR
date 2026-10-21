@@ -217,6 +217,17 @@ describe('photos store', () => {
     expect(store.clients).toEqual([{ client: 'Новый', count: 1 }])
   })
 
+  it('applyFilters copies clients so a saved search is not mutated', async () => {
+    const store = usePhotosStore()
+    const saved = { filters: { clients: ['Клиент А'], addresses: [] } }
+    store.savedSearches = [saved]
+
+    await store.applyFilters({ clients: saved.filters.clients })
+    store.selectedClients.push('Клиент Б')
+
+    expect(saved.filters.clients).toEqual(['Клиент А'])
+  })
+
   it('late collection response does not overwrite a newer collection click', async () => {
     const pending = []
 
