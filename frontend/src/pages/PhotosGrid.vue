@@ -125,14 +125,10 @@ watch(
   () => display.addressClientMode,
   async () => {
     // Смена режима меняет смысл выбранных адресов/клиентов — сбрасываем
-    // выделение и подборки, чтобы грид не показывал старую комбинацию.
-    store.selectedAddresses = []
-    store.selectedClients = []
-    store.addressCollectionId = null
-    store.clientCollectionId = null
-    store.addressCollectionValues = []
-    store.clientCollectionValues = []
-    store.collectionId = null
+    // и адресов, и клиентов, и подборки, чтобы грид не показывал старую
+    // комбинацию. resetSelectionFilters() также отменяет поздние ответы
+    // applyCollection.
+    store.resetSelectionFilters()
     addressSearch.value = ''
     clientSearch.value = ''
 
@@ -1241,13 +1237,7 @@ async function reset() {
   dateMode.value = 'upload'
   customFrom.value = null
   customTo.value = null
-  store.selectedAddresses = []
-  store.selectedClients = []
-  store.collectionId = null
-  store.addressCollectionId = null
-  store.clientCollectionId = null
-  store.addressCollectionValues = []
-  store.clientCollectionValues = []
+  store.resetSelectionFilters()
   clearStructuredFilters()
   addressSearch.value = ''
   clientSearch.value = ''

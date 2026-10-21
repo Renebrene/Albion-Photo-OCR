@@ -115,6 +115,9 @@ export const usePhotosStore = defineStore('photos', {
     // выделение вручную (тогда подборка больше не активна).
     addressCollectionValues: [],
     clientCollectionValues: [],
+    // Номер изменения выбора: поздний ответ applyCollection не должен
+    // вернуть выбор после сброса режима.
+    selectionEpoch: 0,
     nlIds: [],
 
     // side panels (mirroring the legacy UI)
@@ -359,6 +362,23 @@ export const usePhotosStore = defineStore('photos', {
      * клиенты в правом; грид после этого показывает фото по этим фильтрам.
      * Повторный клик по активной подборке снимает выбор.
      */
+    /**
+     * Сбросить выделение адресов и клиентов вместе с подборками.
+     *
+     * Используется при смене режима ○ △ □: номер эпохи делает недействительным
+     * поздний ответ applyCollection, который иначе вернул бы выбор.
+     */
+    resetSelectionFilters() {
+      this.selectionEpoch += 1
+      this.selectedAddresses = []
+      this.selectedClients = []
+      this.addressCollectionId = null
+      this.clientCollectionId = null
+      this.addressCollectionValues = []
+      this.clientCollectionValues = []
+      this.collectionId = null
+    },
+
     _syncCollectionId() {
       this.collectionId = this.addressCollectionId ?? this.clientCollectionId ?? null
     },
@@ -406,6 +426,7 @@ export const usePhotosStore = defineStore('photos', {
     },
 
     async applyCollection(collection) {
+      const epoch = this.selectionEpoch
       const isClients = collection.scope === 'clients'
       const activeKey = isClients ? 'clientCollectionId' : 'addressCollectionId'
 
@@ -433,6 +454,9 @@ export const usePhotosStore = defineStore('photos', {
         collection.collection_id,
         memberType,
       )
+      // Пока шёл запрос, режим сменили и выбор сбросили — не возвращаем его.
+      if (epoch !== this.selectionEpoch) return
+
       const values = data.items || []
 
       if (isClients) {
@@ -457,6 +481,7 @@ export const usePhotosStore = defineStore('photos', {
 
     /** Сохранить текущий выбор адресов (или клиентов) как подборку. */
     async saveSelectionAsCollection({ name, scope, collectionId = null }) {
+      const epoch = this.selectionEpoch
       const isClients = scope === 'clients'
       const values = isClients
         ? [...this.selectedClients]
@@ -486,6 +511,9 @@ export const usePhotosStore = defineStore('photos', {
       await addCollectionMembers(id, { member_type: memberType, values })
 
       await this.loadCollections()
+
+      // Режим сменили во время сохранения — не активируем подборку.
+      if (epoch !== this.selectionEpoch) return id
 
       if (isClients) {
         this.clientCollectionId = id

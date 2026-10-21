@@ -542,3 +542,32 @@ describe('выделение фото', () => {
     expect(store.selected).toEqual(['PH_x'])
   })
 })
+
+describe('сброс режима и подборки', () => {
+  it('поздний ответ подборки не возвращает выбор после сброса', async () => {
+    let resolveMembers = null
+    const deferred = new Promise((resolve) => {
+      resolveMembers = resolve
+    })
+
+    routes.push({
+      method: 'GET',
+      match: (p) => p === '/api/v1/collections/5/members',
+      respond: () => deferred,
+    })
+
+    const store = usePhotosStore()
+    const pending = store.applyCollection({
+      collection_id: 5,
+      name: 'Клиенты',
+      scope: 'clients',
+    })
+
+    store.resetSelectionFilters()
+    resolveMembers(jsonResponse({ items: ['Маркет'] }))
+    await pending
+
+    expect(store.selectedClients).toEqual([])
+    expect(store.clientCollectionId).toBe(null)
+  })
+})

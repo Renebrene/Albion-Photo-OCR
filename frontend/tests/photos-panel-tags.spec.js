@@ -268,13 +268,21 @@ describe('строка тегов', () => {
     const wrapper = await mountGrid()
     const display = useDisplayStore()
 
-    // Смена режима сама сбрасывает выделение.
+    // Смена режима сама сбрасывает выделение адресов И клиентов, включая
+    // активную подборку.
+    store.collections = [
+      { collection_id: 5, name: 'Клиенты', scope: 'clients' },
+    ]
     store.selectedClients = ['Клиент А']
+    store.clientCollectionId = 5
+    store.clientCollectionValues = ['Клиент А']
     display.addressClientMode = 'client'
     await flushPromises()
     await nextTick()
 
     expect(store.selectedClients).toEqual([])
+    expect(store.clientCollectionId).toBe(null)
+    expect(wrapper.find('.tags-row').exists()).toBe(false)
 
     store.selectedClients = ['Клиент А']
     await store.loadAddresses()
