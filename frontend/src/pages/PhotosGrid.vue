@@ -343,8 +343,24 @@ const periods = PERIODS
 
 // «За период N фото»: размер всего отфильтрованного набора, а не загруженной
 // страницы. `total` приходит с первой страницей; для «Все даты» подпись иная.
+const hasFilterSelection = computed(
+  () =>
+    Boolean(store.query)
+    || store.selectedAddresses.length > 0
+    || store.selectedClients.length > 0
+    || Boolean(store.brand || store.tag || store.category)
+    || Boolean(store.collectionId)
+    || store.nlIds.length > 0,
+)
+
 const periodLabel = computed(() => {
   const count = store.total
+
+  if (hasFilterSelection.value) {
+    return count === null || count === undefined
+      ? 'В выборке …'
+      : `В выборке ${count} фото`
+  }
 
   if (count === null || count === undefined) {
     return period.value === 'all' ? 'Всего фото' : 'За период …'

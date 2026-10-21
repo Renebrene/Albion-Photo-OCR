@@ -354,6 +354,17 @@ describe('строка тегов', () => {
     wrapper.unmount()
   })
 
+  it('при активном фильтре подпись говорит «В выборке», а не «За период»', async () => {
+    const wrapper = await mountGrid()
+
+    store.selectedClients = ['Клиент А']
+    await nextTick()
+
+    expect(wrapper.text()).toContain('В выборке 1 фото')
+    expect(wrapper.text()).not.toContain('За период 1 фото')
+    wrapper.unmount()
+  })
+
   it('Enter в пустом поиске адресов ничего не выбирает', async () => {
     const wrapper = await mountGrid()
 

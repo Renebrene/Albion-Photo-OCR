@@ -143,10 +143,10 @@ def test_tag_facets_combine_with_or():
         tag="канал СТС",
     )
 
-    assert " OR LOWER(t.brand) = LOWER(%s)" in where
-    assert " AND LOWER(t.brand)" not in where
+    assert "LOWER(t.brand) = LOWER(%s)" in where
+    assert "ca.kind = 'brand'" in where
     assert " OR EXISTS (" in where
-    assert params == ["Клиент", "Клиент", "СТС", "канал СТС"]
+    assert params == ["Клиент", "Клиент", "СТС", "СТС", "канал СТС"]
 
 
 def test_combine_union_ors_all_tag_facets():
@@ -157,8 +157,8 @@ def test_combine_union_ors_all_tag_facets():
         combine="union",
     )
 
-    assert params == [5, 5, "Клиент", "Клиент", "СТС"]
-    assert " OR LOWER(t.brand)" in where
+    assert params == [5, 5, "Клиент", "Клиент", "СТС", "СТС"]
+    assert "LOWER(t.brand) = LOWER(%s)" in where
 
 
 def test_combine_address_makes_the_address_the_universe():
@@ -169,7 +169,7 @@ def test_combine_address_makes_the_address_the_universe():
         combine="address",
     )
 
-    assert params == [5, 5, "Клиент", "Клиент", "СТС"]
+    assert params == [5, 5, "Клиент", "Клиент", "СТС", "СТС"]
     assert ") AND (" in where
 
 
@@ -181,7 +181,7 @@ def test_combine_client_prioritises_clients_and_keeps_param_order():
         combine="client",
     )
 
-    assert params == ["Клиент", "Клиент", 5, 5, "СТС"]
+    assert params == ["Клиент", "Клиент", 5, 5, "СТС", "СТС"]
     assert ") AND (" in where
 
 

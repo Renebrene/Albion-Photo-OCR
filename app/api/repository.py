@@ -281,8 +281,16 @@ def _photo_where(
     other_params: list[object] = []
 
     if brand:
-        other_clauses.append("LOWER(t.brand) = LOWER(%s)")
-        other_params.append(brand)
+        # Бренды нормализуются так же, как клиенты: выбор канонического
+        # названия находит и сырые написания из словаря алиасов.
+        other_clauses.append(
+            "(LOWER(t.brand) = LOWER(%s) OR EXISTS ("
+            "SELECT 1 FROM public.client_aliases AS ca "
+            "WHERE LOWER(ca.alias) = LOWER(t.brand) "
+            "  AND ca.kind = 'brand' "
+            "  AND LOWER(ca.canonical) = LOWER(%s)))"
+        )
+        other_params.extend([brand, brand])
 
     if category:
         other_clauses.append("LOWER(t.category) = LOWER(%s)")
@@ -851,8 +859,24 @@ def stats(
                 SELECT
                     (SELECT count(*) FROM public.photos),
                     (SELECT count(*) FROM public.photos WHERE """ + period_sql + """),
-                    (SELECT count(DISTINCT client) FROM public.photo_qwen
-                      WHERE client IS NOT NULL AND client <> ''),
+                    (SELECT count(DISTINCT COALESCE(a.canonical, q.client))
+                       FROM public.photo_qwen AS q
+                       LEFT JOIN public.client_aliases AS a
+                              ON LOWER(a.alias) = LOWER(q.client)
+                             AND a.kind = 'client'
+                      WHERE q.client IS NOT NULL AND q.client <> ''
+                        AND (
+                          EXISTS (
+                            SELECT 1 FROM public.hybrid_results AS hr
+                            WHERE hr.photo_id = q.photo_id
+                              AND hr.status = 'DONE'
+                              AND hr.hybrid_final_id IS NOT NULL
+                          )
+                          OR EXISTS (
+                            SELECT 1 FROM public.photo_address_overrides AS ov
+                            WHERE ov.photo_id = q.photo_id
+                          )
+                        )),
                     (SELECT max(created_at) FROM public.photos)
                 """,
                 period_params,
@@ -1093,7 +1117,7 @@ def list_clients(
         "SELECT COALESCE(a.canonical, t.client) AS client, count(*) AS count "
         "FROM (" + _PHOTO_SELECT + ") AS t "
         "LEFT JOIN public.client_aliases AS a "
-        "       ON a.alias = t.client AND a.kind = 'client' "
+        "       ON LOWER(a.alias) = LOWER(t.client) AND a.kind = 'client' "
         "WHERE t.client IS NOT NULL AND t.client <> ''" + extra + " "
         "GROUP BY COALESCE(a.canonical, t.client) "
         "ORDER BY lower(COALESCE(a.canonical, t.client)) LIMIT %s"

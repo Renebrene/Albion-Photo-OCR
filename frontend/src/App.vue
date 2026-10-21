@@ -129,14 +129,22 @@ const mediaStats = ref(null)
 const mediaStatsLoading = ref(false)
 let statsTimer = null
 
+// Счётчик запросов: быстрые смены периода не должны оставлять старые числа.
+let statsRequest = 0
+
 async function loadStats() {
+  const request = ++statsRequest
+
   try {
     // «Медиа за период» follows the grid's current date filter.
-    stats.value = await fetchStats({
+    const data = await fetchStats({
       dateFrom: photos.dateFrom,
       dateTo: photos.dateTo,
       dateMode: photos.dateMode,
     })
+
+    if (request !== statsRequest) return
+    stats.value = data
   } catch {
     // Подвал — вспомогательная информация: без неё окно работает как обычно.
   }
@@ -417,6 +425,9 @@ function toggleDark() {
         <span class="footer-dot">·</span>
         <span class="footer-item">
           {{ periodLabel }}:
+          <q-tooltip>
+            Только по дате загрузки/съёмки; фильтры грида здесь не учитываются
+          </q-tooltip>
           <q-icon name="photo" size="16px" class="footer-icon" />
           <b>{{ stats.period_photos === null ? '—' : stats.period_photos }}</b>
           <span class="footer-sep">/</span>
