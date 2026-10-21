@@ -1452,6 +1452,9 @@ def collection_member_values(
             return [row[0] for row in cur.fetchall()]
 
 
+COLLECTION_LIMITS = {"client": 100, "address": 1000, "photo": 5000}
+
+
 def add_collection_members(
     collection_id: int,
     *,
@@ -1461,8 +1464,28 @@ def add_collection_members(
     if not values:
         return 0
 
+    limit = COLLECTION_LIMITS.get(member_type)
+
+    if limit is None:
+        raise ValueError(f"unknown member type: {member_type}")
+
     with get_connection() as conn:
         with conn.cursor() as cur:
+            # Не даём подборке вырасти за лимиты панелей: иначе применение
+            # такой подборки упирается в 422 списковых параметров.
+            cur.execute(
+                "SELECT member_value FROM public.collection_members "
+                "WHERE collection_id = %s AND member_type = %s",
+                (collection_id, member_type),
+            )
+            existing = {row[0] for row in cur.fetchall()}
+            fresh = {value for value in values if value not in existing}
+
+            if len(existing) + len(fresh) > limit:
+                raise ValueError(
+                    f"collection limit is {limit} {member_type} values"
+                )
+
             cur.executemany(
                 """
                 INSERT INTO public.collection_members (

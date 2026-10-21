@@ -262,3 +262,21 @@ def test_client_list_narrows_to_addresses(monkeypatch):
     assert "af.address_id = %s AND af.active" in sql
     assert "public.hybrid_results" in sql
     assert params == [5, 5, 10]
+
+
+def test_collection_client_limit_is_enforced_in_repository(monkeypatch):
+    """Подборка не может содержать больше 100 клиентов."""
+
+    import pytest
+
+    from app.api import repository
+
+    captured = {}
+    _fake_connection(monkeypatch, repository, captured)
+
+    with pytest.raises(ValueError):
+        repository.add_collection_members(
+            1,
+            member_type="client",
+            values=[f"client-{index}" for index in range(101)],
+        )

@@ -459,6 +459,12 @@ export const usePhotosStore = defineStore('photos', {
 
       const values = data.items || []
 
+      // Пустая подборка не должна активироваться: иначе чип есть, а фильтра
+      // нет, и грид показывает всё.
+      if (!values.length) {
+        throw new Error('Подборка пуста — нечего выбирать')
+      }
+
       if (isClients) {
         this.selectedClients = values
         this.clientCollectionValues = [...values]

@@ -190,3 +190,71 @@ def test_combine_rejects_unknown_mode():
 
     with pytest.raises(ValueError):
         repository._photo_where(addresses=["addr:5"], combine="nope")
+
+
+def test_invalid_date_is_rejected_with_422(monkeypatch):
+    monkeypatch.setattr(repository, "list_photos", lambda **kwargs: ([], None))
+    monkeypatch.setattr(repository, "count_photos", lambda **kwargs: 0)
+
+    response = client.get(
+        "/api/v1/photos",
+        params={"date_from": "abcdefghij"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_inverted_date_range_is_swapped(monkeypatch):
+    seen = {}
+
+    def fake_list_photos(**kwargs):
+        seen.update(kwargs)
+        return [], None
+
+    monkeypatch.setattr(repository, "list_photos", fake_list_photos)
+    monkeypatch.setattr(repository, "count_photos", lambda **kwargs: 0)
+
+    response = client.get(
+        "/api/v1/photos",
+        params={"date_from": "2026-10-31", "date_to": "2026-10-01"},
+    )
+
+    assert response.status_code == 200
+    assert seen["date_from"] == "2026-10-01"
+    assert seen["date_to"] == "2026-10-31"
+
+
+def test_photo_collection_filter_rejects_other_scopes(monkeypatch):
+    monkeypatch.setattr(
+        repository,
+        "get_collection",
+        lambda collection_id, user_id=None: {
+            "collection_id": collection_id,
+            "scope": "clients",
+        },
+    )
+
+    response = client.get("/api/v1/photos", params={"collection_id": 5})
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "collection scope must be photos"
+
+
+def test_collection_limit_is_enforced(monkeypatch):
+    monkeypatch.setattr(
+        repository,
+        "add_collection_members",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("limit")),
+    )
+    monkeypatch.setattr(
+        repository,
+        "get_collection",
+        lambda collection_id, user_id=None: {"collection_id": collection_id},
+    )
+
+    response = client.post(
+        "/api/v1/collections/5/members",
+        json={"member_type": "client", "values": ["a", "b"]},
+    )
+
+    assert response.status_code == 422

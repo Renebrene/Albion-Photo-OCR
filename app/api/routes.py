@@ -14,6 +14,7 @@ import re
 import uuid
 import shutil
 import subprocess
+from datetime import date as date_type
 from pathlib import Path
 
 from fastapi import (
@@ -112,6 +113,21 @@ def _validate_photo_id(photo_id: str) -> str:
     return photo_id
 
 
+def _date_params(
+    date_from: date_type | None,
+    date_to: date_type | None,
+) -> tuple[str | None, str | None]:
+    """ISO dates for SQL; an inverted range is swapped, not silently empty."""
+
+    start = date_from.isoformat() if date_from else None
+    end = date_to.isoformat() if date_to else None
+
+    if start and end and start > end:
+        start, end = end, start
+
+    return start, end
+
+
 @public_router.get("/health")
 def health() -> dict:
     return {"status": "ok", "version": "0.1.0"}
@@ -131,8 +147,8 @@ def list_photos(
     brand: str | None = Query(None, max_length=200),
     tag: str | None = Query(None, max_length=200),
     category: str | None = Query(None, max_length=200),
-    date_from: str | None = Query(None, max_length=10),
-    date_to: str | None = Query(None, max_length=10),
+    date_from: date_type | None = Query(None),
+    date_to: date_type | None = Query(None),
     date_mode: str = Query("upload", pattern="^(upload|capture)$"),
     # How address and client selections combine: union (join), or one facet
     # leads and the other refines inside it.
@@ -141,13 +157,25 @@ def list_photos(
     ids: list[str] | None = Query(None, max_length=200),
     principal=Depends(require_scope("read")),
 ):
+    date_from, date_to = _date_params(date_from, date_to)
+
     # A collection belongs to its owner; asking for somebody else's yields an
     # empty page rather than 404, so the response does not reveal that the id
-    # exists.
-    if collection_id is not None and repository.get_collection(
-        collection_id, _principal_user_id(principal)
-    ) is None:
-        return {"items": [], "next_cursor": None, "total": 0}
+    # exists. Only photo collections are valid here: address/client
+    # collections are applied through address/client values.
+    if collection_id is not None:
+        collection = repository.get_collection(
+            collection_id, _principal_user_id(principal)
+        )
+
+        if collection is None:
+            return {"items": [], "next_cursor": None, "total": 0}
+
+        if collection.get("scope") != "photos":
+            raise HTTPException(
+                status_code=422,
+                detail="collection scope must be photos",
+            )
 
     items, next_cursor = repository.list_photos(
         limit=limit,
@@ -200,15 +228,17 @@ def list_photos(
 
 @read_router.get("/v1/stats", response_model=None)
 def get_stats(
-    date_from: str | None = Query(None, max_length=10),
-    date_to: str | None = Query(None, max_length=10),
+    date_from: date_type | None = Query(None),
+    date_to: date_type | None = Query(None),
     date_mode: str = Query("upload", pattern="^(upload|capture)$"),
 ):
     """Counts for the status bar: totals, period counts, addresses, clients."""
 
+    start, end = _date_params(date_from, date_to)
+
     return repository.stats(
-        date_from=date_from,
-        date_to=date_to,
+        date_from=start,
+        date_to=end,
         date_mode=date_mode,
     )
 
@@ -413,19 +443,21 @@ def data_export(format: str = Query("json", pattern=r"^(json|csv)$")):
 @read_router.get("/v1/addresses", response_model=None)
 def list_addresses(
     limit: int = Query(1000, ge=1, le=5000),
-    date_from: str | None = Query(None, max_length=10),
-    date_to: str | None = Query(None, max_length=10),
+    date_from: date_type | None = Query(None),
+    date_to: date_type | None = Query(None),
     date_mode: str = Query("upload", pattern="^(upload|capture)$"),
     client: list[str] | None = Query(None, max_length=100),
 ):
     # `count` is all-time (the panel must not lose it when a period is picked);
     # `period_count` repeats the count inside the caller's date range.
     # `client` narrows the list in client-priority mode.
+    start, end = _date_params(date_from, date_to)
+
     return {
         "items": repository.list_addresses(
             limit=limit,
-            date_from=date_from,
-            date_to=date_to,
+            date_from=start,
+            date_to=end,
             date_mode=date_mode,
             clients=client,
         )
@@ -1659,11 +1691,14 @@ def add_collection_members(
     ) is None:
         raise HTTPException(status_code=404, detail="collection not found")
 
-    added = repository.add_collection_members(
-        collection_id,
-        member_type=request.member_type,
-        values=request.values,
-    )
+    try:
+        added = repository.add_collection_members(
+            collection_id,
+            member_type=request.member_type,
+            values=request.values,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return {"collection_id": collection_id, "added": added}
 

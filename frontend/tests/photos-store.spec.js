@@ -571,3 +571,26 @@ describe('сброс режима и подборки', () => {
     expect(store.clientCollectionId).toBe(null)
   })
 })
+
+describe('пустая подборка', () => {
+  it('не активируется и не притворяется фильтром', async () => {
+    routes.push({
+      method: 'GET',
+      match: (p) => p === '/api/v1/collections/5/members',
+      respond: () => jsonResponse({ items: [] }),
+    })
+
+    const store = usePhotosStore()
+
+    await expect(
+      store.applyCollection({
+        collection_id: 5,
+        name: 'Пусто',
+        scope: 'clients',
+      }),
+    ).rejects.toThrow('Подборка пуста')
+
+    expect(store.selectedClients).toEqual([])
+    expect(store.clientCollectionId).toBe(null)
+  })
+})
