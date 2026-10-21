@@ -44,19 +44,34 @@ onMounted(async () => {
     await afterAuth()
   }
 
-  // Подвал может обернуть содержимое при узком окне — меряем и при изменении.
+  // Подвал может обернуть содержимое при узком окне — измеряем и при изменении.
   window.addEventListener('resize', measureChrome)
+  // Не терять последние 800 мс изменений при закрытии вкладки.
+  window.addEventListener('pagehide', flushDisplay)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', measureChrome)
+  window.removeEventListener('pagehide', flushDisplay)
   if (statsTimer !== null) window.clearInterval(statsTimer)
 })
 
+function flushDisplay() {
+  display.flush()
+}
+
 async function afterAuth() {
-  // Гость только смотрит: его выбор/раскладка не сохраняются ни на сервере,
-  // ни в localStorage.
+  // Гость только смотрит: его раскладка не сохраняется ни на сервере, ни
+  // в localStorage. Рабочие роли получают свой ключ настроек.
   const canPersist = !session.authEnabled || session.user?.role !== 'Гость'
+  const userKey = canPersist
+    ? (!session.authEnabled
+        ? 'local'
+        : String(session.user?.user_id || session.user?.name || 'user'))
+    : 'guest'
+
+  display.setPersistence(false)
+  display.setUserKey(userKey, { migrate: canPersist })
   display.setPersistence(canPersist)
   if (!canPersist) display.reset()
 
@@ -216,6 +231,8 @@ async function doLogin() {
 }
 
 async function doLogout() {
+  // Успеть сохранить последние изменения настроек до сброса токена.
+  await display.flush()
   await session.logout()
   Notify.create({ type: 'info', message: 'Выход выполнен' })
 

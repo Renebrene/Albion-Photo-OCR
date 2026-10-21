@@ -292,10 +292,12 @@ describe('оболочка приложения', () => {
 
     const text = row.text().replace(/\s+/g, ' ')
 
-    // Строка 1: адрес, дата съёмки и вес. Строка 2: имя файла и клиент/бренд.
-    expect(text).toContain('Комарова 13 · 17.07.2025 · 4.0 МБ')
+    // По умолчанию в списке: строка 1 — адрес, строка 2 — имя файла и клиент.
+    // Дата/размер/бренд появляются, только если включены в настройках списка.
+    expect(text).toContain('Комарова 13')
     expect(text).toContain('photo.jpg')
-    expect(text).toContain('Клиент А, Бренд Б')
+    expect(text).toContain('Клиент А')
+    expect(text).not.toContain('17.07.2025')
 
     wrapper.unmount()
   })

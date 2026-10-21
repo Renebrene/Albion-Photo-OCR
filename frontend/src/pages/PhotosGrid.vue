@@ -663,6 +663,11 @@ function measureTags() {
 
 watch(activeTags, () => nextTick(measureTags), { deep: true })
 
+function onWindowResize() {
+  measureTags()
+  display.fitPanels()
+}
+
 function onTagsWheel(event) {
   const el = tagsRowEl.value
 
@@ -813,7 +818,7 @@ async function syncDuringPipeline() {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
-  window.addEventListener('resize', measureTags)
+  window.addEventListener('resize', onWindowResize)
 
   // Вход на главную всегда начинает с текущего месяца: старые выделения
   // адресов/клиентов, строка поиска и период не восстанавливаются.
@@ -833,6 +838,7 @@ onMounted(async () => {
   clientSearch.value = ''
 
   await store.loadFacets()
+  display.fitPanels()
   loadQwenModels()
   apply()
 
@@ -860,7 +866,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
-  window.removeEventListener('resize', measureTags)
+  window.removeEventListener('resize', onWindowResize)
   stopGridObserver()
   stopQwenElapsed()
 
@@ -2056,13 +2062,59 @@ function fieldLabel(key) {
   return option ? option.label : key
 }
 
-// Поля, которые уже показаны двумя основными строками списка: повторять их
-// третьей строкой незачем.
-const LIST_CAPTION_FIELDS = ['filename', 'address', 'client', 'brand', 'taken_at']
+// Настройка «поля в списке» реально управляет списком: основные поля идут
+// первой строкой, текстовые — второй, остальные (дата загрузки и т.п.) —
+// третьей.
+const LIST_MAIN_FIELDS = ['address', 'taken_at', 'size']
+const LIST_SECOND_FIELDS = ['filename', 'client', 'brand', 'category']
 
-function extraListFields(photo) {
+const listFieldSet = computed(() => new Set(display.listFields))
+
+function listMainParts(photo) {
+  const parts = []
+
+  if (listFieldSet.value.has('address')) {
+    const address = photo?.simple_address || photo?.address
+    if (address) parts.push({ key: 'address', text: address, bold: true })
+  }
+
+  if (listFieldSet.value.has('taken_at') && tileDate(photo)) {
+    parts.push({ key: 'taken_at', text: tileDate(photo), bold: false })
+  }
+
+  if (listFieldSet.value.has('size') && tileSize(photo)) {
+    parts.push({ key: 'size', text: tileSize(photo), bold: false })
+  }
+
+  return parts
+}
+
+function listSecondParts(photo) {
+  const parts = []
+
+  if (listFieldSet.value.has('filename') && photo?.filename) {
+    parts.push({ key: 'filename', text: photo.filename })
+  }
+  if (listFieldSet.value.has('client') && photo?.client) {
+    parts.push({ key: 'client', text: photo.client })
+  }
+  if (listFieldSet.value.has('brand') && photo?.brand) {
+    parts.push({ key: 'brand', text: photo.brand })
+  }
+  if (listFieldSet.value.has('category') && photo?.category) {
+    parts.push({ key: 'category', text: photo.category })
+  }
+
+  return parts
+}
+
+function listExtraFields(photo) {
   return display.listFields
-    .filter((field) => !LIST_CAPTION_FIELDS.includes(field))
+    .filter(
+      (field) =>
+        !LIST_MAIN_FIELDS.includes(field)
+        && !LIST_SECOND_FIELDS.includes(field),
+    )
     .map((field) => `${fieldLabel(field)}: ${fieldText(photo, field)}`)
 }
 
@@ -2795,25 +2847,25 @@ function tagList(meta) {
                   />
                 </q-item-section>
                 <q-item-section>
-                  <!-- Строка 1: адрес (алиас) жирным, затем дата съёмки и вес. -->
-                  <q-item-label class="ellipsis">
-                    <span
-                      v-if="photo.simple_address || photo.address"
-                      class="text-weight-bold"
+                  <!-- Строка 1: поля, выбранные в настройках списка. -->
+                  <q-item-label v-if="listMainParts(photo).length" class="ellipsis">
+                    <template
+                      v-for="(part, index) in listMainParts(photo)"
+                      :key="part.key"
                     >
-                      {{ photo.simple_address || photo.address }}
-                    </span>
-                    <span v-if="tileMeta(photo)" class="text-grey-8">
-                      <template v-if="photo.simple_address || photo.address">
-                        ·
-                      </template>
-                      {{ tileMeta(photo) }}
-                    </span>
+                      <span :class="part.bold ? 'text-weight-bold' : 'text-grey-8'">
+                        {{ part.text }}
+                      </span>
+                      <span v-if="index < listMainParts(photo).length - 1"> · </span>
+                    </template>
                   </q-item-label>
 
-                  <!-- Строка 2: имя файла и результат распознавания
-                       (клиент/бренд), когда он уже есть. -->
-                  <q-item-label caption class="ellipsis">
+                  <!-- Строка 2: имя файла и результат распознавания. -->
+                  <q-item-label
+                    v-if="listSecondParts(photo).length"
+                    caption
+                    class="ellipsis"
+                  >
                     <q-icon
                       name="auto_awesome"
                       size="14px"
@@ -2822,23 +2874,24 @@ function tagList(meta) {
                     >
                       <q-tooltip>{{ qwenHint(photo) }}</q-tooltip>
                     </q-icon>
-                    {{ photo.filename }}
-                    <span v-if="clientBrand(photo)" class="text-grey-8">
-                      · {{ clientBrand(photo) }}
-                    </span>
+                    <template
+                      v-for="(part, index) in listSecondParts(photo)"
+                      :key="part.key"
+                    >
+                      <span>{{ part.text }}</span>
+                      <span v-if="index < listSecondParts(photo).length - 1"> · </span>
+                    </template>
                   </q-item-label>
 
-                  <!-- Остальные поля из настроек списка (размер в пикселях,
-                       дата загрузки) — третьей строкой, чтобы настройка не
-                       потеряла смысл. -->
+                  <!-- Остальные выбранные поля — третьей строкой. -->
                   <q-item-label
-                    v-if="extraListFields(photo).length || photo.source_directory"
+                    v-if="listExtraFields(photo).length || photo.source_directory"
                     caption
                     class="ellipsis text-grey-7"
                     :title="photo.source_directory"
                   >
-                    <template v-if="extraListFields(photo).length">{{ extraListFields(photo).join(' · ') }}</template>
-                    <template v-if="photo.source_directory">{{ extraListFields(photo).length ? ' · ' : '' }}{{ photo.source_directory }}</template>
+                    <template v-if="listExtraFields(photo).length">{{ listExtraFields(photo).join(' · ') }}</template>
+                    <template v-if="photo.source_directory">{{ listExtraFields(photo).length ? ' · ' : '' }}{{ photo.source_directory }}</template>
                   </q-item-label>
                 </q-item-section>
                 <q-item-section side>
@@ -3142,6 +3195,7 @@ function tagList(meta) {
             <AuthImage
               :url="viewerUrl()"
               :ratio="4 / 3"
+              fit="contain"
               class="rounded-borders"
               style="max-width: 100%"
             />

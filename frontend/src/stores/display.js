@@ -68,9 +68,34 @@ const DEFAULT_DOWNLOAD_NAME_MODE = 'filename'
 const DEFAULT_SIDE_PANELS_OPEN = true
 const STORAGE_KEY = 'scene.display.v1'
 
-function loadState() {
+// Настройки отображения — за пользователем, а не за браузером: ключ
+// localStorage получает суффикс с id пользователя.
+let storageSuffix = ''
+
+function storageKey() {
+  return storageSuffix ? `${STORAGE_KEY}.u${storageSuffix}` : STORAGE_KEY
+}
+
+function baseStorageKey() {
+  return `${storageKey()}.base`
+}
+
+function loadState({ migrate = false } = {}) {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
+    const key = storageKey()
+    let raw = window.localStorage.getItem(key)
+
+    // Первый вход после обновления: однажды переносим старый общий ключ
+    // в личный ключ пользователя и убираем общий.
+    if (!raw && migrate && storageSuffix) {
+      const legacy = window.localStorage.getItem(STORAGE_KEY)
+      if (legacy) {
+        window.localStorage.setItem(key, legacy)
+        window.localStorage.removeItem(STORAGE_KEY)
+        raw = legacy
+      }
+    }
+
     const parsed = raw ? JSON.parse(raw) : null
     if (parsed && typeof parsed === 'object') return parsed
   } catch {
@@ -154,6 +179,37 @@ export const useDisplayStore = defineStore('display', () => {
 
   applyState(loadState())
 
+  /**
+   * Не дать панелям съесть грид: суммарная ширина открытых панелей
+   * ограничена так, чтобы под грид осталось хотя бы 420 px.
+   */
+  function fitPanels(viewportWidth = window.innerWidth || 0) {
+    if (!viewportWidth) return
+
+    const openCount =
+      Number(leftPanelOpen.value) + Number(rightPanelOpen.value)
+
+    if (!openCount) return
+
+    const minGrid = 420
+    const handles = 24
+    const available = Math.max(
+      PANEL_LIMITS.min * openCount,
+      viewportWidth - minGrid - handles,
+    )
+    const allowed = Math.min(
+      PANEL_LIMITS.max,
+      Math.max(PANEL_LIMITS.min, Math.floor(available / openCount)),
+    )
+
+    if (leftPanelOpen.value) {
+      leftPanelWidth.value = Math.min(leftPanelWidth.value, allowed)
+    }
+    if (rightPanelOpen.value) {
+      rightPanelWidth.value = Math.min(rightPanelWidth.value, allowed)
+    }
+  }
+
   function snapshot() {
     return {
       tileColumns: tileColumns.value,
@@ -171,11 +227,21 @@ export const useDisplayStore = defineStore('display', () => {
   // Base (starting) state: a snapshot of the settings that the installation is
   // known to work with. «Вернуть базовые» restores it - the 100 % working
   // layout - and it can be downloaded or loaded from a file as a backup.
-  const BASE_KEY = `${STORAGE_KEY}.base`
-
-  function loadBase() {
+  function loadBase({ migrate = false } = {}) {
     try {
-      const raw = window.localStorage.getItem(BASE_KEY)
+      const key = baseStorageKey()
+      let raw = window.localStorage.getItem(key)
+
+      if (!raw && migrate && storageSuffix) {
+        const legacy = window.localStorage.getItem(`${STORAGE_KEY}.base`)
+
+        if (legacy) {
+          window.localStorage.setItem(key, legacy)
+          window.localStorage.removeItem(`${STORAGE_KEY}.base`)
+          raw = legacy
+        }
+      }
+
       const parsed = raw ? JSON.parse(raw) : null
 
       if (parsed && typeof parsed === 'object') return parsed
@@ -194,7 +260,7 @@ export const useDisplayStore = defineStore('display', () => {
     base.value = data
 
     try {
-      window.localStorage.setItem(BASE_KEY, JSON.stringify(data))
+      window.localStorage.setItem(baseStorageKey(), JSON.stringify(data))
     } catch {
       // private mode: the base lives for this session only
     }
@@ -231,7 +297,7 @@ export const useDisplayStore = defineStore('display', () => {
     const data = snapshot()
 
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+      window.localStorage.setItem(storageKey(), JSON.stringify(data))
     } catch {
       // storage disabled (private mode): keep the value for this session only
     }
@@ -241,12 +307,41 @@ export const useDisplayStore = defineStore('display', () => {
     // login elsewhere brings them back. Debounced, failures are ignored.
     clearTimeout(serverTimer)
     serverTimer = setTimeout(() => {
+      serverTimer = null
       try {
         saveSelection({ display: data }).catch(() => {})
       } catch {
         // No session or no network: the local copy is all we have.
       }
     }, 800)
+  }
+
+  /** Immediately persist the pending change (logout, page hide). */
+  async function flush() {
+    if (serverTimer !== null) {
+      clearTimeout(serverTimer)
+      serverTimer = null
+    }
+
+    if (!persistenceEnabled) return
+
+    try {
+      await saveSelection({ display: snapshot() })
+    } catch {
+      // Offline or logged out: the local copy is all we have.
+    }
+  }
+
+  /**
+   * Switch to a user's local settings.
+   *
+   * `migrate` moves the old global key into this user's key once; a Guest and
+   * the next user never inherit someone else's layout.
+   */
+  function setUserKey(key, { migrate = false } = {}) {
+    storageSuffix = key ? String(key) : ''
+    applyState(loadState({ migrate }))
+    base.value = loadBase({ migrate })
   }
 
   /** Restore this user's settings after a login. */
@@ -266,6 +361,9 @@ export const useDisplayStore = defineStore('display', () => {
       // Not authenticated (or the endpoint is unavailable): keep the local ones.
     }
   }
+
+  // Открыли/закрыли панель — сразу проверяем, что грид не остался нулевым.
+  watch([leftPanelOpen, rightPanelOpen], () => fitPanels())
 
   watch(
     [
@@ -312,6 +410,7 @@ export const useDisplayStore = defineStore('display', () => {
     tileColumns,
     listFields,
     downloadNameMode,
+    addressClientMode,
     leftPanelOpen,
     rightPanelOpen,
     leftPanelWidth,
@@ -319,8 +418,11 @@ export const useDisplayStore = defineStore('display', () => {
     sideListHeight,
     resizePanel,
     resizeSideList,
+    fitPanels,
     reset,
     setPersistence,
+    setUserKey,
+    flush,
     loadFromServer,
     // Base (starting) state: reserve, restore, adopt from a file.
     base,

@@ -469,3 +469,50 @@ describe('draggable panel sizes', () => {
     delete global.fetch
   })
 })
+
+describe('настройки за пользователем и размеры панелей', () => {
+  it('хранит раскладку в личном ключе и один раз переносит старый общий', async () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ tileColumns: 5 }),
+    )
+
+    const display = useDisplayStore()
+    display.setUserKey('u1', { migrate: true })
+
+    expect(display.tileColumns).toBe(5)
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull()
+
+    display.tileColumns = 4
+    display.addressClientMode = 'client'
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    display.setUserKey('u2')
+    expect(display.tileColumns).toBe('auto')
+    expect(display.addressClientMode).toBe('union')
+
+    display.setUserKey('u1')
+    expect(display.tileColumns).toBe(4)
+    expect(display.addressClientMode).toBe('client')
+
+    // Вернуть тестовую среду к общему ключу.
+    display.setUserKey('')
+  })
+
+  it('не даёт панелям сжать грид до нуля', () => {
+    const display = useDisplayStore()
+
+    display.leftPanelOpen = true
+    display.rightPanelOpen = true
+    display.leftPanelWidth = 620
+    display.rightPanelWidth = 620
+
+    display.fitPanels(1000)
+
+    expect(display.leftPanelWidth).toBeGreaterThanOrEqual(PANEL_LIMITS.min)
+    expect(display.rightPanelWidth).toBeGreaterThanOrEqual(PANEL_LIMITS.min)
+    expect(display.leftPanelWidth + display.rightPanelWidth).toBeLessThanOrEqual(
+      1000 - 420,
+    )
+  })
+})

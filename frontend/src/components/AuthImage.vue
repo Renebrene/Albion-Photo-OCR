@@ -12,6 +12,8 @@ const props = defineProps({
   // outside the viewport and load it again on return. Off by default so the
   // list thumbnails and the viewer keep their exact layout.
   lazy: { type: Boolean, default: false },
+  // q-img fit (e.g. 'contain' in the viewer so the photo is not cropped).
+  fit: { type: String, default: '' },
 })
 
 // Quasar's q-img runs `Number(ratio)`, so a string like "16/9" becomes NaN and
@@ -144,7 +146,7 @@ onBeforeUnmount(() => {
        наследуются, и клик по превью не открывает фото. -->
   <div class="auth-image-root">
     <div v-if="lazy" ref="rootEl" class="auth-image">
-      <q-img v-if="src" :src="src" :ratio="ratioValue" />
+      <q-img v-if="src" :src="src" :ratio="ratioValue" :fit="fit || undefined" />
       <div
         v-else-if="failed"
         class="flex flex-center bg-grey-3 text-grey"
@@ -154,7 +156,7 @@ onBeforeUnmount(() => {
       </div>
       <q-skeleton v-else :style="ratioValue ? { aspectRatio: String(ratioValue) } : { minHeight: '48px' }" />
     </div>
-    <q-img v-else-if="src" :src="src" :ratio="ratioValue" />
+    <q-img v-else-if="src" :src="src" :ratio="ratioValue" :fit="fit || undefined" />
     <div
       v-else-if="failed"
       class="flex flex-center bg-grey-3 text-grey"
