@@ -1635,16 +1635,33 @@ def list_collections(principal=Depends(require_scope("read"))):
     return {"items": repository.list_collections(_principal_user_id(principal))}
 
 
+def _require_member_type(collection: dict, member_type: str) -> None:
+    """A collection scope owns exactly one member type."""
+
+    expected = repository.member_type_for_scope(collection.get("scope"))
+
+    if expected and member_type != expected:
+        raise HTTPException(
+            status_code=422,
+            detail=f"collection scope {collection.get('scope')} "
+                   f"requires member_type {expected}",
+        )
+
+
 @read_router.get("/v1/collections/{collection_id}/members", response_model=None)
 def list_collection_members(
     collection_id: int,
     member_type: str = Query("photo", pattern=r"^(address|client|photo)$"),
     principal=Depends(require_scope("read")),
 ):
-    if repository.get_collection(
+    collection = repository.get_collection(
         collection_id, _principal_user_id(principal)
-    ) is None:
+    )
+
+    if collection is None:
         raise HTTPException(status_code=404, detail="collection not found")
+
+    _require_member_type(collection, member_type)
 
     return {
         "items": repository.collection_member_values(
@@ -1686,10 +1703,14 @@ def add_collection_members(
     request: CollectionMembersRequest,
     principal=Depends(require_scope("collections:write")),
 ):
-    if repository.get_collection(
+    collection = repository.get_collection(
         collection_id, _principal_user_id(principal)
-    ) is None:
+    )
+
+    if collection is None:
         raise HTTPException(status_code=404, detail="collection not found")
+
+    _require_member_type(collection, request.member_type)
 
     try:
         added = repository.add_collection_members(
@@ -1709,10 +1730,14 @@ def remove_collection_members(
     request: CollectionMembersRequest,
     principal=Depends(require_scope("collections:write")),
 ):
-    if repository.get_collection(
+    collection = repository.get_collection(
         collection_id, _principal_user_id(principal)
-    ) is None:
+    )
+
+    if collection is None:
         raise HTTPException(status_code=404, detail="collection not found")
+
+    _require_member_type(collection, request.member_type)
 
     removed = repository.remove_collection_members(
         collection_id,

@@ -269,7 +269,10 @@ def test_collection_limit_is_enforced(monkeypatch):
     monkeypatch.setattr(
         repository,
         "get_collection",
-        lambda collection_id, user_id=None: {"collection_id": collection_id},
+        lambda collection_id, user_id=None: {
+            "collection_id": collection_id,
+            "scope": "clients",
+        },
     )
 
     response = client.post(
@@ -278,3 +281,22 @@ def test_collection_limit_is_enforced(monkeypatch):
     )
 
     assert response.status_code == 422
+
+
+def test_collection_member_type_must_match_scope(monkeypatch):
+    monkeypatch.setattr(
+        repository,
+        "get_collection",
+        lambda collection_id, user_id=None: {
+            "collection_id": collection_id,
+            "scope": "photos",
+        },
+    )
+
+    response = client.post(
+        "/api/v1/collections/5/members",
+        json={"member_type": "client", "values": ["a"]},
+    )
+
+    assert response.status_code == 422
+    assert "requires member_type photo" in response.json()["detail"]

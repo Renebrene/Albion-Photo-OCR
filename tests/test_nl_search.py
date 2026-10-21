@@ -55,7 +55,7 @@ def test_run_merges_terms(monkeypatch):
 
     calls = {}
 
-    def fake_list_photos(*, limit, query=None, addresses=None):
+    def fake_list_photos(*, limit, query=None, addresses=None, **kwargs):
         calls[query] = True
         if query == "Маркет":
             return [_Item("PH_a"), _Item("PH_b")], None
@@ -83,7 +83,7 @@ def test_run_falls_back_to_raw_query(monkeypatch):
 
     seen = {}
 
-    def fake_list_photos(*, limit, query=None, addresses=None):
+    def fake_list_photos(*, limit, query=None, addresses=None, **kwargs):
         seen["query"] = query
         return [_Item("PH_x")], None
 
@@ -127,7 +127,7 @@ def test_run_does_not_pass_a_human_address_as_a_fingerprint_filter(monkeypatch):
 
     seen = []
 
-    def fake_list_photos(*, limit, query=None, addresses=None):
+    def fake_list_photos(*, limit, query=None, addresses=None, **kwargs):
         seen.append((query, addresses))
         return [_Item("PH_a")], None
 

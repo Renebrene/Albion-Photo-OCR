@@ -62,7 +62,7 @@ def test_search_ranks_by_number_of_matched_terms(monkeypatch):
         def __init__(self, photo_id):
             self.photo_id = photo_id
 
-    def fake_list_photos(limit, query):
+    def fake_list_photos(limit, query, **kwargs):
         # "щит" → A,B ; "Яндекс" → A ; "KVAS" → C
         return {
             "щит": [Item("A"), Item("B")],

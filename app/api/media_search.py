@@ -462,7 +462,11 @@ def search(filters: dict, *, limit: int = MAX_PER_TERM) -> dict:
     truncated = False
 
     for term, weight in weighted:
-        items, next_cursor = repository.list_photos(limit=limit, query=term)
+        items, next_cursor = repository.list_photos(
+            limit=limit,
+            query=term,
+            recognized_only=True,
+        )
 
         if next_cursor is not None:
             truncated = True

@@ -5,6 +5,7 @@ from __future__ import annotations
 import mimetypes
 import os
 import re
+from datetime import date as date_type
 from datetime import timezone
 from http.cookies import SimpleCookie
 from pathlib import Path
@@ -37,6 +38,21 @@ def _video_id(video_id: str) -> str:
     if not VIDEO_ID_RE.fullmatch(video_id):
         raise HTTPException(status_code=404, detail="video not found")
     return video_id
+
+
+def _date_params(
+    date_from: date_type | None,
+    date_to: date_type | None,
+) -> tuple[str | None, str | None]:
+    """ISO dates for SQL; an inverted range is swapped (photos do the same)."""
+
+    start = date_from.isoformat() if date_from else None
+    end = date_to.isoformat() if date_to else None
+
+    if start and end and start > end:
+        start, end = end, start
+
+    return start, end
 
 
 def _source(video_id: str) -> tuple[Path, dict]:
@@ -156,10 +172,11 @@ def list_videos(
     limit: int = Query(50, ge=1, le=100),
     cursor: str | None = Query(None, max_length=64),
     q: str | None = Query(None, max_length=256),
-    date_from: str | None = Query(None, max_length=10),
-    date_to: str | None = Query(None, max_length=10),
+    date_from: date_type | None = None,
+    date_to: date_type | None = None,
     date_mode: str = Query("upload", pattern="^(upload|capture)$"),
 ):
+    date_from, date_to = _date_params(date_from, date_to)
     items, next_cursor = video_repository.list_videos(
         limit=limit, cursor=cursor, query=q,
         date_from=date_from, date_to=date_to, date_mode=date_mode,

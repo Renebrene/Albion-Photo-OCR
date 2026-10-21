@@ -886,7 +886,7 @@ def stats(
                 SELECT
                     (SELECT count(*) FROM public.photos),
                     (SELECT count(*) FROM public.photos WHERE """ + period_sql + """),
-                    (SELECT count(DISTINCT COALESCE(a.canonical, q.client))
+                    (SELECT count(DISTINCT LOWER(COALESCE(a.canonical, q.client)))
                        FROM public.photo_qwen AS q
                        LEFT JOIN public.client_aliases AS a
                               ON LOWER(a.alias) = LOWER(q.client)
@@ -937,17 +937,24 @@ def stats(
             has_video_table = cur.fetchone()[0] is not None
 
             if has_video_table:
-                # Videos have no EXIF capture date: their period always uses
-                # the registration time.
+                # Video assets carry taken_at as well (ingest fills it); use
+                # the same date mode as the video list and the photo grid.
+                video_date_column = (
+                    "taken_at" if date_mode == "capture" else "created_at"
+                )
                 video_parts: list[str] = []
                 video_params: list[object] = []
 
                 if date_from:
-                    video_parts.append("created_at >= %s::date")
+                    video_parts.append(
+                        f"{video_date_column} >= %s::date"
+                    )
                     video_params.append(date_from)
 
                 if date_to:
-                    video_parts.append("created_at < (%s::date + interval '1 day')")
+                    video_parts.append(
+                        f"{video_date_column} < (%s::date + interval '1 day')"
+                    )
                     video_params.append(date_to)
 
                 video_period_sql = " AND ".join(video_parts) or "TRUE"
@@ -1048,6 +1055,10 @@ def suggest_terms(term: str, *, limit: int = 8) -> list[dict]:
     Matches tags, clients, brands and categories by substring (ILIKE) or
     trigram similarity (pg_trgm), so a slightly misspelled word still finds a
     real tag. Prefix matches rank first, then similarity, then usage count.
+
+    One value may be a client AND a brand (or a tag): each role is returned as
+    its own suggestion, otherwise picking it would silently filter only one
+    side. Case variants are one suggestion with summed usage.
     """
 
     like = f"%{term}%"
@@ -1076,15 +1087,22 @@ def suggest_terms(term: str, *, limit: int = 8) -> list[dict]:
             UNION ALL
             SELECT 'address', legal_address FROM public.address_directory
             WHERE active AND legal_address <> ''
+        ),
+        grouped AS (
+            SELECT lower(value) AS norm,
+                   mode() WITHIN GROUP (ORDER BY value) AS value,
+                   kind,
+                   count(*) AS uses
+            FROM values
+            WHERE value ILIKE %s OR value %% %s
+            GROUP BY lower(value), kind
         )
-        SELECT value, min(kind) AS kind, count(*) AS uses
-        FROM values
-        WHERE value ILIKE %s OR value %% %s
-        GROUP BY value
-        ORDER BY (lower(value) LIKE lower(%s)) DESC,
-                 similarity(value, %s) DESC,
+        SELECT value, kind, uses
+        FROM grouped
+        ORDER BY (norm LIKE lower(%s)) DESC,
+                 similarity(norm, lower(%s)) DESC,
                  uses DESC,
-                 lower(value)
+                 norm
         LIMIT %s
     """
 
@@ -1121,13 +1139,16 @@ def list_clients(
     if extra:
         extra = " AND (" + extra + ")"
 
+    # Case variants are one client: the filter is case-insensitive anyway,
+    # so two rows would show half-counts for the same selection.
     sql = (
-        "SELECT COALESCE(a.canonical, t.client) AS client, count(*) AS count "
+        "SELECT mode() WITHIN GROUP (ORDER BY COALESCE(a.canonical, t.client)) "
+        "       AS client, count(*) AS count "
         "FROM (" + _PHOTO_SELECT + ") AS t "
         "LEFT JOIN public.client_aliases AS a "
         "       ON LOWER(a.alias) = LOWER(t.client) AND a.kind = 'client' "
         "WHERE t.client IS NOT NULL AND t.client <> ''" + extra + " "
-        "GROUP BY COALESCE(a.canonical, t.client) "
+        "GROUP BY lower(COALESCE(a.canonical, t.client)) "
         "ORDER BY lower(COALESCE(a.canonical, t.client)) LIMIT %s"
     )
 
@@ -1174,23 +1195,35 @@ def upsert_client_alias(
 ) -> dict:
     with get_connection() as conn:
         with conn.cursor() as cur:
+            # Case-insensitive lookup: "Сбер" and "сбер" are the same alias,
+            # and the facet join is case-insensitive too. Prefer an exact
+            # spelling when it already exists.
             cur.execute(
-                "SELECT canonical FROM public.client_aliases "
-                "WHERE kind = %s AND alias = %s",
-                (kind, alias),
+                "SELECT alias, canonical FROM public.client_aliases "
+                "WHERE kind = %s AND LOWER(alias) = LOWER(%s) "
+                "ORDER BY (alias = %s) DESC, alias LIMIT 1",
+                (kind, alias, alias),
             )
             row = cur.fetchone()
-            old = row[0] if row is not None else None
 
-            cur.execute(
-                """
-                INSERT INTO public.client_aliases (alias, canonical, kind)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (kind, alias) DO UPDATE
-                    SET canonical = EXCLUDED.canonical
-                """,
-                (alias, canonical, kind),
-            )
+            if row is not None:
+                existing_alias, old = row
+                cur.execute(
+                    "UPDATE public.client_aliases SET canonical = %s "
+                    "WHERE kind = %s AND alias = %s",
+                    (canonical, kind, existing_alias),
+                )
+            else:
+                old = None
+                cur.execute(
+                    """
+                    INSERT INTO public.client_aliases (alias, canonical, kind)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (kind, alias) DO UPDATE
+                        SET canonical = EXCLUDED.canonical
+                    """,
+                    (alias, canonical, kind),
+                )
 
             _record_alias_audit(
                 cur,
@@ -1326,6 +1359,20 @@ def list_qwen_client_names() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+# One scope owns exactly one member type; the API rejects a mismatch instead
+# of letting a "photos" collection contain clients (its count would then
+# disagree with the grid).
+COLLECTION_MEMBER_TYPES = {
+    "addresses": "address",
+    "clients": "client",
+    "photos": "photo",
+}
+
+
+def member_type_for_scope(scope: str | None) -> str | None:
+    return COLLECTION_MEMBER_TYPES.get(str(scope)) if scope else None
+
+
 def _collection_row(row) -> dict:
     return {
         "collection_id": int(row[0]),
@@ -1351,6 +1398,11 @@ def list_collections(user_id: str | None = None) -> list[dict]:
                 SELECT count(*)
                 FROM public.collection_members AS m
                 WHERE m.collection_id = c.collection_id
+                  AND m.member_type = CASE c.scope
+                        WHEN 'addresses' THEN 'address'
+                        WHEN 'clients' THEN 'client'
+                        ELSE 'photo'
+                      END
             ) AS members
         FROM public.collections AS c
     """
@@ -1378,6 +1430,11 @@ def get_collection(collection_id: int, user_id: str | None = None) -> dict | Non
                 SELECT count(*)
                 FROM public.collection_members AS m
                 WHERE m.collection_id = c.collection_id
+                  AND m.member_type = CASE c.scope
+                        WHEN 'addresses' THEN 'address'
+                        WHEN 'clients' THEN 'client'
+                        ELSE 'photo'
+                      END
             ) AS members
         FROM public.collections AS c
         WHERE c.collection_id = %s

@@ -91,7 +91,7 @@ def test_nl_search_reports_truncation(monkeypatch):
         lambda query: {key: None for key in nl_search._OUTPUT_KEYS},
     )
 
-    def fake_list_photos(*, limit, query=None, addresses=None):
+    def fake_list_photos(*, limit, query=None, addresses=None, **kwargs):
         # A non-null cursor means "there are more rows than this page".
         return [_Item("PH_x")], "PH_x"
 

@@ -114,6 +114,9 @@ def run(query: str, *, limit: int = MAX_PER_TERM) -> dict:
         items, next_cursor = repository.list_photos(
             limit=limit,
             query=term,
+            # The grid shows only recognised photos; searching must use the
+            # same universe or "found N" and the result grid disagree.
+            recognized_only=True,
         )
 
         if next_cursor is not None:

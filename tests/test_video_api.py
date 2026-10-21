@@ -82,6 +82,37 @@ def test_list_videos_passes_capture_date_filter(monkeypatch):
     assert response.json()["items"][0]["video_id"] == video_id
 
 
+def test_list_videos_rejects_invalid_dates(monkeypatch):
+    monkeypatch.setenv("SCENE_AUTH_REQUIRED", "0")
+    monkeypatch.setenv("SCENE_API_TOKENS", "")
+
+    response = TestClient(make_app()).get(
+        "/api/v1/videos?date_from=abcdefghij"
+    )
+
+    assert response.status_code == 422
+
+
+def test_list_videos_swaps_an_inverted_range(monkeypatch):
+    seen = {}
+
+    def fake_list(**kwargs):
+        seen.update(kwargs)
+        return ([], None)
+
+    monkeypatch.setenv("SCENE_AUTH_REQUIRED", "0")
+    monkeypatch.setenv("SCENE_API_TOKENS", "")
+    monkeypatch.setattr(videos.video_repository, "list_videos", fake_list)
+
+    response = TestClient(make_app()).get(
+        "/api/v1/videos?date_from=2026-10-31&date_to=2026-10-01"
+    )
+
+    assert response.status_code == 200
+    assert seen["date_from"] == "2026-10-01"
+    assert seen["date_to"] == "2026-10-31"
+
+
 def test_ranges_parse_single_and_suffix_ranges():
     assert videos._parse_range("bytes=10-19", 100) == (10, 19)
     assert videos._parse_range("bytes=10-", 100) == (10, 99)

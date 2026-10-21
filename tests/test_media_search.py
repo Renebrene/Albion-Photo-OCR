@@ -223,7 +223,7 @@ def test_search_ranks_terms_and_reports_truncation(monkeypatch):
 
     calls: list[tuple] = []
 
-    def fake_list_photos(*, limit, query):
+    def fake_list_photos(*, limit, query, **kwargs):
         calls.append((limit, query))
 
         if query == "KVAS":
@@ -256,7 +256,7 @@ def test_search_uses_tags_as_extra_terms(monkeypatch):
 
     seen: list[str] = []
 
-    def fake_list_photos(*, limit, query):
+    def fake_list_photos(*, limit, query, **kwargs):
         seen.append(query)
 
         if query == "баннер":
@@ -277,7 +277,7 @@ def test_search_uses_tags_as_extra_terms(monkeypatch):
 def test_search_bounds_the_number_of_tags(monkeypatch):
     seen: list[str] = []
 
-    def fake_list_photos(*, limit, query):
+    def fake_list_photos(*, limit, query, **kwargs):
         seen.append(query)
         return [], None
 
@@ -293,7 +293,7 @@ def test_search_bounds_the_number_of_tags(monkeypatch):
 def test_search_skips_duplicate_and_overlong_tags(monkeypatch):
     seen: list[str] = []
 
-    def fake_list_photos(*, limit, query):
+    def fake_list_photos(*, limit, query, **kwargs):
         seen.append(query)
         return [], None
 
