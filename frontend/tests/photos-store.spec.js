@@ -531,3 +531,14 @@ describe('подборки и структурные фильтры', () => {
     })
   })
 })
+
+describe('выделение фото', () => {
+  it('сохраняется при смене фильтров: это «корзина», а не текущая страница', async () => {
+    const store = usePhotosStore()
+    store.selected = ['PH_x']
+
+    await store.applyFilters({ q: 'новый запрос' })
+
+    expect(store.selected).toEqual(['PH_x'])
+  })
+})

@@ -299,6 +299,61 @@ describe('строка тегов', () => {
     wrapper.unmount()
   })
 
+  it('текстовый поиск не блокирует панель клиентов', async () => {
+    const wrapper = await mountGrid()
+
+    const search = wrapper
+      .findAll('input')
+      .find(
+        (item) =>
+          item.attributes('placeholder')
+          === 'Название файла, клиент, бренд, адрес',
+      )
+
+    await search.setValue('вывеска')
+    await search.trigger('keyup.enter')
+    await flushPromises()
+
+    const clientInput = wrapper
+      .findAll('input')
+      .find(
+        (item) => item.attributes('placeholder') === 'Поиск клиента или бренда',
+      )
+
+    expect(clientInput.attributes('disabled')).toBeUndefined()
+
+    const clientItem = wrapper
+      .findAll('.q-item')
+      .find((node) => node.text().includes('Клиент А'))
+
+    await clientItem.trigger('click')
+    await flushPromises()
+
+    const url = global.fetch.mock.calls
+      .map(([value]) => String(value))
+      .filter((value) => value.includes('/v1/photos'))
+      .at(-1)
+    const params = new URL(url, 'http://localhost').searchParams
+
+    expect(params.get('q')).toBe('вывеска')
+    expect(params.getAll('client')).toEqual(['Клиент А'])
+    wrapper.unmount()
+  })
+
+  it('клик по счётчику выделения снимает выбор', async () => {
+    const wrapper = await mountGrid()
+
+    store.selected = ['PH_' + 'a'.repeat(24)]
+    await nextTick()
+
+    const badge = wrapper.find('.selection-badge')
+    expect(badge.exists()).toBe(true)
+
+    await badge.trigger('click')
+    expect(store.selected).toEqual([])
+    wrapper.unmount()
+  })
+
   it('Enter в пустом поиске адресов ничего не выбирает', async () => {
     const wrapper = await mountGrid()
 

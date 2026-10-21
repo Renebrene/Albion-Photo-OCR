@@ -573,7 +573,7 @@ describe('оболочка приложения', () => {
     wrapper.unmount()
   })
 
-  it('во время текстового поиска панель клиентов/брендов неактивна', async () => {
+  it('во время текстового поиска панель клиентов/брендов остаётся доступной', async () => {
     const wrapper = await mountShell()
 
     const clientCard = document.querySelector('.right-panel .q-card')
@@ -588,14 +588,16 @@ describe('оболочка приложения', () => {
     await searchInput.setValue('Рязанка')
     await flushPromises()
 
-    expect(clientCard.classList.contains('panel-inactive')).toBe(true)
-
-    // Очистка возвращает панель в строй.
-    await searchInput.setValue('')
-    await flushPromises()
-
+    // Текст и панельные фильтры применяются вместе, панель не блокируется.
     expect(clientCard.classList.contains('panel-inactive')).toBe(false)
 
+    const clientInput = wrapper
+      .findAll('input')
+      .find((input) =>
+        (input.attributes('placeholder') || '').includes('Поиск клиента или бренда'),
+      )
+
+    expect(clientInput.attributes('disabled')).toBeUndefined()
     wrapper.unmount()
   })
 

@@ -934,12 +934,6 @@ async function apply(overrideQuery = undefined) {
   })
 }
 
-// Пока в строке поиска есть текст, фильтр клиентов/брендов неактивен:
-// два фильтра одновременно не смешиваются.
-const textSearchActive = computed(
-  () => String(q.value || '').trim() !== '',
-)
-
 // ---- очистка строки поиска ------------------------------------------------
 // Обрабатывается событиями самого поля (не watcher'ом): кнопка × присылает
 // @clear, а удаление текста — обычный @update:model-value. Оба пути ведут к
@@ -2485,8 +2479,16 @@ function tagList(meta) {
             <q-spinner-dots size="14px" class="q-mr-xs" />
             {{ pipelineStatusText }}
           </span>
-          <q-badge v-if="store.selectedCount" color="primary">
+          <!-- Выделение — «корзина»: оно может содержать фото не из текущего
+               фильтра. Клик по счётчику снимает выделение целиком. -->
+          <q-badge
+            v-if="store.selectedCount"
+            color="primary"
+            class="selection-badge"
+            @click="store.clearSelection()"
+          >
             выбрано: {{ store.selectedCount }}
+            <q-tooltip>Снять выделение</q-tooltip>
           </q-badge>
           <q-btn
             v-if="canUseCollective"
@@ -2951,7 +2953,6 @@ function tagList(meta) {
           flat
           bordered
           class="column"
-          :class="{ 'panel-inactive': textSearchActive }"
           :style="{ height: display.sideListHeight + 'px' }"
         >
           <q-card-section class="panel-head q-pb-xs row items-center">
@@ -2964,9 +2965,6 @@ function tagList(meta) {
                   :class="{ 'mode-label--lead': combineMode !== 'address' }"
                 >Клиент/бренд</span>
                 <span class="client-summary">({{ clientSelectionCount || '' }})</span>
-                <q-tooltip v-if="textSearchActive">
-                  Недоступно, пока активен поиск по тексту
-                </q-tooltip>
               </span>
               <q-icon name="help_outline" size="16px" class="client-help q-ml-xs">
                 <q-tooltip>
@@ -2980,7 +2978,6 @@ function tagList(meta) {
               dense
               flat
               size="sm"
-              :disable="textSearchActive"
               :label="store.selectedClients.length ? 'Снять' : 'Все'"
               @click="
                 store.selectedClients.length
@@ -3000,7 +2997,6 @@ function tagList(meta) {
           <q-card-section class="q-pt-none q-pb-xs">
             <q-input
               v-model="clientSearch"
-              :disable="textSearchActive"
               dense
               outlined
               clearable
@@ -3018,7 +3014,7 @@ function tagList(meta) {
           </q-card-section>
           <q-separator />
           <q-scroll-area class="col">
-            <q-list dense :disable="textSearchActive">
+            <q-list dense>
               <q-item
                 v-for="item in filteredClients"
                 :key="`${item.kind}:${item.value}`"
@@ -3786,6 +3782,11 @@ body.body--dark .client-summary {
   white-space: nowrap;
 }
 
+/* Счётчик выделения — кликабельный: снимает весь выбор. */
+.selection-badge {
+  cursor: pointer;
+}
+
 /* Символ режима у заголовка панели и подчёркивание ведущего фильтра. */
 .mode-symbol {
   margin-right: 4px;
@@ -3944,13 +3945,6 @@ body.body--dark .grid-scroll {
   z-index: 2;
   background: rgba(255, 255, 255, 0.85);
   border-radius: 4px;
-}
-
-/* Панель клиентов/брендов гаснет и не принимает клики, пока активен
-   текстовый поиск. */
-.panel-inactive {
-  opacity: 0.55;
-  pointer-events: none;
 }
 
 /* Превью выбранного файла в ручном режиме поиска. */
