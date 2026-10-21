@@ -64,9 +64,14 @@ def get_user_by_name(name: str) -> dict | None:
 
     with get_connection() as conn:
         with conn.cursor() as cur:
+            # Логин без учёта регистра: «гость» и «Гость» — один аккаунт.
+            # Точное совпадение имени всё равно выигрывает, если вдруг
+            # существуют два написания.
             cur.execute(
-                f"SELECT {_USER_COLUMNS} FROM public.users WHERE name = %s",  # noqa: S608
-                (name,),
+                f"SELECT {_USER_COLUMNS} FROM public.users "  # noqa: S608
+                "WHERE LOWER(name) = LOWER(%s) "
+                "ORDER BY (name = %s) DESC, user_id LIMIT 1",
+                (name, name),
             )
             row = cur.fetchone()
 

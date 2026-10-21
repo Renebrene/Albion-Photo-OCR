@@ -82,3 +82,26 @@ def test_passwordless_account_cannot_login_then_works_after_set():
         assert ok.json()["token"]
     finally:
         _cleanup()
+
+
+@requires_db
+def test_login_name_is_case_insensitive():
+    """«гость» и «Гость» — один аккаунт."""
+
+    from app.users import database as users_db
+
+    _cleanup()
+
+    try:
+        user = users_db.create_user(name=NAME, role="Гость")
+        users_db.set_password(user["user_id"], "s3cret")
+
+        ok = client.post(
+            "/api/v1/auth/login",
+            json={"name": NAME.upper(), "password": "s3cret"},
+        )
+
+        assert ok.status_code == 200
+        assert ok.json()["user"]["name"] == NAME
+    finally:
+        _cleanup()

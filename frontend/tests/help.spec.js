@@ -53,6 +53,17 @@ describe('руководство пользователя', () => {
     wrapper.unmount()
   })
 
+  it('описывает гостевой доступ и сохранение настроек', async () => {
+    const wrapper = await mountHelp()
+    const text = wrapper.text()
+
+    expect(text).toContain('Гостевой доступ')
+    expect(text).toContain('альбион')
+    expect(text).toContain('Настройки гостя')
+    expect(text).toContain('сохраняются за пользователем')
+    wrapper.unmount()
+  })
+
   it('объясняет автообновление грида после HYBRID', async () => {
     const wrapper = await mountHelp()
 

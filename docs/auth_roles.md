@@ -28,6 +28,15 @@ credential считается недействительным и возвращ
 | **Менеджер** | `read`, `collections:write`, `searches:write`, `upload:write`, `jobs:read`, `jobs:write`, `addresses:write`, `originals`, `videos:read`, `videos:write`, `videos:download` |
 | **Гость** | `read` |
 
+## Гостевой доступ
+
+- Учётная запись «Гость»: логин **гость** (без учёта регистра), пароль
+  **альбион**. Подсказка с этими данными показана на экране входа.
+- Настройки отображения гостя **не сохраняются** ни в localStorage, ни на
+  сервере; у Менеджера и Администратора — сохраняются за пользователем.
+- Сменить пароль: `scripts/set_password.py Гость`; после этого обновите
+  подсказку в `frontend/src/App.vue` и `frontend/src/pages/Help.vue`.
+
 Неизвестная роль трактуется как `read`.
 
 ### Что означает каждый scope

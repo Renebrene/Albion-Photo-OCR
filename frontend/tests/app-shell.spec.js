@@ -666,6 +666,9 @@ describe('оболочка приложения', () => {
 
     // Экран входа.
     expect(wrapper.text()).toContain('Войти')
+    expect(wrapper.text()).toContain('Гостевой доступ')
+    expect(wrapper.text()).toContain('альбион')
+    expect(wrapper.text()).toContain('Настройки гостя между входами не сохраняются')
 
     const inputs = wrapper.findAll('input')
 

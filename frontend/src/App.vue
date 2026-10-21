@@ -355,9 +355,19 @@ function toggleDark() {
               label="Пароль"
               @keyup.enter="doLogin"
             />
+            <div class="login-hint">
+              <div>
+                <b>Гостевой доступ:</b> логин <code>гость</code>,
+                пароль <code>альбион</code>.
+              </div>
+              <div>
+                Настройки гостя между входами не сохраняются; настройки
+                Менеджера и Администратора сохраняются за пользователем.
+              </div>
+            </div>
             <div class="text-caption text-grey">
-              Пароль задаёт администратор. Если вход не срабатывает — обратитесь
-              к администратору сервера.
+              Пароль остальных пользователей задаёт администратор. Если вход не
+              срабатывает — обратитесь к администратору сервера.
             </div>
           </q-card-section>
           <q-card-actions align="right">
@@ -514,6 +524,23 @@ function toggleDark() {
 
 <style scoped>
 .media-stats-dialog { width: min(760px, 94vw); max-width: 94vw; }
+
+/* Подсказка с демо-доступом на экране входа. */
+.login-hint {
+  background: #f1f3f5;
+  color: #4b5563;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.login-hint code {
+  background: #e3e7eb;
+  border-radius: 4px;
+  padding: 0 4px;
+  color: #1f2937;
+}
 
 /* Пользователь и выход выделены плашкой справа от шестерёнки. */
 .header-user {
