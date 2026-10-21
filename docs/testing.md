@@ -31,6 +31,11 @@ INGEST_DB_PASSWORD='...' \
 когда тест обращается к воркерам, он должен использовать отдельную очередь и
 не допускать, чтобы сервисные воркеры забрали тестовые задания.
 
+`test_api.py`, `test_api_clients.py` и `test_api_collections.py` приведены к
+текущим контрактам (справочник адресов, `period_count`, `recognized_only`).
+Для временных фото без HYBRID они вызывают `repository.list_photos/
+list_clients(recognized_only=False)`, а не HTTP-маршрут грида.
+
 ## Read-only диагностика orphan HYBRID
 
 Чтобы пересчитать связи без изменения строк, запустите отчёт:

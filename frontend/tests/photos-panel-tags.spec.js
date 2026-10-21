@@ -305,6 +305,35 @@ describe('строка тегов', () => {
     wrapper.unmount()
   })
 
+  it('выбор клиента из поиска панели не сбрасывает адрес', async () => {
+    const wrapper = await mountGrid()
+
+    store.selectedAddresses = ['addr:78']
+    await flushPromises()
+    await nextTick()
+
+    const input = wrapper
+      .findAll('input')
+      .find((item) => item.attributes('placeholder') === 'Поиск клиента или бренда')
+
+    await input.setValue('Клиент А')
+    await flushPromises()
+    await nextTick()
+
+    const row = Array.from(wrapper.element.querySelectorAll('.q-item')).find(
+      (node) => node.textContent.includes('Клиент А'),
+    )
+    row.click()
+    await flushPromises()
+    await nextTick()
+
+    expect(store.selectedAddresses).toEqual(['addr:78'])
+    const tags = wrapper.find('.tags-row').text()
+    expect(tags).toContain('Комарова 13')
+    expect(tags).toContain('Клиент: Клиент А')
+    wrapper.unmount()
+  })
+
   it('кнопка сброса клиентов очищает выбор и бренд', async () => {
     const wrapper = await mountGrid()
 

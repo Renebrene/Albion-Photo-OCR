@@ -1213,13 +1213,15 @@ function toggleValue(list, value) {
 }
 
 async function pickAddress(address) {
-  // Выбор из отфильтрованного поиска — одиночный: прошлый выбор сбрасываем,
-  // чтобы выбранный адрес подсветился и грид показал именно его.
+  // Выбор из отфильтрованного поиска заменяет только выбор АДРЕСОВ: клиенты,
+  // бренд и тег должны остаться (фильтры складываются по OR).
   if (addressSearch.value.trim()) {
     store.selectedAddresses = [address]
-    store.selectedClients = []
-    clearStructuredFilters()
-    q.value = ''
+    store.addressCollectionIds = []
+    store.addressCollectionMembers = {}
+    store.addressCollectionId = null
+    store.addressCollectionValues = []
+    store._syncCollectionId()
     addressSearch.value = ''
     await apply()
     return
@@ -1230,11 +1232,14 @@ async function pickAddress(address) {
 }
 
 async function pickClient(client) {
+  // Симметрично адресам: выбор клиента не стирает адреса/бренд/тег.
   if (clientSearch.value.trim()) {
     store.selectedClients = [client]
-    store.selectedAddresses = []
-    clearStructuredFilters()
-    q.value = ''
+    store.clientCollectionIds = []
+    store.clientCollectionMembers = {}
+    store.clientCollectionId = null
+    store.clientCollectionValues = []
+    store._syncCollectionId()
     clientSearch.value = ''
     await apply()
     return
@@ -3229,7 +3234,7 @@ function tagList(meta) {
                 <q-tooltip>
                   Отображается не более 100 клиентов; выбранные показываются
                   всегда. Без выделения учитываются все клиенты и бренды базы.
-                  Полный список доступен в поиске
+                  Счётчик — за всё время. Полный список доступен в поиске
                 </q-tooltip>
               </q-icon>
             </div>
