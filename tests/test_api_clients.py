@@ -13,6 +13,7 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api import repository
 from app.api.main import app
 from app.ingest.database import get_connection
 
@@ -139,8 +140,14 @@ def test_alias_folds_clients_and_lifecycle():
                     (PROBE_ID, PROBE_RAW),
                 )
 
-        # Before aliasing, the raw client is its own facet.
-        raw_clients = [c["client"] for c in client.get("/api/v1/clients").json()["items"]]
+        # Before aliasing, the raw client is its own facet. The probe has no
+        # HYBRID verdict, so query the repository without recognized_only.
+        raw_clients = [
+            c["client"]
+            for c in repository.list_clients(
+                limit=1000, recognized_only=False,
+            )
+        ]
         assert PROBE_RAW in raw_clients
         assert PROBE_CANON not in raw_clients
 
@@ -157,16 +164,20 @@ def test_alias_folds_clients_and_lifecycle():
             "kind": "client",
         } in aliases
 
-        folded = client.get("/api/v1/clients").json()["items"]
+        folded = repository.list_clients(
+            limit=1000, recognized_only=False,
+        )
         names = [c["client"] for c in folded]
         assert PROBE_CANON in names
         assert PROBE_RAW not in names
 
         # Filtering by the canonical client also matches the aliased row.
-        filtered = client.get(
-            f"/api/v1/photos?client={PROBE_CANON}"
-        ).json()["items"]
-        assert PROBE_ID in {item["photo_id"] for item in filtered}
+        filtered, _ = repository.list_photos(
+            limit=100,
+            clients=[PROBE_CANON],
+            recognized_only=False,
+        )
+        assert PROBE_ID in {item.photo_id for item in filtered}
 
         assert (
             client.delete(
@@ -275,10 +286,10 @@ def test_brand_alias_is_found_by_the_search_string():
     try:
         _insert_photo(PROBE_BRAND_ID, brand=BRAND_RAW)
 
-        before = client.get(
-            "/api/v1/photos", params={"q": BRAND_CANON}
-        ).json()["items"]
-        assert PROBE_BRAND_ID not in {item["photo_id"] for item in before}
+        before, _ = repository.list_photos(
+            limit=100, query=BRAND_CANON, recognized_only=False,
+        )
+        assert PROBE_BRAND_ID not in {item.photo_id for item in before}
 
         saved = client.put(
             "/api/v1/client-aliases",
@@ -288,10 +299,10 @@ def test_brand_alias_is_found_by_the_search_string():
         assert saved.status_code == 200
 
         # Ищем по каноническому имени — фото с «сырым» брендом должно найтись.
-        found = client.get(
-            "/api/v1/photos", params={"q": BRAND_CANON}
-        ).json()["items"]
-        assert PROBE_BRAND_ID in {item["photo_id"] for item in found}
+        found, _ = repository.list_photos(
+            limit=100, query=BRAND_CANON, recognized_only=False,
+        )
+        assert PROBE_BRAND_ID in {item.photo_id for item in found}
     finally:
         _cleanup()
 
@@ -313,10 +324,10 @@ def test_client_alias_does_not_resolve_a_brand():
         )
         assert saved.status_code == 200
 
-        found = client.get(
-            "/api/v1/photos", params={"q": BRAND_CANON}
-        ).json()["items"]
-        assert PROBE_BRAND_ID not in {item["photo_id"] for item in found}
+        found, _ = repository.list_photos(
+            limit=100, query=BRAND_CANON, recognized_only=False,
+        )
+        assert PROBE_BRAND_ID not in {item.photo_id for item in found}
     finally:
         _cleanup()
 

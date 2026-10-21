@@ -137,43 +137,42 @@ def test_address_and_client_facets():
     assert "items" in clients
 
     for item in addresses["items"]:
-        # The recognised id is what the filter sends; `name` is what the panel
-        # shows (the alias of the fingerprint's address, or the id).
-        assert set(item) == {"address", "name", "count"}
+        # The panel is built from the legal-address directory; the filter
+        # value is addr:<address_id>, and the row carries its active
+        # fingerprints plus all-time/period counts.
+        assert set(item) == {
+            "address", "address_id", "name", "simple_address",
+            "legal_address", "fingerprints", "count", "period_count",
+        }
+        assert item["address"] == f"addr:{item['address_id']}"
+        assert item["count"] >= item["period_count"] >= 0
     for item in clients["items"]:
         assert set(item) == {"client", "count"}
 
 
 @requires_db
-def test_address_filter_is_built_from_the_fingerprints():
+def test_address_filter_is_built_from_the_directory():
     """
-    The «Адреса» panel lists fingerprints by name, not raw verdict ids: every
-    active fingerprint is present (even one without recognised photos) and the
-    list is ordered by the displayed name.
+    «Адреса» lists ACTIVE legal-address rows (even without fingerprints), sorted
+    by the displayed name; archived fingerprints never appear in the mapping.
     """
 
     addresses = client.get("/api/v1/addresses").json()["items"]
+    directory = client.get("/api/v1/addresses/directory").json()["items"]
     registry = client.get("/api/v1/fingerprints/registry").json()["items"]
 
-    if not registry:
-        pytest.skip("the fingerprint registry is empty")
+    active_ids = {item["address_id"] for item in directory if item["active"]}
+    listed_ids = {item["address_id"] for item in addresses}
+    assert active_ids <= listed_ids
 
-    listed = {item["address"] for item in addresses}
-
-    for item in registry:
-        if item["active"]:
-            assert item["fingerprint_id"] in listed
-
-    # Hidden fingerprints are gone from «Адреса» even when they still carry
-    # recognised photos (the panel used to append their leftover counts).
     hidden = {
         item["fingerprint_id"] for item in registry if not item["active"]
     }
-    assert not (listed & hidden)
 
     for item in addresses:
         assert item["name"]
         assert item["count"] >= 0
+        assert not (set(item["fingerprints"]) & hidden)
 
     names = [item["name"].casefold() for item in addresses]
     assert names == sorted(names)
@@ -190,7 +189,10 @@ def test_stats_for_the_status_bar(sample_photo):
 
     body = response.json()
 
-    assert set(body) == {"photos", "videos", "addresses", "clients", "last_photo_at", "last_video_at"}
+    assert set(body) == {
+        "photos", "videos", "period_photos", "period_videos",
+        "addresses", "clients", "last_photo_at", "last_video_at",
+    }
     assert body["photos"] >= 1
     assert body["videos"] >= 0
     assert body["addresses"] >= 0

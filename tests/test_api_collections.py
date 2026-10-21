@@ -11,6 +11,7 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api import repository
 from app.api.main import app
 from app.ingest.database import get_connection
 
@@ -119,10 +120,14 @@ def test_collection_lifecycle(cleanup_collections):
     ).json()["items"]
     assert sorted(members) == sorted(ids)
 
-    filtered = client.get(
-        f"/api/v1/photos?collection_id={collection_id}"
-    ).json()["items"]
-    assert {item["photo_id"] for item in filtered} == set(ids)
+    # The probe photos may not have a HYBRID verdict, so query the repository
+    # without the grid's recognized_only filter.
+    filtered, _ = repository.list_photos(
+        limit=100,
+        collection_id=collection_id,
+        recognized_only=False,
+    )
+    assert {item.photo_id for item in filtered} == set(ids)
 
     removed = client.post(
         f"/api/v1/collections/{collection_id}/members/remove",
