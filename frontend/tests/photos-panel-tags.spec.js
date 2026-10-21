@@ -81,7 +81,10 @@ function installFetch() {
 
     if (path.endsWith('/v1/search/suggestions')) {
       return json({
-        items: [{ value: 'СТС', kind: 'brand', uses: 6 }],
+        items: [
+          { value: 'СТС', kind: 'brand', uses: 6 },
+          { value: 'Клиент А', kind: 'client', uses: 2 },
+        ],
         layout: null,
       })
     }
@@ -170,6 +173,10 @@ describe('строка тегов', () => {
       { collection_id: 5, name: 'Смена 1', scope: 'clients', kind: 'Моя' },
       { collection_id: 6, name: 'Мой район', scope: 'addresses', kind: 'Моя' },
     ]
+    store.clientCollectionIds = [5]
+    store.addressCollectionIds = [6]
+    store.clientCollectionMembers = { 5: ['Клиент А'] }
+    store.addressCollectionMembers = { 6: ['addr:78'] }
     store.clientCollectionId = 5
     store.addressCollectionId = 6
     store.selectedClients = ['Клиент А']
@@ -190,6 +197,28 @@ describe('строка тегов', () => {
 
     expect(clientCollection.classes()).toContain('bg-secondary')
     expect(addressCollection.classes()).toContain('bg-primary')
+    wrapper.unmount()
+  })
+
+  it('показывает несколько активных подборок одного вида', async () => {
+    const wrapper = await mountGrid()
+
+    store.collections = [
+      { collection_id: 5, name: 'Смена 1', scope: 'clients' },
+      { collection_id: 7, name: 'Смена 2', scope: 'clients' },
+    ]
+    store.clientCollectionIds = [5, 7]
+    store.clientCollectionMembers = {
+      5: ['Клиент А'], 7: ['Клиент Б'],
+    }
+    store.selectedClients = ['Клиент А', 'Клиент Б']
+    await flushPromises()
+    await nextTick()
+
+    const tags = wrapper.find('.tags-row').text()
+    expect(tags).toContain('Смена 1')
+    expect(tags).toContain('Смена 2')
+    expect(tags).not.toContain('Клиент: Клиент А')
     wrapper.unmount()
   })
 
@@ -235,7 +264,7 @@ describe('строка тегов', () => {
     wrapper.unmount()
   })
 
-  it('«Все» остаётся только у адресов, клиенты идут отдельными тегами', async () => {
+  it('выбранные адреса и клиенты остаются отдельными тегами', async () => {
     const wrapper = await mountGrid()
 
     // Отмечен весь список адресов (2 из 2) и клиентов (2 из 2).
@@ -245,27 +274,33 @@ describe('строка тегов', () => {
     await nextTick()
 
     const tags = wrapper.find('.tags-row').text()
-    expect(tags).not.toContain('Комарова 13')
+    expect(tags).toContain('Комарова 13')
     expect(tags).toContain('Клиент: Клиент А')
-    expect(tags.split('Все').length - 1).toBe(1)
+    // «Все» больше нет ни у адресов, ни у клиентов.
+    expect(tags).not.toContain('Все')
     wrapper.unmount()
   })
 
-  it('кнопка «Все» в заголовке адресов выбирает весь список', async () => {
+  it('кнопка сброса адресов очищает выбор и подборки', async () => {
     const wrapper = await mountGrid()
 
-    const buttons = wrapper
-      .findAll('button')
-      .filter((button) => button.text().trim() === 'Все')
-
-    // У клиентов такой кнопки больше нет: пустой выбор = все клиенты.
-    expect(buttons.length).toBe(1)
-
-    await buttons[0].trigger('click')
+    store.selectedAddresses = ['addr:78']
+    store.addressCollectionIds = [6]
+    store.addressCollectionId = 6
+    store.addressCollectionValues = ['addr:78']
+    store.addressCollectionMembers = { 6: ['addr:78'] }
     await flushPromises()
     await nextTick()
 
-    expect(wrapper.find('.tags-row').text()).toContain('Все')
+    await wrapper.find('.address-reset').trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    expect(store.selectedAddresses).toEqual([])
+    expect(store.addressCollectionIds).toEqual([])
+    expect(store.addressCollectionId).toBe(null)
+    // Без других тегов строка тегов не рисуется.
+    expect(wrapper.find('.tags-row').exists()).toBe(false)
     wrapper.unmount()
   })
 
@@ -615,6 +650,30 @@ describe('строка тегов', () => {
     )
 
     expect(entry.address).toBe('addr:79')
+  })
+
+  it('не показывает в подсказках уже выбранный клиент', async () => {
+    const wrapper = await mountGrid()
+
+    store.selectedClients = ['Клиент А']
+    await flushPromises()
+    await nextTick()
+
+    const input = wrapper
+      .findAll('input')
+      .find((item) => item.attributes('placeholder') === 'Название файла, клиент, бренд, адрес')
+
+    await input.setValue('Клиент')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    await nextTick()
+
+    const suggestions = Array.from(
+      document.body.querySelectorAll('.q-menu .q-item'),
+    ).map((node) => node.textContent)
+
+    expect(suggestions.some((text) => text.includes('Клиент А'))).toBe(false)
+    wrapper.unmount()
   })
 
   it('новая подсказка поиска дополняет теги, а не стирает их', async () => {

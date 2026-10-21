@@ -79,6 +79,30 @@ function sameValues(left, right) {
   return right.every((value) => values.has(value))
 }
 
+/**
+ * Union of several member lists, case-insensitive and order-preserving.
+ *
+ * Overlapping client/address collections must not duplicate filters or
+ * counters; the first spelling wins.
+ */
+function unionValues(lists) {
+  const result = []
+  const seen = new Set()
+
+  for (const list of lists) {
+    for (const value of list || []) {
+      const key = String(value).trim().toLowerCase()
+
+      if (key && !seen.has(key)) {
+        seen.add(key)
+        result.push(value)
+      }
+    }
+  }
+
+  return result
+}
+
 function normalizeAddressValue(addresses, value) {
   const found = (addresses || []).find(
     (item) =>
@@ -120,10 +144,16 @@ export const usePhotosStore = defineStore('photos', {
     // The two collection panels select independently. collectionId remains the
     // most recently picked one for saved searches/backwards compatibility.
     collectionId: null,
+    // Несколько подборок одного вида можно держать активными одновременно;
+    // скалярные id оставлены первым элементом для старых сохранённых поисков.
+    addressCollectionIds: [],
+    clientCollectionIds: [],
     addressCollectionId: null,
     clientCollectionId: null,
-    // Состав активной подборки: по нему видно, изменил ли пользователь
-    // выделение вручную (тогда подборка больше не активна).
+    // Состав активных подборок: id -> значения и общий union. По ним видно,
+    // изменил ли пользователь выделение вручную (тогда подборки неактивны).
+    addressCollectionMembers: {},
+    clientCollectionMembers: {},
     addressCollectionValues: [],
     clientCollectionValues: [],
     // Номер изменения выбора: поздний ответ applyCollection не должен
@@ -426,83 +456,87 @@ export const usePhotosStore = defineStore('photos', {
       clientCollectionRequest += 1
       this.selectedAddresses = []
       this.selectedClients = []
+      this.addressCollectionIds = []
+      this.clientCollectionIds = []
       this.addressCollectionId = null
       this.clientCollectionId = null
+      this.addressCollectionMembers = {}
+      this.clientCollectionMembers = {}
       this.addressCollectionValues = []
       this.clientCollectionValues = []
       this.collectionId = null
     },
 
     _syncCollectionId() {
+      this.addressCollectionId = this.addressCollectionIds[0] ?? null
+      this.clientCollectionId = this.clientCollectionIds[0] ?? null
       this.collectionId = this.addressCollectionId ?? this.clientCollectionId ?? null
     },
 
     /**
-     * Снять активную подборку, если выделение изменили вручную.
+     * Снять активные подборки, если выделение изменили вручную.
      *
-     * Пока набор совпадает с составом подборки (например, пользователь
-     * поменял только период), подборка остаётся активной. Любое ручное
-     * добавление/снятие адреса или клиента делает её неактуальной.
+     * Пока набор совпадает с объединением состава подборок (например,
+     * пользователь поменял только период), они остаются активными. Любое
+     * ручное добавление/снятие адреса или клиента делает их неактуальными.
      */
     _dropStaleCollections() {
       if (
-        this.addressCollectionId !== null
+        this.addressCollectionIds.length
         && !sameValues(this.addressCollectionValues, this.selectedAddresses)
       ) {
-        const previous = this.addressCollectionId
-        this.addressCollectionId = null
+        this.addressCollectionIds = []
+        this.addressCollectionMembers = {}
         this.addressCollectionValues = []
-
-        if (this.collectionId === previous) {
-          this.collectionId = this.clientCollectionId ?? null
-        }
       }
 
       if (
-        this.clientCollectionId !== null
+        this.clientCollectionIds.length
         && !sameValues(this.clientCollectionValues, this.selectedClients)
       ) {
-        const previous = this.clientCollectionId
-        this.clientCollectionId = null
+        this.clientCollectionIds = []
+        this.clientCollectionMembers = {}
         this.clientCollectionValues = []
-
-        if (this.collectionId === previous) {
-          this.collectionId = this.addressCollectionId ?? null
-        }
       }
+
+      this._syncCollectionId()
     },
 
     isCollectionActive(collection) {
-      const collectionId = collection.scope === 'clients'
-        ? this.clientCollectionId
-        : this.addressCollectionId
-      return collectionId === collection.collection_id
+      const ids = collection.scope === 'clients'
+        ? this.clientCollectionIds
+        : this.addressCollectionIds
+      return ids.includes(collection.collection_id)
     },
 
     async applyCollection(collection) {
       const epoch = this.selectionEpoch
       const isClients = collection.scope === 'clients'
-      const activeKey = isClients ? 'clientCollectionId' : 'addressCollectionId'
+      const idsKey = isClients ? 'clientCollectionIds' : 'addressCollectionIds'
+      const membersKey = isClients
+        ? 'clientCollectionMembers'
+        : 'addressCollectionMembers'
+      const valuesKey = isClients
+        ? 'clientCollectionValues'
+        : 'addressCollectionValues'
+      const selectedKey = isClients ? 'selectedClients' : 'selectedAddresses'
       const request = isClients
         ? ++clientCollectionRequest
         : ++addressCollectionRequest
       const currentRequest = () =>
         isClients ? clientCollectionRequest : addressCollectionRequest
+      const ids = this[idsKey]
 
-      if (this[activeKey] === collection.collection_id) {
-        this[activeKey] = null
-
-        if (isClients) {
-          this.selectedClients = []
-          this.clientCollectionValues = []
-        } else {
-          this.selectedAddresses = []
-          this.addressCollectionValues = []
-        }
-
+      if (ids.includes(collection.collection_id)) {
+        // Снимаем только эту подборку; значения, общие с другими активными
+        // подборками, остаются.
+        ids.splice(ids.indexOf(collection.collection_id), 1)
+        delete this[membersKey][collection.collection_id]
+        const union = unionValues(Object.values(this[membersKey]))
+        this[selectedKey] = union
+        this[valuesKey] = union
         this._syncCollectionId()
         await this.refresh()
-        // Сняли подборку — счётчики адресов возвращаются к полному списку.
         await this.loadAddresses()
         await this.loadClients()
         return
@@ -518,27 +552,25 @@ export const usePhotosStore = defineStore('photos', {
       if (epoch !== this.selectionEpoch) return
       if (request !== currentRequest()) return
 
-      const values = data.items || []
+      const raw = data.items || []
 
       // Пустая подборка не должна активироваться: иначе чип есть, а фильтра
       // нет, и грид показывает всё.
-      if (!values.length) {
+      if (!raw.length) {
         throw new Error('Подборка пуста — нечего выбирать')
       }
 
-      if (isClients) {
-        this.selectedClients = values
-        this.clientCollectionValues = [...values]
-      } else {
-        const normalized = values.map((value) =>
-          normalizeAddressValue(this.addresses, value),
-        )
-        this.selectedAddresses = normalized
-        this.addressCollectionValues = [...normalized]
-      }
+      const values = isClients
+        ? [...raw]
+        : raw.map((value) => normalizeAddressValue(this.addresses, value))
 
-      // The other scope keeps its own active collection and selected values.
-      this[activeKey] = collection.collection_id
+      ids.push(collection.collection_id)
+      this[membersKey][collection.collection_id] = values
+
+      // Объединение всех активных подборок; пересечения не дублируются.
+      const union = unionValues(Object.values(this[membersKey]))
+      this[selectedKey] = union
+      this[valuesKey] = union
       this._syncCollectionId()
       await this.refresh()
       // Обе панели пересчитываются под новый выбор и текущий режим.
@@ -582,14 +614,21 @@ export const usePhotosStore = defineStore('photos', {
       // Режим сменили во время сохранения — не активируем подборку.
       if (epoch !== this.selectionEpoch) return id
 
-      if (isClients) {
-        this.clientCollectionId = id
-        this.clientCollectionValues = [...values]
-      } else {
-        this.addressCollectionId = id
-        this.addressCollectionValues = [...values]
-      }
+      const idsKey = isClients ? 'clientCollectionIds' : 'addressCollectionIds'
+      const membersKey = isClients
+        ? 'clientCollectionMembers'
+        : 'addressCollectionMembers'
+      const valuesKey = isClients
+        ? 'clientCollectionValues'
+        : 'addressCollectionValues'
+      const selectedKey = isClients ? 'selectedClients' : 'selectedAddresses'
 
+      if (!this[idsKey].includes(id)) this[idsKey].push(id)
+      this[membersKey][id] = [...values]
+
+      const union = unionValues(Object.values(this[membersKey]))
+      this[selectedKey] = union
+      this[valuesKey] = union
       this._syncCollectionId()
 
       return id
@@ -716,17 +755,29 @@ export const usePhotosStore = defineStore('photos', {
       await deleteCollectionApi(collectionId)
       let cleared = false
 
-      if (this.addressCollectionId === collectionId) {
-        this.addressCollectionId = null
-        this.addressCollectionValues = []
-        this.selectedAddresses = []
+      if (this.addressCollectionIds.includes(collectionId)) {
+        this.addressCollectionIds.splice(
+          this.addressCollectionIds.indexOf(collectionId), 1,
+        )
+        delete this.addressCollectionMembers[collectionId]
+        const union = unionValues(
+          Object.values(this.addressCollectionMembers),
+        )
+        this.addressCollectionValues = union
+        this.selectedAddresses = union
         cleared = true
       }
 
-      if (this.clientCollectionId === collectionId) {
-        this.clientCollectionId = null
-        this.clientCollectionValues = []
-        this.selectedClients = []
+      if (this.clientCollectionIds.includes(collectionId)) {
+        this.clientCollectionIds.splice(
+          this.clientCollectionIds.indexOf(collectionId), 1,
+        )
+        delete this.clientCollectionMembers[collectionId]
+        const union = unionValues(
+          Object.values(this.clientCollectionMembers),
+        )
+        this.clientCollectionValues = union
+        this.selectedClients = union
         cleared = true
       }
 

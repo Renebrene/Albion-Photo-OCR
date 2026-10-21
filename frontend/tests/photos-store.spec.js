@@ -228,6 +228,46 @@ describe('photos store', () => {
     expect(saved.filters.clients).toEqual(['Клиент А'])
   })
 
+  it('keeps several collections of one scope active and unions them', async () => {
+    routes.push({
+      method: 'GET',
+      match: (p) => p === '/api/v1/collections/7/members',
+      respond: () => jsonResponse({ items: ['addr:1', 'addr:2'] }),
+    })
+    routes.push({
+      method: 'GET',
+      match: (p) => p === '/api/v1/collections/8/members',
+      respond: () => jsonResponse({ items: ['addr:2', 'addr:3'] }),
+    })
+
+    const store = usePhotosStore()
+
+    await store.applyCollection({
+      collection_id: 7, name: 'A', scope: 'addresses',
+    })
+    await store.applyCollection({
+      collection_id: 8, name: 'B', scope: 'addresses',
+    })
+
+    // Пересечение addr:2 не дублируется.
+    expect(store.selectedAddresses).toEqual(['addr:1', 'addr:2', 'addr:3'])
+    expect(store.addressCollectionIds).toEqual([7, 8])
+    expect(
+      store.isCollectionActive({ collection_id: 7, scope: 'addresses' }),
+    ).toBe(true)
+    expect(
+      store.isCollectionActive({ collection_id: 8, scope: 'addresses' }),
+    ).toBe(true)
+
+    // Снятие одной подборки оставляет значения второй.
+    await store.applyCollection({
+      collection_id: 8, name: 'B', scope: 'addresses',
+    })
+
+    expect(store.selectedAddresses).toEqual(['addr:1', 'addr:2'])
+    expect(store.addressCollectionIds).toEqual([7])
+  })
+
   it('late collection response does not overwrite a newer collection click', async () => {
     const pending = []
 

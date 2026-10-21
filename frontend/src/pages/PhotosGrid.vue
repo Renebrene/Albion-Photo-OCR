@@ -542,30 +542,16 @@ async function pickClientEntry(item) {
 // а при переполнении она прокручивается колесом по горизонтали.
 const tagsRowEl = ref(null)
 
-const activeAddressCollection = computed(
-  () =>
-    store.collections.find(
-      (item) =>
-        item.collection_id === store.addressCollectionId
-        && item.scope === 'addresses',
-    ) || null,
+const activeAddressCollections = computed(() =>
+  store.addressCollectionIds
+    .map((id) => store.collections.find((item) => item.collection_id === id))
+    .filter(Boolean),
 )
 
-const activeClientCollection = computed(
-  () =>
-    store.collections.find(
-      (item) =>
-        item.collection_id === store.clientCollectionId
-        && item.scope === 'clients',
-    ) || null,
-)
-
-const allAddressesSelected = computed(
-  () =>
-    addresses.value.length > 0
-    && addresses.value.every((item) =>
-      store.selectedAddresses.includes(item.address),
-    ),
+const activeClientCollections = computed(() =>
+  store.clientCollectionIds
+    .map((id) => store.collections.find((item) => item.collection_id === id))
+    .filter(Boolean),
 )
 
 function addressTagLabel(item) {
@@ -573,19 +559,14 @@ function addressTagLabel(item) {
 }
 
 const addressTags = computed(() => {
-  if (activeAddressCollection.value) {
-    return [
-      {
-        key: 'address-collection',
-        label: activeAddressCollection.value.name,
-        type: 'address-collection',
-        icon: 'bookmark',
-      },
-    ]
-  }
-
-  if (allAddressesSelected.value) {
-    return [{ key: 'addresses-all', label: 'Все', type: 'addresses-all' }]
+  if (activeAddressCollections.value.length) {
+    return activeAddressCollections.value.map((collection) => ({
+      key: `address-collection:${collection.collection_id}`,
+      label: collection.name,
+      type: 'address-collection',
+      collectionId: collection.collection_id,
+      icon: 'bookmark',
+    }))
   }
 
   return store.selectedAddresses.map((value) => {
@@ -601,15 +582,14 @@ const addressTags = computed(() => {
 })
 
 const clientTags = computed(() => {
-  if (activeClientCollection.value) {
-    return [
-      {
-        key: 'client-collection',
-        label: activeClientCollection.value.name,
-        type: 'client-collection',
-        icon: 'bookmark',
-      },
-    ]
+  if (activeClientCollections.value.length) {
+    return activeClientCollections.value.map((collection) => ({
+      key: `client-collection:${collection.collection_id}`,
+      label: collection.name,
+      type: 'client-collection',
+      collectionId: collection.collection_id,
+      icon: 'bookmark',
+    }))
   }
 
   return store.selectedClients.map((value) => ({
@@ -647,7 +627,6 @@ const clientSelectionCount = computed(
 
 function tagColor(type) {
   if (type === 'address' || type === 'address-collection') return 'primary'
-  if (type === 'addresses-all') return 'grey-7'
   return 'secondary'
 }
 
@@ -668,21 +647,30 @@ async function removeTag(tag) {
     case 'category':
       selectedCategory.value = null
       break
-    case 'addresses-all':
-      store.selectedAddresses = []
+    case 'address-collection': {
+      const collection = store.collections.find(
+        (item) => item.collection_id === tag.collectionId,
+      )
+
+      if (collection) {
+        await store.applyCollection(collection)
+        return
+      }
+
       break
-    case 'address-collection':
-      store.addressCollectionId = null
-      store.addressCollectionValues = []
-      store.selectedAddresses = []
-      store._syncCollectionId()
+    }
+    case 'client-collection': {
+      const collection = store.collections.find(
+        (item) => item.collection_id === tag.collectionId,
+      )
+
+      if (collection) {
+        await store.applyCollection(collection)
+        return
+      }
+
       break
-    case 'client-collection':
-      store.clientCollectionId = null
-      store.clientCollectionValues = []
-      store.selectedClients = []
-      store._syncCollectionId()
-      break
+    }
     default:
       return
   }
@@ -870,8 +858,14 @@ onMounted(async () => {
   store.selectedAddresses = []
   store.selectedClients = []
   store.collectionId = null
+  store.addressCollectionIds = []
+  store.clientCollectionIds = []
   store.addressCollectionId = null
   store.clientCollectionId = null
+  store.addressCollectionMembers = {}
+  store.clientCollectionMembers = {}
+  store.addressCollectionValues = []
+  store.clientCollectionValues = []
   store.nlIds = []
   q.value = ''
   period.value = 'month'
@@ -1070,6 +1064,50 @@ function scheduleSuggestions(value) {
   suggestTimer = window.setTimeout(() => loadSuggestions(term), 250)
 }
 
+/** Уже выбранный тег не должен повторяться в подсказках. */
+function suggestionAlreadySelected(item) {
+  const value = String(item.value || '').trim().toLowerCase()
+
+  if (item.kind === 'client') {
+    return store.selectedClients.some(
+      (client) => String(client).trim().toLowerCase() === value,
+    )
+  }
+
+  if (item.kind === 'brand') {
+    return Boolean(
+      selectedBrand.value
+      && String(selectedBrand.value).trim().toLowerCase() === value,
+    )
+  }
+
+  if (item.kind === 'tag') {
+    return Boolean(
+      selectedTag.value
+      && String(selectedTag.value).trim().toLowerCase() === value,
+    )
+  }
+
+  if (item.kind === 'category') {
+    return Boolean(
+      selectedCategory.value
+      && String(selectedCategory.value).trim().toLowerCase() === value,
+    )
+  }
+
+  if (item.kind === 'address') {
+    const row = addresses.value.find((entry) =>
+      [entry.name, entry.simple_address, entry.legal_address]
+        .filter(Boolean)
+        .some((name) => String(name).trim().toLowerCase() === value),
+    )
+
+    return Boolean(row && store.selectedAddresses.includes(row.address))
+  }
+
+  return false
+}
+
 async function loadSuggestions(term) {
   try {
     const data = await fetchSearchSuggestions(term)
@@ -1077,7 +1115,8 @@ async function loadSuggestions(term) {
     // Пока шёл запрос, строку уже изменили — старые подсказки не показываем.
     if (String(q.value || '').trim() !== term) return
 
-    suggestItems.value = data.items || []
+    suggestItems.value = (data.items || [])
+      .filter((item) => !suggestionAlreadySelected(item))
     suggestLayout.value = data.layout || null
     suggestOpen.value = Boolean(suggestItems.value.length || suggestLayout.value)
   } catch {
@@ -1241,15 +1280,14 @@ function isClientActive(item) {
   return store.selectedClients.includes(item.value)
 }
 
-async function selectAllAddresses() {
-  // «Все» — это весь список панели, а не только отфильтрованный поиском:
-  // тогда отдельные теги адресов заменяются одним тегом «Все».
-  store.selectedAddresses = addresses.value.map((item) => item.address)
-  await apply()
-}
-
-async function clearAddresses() {
+async function resetAddressSelection() {
+  // Пустой выбор = все адреса: фильтр по адресу просто не отправляется.
   store.selectedAddresses = []
+  store.addressCollectionIds = []
+  store.addressCollectionId = null
+  store.addressCollectionValues = []
+  store.addressCollectionMembers = {}
+  store._syncCollectionId()
   await apply()
 }
 
@@ -1258,7 +1296,9 @@ async function resetClientSelection() {
   // просто не отправляется. Поэтому отдельная кнопка «Все» не нужна.
   store.selectedClients = []
   selectedBrand.value = null
+  store.clientCollectionIds = []
   store.clientCollectionId = null
+  store.clientCollectionMembers = {}
   store.clientCollectionValues = []
   store._syncCollectionId()
   await apply()
@@ -1720,8 +1760,12 @@ async function applySavedSearch(search) {
   selectedCategory.value = filters.category || null
 
   // Сохранённый поиск заменяет подборки, а не смешивается с ними.
+  store.addressCollectionIds = []
+  store.clientCollectionIds = []
   store.addressCollectionId = null
   store.clientCollectionId = null
+  store.addressCollectionMembers = {}
+  store.clientCollectionMembers = {}
   store.addressCollectionValues = []
   store.clientCollectionValues = []
 
@@ -2404,23 +2448,21 @@ function tagList(meta) {
                 {{ recognizedAddressCount }}
               </span>
             </div>
-            <!-- Одна кнопка: пока ничего не выбрано — «Все», иначе «Снять». -->
+            <!-- Пустой выбор = все адреса; кнопка только снимает выделение. -->
             <q-btn
+              class="address-reset"
               dense
               flat
               size="sm"
-              :label="store.selectedAddresses.length ? 'Снять' : 'Все'"
-              @click="
-                store.selectedAddresses.length
-                  ? clearAddresses()
-                  : selectAllAddresses()
-              "
+              icon="filter_alt_off"
+              :disable="!store.selectedAddresses.length"
+              @click="resetAddressSelection()"
             >
               <q-tooltip>
                 {{
                   store.selectedAddresses.length
-                    ? 'Снять выделение адресов'
-                    : 'Выбрать все адреса'
+                    ? 'Сбросить выбор адресов — будут учтены все'
+                    : 'Ничего не выбрано: учитываются все адреса'
                 }}
               </q-tooltip>
             </q-btn>
