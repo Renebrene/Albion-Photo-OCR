@@ -282,6 +282,16 @@ describe('строка тегов', () => {
     wrapper.unmount()
   })
 
+  it('у адресов и клиентов одинаковая кнопка «Очистить»', async () => {
+    const wrapper = await mountGrid()
+
+    expect(wrapper.find('.address-reset').text()).toBe('Очистить')
+    expect(wrapper.find('.client-reset').text()).toBe('Очистить')
+    expect(wrapper.find('.address-reset').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('.client-reset').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
   it('кнопка сброса адресов очищает выбор и подборки', async () => {
     const wrapper = await mountGrid()
 

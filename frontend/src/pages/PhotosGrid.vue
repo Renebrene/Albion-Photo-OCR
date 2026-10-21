@@ -2456,15 +2456,16 @@ function tagList(meta) {
               class="address-reset"
               dense
               flat
+              no-caps
               size="sm"
-              icon="filter_alt_off"
+              label="Очистить"
               :disable="!store.selectedAddresses.length"
               @click="resetAddressSelection()"
             >
               <q-tooltip>
                 {{
                   store.selectedAddresses.length
-                    ? 'Сбросить выбор адресов — будут учтены все'
+                    ? 'Очистить выбор адресов — будут учтены все'
                     : 'Ничего не выбрано: учитываются все адреса'
                 }}
               </q-tooltip>
@@ -3244,15 +3245,16 @@ function tagList(meta) {
               class="client-reset"
               dense
               flat
+              no-caps
               size="sm"
-              icon="filter_alt_off"
+              label="Очистить"
               :disable="!clientSelectionCount"
               @click="resetClientSelection()"
             >
               <q-tooltip>
                 {{
                   clientSelectionCount
-                    ? 'Сбросить выбор клиентов и брендов — будут учтены все'
+                    ? 'Очистить выбор клиентов и брендов — будут учтены все'
                     : 'Ничего не выбрано: учитываются все клиенты и бренды'
                 }}
               </q-tooltip>
