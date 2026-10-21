@@ -19,8 +19,42 @@ from app.api.schemas import (
 )
 from app.ingest.database import get_connection
 
-# Address comes from the recognition pipeline (HYBRID verdict, falling back to
-# the DINO best candidate); `client` comes from the parallel QWEN metadata.
+def _latest_hybrid_final_sql(photo_ref: str) -> str:
+    """
+    `hybrid_final_id` of the LATEST DONE HYBRID verdict (NULL if no match).
+
+    Runs append rows, so an older successful verdict must not outlive a newer
+    "no match" verdict. Callers use the same expression for the grid, the
+    address panel and statistics.
+    """
+
+    return (
+        "(SELECT h.hybrid_final_id FROM public.hybrid_results AS h "
+        f"WHERE h.photo_id = {photo_ref}.photo_id AND h.status = 'DONE' "
+        "ORDER BY h.finished_at DESC NULLS LAST, h.hybrid_run_id DESC "
+        "LIMIT 1)"
+    )
+
+
+def _recognized_sql(photo_ref: str = "t") -> str:
+    """
+    The single definition of "распознано" used by every read path.
+
+    A photo is recognised when the latest HYBRID verdict has a final id, or
+    when an operator set a manual address override. Older verdicts cannot keep
+    a photo in the grid after a failed re-run.
+    """
+
+    return (
+        f"({_latest_hybrid_final_sql(photo_ref)} IS NOT NULL OR EXISTS ("
+        "SELECT 1 FROM public.photo_address_overrides AS ov "
+        f"WHERE ov.photo_id = {photo_ref}.photo_id))"
+    )
+
+
+# Address comes from the recognition pipeline: the latest HYBRID verdict. The
+# DINO fallback is used only when the photo has no DONE HYBRID row at all.
+# `client` comes from the parallel QWEN metadata.
 _PHOTO_BASE = """
     SELECT
         p.photo_id        AS photo_id,
@@ -29,16 +63,12 @@ _PHOTO_BASE = """
         p.height          AS height,
         p.container_format AS container_format,
         COALESCE(
-            (
-                SELECT h.hybrid_final_id
-                FROM public.hybrid_results AS h
-                WHERE h.photo_id = p.photo_id
-                  AND h.status = 'DONE'
-                ORDER BY h.finished_at DESC NULLS LAST,
-                         h.hybrid_run_id DESC
-                LIMIT 1
-            ),
-            (
+            """ + _latest_hybrid_final_sql("p") + """,
+            CASE WHEN NOT EXISTS (
+                SELECT 1 FROM public.hybrid_results AS hx
+                WHERE hx.photo_id = p.photo_id
+                  AND hx.status = 'DONE'
+            ) THEN (
                 SELECT r.dino_best_id
                 FROM public.dino_runs AS r
                 WHERE r.photo_id = p.photo_id
@@ -47,7 +77,7 @@ _PHOTO_BASE = """
                 ORDER BY r.finished_at DESC NULLS LAST,
                          r.run_id DESC
                 LIMIT 1
-            )
+            ) END
         ) AS address,
         q.client AS client,
         q.brand AS brand,
@@ -219,16 +249,22 @@ def _photo_where(
                 address_parts.append(
                     "(EXISTS ("
                     "   SELECT 1 FROM public.photo_address_overrides AS ov"
+                    "   JOIN public.address_directory AS od"
+                    "     ON od.address_id = ov.address_id AND od.active"
                     "   WHERE ov.photo_id = t.photo_id"
                     "     AND ov.address_id = %s)"
                     " OR (NOT EXISTS ("
                     "   SELECT 1 FROM public.photo_address_overrides AS ov2"
+                    "   JOIN public.address_directory AS od2"
+                    "     ON od2.address_id = ov2.address_id AND od2.active"
                     "   WHERE ov2.photo_id = t.photo_id)"
                     "  AND EXISTS ("
                     "   SELECT 1 FROM public.address_fingerprints AS af"
                     "   JOIN public.fingerprints AS reg"
                     "     ON reg.fingerprint_id = af.fingerprint_id"
                     "    AND reg.active"
+                    "   JOIN public.address_directory AS d"
+                    "     ON d.address_id = af.address_id AND d.active"
                     "   WHERE af.address_id = %s AND af.active"
                     "     AND LOWER(af.fingerprint_id) = LOWER(t.address))))"
                 )
@@ -242,16 +278,22 @@ def _photo_where(
                 "     ON af.address_id = ov.address_id AND af.active"
                 "   JOIN public.fingerprints AS reg"
                 "     ON reg.fingerprint_id = af.fingerprint_id AND reg.active"
+                "   JOIN public.address_directory AS od"
+                "     ON od.address_id = af.address_id AND od.active"
                 "   WHERE ov.photo_id = t.photo_id"
                 "     AND LOWER(af.fingerprint_id) = LOWER(%s))"
                 " OR (NOT EXISTS ("
                 "   SELECT 1 FROM public.photo_address_overrides AS ov2"
+                "   JOIN public.address_directory AS od2"
+                "     ON od2.address_id = ov2.address_id AND od2.active"
                 "   WHERE ov2.photo_id = t.photo_id)"
                 "  AND EXISTS ("
                 "   SELECT 1 FROM public.address_fingerprints AS af2"
                 "   JOIN public.fingerprints AS reg2"
                 "     ON reg2.fingerprint_id = af2.fingerprint_id"
                 "    AND reg2.active"
+                "   JOIN public.address_directory AS d2"
+                "     ON d2.address_id = af2.address_id AND d2.active"
                 "   WHERE LOWER(af2.fingerprint_id) = LOWER(%s)"
                 "     AND af2.active"
                 "     AND LOWER(t.address) = LOWER(af2.fingerprint_id))))"
@@ -372,15 +414,11 @@ def _photo_where(
 
     if recognized_only:
         # The grid shows a photo only after recognition has produced an
-        # address: a DONE HYBRID verdict with a final id, or a manual override.
+        # address: the LATEST HYBRID verdict has a final id, or a manual
+        # override exists. A newer failed re-run hides the photo; an older
+        # successful verdict does not keep it alive.
         # Videos live in a separate list and are not affected.
-        clauses.append(
-            "(EXISTS (SELECT 1 FROM public.hybrid_results AS hr"
-            " WHERE hr.photo_id = t.photo_id AND hr.status = 'DONE'"
-            "   AND hr.hybrid_final_id IS NOT NULL)"
-            " OR EXISTS (SELECT 1 FROM public.photo_address_overrides AS ov"
-            " WHERE ov.photo_id = t.photo_id))"
-        )
+        clauses.append(_recognized_sql("t"))
 
     if not clauses:
         return "", params
@@ -752,18 +790,7 @@ def list_addresses(
                     FROM t
                     LEFT JOIN public.photo_address_overrides AS ov
                            ON ov.photo_id = t.photo_id
-                    WHERE (
-                        EXISTS (
-                            SELECT 1 FROM public.hybrid_results AS hr
-                            WHERE hr.photo_id = t.photo_id
-                              AND hr.status = 'DONE'
-                              AND hr.hybrid_final_id IS NOT NULL
-                        )
-                        OR EXISTS (
-                            SELECT 1 FROM public.photo_address_overrides AS ov2
-                            WHERE ov2.photo_id = t.photo_id
-                        )
-                    )
+                    WHERE """ + _recognized_sql("t") + """
                     """ + client_filter + """
                 )
                 SELECT d.address_id, d.simple_address, d.legal_address,
@@ -865,18 +892,7 @@ def stats(
                               ON LOWER(a.alias) = LOWER(q.client)
                              AND a.kind = 'client'
                       WHERE q.client IS NOT NULL AND q.client <> ''
-                        AND (
-                          EXISTS (
-                            SELECT 1 FROM public.hybrid_results AS hr
-                            WHERE hr.photo_id = q.photo_id
-                              AND hr.status = 'DONE'
-                              AND hr.hybrid_final_id IS NOT NULL
-                          )
-                          OR EXISTS (
-                            SELECT 1 FROM public.photo_address_overrides AS ov
-                            WHERE ov.photo_id = q.photo_id
-                          )
-                        )),
+                        AND """ + _recognized_sql("q") + """),
                     (SELECT max(created_at) FROM public.photos)
                 """,
                 period_params,
@@ -905,16 +921,7 @@ def stats(
                     FROM t
                     LEFT JOIN public.photo_address_overrides AS ov
                            ON ov.photo_id = t.photo_id
-                    WHERE EXISTS (
-                        SELECT 1 FROM public.hybrid_results AS hr
-                        WHERE hr.photo_id = t.photo_id
-                          AND hr.status = 'DONE'
-                          AND hr.hybrid_final_id IS NOT NULL
-                    )
-                    OR EXISTS (
-                        SELECT 1 FROM public.photo_address_overrides AS ov2
-                        WHERE ov2.photo_id = t.photo_id
-                    )
+                    WHERE """ + _recognized_sql("t") + """
                 )
                 SELECT count(DISTINCT e.address_id)
                 FROM eff AS e
@@ -978,6 +985,7 @@ def get_photo_address_override(photo_id: str) -> dict | None:
                 FROM public.photo_address_overrides AS o
                 JOIN public.address_directory AS d
                   ON d.address_id = o.address_id
+                 AND d.active
                 WHERE o.photo_id = %s
                 """,
                 (photo_id,),

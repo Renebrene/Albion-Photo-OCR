@@ -2356,8 +2356,15 @@ def set_photo_address(photo_id: str, request: PhotoAddressRequest):
     if repository.get_photo(photo_id) is None:
         raise HTTPException(status_code=404, detail="photo not found")
 
-    if directory_mod.get_address(request.address_id) is None:
+    address = directory_mod.get_address(request.address_id)
+
+    if address is None:
         raise HTTPException(status_code=404, detail="address not found")
+
+    # The panel lists active legal addresses only; an override to an archived
+    # row would be invisible in the panel but still matched by the grid filter.
+    if not address.get("active"):
+        raise HTTPException(status_code=422, detail="address is inactive")
 
     return repository.set_photo_address_override(photo_id, request.address_id)
 

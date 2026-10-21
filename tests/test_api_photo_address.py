@@ -30,7 +30,11 @@ def test_set_photo_address_stores_override(monkeypatch):
         routes.repository, "get_photo",
         lambda _pid: SimpleNamespace(model_dump=lambda: {"photo_id": PHOTO_ID}),
     )
-    monkeypatch.setattr(routes.directory_mod, "get_address", lambda aid: {"address_id": aid})
+    monkeypatch.setattr(
+        routes.directory_mod,
+        "get_address",
+        lambda aid: {"address_id": aid, "active": True},
+    )
     monkeypatch.setattr(
         routes.repository, "set_photo_address_override",
         lambda pid, aid: calls.append((pid, aid)) or _override(),
@@ -72,6 +76,25 @@ def test_set_photo_address_requires_existing_address(monkeypatch):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "address not found"
+
+
+def test_set_photo_address_rejects_inactive_address(monkeypatch):
+    monkeypatch.setattr(
+        routes.repository, "get_photo",
+        lambda _pid: SimpleNamespace(model_dump=lambda: {"photo_id": PHOTO_ID}),
+    )
+    monkeypatch.setattr(
+        routes.directory_mod, "get_address",
+        lambda aid: {"address_id": aid, "active": False},
+    )
+
+    response = client.put(
+        f"/api/v1/photos/{PHOTO_ID}/address",
+        json={"address_id": 5},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "address is inactive"
 
 
 def test_clear_photo_address_removes_override(monkeypatch):

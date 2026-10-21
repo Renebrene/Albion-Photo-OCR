@@ -29,6 +29,26 @@ def test_many_client_filters_do_not_return_422(monkeypatch):
     assert response.json()["items"] == []
 
 
+def test_recognized_uses_the_latest_hybrid_verdict_only():
+    """Старый успешный вердикт не должен пережить новый провальный прогон."""
+
+    recognized = repository._recognized_sql("t")
+
+    assert "ORDER BY h.finished_at DESC" in recognized
+    assert "LIMIT 1" in recognized
+    assert "hybrid_final_id IS NOT NULL" not in recognized
+    assert "ORDER BY h.finished_at DESC" in repository._PHOTO_BASE
+    assert "hybrid_final_id IS NOT NULL" not in repository._PHOTO_BASE
+
+
+def test_address_filter_requires_an_active_directory_row():
+    where, params = repository._photo_where(addresses=["addr:5"])
+
+    assert "public.address_directory" in where
+    assert "active" in where
+    assert params == [5, 5]
+
+
 def test_the_grid_asks_only_for_recognized_photos(monkeypatch):
     seen: dict = {}
 
