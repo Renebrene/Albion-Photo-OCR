@@ -2622,7 +2622,7 @@ function tagList(meta) {
       />
 
       <!-- RIGHT: toolbar + grid with its own vertical scroll -->
-      <div class="col column full-height q-px-xs grid-main">
+      <div class="col column full-height q-px-xs grid-main relative-position">
         <!-- unified search bar: Enter = Поиск, camera = search by a photo -->
         <div class="row items-center q-gutter-sm q-mb-sm">
           <div class="col relative-position">
@@ -3281,6 +3281,19 @@ function tagList(meta) {
             </div>
           </div>
         </div>
+        <!-- «Наверх»: поверх грида, в правом нижнем углу. Полупрозрачная,
+             чтобы не мешать просмотру; при наведении проявляется. -->
+        <q-btn
+          class="grid-to-top"
+          round
+          dense
+          size="sm"
+          icon="arrow_upward"
+          aria-label="Наверх"
+          @click="scrollToTop"
+        >
+          <q-tooltip>Наверх</q-tooltip>
+        </q-btn>
       </div>
 
       <ResizeHandle
@@ -3441,12 +3454,6 @@ function tagList(meta) {
         {{ display.rightPanelOpen ? 'Скрыть' : 'Показать' }} клиентов и подборки
       </q-tooltip>
     </q-btn>
-
-    <q-page-sticky position="bottom-right" :offset="[18, 18]">
-      <q-btn fab-mini color="primary" icon="arrow_upward" @click="scrollToTop">
-        <q-tooltip>Наверх</q-tooltip>
-      </q-btn>
-    </q-page-sticky>
 
     <q-dialog v-model="viewerOpen">
       <q-card style="width: 1100px; max-width: 95vw; max-height: 92vh">
@@ -4095,6 +4102,22 @@ function tagList(meta) {
    содержимое (длинную строку тегов), и та не получает прокрутку. */
 .grid-main {
   min-width: 0;
+}
+
+/* «Наверх» лежит поверх грида в правом нижнем углу и не мешает просмотру:
+   полупрозрачная, при наведении и фокусе проявляется полностью. */
+.grid-to-top {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 5;
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+}
+
+.grid-to-top:hover,
+.grid-to-top:focus-visible {
+  opacity: 1;
 }
 
 .tags-row {
