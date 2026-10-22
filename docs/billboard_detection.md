@@ -7,7 +7,7 @@
 Основной пайплайн не меняется:
 
 ```
-INGEST → PREVIEW → DINO → HYBRID → грид
+INSPECT → PREVIEW → DINO → HYBRID → грид
 ```
 
 Параллельно, в той же очереди PostgreSQL, идёт детекция щитов:

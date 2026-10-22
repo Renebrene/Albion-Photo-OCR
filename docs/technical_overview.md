@@ -32,7 +32,7 @@ FastAPI (API + раздача frontend/dist)
              │               fingerprints, derivatives, inbox
              ▼
 Worker-процессы
-  ├─ общий worker: INGEST, DINO/HYBRID, поиск и прочие jobs
+  ├─ общий worker: INSPECT, DINO/HYBRID, поиск и прочие jobs
   ├─ preview worker: фото SMALL/MIDDLE
   ├─ QWEN worker: локальный Ollama или облачный OpenAI-compatible API
   ├─ video worker: poster/storyboard/transcode/trim
