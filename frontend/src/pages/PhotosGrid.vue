@@ -1850,23 +1850,27 @@ function tileMeta(photo) {
 
 /** «клиент · бренд» для карточки; пусто, когда распознавания ещё нет. */
 /**
- * Клиент и бренд для подписи. Если чего-то не распознали — вместо него
- * показывается категория (если она определена), чтобы подпись не пустовала.
+ * Клиент и бренд для подписи.
+ *
+ * Категория подставляется только когда не распознаны ОБА: если известен
+ * клиент или бренд, прочерк на месте второго честнее подмены.
  */
 function clientBrand(photo) {
-  const client = photo?.client || photo?.category || ''
-  const brand = photo?.brand || photo?.category || ''
-  const parts = []
+  if (photo?.client || photo?.brand) {
+    return [photo?.client, photo?.brand].filter(Boolean).join(', ')
+  }
 
-  if (client) parts.push(client)
-  if (brand && brand !== client) parts.push(brand)
-
-  return parts.join(', ')
+  return photo?.category || ''
 }
 
-/** Подпись собрана из категории: клиент или бренд не определены. */
+/** Подпись собрана из категории: не распознаны ни клиент, ни бренд. */
 function clientBrandFromCategory(photo) {
-  return Boolean(photo?.category) && (!photo?.client || !photo?.brand)
+  return Boolean(photo?.category) && !photo?.client && !photo?.brand
+}
+
+/** Категория вместо пустых клиента и бренда (для карточки фото). */
+function categoryInsteadOfClientBrand(qwen) {
+  return Boolean(qwen?.category) && !qwen?.client && !qwen?.brand
 }
 
 // Значок QWEN на плитке/в списке: зелёный — описание есть, оранжевый —
@@ -3743,18 +3747,18 @@ function tagList(meta) {
                 <div class="row q-col-gutter-sm q-mt-sm">
                   <div class="col-12 col-sm-6">
                     <div class="text-caption text-grey">Клиент</div>
-                    <div class="ellipsis" :title="qwen?.client || qwen?.category || ''">
-                      {{ qwen?.client || qwen?.category || '—' }}
-                      <span v-if="!qwen?.client && qwen?.category" class="text-grey-6">
+                    <div class="ellipsis" :title="qwen?.client || ''">
+                      {{ qwen?.client || (categoryInsteadOfClientBrand(qwen) ? qwen.category : '') || '—' }}
+                      <span v-if="categoryInsteadOfClientBrand(qwen)" class="text-grey-6">
                         · категория
                       </span>
                     </div>
                   </div>
                   <div class="col-12 col-sm-6">
                     <div class="text-caption text-grey">Бренд</div>
-                    <div class="ellipsis" :title="qwen?.brand || qwen?.category || ''">
-                      {{ qwen?.brand || qwen?.category || '—' }}
-                      <span v-if="!qwen?.brand && qwen?.category" class="text-grey-6">
+                    <div class="ellipsis" :title="qwen?.brand || ''">
+                      {{ qwen?.brand || (categoryInsteadOfClientBrand(qwen) ? qwen.category : '') || '—' }}
+                      <span v-if="categoryInsteadOfClientBrand(qwen)" class="text-grey-6">
                         · категория
                       </span>
                     </div>
