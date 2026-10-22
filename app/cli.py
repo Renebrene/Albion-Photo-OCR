@@ -79,6 +79,28 @@ def build_parser():
         help="Only look at the top level of the folder",
     )
 
+    ingest_parser.add_argument(
+        "--from",
+        dest="date_from",
+        default=None,
+        help="Scan depth: start of the period, inclusive (YYYY-MM-DD)",
+    )
+
+    ingest_parser.add_argument(
+        "--to",
+        dest="date_to",
+        default=None,
+        help="Scan depth: end of the period, inclusive (YYYY-MM-DD)",
+    )
+
+    ingest_parser.add_argument(
+        "--date-mode",
+        dest="date_mode",
+        default="upload",
+        choices=["upload", "capture"],
+        help="Which date the period means: file date (upload) or EXIF capture date",
+    )
+
     # --------------------------------------------------
     # QUEUE ADD
     # --------------------------------------------------
@@ -388,11 +410,20 @@ def main():
         print(f"[Ingest] folder={folder}")
         print(f"[Ingest] workers={workers}")
 
+        if args.date_from or args.date_to:
+            print(
+                f"[Ingest] period={args.date_from or '...'}..{args.date_to or '...'} "
+                f"mode={args.date_mode}"
+            )
+
         summary = ingest_directory(
             folder,
             workers=workers,
             skip_known=not args.no_skip,
             recursive=not args.no_recursive,
+            date_from=args.date_from,
+            date_to=args.date_to,
+            date_mode=args.date_mode,
         )
 
         counters = summary["counters"]
@@ -407,6 +438,10 @@ def main():
             f"[Ingest] registered={summary['registered']} "
             f"existing={summary['existing']} "
             f"conflicts={len(summary['conflicts'])}"
+        )
+        print(
+            f"[Ingest] filtered={counters.get('FILTERED', 0)} "
+            f"outside_period={summary.get('excluded_by_period', 0)}"
         )
 
         for item in summary["errors"]:

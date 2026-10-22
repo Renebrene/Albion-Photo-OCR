@@ -24,7 +24,8 @@ def test_directory_ingest_queues_preview_after_new_registration(monkeypatch, tmp
     monkeypatch.setattr(runner, "run", lambda *_args, **_kwargs: type("Result", (), {
         "results": [type("Item", (), {"status": "VALID", "record": record, "filename": record.filename})()],
         "discovered": 1,
-        "counters": {"VALID": 1, "SKIPPED": 0, "INVALID": 0},
+        "counters": {"VALID": 1, "SKIPPED": 0, "INVALID": 0, "FILTERED": 0},
+            "excluded_by_period": 0,
     })())
     monkeypatch.setattr(runner, "check_identity_batch", lambda _records: {"NEW": [record], "EXISTING": [], "CONFLICT": []})
     monkeypatch.setattr(runner, "insert_photos", lambda records: enqueued.append(("registered", records)))
@@ -45,7 +46,8 @@ def test_directory_ingest_reports_queue_failure_without_undoing_registration(mon
     monkeypatch.setattr(runner, "run", lambda *_args, **_kwargs: type("Result", (), {
         "results": [type("Item", (), {"status": "VALID", "record": record, "filename": record.filename})()],
         "discovered": 1,
-        "counters": {"VALID": 1, "SKIPPED": 0, "INVALID": 0},
+        "counters": {"VALID": 1, "SKIPPED": 0, "INVALID": 0, "FILTERED": 0},
+            "excluded_by_period": 0,
     })())
     monkeypatch.setattr(runner, "check_identity_batch", lambda _records: {"NEW": [record], "EXISTING": [], "CONFLICT": []})
     monkeypatch.setattr(runner, "insert_photos", lambda records: registered.extend(records))
@@ -66,7 +68,8 @@ def test_directory_ingest_does_not_queue_identity_conflicts(monkeypatch, tmp_pat
     monkeypatch.setattr(runner, "run", lambda *_args, **_kwargs: type("Result", (), {
         "results": [type("Item", (), {"status": "VALID", "record": record, "filename": record.filename})()],
         "discovered": 1,
-        "counters": {"VALID": 1, "SKIPPED": 0, "INVALID": 0},
+        "counters": {"VALID": 1, "SKIPPED": 0, "INVALID": 0, "FILTERED": 0},
+            "excluded_by_period": 0,
     })())
     monkeypatch.setattr(runner, "check_identity_batch", lambda _records: {"NEW": [], "EXISTING": [], "CONFLICT": [record]})
     monkeypatch.setattr(runner, "enqueue_registered_photo", lambda photo_id: calls.append(photo_id))

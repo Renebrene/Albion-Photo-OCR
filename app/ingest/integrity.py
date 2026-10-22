@@ -1,6 +1,7 @@
+from dataclasses import dataclass
 from pathlib import Path
 import hashlib
-from datetime import datetime
+from datetime import date, datetime
 
 from PIL import Image
 
@@ -154,30 +155,112 @@ def check_file(path: Path) -> dict:
     return result
 
 
-def discover_files(
+@dataclass(frozen=True)
+class Discovery:
+    """
+    Supported files below a folder plus what the date filter dropped.
+
+    *excluded_by_period* counts files that exist and have a supported
+    extension but fall outside the requested window, so a scan can say
+    "в папке 5000 файлов, в периоде — 120" without a second walk.
+    """
+
+    files: list[Path]
+    excluded_by_period: int
+
+
+def file_date(path: Path) -> date | None:
+    """
+    Calendar date of the file's own timestamp (mtime), local timezone.
+
+    This is the "дата загрузки" of the source tree: when the file appeared or
+    was last written on the volume — not the EXIF capture date. Reading EXIF
+    would require reading the whole file, which is exactly what the shallow
+    filter must avoid. A file whose stat() fails (network share gone) returns
+    None and is kept by `date_in_period`.
+    """
+
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime).date()
+    except OSError:
+        return None
+
+
+def date_in_period(
+    value: date | None,
+    since: date | None,
+    until: date | None,
+) -> bool:
+    """
+    Inclusive date window; None means "no bound" on either side.
+
+    An unknown date (unreadable EXIF, failed stat) is kept: a network hiccup
+    must not look like "the file is too old".
+    """
+
+    if value is None:
+        return True
+    if since is not None and value < since:
+        return False
+    if until is not None and value > until:
+        return False
+    return True
+
+
+def discover(
     directory: str | Path,
     *,
     recursive: bool = True,
-) -> list[Path]:
+    since: date | None = None,
+    until: date | None = None,
+) -> Discovery:
     """
     Source files with a supported extension below *directory*.
 
     Recursive by default (the working folder is a tree with subfolders); the
-    result is sorted so repeated runs are deterministic.
+    result is sorted so repeated runs are deterministic. *since*/*until* are
+    an inclusive window over the file's own date (see `file_date`).
     """
 
     root = Path(directory)
     walker = root.rglob if recursive else root.glob
     pattern = "*"
 
-    return sorted(
-        p for p in walker(pattern)
-        if p.is_file()
-        and p.suffix.lower() in SUPPORTED_EXTENSIONS
-    )
+    matched: list[Path] = []
+    excluded = 0
+
+    for path in walker(pattern):
+        if not path.is_file() or path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            continue
+        if date_in_period(file_date(path), since, until):
+            matched.append(path)
+        else:
+            excluded += 1
+
+    return Discovery(files=sorted(matched), excluded_by_period=excluded)
 
 
-def scan_directory(directory: str | Path, *, recursive: bool = True) -> dict:
+def discover_files(
+    directory: str | Path,
+    *,
+    recursive: bool = True,
+    since: date | None = None,
+    until: date | None = None,
+) -> list[Path]:
+    """`discover()` reduced to the file list (kept for existing callers)."""
+
+    return discover(
+        directory, recursive=recursive, since=since, until=until
+    ).files
+
+
+def scan_directory(
+    directory: str | Path,
+    *,
+    recursive: bool = True,
+    since: date | None = None,
+    until: date | None = None,
+) -> dict:
     """
     Count supported photos and their total size without reading them.
 
@@ -185,7 +268,10 @@ def scan_directory(directory: str | Path, *, recursive: bool = True) -> dict:
     must not touch the database.
     """
 
-    files = discover_files(directory, recursive=recursive)
+    discovery = discover(
+        directory, recursive=recursive, since=since, until=until
+    )
+    files = discovery.files
     total = 0
 
     for path in files:
@@ -195,7 +281,12 @@ def scan_directory(directory: str | Path, *, recursive: bool = True) -> dict:
             # A file that disappeared mid-scan is simply not counted.
             continue
 
-    return {"path": str(directory), "files": len(files), "bytes": total}
+    return {
+        "path": str(directory),
+        "files": len(files),
+        "bytes": total,
+        "excluded_by_period": discovery.excluded_by_period,
+    }
 
 
 def check_directory(directory: str | Path) -> list[dict]:

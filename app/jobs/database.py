@@ -287,6 +287,9 @@ def enqueue_ingest(
     *,
     only_files: list[str] | None = None,
     run_history_id: int | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    date_mode: str = "upload",
 ) -> int | None:
     """
     Enqueue an INGEST job for one folder, deduplicated while active.
@@ -297,6 +300,11 @@ def enqueue_ingest(
 
     *only_files* (relative names) restricts the scan to a frozen snapshot, so a
     resumed pipeline run does not pick up files added while it was stopped.
+
+    *date_from*/*date_to*/*date_mode* narrow the scan by time (scan depth).
+    They are part of the dedup key's payload but not of the "same folder"
+    check: a second scan of the same folder with a different period is
+    deliberately still deduplicated while one is active.
     """
 
     payload: dict[str, Any] = {"directory": directory}
@@ -305,6 +313,12 @@ def enqueue_ingest(
         payload["only_files"] = list(only_files)
     if run_history_id is not None:
         payload["run_history_id"] = int(run_history_id)
+    if date_from:
+        payload["date_from"] = str(date_from)
+    if date_to:
+        payload["date_to"] = str(date_to)
+    if date_from or date_to:
+        payload["date_mode"] = "capture" if date_mode == "capture" else "upload"
 
     with get_connection() as conn:
         with conn.cursor() as cur:

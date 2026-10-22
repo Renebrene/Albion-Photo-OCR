@@ -13,6 +13,7 @@ import {
   saveIngestFolder,
   scanIngestFolder,
 } from '../api/client'
+import { PERIODS, periodRange } from '../utils/periodRange'
 
 const path = ref('')
 const checkedPath = ref('')
@@ -32,10 +33,48 @@ const state = ref({
   truncated: false,
   timed_out: false,
   exists: false,
+  excluded_by_period: 0,
+  in_period: 0,
+  period_applied: false,
 })
 const busy = ref(false)
 const nativeBusy = ref(false)
 const jobId = ref(null)
+
+// ---- глубина сканирования по времени --------------------------------------
+// Тот же выбор периода и режима даты, что и в фильтре Грида («Дата» +
+// «Период…» из utils/periodRange). Пустой период — вся папка.
+const period = ref('all')
+const customFrom = ref('')
+const customTo = ref('')
+const dateMode = ref('upload')
+
+const dateModes = [
+  { label: 'Дата загрузки', value: 'upload' },
+  { label: 'Дата съёмки', value: 'capture' },
+]
+const periods = PERIODS
+
+const periodBounds = computed(() =>
+  periodRange(period.value, {
+    customFrom: customFrom.value || null,
+    customTo: customTo.value || null,
+  }),
+)
+// «Период…» без дат ничего не ограничивает: пока границы не заданы, шлём
+// запрос так же, как без периода, — иначе сервер отклонил бы пустой диапазон.
+const periodActive = computed(
+  () => periodBounds.value[0] !== null || periodBounds.value[1] !== null,
+)
+const requestPeriod = computed(() =>
+  periodActive.value
+    ? {
+        dateFrom: periodBounds.value[0],
+        dateTo: periodBounds.value[1],
+        dateMode: dateMode.value,
+      }
+    : {},
+)
 
 // In-app folder browser (server directories only).
 const browseOpen = ref(false)
@@ -88,7 +127,7 @@ async function save() {
 async function check() {
   busy.value = true
   try {
-    const stats = await scanIngestFolder(path.value.trim())
+    const stats = await scanIngestFolder(path.value.trim(), requestPeriod.value)
     state.value = { ...state.value, ...stats, configured: path.value.trim(), exists: true }
     checkedPath.value = path.value.trim()
     Notify.create({
@@ -96,7 +135,8 @@ async function check() {
       message:
         `Найдено: ${stats.photos} фото, ${stats.videos} видео ` +
         `(${humanBytes(stats.bytes)})` +
-        (stats.problem_count ? `, проблем: ${stats.problem_count}` : ''),
+        (stats.problem_count ? `, проблем: ${stats.problem_count}` : '') +
+        (stats.period_applied ? `, в периоде: ${stats.in_period}` : ''),
     })
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
@@ -108,13 +148,17 @@ async function check() {
 async function start() {
   busy.value = true
   try {
-    const result = await runIngest(path.value.trim() || null)
+    const result = await runIngest(path.value.trim() || null, requestPeriod.value)
     jobId.value = result.job_id
+    const depth = periodActive.value
+      ? ` (${dateMode.value === 'capture' ? 'дата съёмки' : 'дата загрузки'}: ` +
+        `${periodBounds.value[0] || '…'} — ${periodBounds.value[1] || '…'})`
+      : ''
     Notify.create({
       type: result.skipped ? 'warning' : 'positive',
       message: result.skipped
         ? 'Обход этой папки уже в очереди'
-        : `Задание инспектирования поставлено в очередь: ${result.job_id}`,
+        : `Задание инспектирования поставлено в очередь: ${result.job_id}${depth}`,
     })
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
@@ -241,11 +285,68 @@ onMounted(load)
           </q-btn>
         </div>
 
+        <!-- Глубина сканирования: те же «Дата» и «Период…», что в фильтре Грида -->
+        <div class="row q-gutter-sm q-mt-sm items-center">
+          <q-select
+            v-model="dateMode"
+            :options="dateModes"
+            dense
+            outlined
+            emit-value
+            map-options
+            option-label="label"
+            option-value="value"
+            label="Дата"
+            style="min-width: 140px"
+          >
+            <q-tooltip>
+              «Дата загрузки» — по дате самого файла (файл вне периода не
+              читается). «Дата съёмки» — по EXIF: файл всё равно читается,
+              но в базу попадут только снимки за период.
+            </q-tooltip>
+          </q-select>
+          <q-select
+            v-model="period"
+            :options="periods"
+            dense
+            outlined
+            emit-value
+            map-options
+            option-label="label"
+            option-value="value"
+            label="Период"
+            style="min-width: 150px"
+          />
+          <template v-if="period === 'custom'">
+            <q-input
+              v-model="customFrom"
+              dense
+              outlined
+              type="date"
+              label="с"
+              style="max-width: 150px"
+            />
+            <q-input
+              v-model="customTo"
+              dense
+              outlined
+              type="date"
+              label="по"
+              style="max-width: 150px"
+            />
+          </template>
+        </div>
+
         <div class="text-caption text-grey-7 q-mt-sm">
           Фото и видео берутся из этой же папки (обход рекурсивный, включая
           подпапки); исходники только читаются. «Проверить» — предварительная
           оценка состава (размеры и расширения без декодирования). Для папки на
           своём ПК укажите её сетевой/смонтированный путь на сервере.
+          <span v-if="periodActive">
+            Глубина сканирования: {{ dateMode === 'capture' ? 'по дате съёмки' : 'по дате загрузки' }}
+            ({{ periodBounds[0] || '…' }} — {{ periodBounds[1] || '…' }}); счёт
+            в «Проверить» — по дате файла.
+          </span>
         </div>
 
         <!-- Итог проверки -->
@@ -344,6 +445,14 @@ onMounted(load)
                   <div :class="hasProblems ? 'text-orange-9' : ''">
                     {{ state.problem_count }}
                   </div>
+                </div>
+                <div v-if="state.period_applied" class="col-6">
+                  <div class="text-caption text-grey">В периоде</div>
+                  <div>{{ state.in_period }}</div>
+                </div>
+                <div v-if="state.period_applied" class="col-6">
+                  <div class="text-caption text-grey">Вне периода</div>
+                  <div class="text-grey-7">{{ state.excluded_by_period }}</div>
                 </div>
               </div>
 

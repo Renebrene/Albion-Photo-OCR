@@ -166,7 +166,7 @@ def test_run_without_the_shortcut_processes_everything(tmp_path):
 
     result = run(tmp_path, workers=1)
 
-    assert result.counters == {"VALID": 1, "INVALID": 0, "SKIPPED": 0}
+    assert result.counters == {"VALID": 1, "INVALID": 0, "SKIPPED": 0, "FILTERED": 0}
 
 
 def test_run_can_stay_non_recursive(tmp_path):

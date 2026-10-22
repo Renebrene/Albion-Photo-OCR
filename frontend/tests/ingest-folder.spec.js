@@ -4,7 +4,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { Notify, Quasar } from 'quasar'
+import { Notify, QSelect, Quasar } from 'quasar'
 
 import IngestFolder from '../src/components/IngestFolder.vue'
 
@@ -49,7 +49,11 @@ function installFetch({ scan = scanWithErrors } = {}) {
 
   global.fetch = vi.fn(async (url, options = {}) => {
     const path = String(url)
-    calls.push({ path, method: options.method || 'GET' })
+    calls.push({
+      path,
+      method: options.method || 'GET',
+      body: options.body ? JSON.parse(options.body) : null,
+    })
 
     if (path.includes('/v1/ingest/scan')) return json(scan)
     if (path.includes('/v1/ingest/run')) return json({ job_id: 42 })
@@ -167,5 +171,99 @@ describe('папка INGEST', () => {
         (call) => call.path.includes('/v1/ingest/folder') && call.method === 'PUT',
       ),
     ).toBe(true)
+  })
+})
+
+// ---- глубина сканирования по времени -------------------------------------
+// Тот же выбор «Дата» + «Период…», что и в фильтре Грида; без периода
+// запрос уходит ровно таким же, как до появления глубины.
+
+function selectByLabel(wrapper, label) {
+  return wrapper
+    .findAllComponents(QSelect)
+    .find((item) => String(item.props('label')) === label)
+}
+
+describe('глубина сканирования по времени', () => {
+  it('без периода не отправляет границы и не считает split', async () => {
+    const calls = installFetch()
+    const wrapper = mountFolder()
+    await flushPromises()
+
+    await clickButton(wrapper, 'Инспектировать')
+
+    const run = calls.find((call) => call.path.includes('/v1/ingest/run'))
+    expect(run.body).toEqual({ path: '/photos' })
+  })
+
+  it('«Сегодня» отправляет границы по локальной дате', async () => {
+    const calls = installFetch()
+    const wrapper = mountFolder()
+    await flushPromises()
+
+    await selectByLabel(wrapper, 'Период').vm.$emit('update:model-value', 'today')
+    await flushPromises()
+    await clickButton(wrapper, 'Инспектировать')
+
+    const today = new Date()
+    const pad = (value) => String(value).padStart(2, '0')
+    const expected = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`
+
+    const run = calls.find((call) => call.path.includes('/v1/ingest/run'))
+    expect(run.body).toEqual({
+      path: '/photos',
+      date_from: expected,
+      date_to: expected,
+      date_mode: 'upload',
+    })
+  })
+
+  it('режим «Дата съёмки» доезжает до сервера', async () => {
+    const calls = installFetch()
+    const wrapper = mountFolder()
+    await flushPromises()
+
+    await selectByLabel(wrapper, 'Дата').vm.$emit('update:model-value', 'capture')
+    await selectByLabel(wrapper, 'Период').vm.$emit('update:model-value', 'week')
+    await flushPromises()
+    await clickButton(wrapper, 'Инспектировать')
+
+    const run = calls.find((call) => call.path.includes('/v1/ingest/run'))
+    expect(run.body.date_mode).toBe('capture')
+    expect(run.body.date_from).toBeTruthy()
+  })
+
+  it('«Период…» без дат ничего не ограничивает', async () => {
+    const calls = installFetch()
+    const wrapper = mountFolder()
+    await flushPromises()
+
+    await selectByLabel(wrapper, 'Период').vm.$emit('update:model-value', 'custom')
+    await flushPromises()
+    await clickButton(wrapper, 'Инспектировать')
+
+    const run = calls.find((call) => call.path.includes('/v1/ingest/run'))
+    expect(run.body).toEqual({ path: '/photos' })
+  })
+
+  it('«Проверить» с периодом показывает счёт вне периода', async () => {
+    installFetch({
+      scan: {
+        ...scanWithErrors,
+        excluded_by_period: 4,
+        in_period: 1,
+        period_applied: true,
+      },
+    })
+    const wrapper = mountFolder()
+    await flushPromises()
+
+    await selectByLabel(wrapper, 'Период').vm.$emit('update:model-value', 'today')
+    await flushPromises()
+    await clickButton(wrapper, 'Проверить')
+
+    expect(wrapper.text()).toContain('В периоде')
+    expect(wrapper.text()).toContain('Вне периода')
+    expect(wrapper.text()).toContain('4')
   })
 })

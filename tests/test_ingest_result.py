@@ -69,7 +69,7 @@ def test_counters_count_valid_invalid_and_skipped():
 
     assert isinstance(summary, IngestResult)
     assert summary.discovered == 4
-    assert summary.counters == {"VALID": 1, "INVALID": 2, "SKIPPED": 1}
+    assert summary.counters == {"VALID": 1, "INVALID": 2, "SKIPPED": 1, "FILTERED": 0}
     assert len(summary.results) == 4
 
 
@@ -85,7 +85,7 @@ def test_empty_batch_has_zero_counters():
     summary = create_ingest_result([])
 
     assert summary.discovered == 0
-    assert summary.counters == {"VALID": 0, "INVALID": 0, "SKIPPED": 0}
+    assert summary.counters == {"VALID": 0, "INVALID": 0, "SKIPPED": 0, "FILTERED": 0}
     assert summary.results == []
 
 

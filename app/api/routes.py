@@ -2185,7 +2185,11 @@ def update_ingest_folder(request: SourcePathRequest):
 def scan_ingest_folder(request: SourcePathRequest):
     """Shallow photo/video count and size check; never decodes or saves."""
 
-    return sources.folder_stats(sources.resolve_directory(request.path))
+    return sources.folder_stats(
+        sources.resolve_directory(request.path),
+        since=request.date_from,
+        until=request.date_to,
+    )
 
 
 @jobs_router.post(
@@ -2218,14 +2222,29 @@ def run_ingest(request: SourceRunRequest):
     )
     from app.runs import history as run_history
 
+    # The period belongs in the title: two runs of one folder with different
+    # depth are different runs in the history.
+    period = ""
+    if request.date_from or request.date_to:
+        bounds = "—".join(
+            value.isoformat() if value else "…"
+            for value in (request.date_from, request.date_to)
+        )
+        mode_label = "съёмка" if request.date_mode == "capture" else "загрузка"
+        period = f" ({mode_label}: {bounds})"
+
     history_id = run_history.create_run(
         kind="ingest",
         mode="manual",
-        title=f"Инспектирование: {directory.name}",
+        title=f"Инспектирование: {directory.name}{period}",
         counts={"total": 1},
     )
     job_id = jobs_db.enqueue_ingest(
-        str(directory), run_history_id=history_id
+        str(directory),
+        run_history_id=history_id,
+        date_from=request.date_from.isoformat() if request.date_from else None,
+        date_to=request.date_to.isoformat() if request.date_to else None,
+        date_mode=request.date_mode,
     )
 
     if job_id is None:

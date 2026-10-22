@@ -984,11 +984,32 @@ export function saveIngestFolder(path) {
   return putJson(`${BASE}/v1/ingest/folder`, { path })
 }
 
-export function scanIngestFolder(path) {
-  return postJson(`${BASE}/v1/ingest/scan`, { path })
+/**
+ * Scan depth by time: `date_from`/`date_to` are inclusive YYYY-MM-DD bounds,
+ * `date_mode` is 'upload' (the file's own date) or 'capture' (EXIF date).
+ * No bounds — the whole folder, which is the pre-period behaviour.
+ */
+function periodBody(dateFrom = null, dateTo = null, dateMode = null) {
+  const body = {}
+
+  if (dateFrom) body.date_from = dateFrom
+  if (dateTo) body.date_to = dateTo
+  if (dateFrom || dateTo) body.date_mode = dateMode === 'capture' ? 'capture' : 'upload'
+
+  return body
 }
 
-/** Enqueue an INGEST run; without a path the configured folder is used. */
-export function runIngest(path = null) {
-  return postJson(`${BASE}/v1/ingest/run`, path ? { path } : {})
+export function scanIngestFolder(path, period = {}) {
+  return postJson(`${BASE}/v1/ingest/scan`, {
+    path,
+    ...periodBody(period.dateFrom, period.dateTo, period.dateMode),
+  })
+}
+
+/** Enqueue an INSPECT run; without a path the configured folder is used. */
+export function runIngest(path = null, period = {}) {
+  return postJson(`${BASE}/v1/ingest/run`, {
+    ...(path ? { path } : {}),
+    ...periodBody(period.dateFrom, period.dateTo, period.dateMode),
+  })
 }

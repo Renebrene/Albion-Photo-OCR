@@ -196,6 +196,9 @@ def _execute(job: dict) -> dict:
         return ingest_directory(
             str(payload["directory"]),
             only_files=payload.get("only_files"),
+            date_from=payload.get("date_from"),
+            date_to=payload.get("date_to"),
+            date_mode=payload.get("date_mode") or "upload",
             progress=lambda done, total: control(done, total, "ingest"),
         )
 

@@ -278,3 +278,81 @@ def test_run_enqueues_an_ingest_job(photo_folder):
                     "AND payload ->> 'directory' = %s",
                     (str(photo_folder),),
                 )
+
+
+def test_scan_endpoint_reports_the_period_split(tmp_path):
+    import os
+    from datetime import datetime
+
+    inside = tmp_path / "inside.jpg"
+    outside = tmp_path / "outside.jpg"
+    for path in (inside, outside):
+        path.write_bytes(b"x")
+
+    def stamp(path, day):
+        moment = datetime.strptime(day, "%Y-%m-%d").replace(hour=12).timestamp()
+        os.utime(path, (moment, moment))
+
+    stamp(inside, "2026-05-10")
+    stamp(outside, "2026-01-01")
+
+    body = client.post(
+        "/api/v1/ingest/scan",
+        json={
+            "path": str(tmp_path),
+            "date_from": "2026-05-10",
+            "date_to": "2026-05-10",
+            "date_mode": "upload",
+        },
+    ).json()
+
+    # The folder counters keep describing the whole folder.
+    assert body["media_files"] == 2
+    assert body["excluded_by_period"] == 1
+    assert body["in_period"] == 1
+    assert body["period_applied"] is True
+
+
+def test_scan_endpoint_without_a_period_reports_no_split(tmp_path):
+    (tmp_path / "a.jpg").write_bytes(b"x")
+
+    body = client.post("/api/v1/ingest/scan", json={"path": str(tmp_path)}).json()
+
+    assert body["excluded_by_period"] == 0
+    assert body["in_period"] == 1
+    assert body["period_applied"] is False
+
+
+def test_scan_endpoint_rejects_an_inverted_period(tmp_path):
+    response = client.post(
+        "/api/v1/ingest/scan",
+        json={
+            "path": str(tmp_path),
+            "date_from": "2026-05-10",
+            "date_to": "2026-05-01",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_ingest_run_rejects_an_inverted_period(tmp_path):
+    response = client.post(
+        "/api/v1/ingest/run",
+        json={
+            "path": str(tmp_path),
+            "date_from": "2026-05-10",
+            "date_to": "2026-05-01",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_ingest_run_rejects_an_unknown_date_mode(tmp_path):
+    response = client.post(
+        "/api/v1/ingest/run",
+        json={"path": str(tmp_path), "date_mode": "yesterday"},
+    )
+
+    assert response.status_code == 422

@@ -2,20 +2,38 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ProcessPoolExecutor
+from datetime import date, datetime
 from pathlib import Path
 
 from app.core.errors import redact_paths
 from app.core.parallel import bounded_submit, default_window
 from app.ingest.identity import create_identity
-from app.ingest.integrity import check_file, discover_files
+from app.ingest.integrity import check_file, date_in_period, discover, file_date
 from app.ingest.register import PhotoRecord, register_photo
 from app.ingest.result import (
     IngestResult,
     create_ingest_result,
+    filtered_result,
     invalid_result,
     skipped_result,
     valid_result,
 )
+
+# Date window modes, shared with the grid filter (see api/schemas.py).
+DATE_MODE_UPLOAD = "upload"
+DATE_MODE_CAPTURE = "capture"
+
+
+def taken_at_date(taken_at: object) -> date | None:
+    """Calendar date of a stored EXIF timestamp ("YYYY-MM-DD HH:MM:SS")."""
+
+    if not taken_at:
+        return None
+    raw = str(taken_at)[:10]
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d").date()
+    except ValueError:
+        return None
 
 
 def default_workers() -> int:
@@ -82,6 +100,9 @@ def run(
     skip_known=None,
     only_files: set[str] | None = None,
     progress=None,
+    since: date | None = None,
+    until: date | None = None,
+    date_mode: str = DATE_MODE_UPLOAD,
 ) -> IngestResult:
     """
     Run INGEST in parallel over every supported file in *directory*.
@@ -100,12 +121,32 @@ def run(
     *progress* is an optional `(done, total)` callback invoked as each file is
     accounted for (skipped or processed); the caller turns it into a job
     progress record.
+
+    *since*/*until* bound the scan to a period, *date_mode* says which date
+    that period means:
+
+    - `upload` (дата загрузки) — the file's own date. The filter runs during
+      the walk, so a file outside the window is never read or hashed.
+    - `capture` (дата съёмки) — the EXIF date, known only after the file has
+      been decoded. Files outside the window come back as FILTERED instead of
+      VALID. Already registered files are still skipped before reading, so a
+      repeated capture-mode scan reads only the new files.
     """
 
     if workers < 1:
         raise ValueError("workers must be >= 1")
+    if date_mode not in {DATE_MODE_UPLOAD, DATE_MODE_CAPTURE}:
+        raise ValueError("date_mode must be 'upload' or 'capture'")
 
-    files = discover_files(directory, recursive=recursive)
+    shallow = date_mode == DATE_MODE_UPLOAD
+    discovery = discover(
+        directory,
+        recursive=recursive,
+        since=since if shallow else None,
+        until=until if shallow else None,
+    )
+    files = discovery.files
+    excluded_by_period = discovery.excluded_by_period
 
     if only_files is not None:
         root = Path(directory)
@@ -122,7 +163,9 @@ def run(
     if not files:
         if progress is not None:
             progress(0, 0)
-        return create_ingest_result([])
+        return create_ingest_result(
+            [], excluded_by_period=excluded_by_period
+        )
 
     total = len(files)
     done = 0
@@ -177,4 +220,30 @@ def run(
                     )
                 _tick()
 
-    return create_ingest_result(results)
+    if not shallow:
+        # "Дата съёмки": the capture date is in the decoded file, so the
+        # window can only be applied now. A file without EXIF falls back to
+        # its own date, which is what the grid does for photos without
+        # taken_at.
+        kept: list = []
+        for item in results:
+            if item.status != "VALID" or item.record is None:
+                kept.append(item)
+                continue
+            moment = taken_at_date(item.record.taken_at)
+            if moment is None:
+                moment = file_date(Path(item.source_path))
+            if date_in_period(moment, since, until):
+                kept.append(item)
+            else:
+                kept.append(
+                    filtered_result(
+                        source_path=item.source_path,
+                        filename=item.filename,
+                    )
+                )
+        results = kept
+
+    return create_ingest_result(
+        results, excluded_by_period=excluded_by_period
+    )

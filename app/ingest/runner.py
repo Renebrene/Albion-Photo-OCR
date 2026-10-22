@@ -14,6 +14,7 @@ handler: the API only enqueues the job.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime
 from pathlib import Path
 
 from app.ingest.database import (
@@ -21,8 +22,15 @@ from app.ingest.database import (
     insert_photos,
     known_source_files,
 )
-from app.ingest.pipeline import DEFAULT_WORKERS, run
-from app.ingest.video_integrity import check_video_file, discover_video_files
+from app.ingest.integrity import date_in_period, file_date
+from app.ingest.pipeline import (
+    DATE_MODE_CAPTURE,
+    DATE_MODE_UPLOAD,
+    DEFAULT_WORKERS,
+    run,
+    taken_at_date,
+)
+from app.ingest.video_integrity import check_video_file, discover_videos
 from app.ingest.video_register import VideoRecord, register_video, register_video_records
 from app.core.errors import redact_absolute_paths
 from app.preview.queue import enqueue_registered_photo
@@ -33,16 +41,51 @@ def _check_video(path: Path) -> tuple[Path, dict]:
     return path, check_video_file(path)
 
 
+def _parse_date(value: str | date | None, field: str) -> date | None:
+    """Inclusive bound of a scan period; empty means "no bound"."""
+
+    if value is None or value == "":
+        return None
+    if isinstance(value, date):
+        return value
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise ValueError(f"{field} must be an ISO date (YYYY-MM-DD)") from exc
+
+
+def _video_moment(path: Path, facts: dict) -> date | None:
+    """Capture date of a probed video, falling back to the file's own date."""
+
+    moment = facts.get("taken_at")
+    if isinstance(moment, datetime):
+        return moment.date()
+    if isinstance(moment, date):
+        return moment
+    return file_date(path)
+
+
 def _ingest_videos(
     directory: str | Path,
     *,
     workers: int,
     recursive: bool,
     only_files: set[str] | None = None,
+    since: date | None = None,
+    until: date | None = None,
+    date_mode: str = DATE_MODE_UPLOAD,
 ) -> dict:
     """Probe and register source videos separately from the photo pipeline."""
 
-    paths = discover_video_files(directory, recursive=recursive)
+    shallow = date_mode != DATE_MODE_CAPTURE
+    discovery = discover_videos(
+        directory,
+        recursive=recursive,
+        since=since if shallow else None,
+        until=until if shallow else None,
+    )
+    paths = discovery.files
+    excluded_by_period = discovery.excluded_by_period
 
     if only_files is not None:
         root = Path(directory)
@@ -65,6 +108,7 @@ def _ingest_videos(
             "existing": 0,
             "conflicts": [],
             "errors": [],
+            "excluded_by_period": excluded_by_period,
         }
 
     checked: list[tuple[Path, dict]] = []
@@ -76,10 +120,18 @@ def _ingest_videos(
     records: list[VideoRecord] = []
     errors: list[dict[str, str]] = []
     invalid = 0
+    filtered = 0
     for path, facts in checked:
         if facts["integrity_status"] != "VALID":
             invalid += 1
             errors.append({"filename": path.name, "error": facts.get("error") or "не удалось проверить видео"})
+            continue
+        if not shallow and not date_in_period(
+            _video_moment(path, facts), since, until
+        ):
+            # "Дата съёмки": the recording time comes from the probed
+            # container, so the window can only be applied after the probe.
+            filtered += 1
             continue
         try:
             records.append(register_video(**facts))
@@ -121,6 +173,8 @@ def _ingest_videos(
         "posters_created": posters_created,
         "poster_errors": poster_errors,
         "errors": errors[:20],
+        "filtered": filtered,
+        "excluded_by_period": excluded_by_period,
     }
 
 
@@ -132,6 +186,9 @@ def ingest_directory(
     recursive: bool = True,
     only_files: list[str] | None = None,
     progress=None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    date_mode: str = DATE_MODE_UPLOAD,
 ) -> dict:
     """
     Run INGEST over *directory* and register the photos that are new.
@@ -145,9 +202,18 @@ def ingest_directory(
 
     *progress* is an optional `(done, total)` callback for photo files (video
     probing is a separate branch and is not counted here).
+
+    *date_from*/*date_to* (YYYY-MM-DD, inclusive) and *date_mode* are the
+    scan depth by time: "upload" compares the file's own date during the walk,
+    "capture" compares the EXIF capture date after the file has been read
+    (see app.ingest.pipeline.run).
     """
 
     subset = set(only_files) if only_files is not None else None
+    since = _parse_date(date_from, "date_from")
+    until = _parse_date(date_to, "date_to")
+    if since is not None and until is not None and until < since:
+        raise ValueError("date_to must not be earlier than date_from")
 
     result = run(
         directory,
@@ -156,6 +222,9 @@ def ingest_directory(
         skip_known=known_source_files if skip_known else None,
         only_files=subset,
         progress=progress,
+        since=since,
+        until=until,
+        date_mode=date_mode,
     )
 
     records = [
@@ -205,13 +274,20 @@ def ingest_directory(
     # distinct table and are never sent to the photo preview/DINO/HYBRID/QWEN
     # pipelines. Photo counters keep their existing shape for old clients.
     videos = _ingest_videos(
-        directory, workers=workers, recursive=recursive, only_files=subset
+        directory,
+        workers=workers,
+        recursive=recursive,
+        only_files=subset,
+        since=since,
+        until=until,
+        date_mode=date_mode,
     )
 
     return {
         "directory": str(directory),
         "discovered": result.discovered,
         "counters": result.counters,
+        "excluded_by_period": result.excluded_by_period,
         "registered": len(classification["NEW"]),
         "existing": len(classification["EXISTING"]),
         "conflicts": [record.photo_id for record in classification["CONFLICT"]],

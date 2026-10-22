@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from app.ingest import video_integrity, video_register
+from app.ingest.integrity import Discovery
 
 
 def _probe_json(*, duration="2.0", codec="h264", creation_time="2026-10-15T08:12:30Z"):
@@ -195,7 +196,11 @@ def test_ingest_directory_keeps_video_out_of_photo_records(tmp_path, monkeypatch
     video_path = _video_file(tmp_path / "video.mp4")
     monkeypatch.setattr(runner, "run", lambda *args, **kwargs: create_ingest_result([]))
     monkeypatch.setattr(runner, "check_identity_batch", lambda records: {"NEW": [], "EXISTING": [], "CONFLICT": []})
-    monkeypatch.setattr(runner, "discover_video_files", lambda *args, **kwargs: [video_path])
+    monkeypatch.setattr(
+        runner,
+        "discover_videos",
+        lambda *args, **kwargs: Discovery(files=[video_path], excluded_by_period=0),
+    )
     monkeypatch.setattr(
         runner,
         "check_video_file",

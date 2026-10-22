@@ -369,12 +369,37 @@ class SourcePathRequest(BaseModel):
     """A server-side folder chosen in the UI (validated by the API)."""
 
     path: str = Field(min_length=1, max_length=4096)
+    # Optional scan depth by time: both bounds inclusive, both optional.
+    date_from: date | None = None
+    date_to: date | None = None
+    date_mode: str = Field(default="upload", pattern="^(upload|capture)$")
+
+    @model_validator(mode="after")
+    def validate_range(self):
+        if self.date_from and self.date_to and self.date_to < self.date_from:
+            raise ValueError("date_to must not be earlier than date_from")
+        return self
 
 
 class SourceRunRequest(BaseModel):
-    """Folder for an INGEST run; omitted -> the configured working folder."""
+    """
+    Folder for an INSPECT run; omitted -> the configured working folder.
+
+    *date_from*/*date_to*/*date_mode* are the optional scan depth by time,
+    with the same meaning as the grid filter: "upload" = the file's own date
+    (cheap, applied while walking), "capture" = the EXIF capture date.
+    """
 
     path: str | None = Field(default=None, max_length=4096)
+    date_from: date | None = None
+    date_to: date | None = None
+    date_mode: str = Field(default="upload", pattern="^(upload|capture)$")
+
+    @model_validator(mode="after")
+    def validate_range(self):
+        if self.date_from and self.date_to and self.date_to < self.date_from:
+            raise ValueError("date_to must not be earlier than date_from")
+        return self
 
 
 class PipelineStartRequest(BaseModel):

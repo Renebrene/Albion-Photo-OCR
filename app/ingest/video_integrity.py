@@ -10,11 +10,12 @@ import hashlib
 import json
 import os
 import subprocess
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from app.core.errors import redact_paths
+from app.ingest.integrity import Discovery, date_in_period, file_date
 
 SUPPORTED_VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".mpeg", ".mpg"}
 DEFAULT_PROBE_TIMEOUT_SECONDS = 60.0
@@ -28,16 +29,44 @@ def _positive_env(name: str, default: float) -> float:
     return value if value > 0 else default
 
 
-def discover_video_files(directory: str | Path, *, recursive: bool = True) -> list[Path]:
+def discover_videos(
+    directory: str | Path,
+    *,
+    recursive: bool = True,
+    since: date | None = None,
+    until: date | None = None,
+) -> Discovery:
+    """Same contract as the photo discovery, for the video extensions."""
+
     root = Path(directory)
     if not root.is_dir():
-        return []
+        return Discovery(files=[], excluded_by_period=0)
+
     walker = root.rglob if recursive else root.glob
-    return sorted(
-        path
-        for path in walker("*")
-        if path.is_file() and path.suffix.lower() in SUPPORTED_VIDEO_EXTENSIONS
-    )
+    matched: list[Path] = []
+    excluded = 0
+
+    for path in walker("*"):
+        if not path.is_file() or path.suffix.lower() not in SUPPORTED_VIDEO_EXTENSIONS:
+            continue
+        if date_in_period(file_date(path), since, until):
+            matched.append(path)
+        else:
+            excluded += 1
+
+    return Discovery(files=sorted(matched), excluded_by_period=excluded)
+
+
+def discover_video_files(
+    directory: str | Path,
+    *,
+    recursive: bool = True,
+    since: date | None = None,
+    until: date | None = None,
+) -> list[Path]:
+    return discover_videos(
+        directory, recursive=recursive, since=since, until=until
+    ).files
 
 
 def metadata_identity_hash(filename: str, identity_date: str, size_bytes: int) -> str:

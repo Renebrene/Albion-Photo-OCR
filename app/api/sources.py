@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import time
+from datetime import date
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -21,7 +22,7 @@ from app.api.config import (
     SOURCE_SCAN_FILE_LIMIT,
     SOURCE_SCAN_TIMEOUT_SECONDS,
 )
-from app.ingest.integrity import SUPPORTED_EXTENSIONS
+from app.ingest.integrity import SUPPORTED_EXTENSIONS, date_in_period, file_date
 from app.ingest.video_integrity import SUPPORTED_VIDEO_EXTENSIONS
 
 MEDIA_EXTENSIONS = SUPPORTED_EXTENSIONS | SUPPORTED_VIDEO_EXTENSIONS
@@ -75,20 +76,31 @@ def resolve_directory(raw: str) -> Path:
     return resolved
 
 
-def folder_stats(path: Path) -> dict:
+def folder_stats(
+    path: Path,
+    *,
+    since: date | None = None,
+    until: date | None = None,
+) -> dict:
     """
     Count supported photos and videos below *path* without reading contents.
 
     This is a preliminary check for the folder picker: sizes come from stat(),
-    so a corrupt image/video is not detected until the INGEST worker decodes it.
+    so a corrupt image/video is not detected until the INSPECT worker decodes it.
     Hidden directories are skipped. The walk is bounded by both a time budget
     and SOURCE_SCAN_FILE_LIMIT; either bound sets truncated=True.
+
+    *since*/*until* (inclusive) apply the scan depth by time over each file's
+    own date — the same cheap filter the worker uses in "дата загрузки" mode.
+    Files outside the window are counted separately in *excluded_by_period*,
+    so the counters keep describing the whole folder.
     """
 
     photos = 0
     videos = 0
     photo_bytes = 0
     video_bytes = 0
+    excluded = 0
     extensions: dict[str, int] = {}
     problems: list[dict[str, str]] = []
     problem_count = 0
@@ -123,6 +135,7 @@ def folder_stats(path: Path) -> dict:
                 break
 
             is_video = suffix in SUPPORTED_VIDEO_EXTENSIONS
+            entry = Path(root) / name
 
             if is_video:
                 videos += 1
@@ -132,22 +145,25 @@ def folder_stats(path: Path) -> dict:
             extensions[suffix] = extensions.get(suffix, 0) + 1
             processed += 1
 
-            try:
-                size = (Path(root) / name).stat().st_size
-            except OSError:
-                note_problem(name, "не удалось прочитать размер файла")
-            else:
-                if is_video:
-                    video_bytes += size
-                else:
-                    photo_bytes += size
-
-                if size <= 0:
-                    note_problem(name, "файл пуст")
-
             if processed >= SOURCE_SCAN_FILE_LIMIT:
                 truncated = True
                 break
+
+            try:
+                size = entry.stat().st_size
+            except OSError:
+                note_problem(name, "не удалось прочитать размер файла")
+            else:
+                if not date_in_period(file_date(entry), since, until):
+                    excluded += 1
+                else:
+                    if is_video:
+                        video_bytes += size
+                    else:
+                        photo_bytes += size
+
+                    if size <= 0:
+                        note_problem(name, "файл пуст")
 
         if truncated:
             break
@@ -164,6 +180,11 @@ def folder_stats(path: Path) -> dict:
         "photo_bytes": photo_bytes,
         "video_bytes": video_bytes,
         "extensions": dict(sorted(extensions.items())),
+        # Scan depth by time: the counters above describe the whole folder,
+        # these two say how much of it the selected period would scan.
+        "excluded_by_period": excluded,
+        "in_period": photos + videos - excluded,
+        "period_applied": bool(since or until),
         "problem_count": problem_count,
         "problems": problems,
         "preliminary": True,
