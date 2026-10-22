@@ -20,7 +20,7 @@ import {
 
 const tab = ref('dino')
 
-// Порог уверенности распознавания: ниже него фото уходит в «Уточнить».
+// Порог уверенности распознавания: ниже него фото уходит в «Требуют проверки».
 const lowScore = ref(null)
 const lowScoreSaved = ref(null)
 const lowScoreBusy = ref(false)
@@ -409,7 +409,7 @@ onBeforeUnmount(() => {
     <q-card flat bordered class="q-mb-md">
       <q-card-section>
         <div class="text-subtitle2 q-mb-xs">
-          Уверенность распознавания: корзина «Уточнить»
+          Уверенность распознавания: корзина «Требуют проверки»
         </div>
         <div class="row items-center q-gutter-md">
           <q-input
@@ -427,7 +427,7 @@ onBeforeUnmount(() => {
           >
             <q-tooltip>
               Сходство выбранного кандидата (0…1). Ниже порога фото адреса не
-              получает и попадает в «Уточнить». 0 — проверка выключена.
+              получает и попадает в «Требуют проверки». 0 — проверка выключена.
             </q-tooltip>
           </q-input>
           <q-btn
@@ -439,7 +439,7 @@ onBeforeUnmount(() => {
             @click="saveReviewSettings"
           />
           <div class="text-caption text-grey-8">
-            В «Уточнить» сейчас: <b>{{ reviewCount }}</b> фото
+            Требуют проверки сейчас: <b>{{ reviewCount }}</b> фото
             <template v-if="previewCount !== null">
               <br />
               при {{ Number(lowScore).toFixed(2) }} будет:

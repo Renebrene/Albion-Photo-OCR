@@ -40,7 +40,7 @@ class PhotoSummary(BaseModel):
     simple_address: str | None = None
 
     # Уверенность распознавания (DINO-сходство выбранного кандидата, 0…1).
-    # None — вердикта нет; ниже порога из настроек фото уходит в «Уточнить».
+    # None — вердикта нет; ниже порога из настроек фото уходит в «Требуют проверки».
     confidence: float | None = None
 
     # QWEN icon in the grid: status plus whether a description actually exists
@@ -419,7 +419,7 @@ class PreviewBackfillRequest(BaseModel):
 
 
 class HybridSettingsUpdate(BaseModel):
-    """Порог уверенности распознавания (корзина «Уточнить»)."""
+    """Порог уверенности распознавания (корзина «Требуют проверки»)."""
 
     low_score: float = Field(ge=0, le=1)
 

@@ -3032,13 +3032,13 @@ function tagList(meta) {
                     </q-tooltip>
                   </div>
                   <!-- Фото без адреса: слабое совпадение или его отсутствие.
-                       Такие фото ждут ручного разбора в «Уточнить». -->
+                       Такие фото ждут ручного разбора: «Требуют проверки». -->
                   <div
                     v-else
                     class="ellipsis text-caption text-orange-9"
                   >
                     <q-icon name="help_outline" size="14px" />
-                    требует уточнения
+                    требует проверки
                     <q-tooltip v-if="confidenceText(photo.confidence)">
                       Уверенность {{ confidenceText(photo.confidence) }} — ниже
                       порога распознавания. Назначьте адрес вручную в карточке
@@ -3461,7 +3461,7 @@ function tagList(meta) {
           <!-- Simplified recognition address, with the position in the gallery. -->
           <div class="col ellipsis">
             <div class="text-subtitle1 ellipsis">
-              {{ current?.simple_address || current?.address || 'требует уточнения' }}
+              {{ current?.simple_address || current?.address || 'требует проверки' }}
             </div>
             <div class="text-caption text-grey-7 ellipsis">
               {{ current?.filename }}

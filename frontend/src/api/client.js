@@ -667,12 +667,12 @@ export function fetchVisits(limit = 100) {
 }
 
 // Address directory (schema/022): legal/simple names for fingerprint ids.
-// Порог уверенности распознавания: ниже него фото уходит в «Уточнить».
+// Порог уверенности распознавания: ниже него фото уходит в «Требуют проверки».
 export function fetchHybridSettings() {
   return getJson(`${BASE}/v1/hybrid/settings`)
 }
 
-/** Сколько фото попадёт в «Уточнить» при таком пороге (ничего не сохраняет). */
+/** Сколько фото попадёт в «Требуют проверки» при таком пороге (ничего не сохраняет). */
 export function previewHybridSettings(lowScore) {
   return getJson(`${BASE}/v1/hybrid/settings/preview?low_score=${lowScore}`)
 }

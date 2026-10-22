@@ -2158,7 +2158,7 @@ def qwen_stats():
 
 @read_router.get("/v1/hybrid/settings", response_model=None)
 def hybrid_settings():
-    """Порог уверенности: ниже него фото уходит в «Уточнить»."""
+    """Порог уверенности: ниже него фото уходит в «Требуют проверки»."""
 
     from app.hybrid import config as hybrid_config
 
@@ -2168,7 +2168,7 @@ def hybrid_settings():
 @read_router.get("/v1/hybrid/settings/preview", response_model=None)
 def preview_hybrid_settings(low_score: float = Query(0.85, ge=0, le=1)):
     """
-    Сколько фото попадёт в «Уточнить» при таком пороге.
+    Сколько фото попадёт в «Требуют проверки» при таком пороге.
 
     Ничего не сохраняет: нужно, чтобы подобрать значение по своему корпусу,
     видя результат до нажатия «Сохранить».

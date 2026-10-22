@@ -21,11 +21,11 @@ from app.hybrid import config as hybrid_config
 from app.ingest.database import get_connection
 
 
-# Значение фильтра «Уточнить» в панели адресов. Настоящие адреса — целые id,
+# Значение фильтра «Требуют проверки» в панели адресов. Настоящие адреса — целые id,
 # поэтому слово не может столкнуться с ними.
 REVIEW_ADDRESS_ID = "review"
 REVIEW_ADDRESS_VALUE = f"addr:{REVIEW_ADDRESS_ID}"
-REVIEW_NAME = "Уточнить"
+REVIEW_NAME = "Требуют проверки"
 
 
 def _latest_hybrid_final_sql(photo_ref: str) -> str:
@@ -98,7 +98,7 @@ def _recognized_sql(photo_ref: str = "t", low_score: float | None = None) -> str
     its confidence is not below the review threshold**, or when an operator set
     a manual address override. Older verdicts cannot keep a photo in the grid
     after a failed re-run. Everything else — a weak match, no match, or no
-    verdict at all — lands in «Уточнить» (see list_addresses).
+    verdict at all — lands in «Требуют проверки» (see list_addresses).
     """
 
     return (
@@ -114,7 +114,7 @@ def _recognized_sql(photo_ref: str = "t", low_score: float | None = None) -> str
 #
 # Замечание: сейчас все вызывающие передают recognized_only=True, поэтому
 # фото без вердикта HYBRID до этой выборки не доходят и запасной путь по
-# DINO не срабатывает. Он понадобится корзине «Уточнить», где такие фото
+# DINO не срабатывает. Он понадобится корзине «Требуют проверки», где такие фото
 # как раз и показываются (см. docs/hybrid.txt).
 _PHOTO_BASE = """
     SELECT
@@ -307,7 +307,7 @@ def _photo_where(
                 suffix = text.split(":", 1)[1].strip()
 
                 if suffix.lower() == REVIEW_ADDRESS_ID:
-                    # «Уточнить»: всё, что не получило адреса — слабое
+                    # «Требуют проверки»: всё, что не получило адреса — слабое
                     # совпадение, отсутствие совпадения или отсутствие
                     # вердикта. Ручное переопределение выводит фото отсюда.
                     address_parts.append(
@@ -490,7 +490,7 @@ def _photo_where(
         clauses.append("t.photo_id = ANY(%s)")
         params.append(list(ids))
 
-    # Фильтр «Уточнить» выбирает ровно те фото, которые НЕ распознаны, поэтому
+    # Фильтр «Требуют проверки» выбирает ровно те фото, которые НЕ распознаны, поэтому
     # вместе с recognized_only он дал бы пустую страницу: «только распознанные»
     # и «только требующие уточнения» не пересекаются. Когда корзина выбрана,
     # показываем её содержимое (объединение с обычными адресами работает как
@@ -806,7 +806,7 @@ def all_photo_ids() -> list[str]:
 
 def review_count(low_score: float | None = None) -> int:
     """
-    Сколько фото попадёт в «Уточнить» при заданном пороге.
+    Сколько фото попадёт в «Требуют проверки» при заданном пороге.
 
     Ничего не меняет: используется предпросмотром в настройках, чтобы подобрать
     значение по своему корпусу, не сохраняя его вслепую.
@@ -920,7 +920,7 @@ def list_addresses(
             )
             rows = cur.fetchall()
 
-            # «Уточнить»: фото, которые не разошлись по адресам. Считаются тем
+            # «Требуют проверки»: фото, которые не разошлись по адресам. Считаются тем
             # же условием распознавания и тем же периодом, что и адреса выше.
             cur.execute(
                 """
