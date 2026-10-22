@@ -2650,9 +2650,7 @@ function tagList(meta) {
       <div class="col column full-height q-px-xs grid-main">
         <!-- unified search bar: Enter = Поиск, camera = search by a photo -->
         <div class="row items-center q-gutter-sm q-mb-sm">
-          <!-- min-width: при заполненной строке поле поиска переносится на
-               свою строку, а не сжимается до нечитаемой ширины. -->
-          <div class="col relative-position" style="min-width: 260px">
+          <div class="col relative-position">
             <q-input
               v-model="q"
               dense
@@ -2801,10 +2799,92 @@ function tagList(meta) {
           <q-btn class="grid-reset" dense flat icon="restart_alt" :disable="mediaBusy" @click="reset">
             <q-tooltip>Сбросить фильтры и результаты поиска</q-tooltip>
           </q-btn>
+        </div>
 
-          <!-- Фильтры периода, сортировка и вид — в верхней строке,
-               рядом с поиском: строка действий внизу остаётся только для
-               статуса и выгрузки выбранного. -->
+        <!-- Строка тегов: выбранные адреса, клиенты, бренд, тег, категория.
+             Одна строка между поиском и фильтрами; при переполнении
+             прокручивается колесом, полоса прокрутки скрыта. -->
+        <div
+          v-if="activeTags.length"
+          ref="tagsRowEl"
+          class="tags-row q-mb-sm"
+          :class="{ 'is-scrollable': tagsScrollable }"
+          @wheel="onTagsWheel"
+          @pointerdown="onTagsPointerDown"
+          @pointermove="onTagsPointerMove"
+          @pointerup="onTagsPointerUp"
+          @pointerleave="onTagsPointerUp"
+          @pointercancel="onTagsPointerUp"
+        >
+          <q-chip
+            v-for="tag in activeTags"
+            :key="tag.key"
+            dense
+            removable
+            :icon="tag.icon"
+            :color="tagColor(tag.type)"
+            text-color="white"
+            class="tag-chip"
+            @remove="removeTag(tag)"
+          >
+            {{ tag.label }}
+          </q-chip>
+        </div>
+
+        <!-- Действия над выбором, сортировка, вид и настройки — одной строкой.
+             Выбранные адреса и клиенты здесь не повторяются: их подсвечивают
+             боковые панели. -->
+        <div class="row items-center q-gutter-xs q-mb-sm">
+          <span class="text-caption text-grey-8">{{ periodLabel }}</span>
+          <!-- Пока идёт DINO/HYBRID: стадия и число совпадений; грид
+               перечитывается сам, когда появляются распознанные фото. -->
+          <span
+            v-if="pipelineStatusText"
+            class="row items-center no-wrap text-caption text-primary pipeline-live"
+          >
+            <q-spinner-dots size="14px" class="q-mr-xs" />
+            {{ pipelineStatusText }}
+          </span>
+          <!-- Выделение — «корзина»: оно может содержать фото не из текущего
+               фильтра. Клик по счётчику снимает выделение целиком. -->
+          <q-badge
+            v-if="store.selectedCount"
+            color="primary"
+            class="selection-badge"
+            @click="store.clearSelection()"
+          >
+            выбрано: {{ store.selectedCount }}
+            <q-tooltip>Снять выделение</q-tooltip>
+          </q-badge>
+          <q-btn
+            v-if="canUseCollective"
+            dense
+            flat
+            icon="download"
+            label="Скачать"
+            :disable="!store.selectedCount"
+            @click="downloadSelected"
+          >
+            <q-tooltip>Скачать выбранные фото по одному</q-tooltip>
+          </q-btn>
+          <q-btn
+            v-if="canUseCollective"
+            dense
+            color="secondary"
+            icon="folder_zip"
+            label="ZIP"
+            :disable="!store.selectedCount"
+            :loading="zipBusy"
+            @click="downloadZip"
+          >
+            <q-tooltip>Скачать выбранные фото одним архивом</q-tooltip>
+          </q-btn>
+          <CloudLinkButton
+            v-if="canUseCollective"
+            :photo-ids="store.selected"
+            :disabled="!store.selectedCount"
+          />
+
           <q-space />
 
           <!-- дата: источник фильтра и периода — выпадающим списком -->
@@ -2938,93 +3018,6 @@ function tagList(meta) {
               </q-list>
             </q-menu>
           </q-btn>
-        </div>
-
-        <!-- Строка тегов: выбранные адреса, клиенты, бренд, тег, категория.
-             Одна строка между поиском и фильтрами; при переполнении
-             прокручивается колесом, полоса прокрутки скрыта. -->
-        <div
-          v-if="activeTags.length"
-          ref="tagsRowEl"
-          class="tags-row q-mb-sm"
-          :class="{ 'is-scrollable': tagsScrollable }"
-          @wheel="onTagsWheel"
-          @pointerdown="onTagsPointerDown"
-          @pointermove="onTagsPointerMove"
-          @pointerup="onTagsPointerUp"
-          @pointerleave="onTagsPointerUp"
-          @pointercancel="onTagsPointerUp"
-        >
-          <q-chip
-            v-for="tag in activeTags"
-            :key="tag.key"
-            dense
-            removable
-            :icon="tag.icon"
-            :color="tagColor(tag.type)"
-            text-color="white"
-            class="tag-chip"
-            @remove="removeTag(tag)"
-          >
-            {{ tag.label }}
-          </q-chip>
-        </div>
-
-        <!-- Статус и действия над выбором — одной строкой. Фильтры периода,
-             сортировка и вид переехали в верхнюю строку, к поиску; выбранные
-             адреса и клиенты здесь не повторяются (их подсвечивают боковые
-             панели). -->
-        <div class="row items-center q-gutter-xs q-mb-sm">
-          <span class="text-caption text-grey-8">{{ periodLabel }}</span>
-          <!-- Пока идёт DINO/HYBRID: стадия и число совпадений; грид
-               перечитывается сам, когда появляются распознанные фото. -->
-          <span
-            v-if="pipelineStatusText"
-            class="row items-center no-wrap text-caption text-primary pipeline-live"
-          >
-            <q-spinner-dots size="14px" class="q-mr-xs" />
-            {{ pipelineStatusText }}
-          </span>
-          <!-- Выделение — «корзина»: оно может содержать фото не из текущего
-               фильтра. Клик по счётчику снимает выделение целиком. -->
-          <q-badge
-            v-if="store.selectedCount"
-            color="primary"
-            class="selection-badge"
-            @click="store.clearSelection()"
-          >
-            выбрано: {{ store.selectedCount }}
-            <q-tooltip>Снять выделение</q-tooltip>
-          </q-badge>
-          <q-btn
-            v-if="canUseCollective"
-            dense
-            flat
-            icon="download"
-            label="Скачать"
-            :disable="!store.selectedCount"
-            @click="downloadSelected"
-          >
-            <q-tooltip>Скачать выбранные фото по одному</q-tooltip>
-          </q-btn>
-          <q-btn
-            v-if="canUseCollective"
-            dense
-            color="secondary"
-            icon="folder_zip"
-            label="ZIP"
-            :disable="!store.selectedCount"
-            :loading="zipBusy"
-            @click="downloadZip"
-          >
-            <q-tooltip>Скачать выбранные фото одним архивом</q-tooltip>
-          </q-btn>
-          <CloudLinkButton
-            v-if="canUseCollective"
-            :photo-ids="store.selected"
-            :disabled="!store.selectedCount"
-          />
-
         </div>
 
         <div v-if="error" class="q-mb-md">
