@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily PhotoBAse PostgreSQL backup
+Documentation=file:docs/backup_restore.md
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+RandomizedDelaySec=10m
+Unit=scene-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,13 @@
+[Unit]
+Description=PhotoBAse PostgreSQL backup (user)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/alexice/scene-fingerprint
+EnvironmentFile=/home/alexice/.config/scene-fingerprint.env
+Environment=SCENE_BACKUP_DIR=/home/alexice/scene-fingerprint-backups
+ExecStart=/home/alexice/scene-fingerprint/.venv/bin/python scripts/backup_db.py --json
+Nice=10
+TimeoutStartSec=3600

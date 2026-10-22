@@ -102,3 +102,56 @@ def test_crop_removal_respects_dry_run_and_limit(tmp_path, monkeypatch):
     assert first.exists() is False
     assert second.exists() is True
     assert (directory / billboard_pipeline.CROPS_MARKER).exists()
+
+
+def test_backup_retention_keeps_daily_weekly_monthly():
+    module = _load("backup_db", "scripts/backup_db.py")
+    names = [
+        "photobase_20261001_020000.dump",
+        "photobase_20261008_020000.dump",
+        "photobase_20261015_020000.dump",
+        "photobase_20261021_020000.dump",
+        "photobase_20261022_020000.dump",
+    ]
+    paths = [Path(name) for name in names]
+
+    keep, delete = module.select_retention(
+        paths, keep_daily=1, keep_weekly=4, keep_monthly=1
+    )
+
+    assert Path("photobase_20261022_020000.dump") in keep
+    assert Path("photobase_20261015_020000.dump") in keep
+    assert Path("photobase_20261008_020000.dump") in keep
+    assert Path("photobase_20261021_020000.dump") in delete
+
+
+def test_restore_refuses_production_target(tmp_path, monkeypatch):
+    module = _load("restore_db", "scripts/restore_db.py")
+    backup = tmp_path / "photobase.dump"
+    backup.write_bytes(b"not-a-real-dump")
+    monkeypatch.setenv("INGEST_DB_NAME", "photobase")
+
+    result = module.main([
+        "--backup", str(backup),
+        "--target-db", "photobase",
+        "--confirm",
+        "--dry-run",
+    ])
+
+    assert result == 2
+
+
+def test_restore_dry_run_prints_command(tmp_path, capsys, monkeypatch):
+    module = _load("restore_db", "scripts/restore_db.py")
+    backup = tmp_path / "photobase.dump"
+    backup.write_bytes(b"not-a-real-dump")
+    monkeypatch.setenv("INGEST_DB_NAME", "photobase")
+
+    result = module.main([
+        "--backup", str(backup),
+        "--target-db", "photobase_restore_test",
+        "--dry-run",
+    ])
+
+    assert result == 0
+    assert "pg_restore" in capsys.readouterr().out

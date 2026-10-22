@@ -1,0 +1,25 @@
+# Verified daily PostgreSQL backup (custom-format pg_dump).
+# Install together with scene-backup.timer; see docs/backup_restore.md.
+
+[Unit]
+Description=PhotoBAse PostgreSQL backup
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=scene
+Group=scene
+UMask=0077
+WorkingDirectory=/opt/scene-fingerprint
+EnvironmentFile=/etc/scene-fingerprint.env
+Environment=SCENE_BACKUP_DIR=/var/backups/scene-fingerprint
+ExecStart=/opt/scene-fingerprint/.venv/bin/python scripts/backup_db.py --json
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=3600
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/backups/scene-fingerprint
