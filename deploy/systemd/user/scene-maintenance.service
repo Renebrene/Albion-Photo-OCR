@@ -1,0 +1,13 @@
+[Unit]
+Description=PhotoBAse retention cleanup (user)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/alexice/scene-fingerprint
+EnvironmentFile=/home/alexice/.config/scene-fingerprint.env
+ExecStart=/home/alexice/scene-fingerprint/.venv/bin/python scripts/cleanup_job_queue.py --json
+ExecStart=/home/alexice/scene-fingerprint/.venv/bin/python scripts/cleanup_crops.py --older-than-days 7 --json
+Nice=10
+TimeoutStartSec=3600

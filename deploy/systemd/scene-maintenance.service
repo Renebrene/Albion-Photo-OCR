@@ -1,0 +1,29 @@
+# PhotoBAse retention cleanup: finished job_queue rows and stale billboard crops.
+#
+# Runs as a one-shot system unit under the same service user as the workers.
+# Install together with scene-maintenance.timer (see README.md).
+
+[Unit]
+Description=PhotoBAse retention cleanup (job queue, crops)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=scene
+Group=scene
+UMask=0027
+WorkingDirectory=/opt/scene-fingerprint
+EnvironmentFile=/etc/scene-fingerprint.env
+
+ExecStart=/opt/scene-fingerprint/.venv/bin/python scripts/cleanup_job_queue.py --json
+ExecStart=/opt/scene-fingerprint/.venv/bin/python scripts/cleanup_crops.py --older-than-days 7 --json
+
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=3600
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/scene-fingerprint/data

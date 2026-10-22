@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily PhotoBAse retention cleanup (user)
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=scene-maintenance.service
+
+[Install]
+WantedBy=timers.target

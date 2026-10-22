@@ -54,6 +54,23 @@ journalctl -u scene-worker -f
 curl -fsS http://127.0.0.1:8010/api/health
 ```
 
+## Retention cleanup
+
+Apply `schema/044_job_queue_archive.sql` and install the timer after the usual
+api/worker units:
+
+```bash
+sudo cp deploy/systemd/scene-maintenance.service \
+        deploy/systemd/scene-maintenance.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now scene-maintenance.timer
+```
+
+The timer runs daily at 03:30 with up to 15 minutes of jitter. It archives and
+deletes only finished jobs older than 14 days (failures: 30 days), never
+PENDING/RUNNING/PAUSED, then removes consumed/orphan crops older than 7 days.
+Dry-run and the full algorithm are described in `docs/maintenance.md`.
+
 ## First login
 
 Authentication is **fail-closed** (`SCENE_AUTH_REQUIRED=1`): every `/api/v1/*`
