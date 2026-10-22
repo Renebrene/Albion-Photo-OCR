@@ -1976,6 +1976,21 @@ def login(payload: LoginRequest, http_request: Request):
     from app.api import security
 
     ip = security.client_ip(http_request)
+
+    # Подбор пароля: после серии неудач с одного адреса вход отклоняется
+    # до конца окна (SCENE_LOGIN_LOCKOUT=0 отключает).
+    wait = security.login_lockout(ip)
+
+    if wait:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "слишком много неудачных попыток входа с этого адреса; "
+                f"повторите через {wait} с"
+            ),
+            headers={"Retry-After": str(wait)},
+        )
+
     user = users_db.get_user_by_name(payload.name)
 
     if user is None or not user["active"]:
@@ -1998,6 +2013,10 @@ def login(payload: LoginRequest, http_request: Request):
         raise HTTPException(status_code=401, detail="invalid credentials")
 
     token = users_db.create_session(user["user_id"])
+
+    # Удачный вход обнуляет счётчик ошибок этого адреса: опечатки не должны
+    # копить блокировку для того, кто в итоге ввёл верный пароль.
+    security.clear_login_failures(ip)
 
     # Учёт посещений. Ошибка записи не должна ломать вход.
     try:

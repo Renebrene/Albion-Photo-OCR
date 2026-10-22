@@ -35,6 +35,12 @@ FINGERPRINTS_ROOT = Path(
 # faiss/opencv into the API process, which this module exists to avoid.
 FINGERPRINT_PREVIEW_NAME = "preview.jpg"
 
+# Interactive docs (/docs, /redoc, /openapi.json). Closed by default:
+# the schema describes every route and the deployment is reachable from a
+# LAN and, through a tunnel, from the internet. Set SCENE_ENABLE_DOCS=1
+# when working on the API locally.
+ENABLE_DOCS = os.getenv("SCENE_ENABLE_DOCS", "0") == "1"
+
 # Allowed roots for serving original files. Comma-separated absolute paths
 # (e.g. the mounted photo volume). Empty -> originals are refused (fail-closed):
 # a registered path outside these roots is never served.

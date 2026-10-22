@@ -17,9 +17,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.auth import validate_token_config
@@ -27,7 +27,7 @@ from app.api.cloud import (
     read_router as cloud_read_router,
     write_router as cloud_write_router,
 )
-from app.api.config import API_HOST, API_PORT, CORS_ORIGINS
+from app.api.config import API_HOST, API_PORT, CORS_ORIGINS, ENABLE_DOCS
 from app.api.videos import (
     originals_router as video_originals_router,
     public_router as video_public_router,
@@ -67,6 +67,12 @@ def create_app() -> FastAPI:
             "originals, search, collections, jobs and the user directory. "
             "Authentication is fail-closed; see app/api/auth.py for scopes."
         ),
+        # Interactive docs are closed unless SCENE_ENABLE_DOCS=1: the schema
+        # enumerates every route, and this API is reachable from a LAN and,
+        # through a tunnel, from the internet.
+        docs_url="/docs" if ENABLE_DOCS else None,
+        redoc_url="/redoc" if ENABLE_DOCS else None,
+        openapi_url="/openapi.json" if ENABLE_DOCS else None,
     )
 
     app.add_middleware(
@@ -80,11 +86,26 @@ def create_app() -> FastAPI:
     async def _security_counters(request: Request, call_next):
         from app.api import security
 
+        path = request.url.path
+
         try:
-            if request.url.path.startswith("/api/"):
-                security.record_request(
-                    security.client_ip(request), request.url.path
-                )
+            if path.startswith("/api/"):
+                ip = security.client_ip(request)
+
+                # Ограничение частоты запросов выключено по умолчанию: одна
+                # страница грида законно грузит сотни превью. Включается
+                # SCENE_API_RATE_LIMIT, когда API открыт наружу.
+                if path != "/api/health":
+                    wait = security.note_request(ip)
+
+                    if wait:
+                        return JSONResponse(
+                            status_code=429,
+                            headers={"Retry-After": str(wait)},
+                            content={"detail": "слишком много запросов"},
+                        )
+
+                security.record_request(ip, path)
         except Exception:  # noqa: BLE001 - counters must not break requests
             pass
 
@@ -131,12 +152,20 @@ def _mount_spa(app: FastAPI) -> None:
         app.mount("/assets", StaticFiles(directory=assets), name="assets")
 
     # GET and HEAD: `curl -I /` (and some clients) send HEAD.
+    # Документация API: когда она выключена, эти адреса не должны
+    # подменяться оболочкой SPA — иначе /docs отдавал бы HTML приложения
+    # со статусом 200 и выглядел бы как открытая документация.
+    docs_paths = ("docs", "redoc", "openapi.json")
+
     @app.api_route(
         "/{full_path:path}",
         methods=["GET", "HEAD"],
         include_in_schema=False,
     )
     def spa_fallback(full_path: str):
+        if not ENABLE_DOCS and full_path in docs_paths:
+            raise HTTPException(status_code=404, detail="not found")
+
         candidate = SPA_DIST / full_path
 
         if full_path and candidate.is_file():
