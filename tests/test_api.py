@@ -417,12 +417,12 @@ def test_last_run():
 
 @requires_db
 def test_address_comes_from_recognition():
-    """Photo address is the DINO/HYBRID result, not QWEN metadata."""
+    """Адрес фото берётся из результата распознавания, а не из метаданных QWEN."""
 
-    import datetime
     import hashlib
 
     from app.ingest.database import get_connection
+    from conftest import forget_recognized_photo, recognize_photo
 
     photo_id = "PH_" + "7" * 24
     filename = "TESTADDR_01.JPG"
@@ -444,26 +444,10 @@ def test_address_comes_from_recognition():
                     hashlib.sha256(photo_id.encode()).hexdigest(),
                 ),
             )
-            cur.execute(
-                """
-                INSERT INTO public.dino_batches (
-                    run_type, status, total_count, completed_count, failed_count
-                )
-                VALUES ('FORCE_RERUN', 'DONE', 1, 1, 0)
-                RETURNING batch_id
-                """
-            )
-            batch_id = cur.fetchone()[0]
-            cur.execute(
-                """
-                INSERT INTO public.dino_runs (
-                    batch_id, photo_id, run_type, status,
-                    dino_best_id, finished_at
-                )
-                VALUES (%s, %s, 'FORCE_RERUN', 'DONE', '78_v33', CURRENT_TIMESTAMP)
-                """,
-                (batch_id, photo_id),
-            )
+
+    # Вердикт HYBRID обязателен: без него фото не показывается в гриде вовсе
+    # (recognized_only), и проверять адрес было бы не на чем.
+    rows = recognize_photo(photo_id, "78_v33")
 
     try:
         body = client.get(f"/api/v1/photos?q={filename}").json()
@@ -471,12 +455,9 @@ def test_address_comes_from_recognition():
         assert body["items"][0]["address"] == "78_v33"
         assert body["items"][0]["client"] is None
     finally:
+        forget_recognized_photo(rows)
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "DELETE FROM public.dino_batches WHERE batch_id = %s",
-                    (batch_id,),
-                )
                 cur.execute(
                     "DELETE FROM public.photos WHERE photo_id = %s",
                     (photo_id,),

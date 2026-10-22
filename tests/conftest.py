@@ -99,6 +99,74 @@ def probe_fingerprints():
             )
 
 
+def recognize_photo(photo_id: str, fingerprint_id: str = "78_v33") -> dict:
+    """
+    Пометить фото распознанным: минимальные DINO-прогон и вердикт HYBRID.
+
+    Грид показывает фото только после HYBRID (`recognized_only=True`): одного
+    DINO-прогона недостаточно — такая строка отфильтровывается, даже если
+    адрес вычисляется по DINO-fallback. Тесты, которым нужно непустое
+    содержимое, должны создавать именно вердикт HYBRID.
+
+    Возвращает идентификаторы созданных строк: фото уходит каскадом, а
+    батч и прогон HYBRID нужно прибрать явно.
+    """
+
+    from app.ingest.database import get_connection
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO public.dino_batches
+                       (run_type, status, total_count, completed_count, failed_count)
+                   VALUES ('FORCE_RERUN', 'DONE', 1, 1, 0)
+                   RETURNING batch_id"""
+            )
+            batch_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO public.dino_runs
+                       (batch_id, photo_id, run_type, status, dino_best_id, finished_at)
+                   VALUES (%s, %s, 'FORCE_RERUN', 'DONE', %s, CURRENT_TIMESTAMP)
+                   RETURNING run_id""",
+                (batch_id, photo_id, fingerprint_id),
+            )
+            dino_run_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO public.hybrid_runs
+                       (dino_batch_id, status, total_count, completed_count, failed_count)
+                   VALUES (%s, 'DONE', 1, 1, 0)
+                   RETURNING hybrid_run_id""",
+                (batch_id,),
+            )
+            hybrid_run_id = cur.fetchone()[0]
+            cur.execute(
+                """INSERT INTO public.hybrid_results
+                       (hybrid_run_id, photo_id, dino_run_id, hybrid_original_id,
+                        hybrid_final_id, hybrid_changed, hybrid_score, status, finished_at)
+                   VALUES (%s, %s, %s, %s, %s, FALSE, 12.0, 'DONE', CURRENT_TIMESTAMP)""",
+                (hybrid_run_id, photo_id, dino_run_id, fingerprint_id, fingerprint_id),
+            )
+
+    return {
+        "batch_id": batch_id,
+        "dino_run_id": dino_run_id,
+        "hybrid_run_id": hybrid_run_id,
+    }
+
+
+def forget_recognized_photo(rows: dict) -> None:
+    """Убрать за `recognize_photo`: батч удаляется каскадом вместе с прогонами."""
+
+    from app.ingest.database import get_connection
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM public.dino_batches WHERE batch_id = %s",
+                (rows["batch_id"],),
+            )
+
+
 @pytest.fixture
 def sample_photo():
     """
@@ -135,7 +203,13 @@ def sample_photo():
                 ),
             )
 
+    # Без вердикта HYBRID фото не попадает в грид, а тесты этого файла
+    # проверяют фильтры по непустому корпусу.
+    rows = recognize_photo(photo_id)
+
     yield photo_id
+
+    forget_recognized_photo(rows)
 
     with get_connection() as conn:
         with conn.cursor() as cur:

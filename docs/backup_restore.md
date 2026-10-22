@@ -136,3 +136,58 @@ Restore drill проводить раз в квартал и записыват�
 - Не хранить дампы на том же диске, что и PostgreSQL.
 - Не считать `data/preview` backup'ом оригиналов.
 - Не удалять `photo_qwen_history`, если нужна история пересканирований.
+
+## Учебное восстановление на одноразовой базе (2026-10-23)
+
+Проверка «бэкап действительно восстанавливается» без суперпользователя и без
+риска для рабочей базы: поднимается **отдельный временный кластер PostgreSQL**
+в `/tmp`, в него восстанавливается дамп, затем он удаляется. Рабочий кластер не
+затрагивается ни на шаг.
+
+```bash
+export PATH=/usr/lib/postgresql/16/bin:$PATH
+DRILL=/tmp/photobase-drill
+mkdir -p "$DRILL/sock"
+
+# ВАЖНО: локаль как у рабочей базы. С locale=C функция lower() не сворачивает
+# кириллицу, и тесты, которые ищут адреса без учёта регистра, падают «на
+# ровном месте» — на проде такого не будет.
+initdb -D "$DRILL/data" -U lora_ingest --auth=trust --encoding=UTF8 --locale=en_US.UTF-8
+pg_ctl -D "$DRILL/data" -o "-p 55433 -k $DRILL/sock -c listen_addresses=127.0.0.1" \
+       -l "$DRILL/server.log" start
+
+psql -h 127.0.0.1 -p 55433 -U lora_ingest -d postgres \
+     -c "CREATE DATABASE photobase_restore_drill OWNER lora_ingest"
+pg_restore -h 127.0.0.1 -p 55433 -U lora_ingest -d photobase_restore_drill \
+           --no-owner --exit-on-error ~/scene-fingerprint-backups/<дамп>
+
+# Сверка содержимого с рабочей базой (фото, превью, вердикты, очередь, сессии)
+# и прогон интеграционных тестов:
+SCENE_TEST_DB=1 SCENE_TEST_DB_NAME=photobase_ci_test \
+INGEST_DB_HOST=127.0.0.1 INGEST_DB_PORT=55433 \
+INGEST_DB_NAME=photobase_ci_test INGEST_DB_USER=lora_ingest \
+INGEST_DB_PASSWORD=drill .venv/bin/python -m pytest tests/ -q
+
+# Уборка
+pg_ctl -D "$DRILL/data" stop -m fast && rm -rf "$DRILL"
+```
+
+Одноразовой базе нужны миграции, если она не восстановлена из дампа:
+
+```bash
+INGEST_DB_HOST=127.0.0.1 INGEST_DB_PORT=55433 INGEST_DB_NAME=photobase_ci_test \
+INGEST_DB_USER=lora_ingest INGEST_DB_PASSWORD=drill \
+.venv/bin/python scripts/migrate.py
+```
+
+### Результат прогона 2026-10-23
+
+- восстановление полного дампа (1518 фото, 5740 заданий, 74 сессии) прошло без
+  ошибок; по таблицам расхождений нет, кроме `photo_qwen` — там разница
+  объясняется тем, что QWEN-воркер писал в рабочую базу уже после снятия дампа;
+- интеграционные тесты (раньше они не запускались вовсе) дали **831 passed**;
+  два падения оказались устаревшими тестами: они ждали фото без вердикта HYBRID
+  в гриде, а грид по решению владельца показывает только распознанные. Тесты
+  исправлены — теперь они создают вердикт (`conftest.recognize_photo`);
+- ложное падение на импорте адресов было моей ошибкой в кластере (`locale=C`),
+  а не ошибкой кода.

@@ -55,6 +55,11 @@ def _recognized_sql(photo_ref: str = "t") -> str:
 # Address comes from the recognition pipeline: the latest HYBRID verdict. The
 # DINO fallback is used only when the photo has no DONE HYBRID row at all.
 # `client` comes from the parallel QWEN metadata.
+#
+# Замечание: сейчас все вызывающие передают recognized_only=True, поэтому
+# фото без вердикта HYBRID до этой выборки не доходят и запасной путь по
+# DINO не срабатывает. Он понадобится корзине «Уточнить», где такие фото
+# как раз и показываются (см. docs/hybrid.txt).
 _PHOTO_BASE = """
     SELECT
         p.photo_id        AS photo_id,
