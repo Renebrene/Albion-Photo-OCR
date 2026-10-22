@@ -91,7 +91,11 @@ async function load(url) {
 const rootEl = ref(null)
 let observer = null
 let visible = !props.lazy
-const LAZY_MARGIN = '1200px 0px'
+// Запас загрузки: примерно три строки плиток в каждую сторону (строка ~250 px).
+// Слишком большой запас заставляет браузер качать десятки картинок сразу, и
+// видимые ждут в очереди; уже загруженное удерживает кэш в api/client.js,
+// поэтому возврат при прокрутке не требует сети.
+const LAZY_MARGIN = '800px 0px'
 
 function startLoading() {
   if (!src.value && !failed.value) load(props.url)

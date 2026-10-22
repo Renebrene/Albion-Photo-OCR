@@ -29,12 +29,27 @@ export function authHeaders(extra = {}) {
 // actually opened.
 const _imageCache = new Map()
 const _imageInflight = new Map()
+// Недавно освобождённые картинки. Без этого прокрутка вниз-вверх заново
+// качала и декодировала всё, что ушло за край экрана: «раньше уже было
+// загружено» пропало, как только появилось освобождение blob URL.
+// Держим небольшой запас: превью весят ~13 КБ, 400 штук — около 5 МБ.
+const _imageRecent = new Map()
+const RECENT_IMAGE_LIMIT = 400
 
 export async function acquireImageUrl(url) {
   const cached = _imageCache.get(url)
   if (cached) {
     cached.refs += 1
     return cached.objectUrl
+  }
+
+  // Уже качали и недавно отпустили: blob ещё жив — отдаём без сети и без
+  // повторного декодирования.
+  const recent = _imageRecent.get(url)
+  if (recent) {
+    _imageRecent.delete(url)
+    _imageCache.set(url, { objectUrl: recent.objectUrl, refs: 1 })
+    return recent.objectUrl
   }
 
   if (_imageInflight.has(url)) {
@@ -71,9 +86,17 @@ export function releaseImageUrl(url) {
 
   entry.refs -= 1
 
-  if (entry.refs <= 0) {
-    _imageCache.delete(url)
-    URL.revokeObjectURL(entry.objectUrl)
+  if (entry.refs > 0) return
+
+  _imageCache.delete(url)
+  _imageRecent.set(url, { objectUrl: entry.objectUrl })
+
+  // Переполнение — освобождаем самые старые: память остаётся ограниченной.
+  while (_imageRecent.size > RECENT_IMAGE_LIMIT) {
+    const oldest = _imageRecent.keys().next().value
+    const dropped = _imageRecent.get(oldest)
+    _imageRecent.delete(oldest)
+    if (dropped) URL.revokeObjectURL(dropped.objectUrl)
   }
 }
 
@@ -86,7 +109,11 @@ export function clearImageCache() {
   for (const entry of _imageCache.values()) {
     URL.revokeObjectURL(entry.objectUrl)
   }
+  for (const entry of _imageRecent.values()) {
+    URL.revokeObjectURL(entry.objectUrl)
+  }
   _imageCache.clear()
+  _imageRecent.clear()
 }
 
 export async function downloadAuthenticated(url, filename) {
