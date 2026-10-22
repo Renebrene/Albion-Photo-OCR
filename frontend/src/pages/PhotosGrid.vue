@@ -3039,10 +3039,15 @@ function tagList(meta) {
                   >
                     <q-icon name="help_outline" size="14px" />
                     требует проверки
-                    <q-tooltip v-if="confidenceText(photo.confidence)">
-                      Уверенность {{ confidenceText(photo.confidence) }} — ниже
-                      порога распознавания. Назначьте адрес вручную в карточке
-                      фото.
+                    <q-tooltip>
+                      <template v-if="photo.suggested_address">
+                        Дино-гибрид предлагал: {{ photo.suggested_address }}<br />
+                      </template>
+                      <template v-if="confidenceText(photo.confidence)">
+                        Уверенность {{ confidenceText(photo.confidence) }} — ниже
+                        порога распознавания.<br />
+                      </template>
+                      Назначьте адрес вручную в карточке фото.
                     </q-tooltip>
                   </div>
                   <div class="ellipsis text-caption">
@@ -3465,6 +3470,17 @@ function tagList(meta) {
             </div>
             <div class="text-caption text-grey-7 ellipsis">
               {{ current?.filename }}
+            </div>
+            <!-- Фото из «Требуют проверки»: показываем, что предложил
+                 дино-гибрид по обычной схеме, без порога. -->
+            <div
+              v-if="current && !current.address && current.suggested_address"
+              class="text-caption text-orange-9 ellipsis"
+            >
+              Дино-гибрид предлагал: {{ current.suggested_address }}
+              <template v-if="confidenceText(current.confidence)">
+                · уверенность {{ confidenceText(current.confidence) }}
+              </template>
             </div>
           </div>
           <q-btn

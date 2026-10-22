@@ -140,6 +140,10 @@ _PHOTO_BASE = """
                 LIMIT 1
             ) END
         ) AS address,
+        -- Что предложил бы DINO/HYBRID без порога: показывается в карточке
+        -- фото из «Требуют проверки», чтобы человек видел автоматический
+        -- вариант и мог его принять или отвергнуть.
+        """ + _latest_hybrid_final_sql("p") + """ AS suggested_fingerprint,
         q.client AS client,
         q.brand AS brand,
         q.category AS category,
@@ -162,7 +166,8 @@ _PHOTO_DERIVED = """
     SELECT
         t.*,
         COALESCE(od.legal_address, d.legal_address) AS legal_address,
-        COALESCE(od.simple_address, d.simple_address) AS simple_address
+        COALESCE(od.simple_address, d.simple_address) AS simple_address,
+        COALESCE(sd.simple_address, sd.legal_address) AS suggested_address
     FROM (""" + _PHOTO_BASE + """) AS t
     LEFT JOIN public.address_fingerprints AS f
            ON f.fingerprint_id = t.address
@@ -180,12 +185,23 @@ _PHOTO_DERIVED = """
     LEFT JOIN public.address_directory AS od
            ON od.address_id = ov.address_id
           AND od.active
+    -- Предложенный (но не принятый) адрес: тот же справочник, отдельный join.
+    LEFT JOIN public.address_fingerprints AS sf
+           ON sf.fingerprint_id = t.suggested_fingerprint
+          AND sf.active
+    LEFT JOIN public.fingerprints AS sreg
+           ON sreg.fingerprint_id = sf.fingerprint_id
+          AND sreg.active
+    LEFT JOIN public.address_directory AS sd
+           ON sd.address_id = sf.address_id
+          AND sd.active
 """
 
 _PHOTO_SELECT = (
     "SELECT photo_id, filename, width, height, container_format, "
     "address, client, brand, category, created_at, taken_at, size_bytes, source_path, "
-    "legal_address, simple_address, qwen_status, qwen_described, confidence "
+    "legal_address, simple_address, qwen_status, qwen_described, confidence, "
+    "suggested_fingerprint, suggested_address "
     "FROM (" + _PHOTO_DERIVED + ") AS t"
 )
 
@@ -210,6 +226,8 @@ def _photo_row(row) -> PhotoSummary:
         qwen_status=row[15],
         qwen_described=bool(row[16]) if row[16] is not None else None,
         confidence=float(row[17]) if row[17] is not None else None,
+        suggested_fingerprint=row[18],
+        suggested_address=row[19],
     )
 
 

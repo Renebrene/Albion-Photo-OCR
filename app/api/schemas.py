@@ -43,6 +43,12 @@ class PhotoSummary(BaseModel):
     # None — вердикта нет; ниже порога из настроек фото уходит в «Требуют проверки».
     confidence: float | None = None
 
+    # Что предложил DINO/HYBRID без порога уверенности. Заполнено и для
+    # фото из «Требуют проверки»: человек видит автоматический вариант и
+    # решает, принять его (переопределением адреса) или нет.
+    suggested_fingerprint: str | None = None
+    suggested_address: str | None = None
+
     # QWEN icon in the grid: status plus whether a description actually exists
     # (a failed re-run keeps the previous description row).
     qwen_status: str | None = None
