@@ -218,3 +218,59 @@ def test_confidence_is_reported_for_each_photo(corpus, monkeypatch):
     # Фото без совпадения вовсе: уверенности нет, адреса нет.
     assert in_review[corpus["none"]].confidence is None
     assert in_review[corpus["none"]].address is None
+
+
+# ---- предпросмотр порога (оператор подбирает значение) --------------------
+
+
+def test_explicit_threshold_reaches_the_sql(monkeypatch):
+    monkeypatch.setattr(hybrid_config, "low_score", lambda: 0.85)
+
+    explicit = repository._address_sql("p", 0.9)
+
+    assert ">= 0.9" in explicit
+    assert ">= 0.85" in repository._address_sql("p")
+
+
+def test_preview_route_returns_the_count(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app.api import routes
+    from app.api.main import app
+
+    calls = []
+    monkeypatch.setattr(
+        routes.repository,
+        "review_count",
+        lambda value=None: calls.append(value) or 300,
+    )
+
+    response = TestClient(app).get("/api/v1/hybrid/settings/preview?low_score=0.9")
+
+    assert response.status_code == 200
+    assert response.json() == {"low_score": 0.9, "review_count": 300}
+    assert calls == [0.9]
+
+
+def test_preview_route_rejects_out_of_range():
+    from fastapi.testclient import TestClient
+
+    from app.api.main import app
+
+    for value in (1.5, -0.1):
+        assert (
+            TestClient(app)
+            .get(f"/api/v1/hybrid/settings/preview?low_score={value}")
+            .status_code
+            == 422
+        )
+
+
+@requires_db
+def test_review_count_matches_the_threshold(corpus):
+    strong, weak, none = corpus["strong"], corpus["weak"], corpus["none"]
+
+    # Порог между уверенностями слабого (0.70) и уверенного (0.95) фото.
+    assert repository.review_count(0.85) == len({weak, none})
+    # Порог ниже слабого: в корзине остаётся только фото без совпадения.
+    assert repository.review_count(0.60) == len({none})

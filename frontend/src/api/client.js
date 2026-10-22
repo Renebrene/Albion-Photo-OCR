@@ -672,6 +672,11 @@ export function fetchHybridSettings() {
   return getJson(`${BASE}/v1/hybrid/settings`)
 }
 
+/** Сколько фото попадёт в «Уточнить» при таком пороге (ничего не сохраняет). */
+export function previewHybridSettings(lowScore) {
+  return getJson(`${BASE}/v1/hybrid/settings/preview?low_score=${lowScore}`)
+}
+
 export function saveHybridSettings(payload) {
   return putJson(`${BASE}/v1/hybrid/settings`, payload)
 }

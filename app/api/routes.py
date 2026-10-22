@@ -2165,6 +2165,21 @@ def hybrid_settings():
     return hybrid_config.resolve_settings()
 
 
+@read_router.get("/v1/hybrid/settings/preview", response_model=None)
+def preview_hybrid_settings(low_score: float = Query(0.85, ge=0, le=1)):
+    """
+    Сколько фото попадёт в «Уточнить» при таком пороге.
+
+    Ничего не сохраняет: нужно, чтобы подобрать значение по своему корпусу,
+    видя результат до нажатия «Сохранить».
+    """
+
+    return {
+        "low_score": low_score,
+        "review_count": repository.review_count(low_score),
+    }
+
+
 @jobs_router.put(
     "/v1/hybrid/settings",
     dependencies=[Depends(require_scope("settings:write"))],

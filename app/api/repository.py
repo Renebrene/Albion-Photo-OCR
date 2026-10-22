@@ -65,17 +65,19 @@ def _latest_confidence_sql(photo_ref: str) -> str:
     )
 
 
-def _address_sql(photo_ref: str) -> str:
+def _address_sql(photo_ref: str, low_score: float | None = None) -> str:
     """
     Адрес с учётом порога уверенности: слабое совпадение адреса не даёт.
 
     Порог берётся из настроек (`app/hybrid/config.py`); 0 отключает проверку и
-    возвращает прежнее поведение. Сравнение подставляется числом: значение
-    провалидировано (0…1), поэтому текст SQL от него не зависит.
+    возвращает прежнее поведение. Явное значение нужно предпросмотру: оператор
+    подбирает порог и хочет видеть размер корзины **до** сохранения.
+    Сравнение подставляется числом: значение провалидировано (0…1), поэтому
+    текст SQL от него не зависит.
     """
 
     final = _latest_hybrid_final_sql(photo_ref)
-    low = hybrid_config.low_score()
+    low = hybrid_config.low_score() if low_score is None else float(low_score)
 
     if low <= 0:
         return final
@@ -88,7 +90,7 @@ def _address_sql(photo_ref: str) -> str:
     )
 
 
-def _recognized_sql(photo_ref: str = "t") -> str:
+def _recognized_sql(photo_ref: str = "t", low_score: float | None = None) -> str:
     """
     The single definition of "распознано" used by every read path.
 
@@ -100,7 +102,7 @@ def _recognized_sql(photo_ref: str = "t") -> str:
     """
 
     return (
-        f"({_address_sql(photo_ref)} IS NOT NULL OR EXISTS ("
+        f"({_address_sql(photo_ref, low_score)} IS NOT NULL OR EXISTS ("
         "SELECT 1 FROM public.photo_address_overrides AS ov "
         f"WHERE ov.photo_id = {photo_ref}.photo_id))"
     )
@@ -800,6 +802,25 @@ def all_photo_ids() -> list[str]:
         with conn.cursor() as cur:
             cur.execute("SELECT photo_id FROM public.photos ORDER BY photo_id")
             return [row[0] for row in cur.fetchall()]
+
+
+def review_count(low_score: float | None = None) -> int:
+    """
+    Сколько фото попадёт в «Уточнить» при заданном пороге.
+
+    Ничего не меняет: используется предпросмотром в настройках, чтобы подобрать
+    значение по своему корпусу, не сохраняя его вслепую.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT count(*) FROM public.photos AS p "
+                f"WHERE NOT {_recognized_sql('p', low_score)}"
+            )
+            row = cur.fetchone()
+
+    return int(row[0]) if row else 0
 
 
 def list_addresses(

@@ -6,6 +6,7 @@ import {
   createDinoBatch,
   fetchAddresses,
   fetchHybridSettings,
+  previewHybridSettings,
   saveHybridSettings,
   createHybridRun,
   fetchDinoBatchRuns,
@@ -24,6 +25,10 @@ const lowScore = ref(null)
 const lowScoreSaved = ref(null)
 const lowScoreBusy = ref(false)
 const reviewCount = ref(0)
+// Предпросмотр: сколько фото попадёт в корзину при введённом значении.
+const previewCount = ref(null)
+const previewBusy = ref(false)
+let previewTimer = null
 const loading = ref(false)
 const error = ref(null)
 const starting = ref(false)
@@ -66,6 +71,34 @@ async function loadReviewSettings() {
   }
 }
 
+/**
+ * Живой счётчик: пока оператор подбирает порог, показываем размер корзины при
+ * введённом значении. Запросы сглаживаются, чтобы не бить по базе на каждый
+ * символ.
+ */
+function schedulePreview() {
+  if (previewTimer !== null) window.clearTimeout(previewTimer)
+
+  previewTimer = window.setTimeout(async () => {
+    const value = Number(lowScore.value)
+
+    if (!Number.isFinite(value) || value < 0 || value > 1) {
+      previewCount.value = null
+      return
+    }
+
+    previewBusy.value = true
+    try {
+      const data = await previewHybridSettings(value)
+      previewCount.value = data.review_count
+    } catch {
+      previewCount.value = null
+    } finally {
+      previewBusy.value = false
+    }
+  }, 350)
+}
+
 async function saveReviewSettings() {
   if (lowScore.value === null || lowScoreBusy.value) return
 
@@ -73,6 +106,7 @@ async function saveReviewSettings() {
   try {
     const settings = await saveHybridSettings({ low_score: Number(lowScore.value) })
     lowScoreSaved.value = settings.low_score
+    previewCount.value = null
     Notify.create({
       type: 'positive',
       message: `Порог сохранён: ${settings.low_score}`,
@@ -389,6 +423,7 @@ onBeforeUnmount(() => {
             label="Нижний порог"
             style="max-width: 180px"
             :disable="lowScore === null"
+            @update:model-value="schedulePreview"
           >
             <q-tooltip>
               Сходство выбранного кандидата (0…1). Ниже порога фото адреса не
@@ -405,6 +440,11 @@ onBeforeUnmount(() => {
           />
           <div class="text-caption text-grey-8">
             В «Уточнить» сейчас: <b>{{ reviewCount }}</b> фото
+            <template v-if="previewCount !== null">
+              <br />
+              при {{ Number(lowScore).toFixed(2) }} будет:
+              <b>{{ previewCount }}</b> фото
+            </template>
           </div>
         </div>
         <div class="text-caption text-grey-7 q-mt-xs">
