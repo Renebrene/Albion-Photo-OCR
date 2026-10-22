@@ -905,7 +905,7 @@ def analysis_input(photo_id: str, source_path: str) -> str:
     """
     Pick the file to analyse: the local MIDDLE preview when it exists.
 
-    The preview is already the ≤1280 px JPEG that encode_image() would build
+    The preview is already the ≤1280 px image that encode_image() would build
     from the original, so the model sees the same input - but the original does
     not have to be read again. That matters when the originals live on a
     network share (INGEST/DINO also read them) and it removes a decode+resize
@@ -916,6 +916,7 @@ def analysis_input(photo_id: str, source_path: str) -> str:
         return source_path
 
     try:
+        from app.preview import formats as preview_formats
         from app.preview.generator import build_preview_paths
 
         middle = build_preview_paths(
@@ -923,8 +924,11 @@ def analysis_input(photo_id: str, source_path: str) -> str:
             photo_id=photo_id,
         ).middle
 
-        if Path(middle).is_file():
-            return str(middle)
+        # Текущий формат (SCENE_PREVIEW_FORMAT), затем прежний JPEG: во время
+        # перехода файл может лежать ещё в старом формате.
+        for candidate in preview_formats.candidate_paths(middle):
+            if candidate.is_file():
+                return str(candidate)
     except Exception:  # noqa: BLE001 - a missing preview must not fail QWEN
         pass
 

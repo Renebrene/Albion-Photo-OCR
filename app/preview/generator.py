@@ -9,6 +9,7 @@ from PIL import Image
 
 from app.core.errors import redact_paths
 from app.ingest.register import PhotoRecord
+from app.preview import formats
 from app.preview.result import PreviewFileResult, PreviewResult
 from app.preview.validator import validate_preview
 
@@ -27,19 +28,25 @@ def build_preview_paths(
     *,
     preview_root: str | Path,
     photo_id: str,
+    image_format: str | None = None,
 ) -> PreviewPaths:
     """
     Build deterministic filesystem paths for one photo_id.
+
+    The extension follows the preview format (SCENE_PREVIEW_FORMAT): the same
+    photo has different paths for JPEG and WebP, which is what lets the
+    regeneration detect that a photo has no file in the current format yet.
     """
 
     if not photo_id:
         raise ValueError("photo_id is required")
 
     root = Path(preview_root)
+    suffix = formats.extension(image_format)
 
     return PreviewPaths(
-        small=root / "small" / f"{photo_id}.jpg",
-        middle=root / "middle" / f"{photo_id}.jpg",
+        small=root / "small" / f"{photo_id}{suffix}",
+        middle=root / "middle" / f"{photo_id}{suffix}",
     )
 
 
@@ -107,7 +114,8 @@ def _create_one(
     kind: str,
     max_size: int,
     action: str,
-    quality: int = 90,
+    quality: int | None = None,
+    image_format: str | None = None,
 ) -> PreviewFileResult:
     """
     Create one preview in a temporary file, validate it, then publish.
@@ -138,11 +146,11 @@ def _create_one(
             max_size=max_size,
         )
 
-        preview.save(
+        formats.save_preview(
+            preview,
             temp_path,
-            format="JPEG",
+            image_format=image_format,
             quality=quality,
-            optimize=True,
         )
 
     except Exception as exc:
@@ -207,7 +215,8 @@ def _process_one(
     output_path: Path,
     kind: str,
     max_size: int,
-    quality: int = 90,
+    quality: int | None = None,
+    image_format: str | None = None,
 ) -> PreviewFileResult:
     """
     Check an existing preview and create it only when necessary.
@@ -239,6 +248,7 @@ def _process_one(
         max_size=max_size,
         action=action,
         quality=quality,
+        image_format=image_format,
     )
 
 
@@ -248,7 +258,8 @@ def generate_previews(
     preview_root: str | Path,
     small_size: int,
     middle_size: int,
-    quality: int = 90,
+    quality: int | None = None,
+    image_format: str | None = None,
 ) -> PreviewResult:
     """
     Create or validate small and middle previews for one photo.
@@ -265,12 +276,15 @@ def generate_previews(
     if middle_size < 1:
         raise ValueError("middle_size must be >= 1")
 
-    if not 1 <= int(quality) <= 100:
+    resolved_quality = formats.quality_for(image_format, quality)
+
+    if not 1 <= resolved_quality <= 100:
         raise ValueError("quality must be in 1..100")
 
     paths = build_preview_paths(
         preview_root=preview_root,
         photo_id=record.photo_id,
+        image_format=image_format,
     )
 
     small = _process_one(
@@ -278,7 +292,8 @@ def generate_previews(
         output_path=paths.small,
         kind="SMALL",
         max_size=small_size,
-        quality=quality,
+        quality=resolved_quality,
+        image_format=image_format,
     )
 
     middle = _process_one(
@@ -286,7 +301,8 @@ def generate_previews(
         output_path=paths.middle,
         kind="MIDDLE",
         max_size=middle_size,
-        quality=quality,
+        quality=resolved_quality,
+        image_format=image_format,
     )
 
     return PreviewResult(

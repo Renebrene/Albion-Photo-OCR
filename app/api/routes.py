@@ -90,6 +90,7 @@ from app.dino import database as dino_db
 from app.hybrid import database as hybrid_db
 from app.jobs import automation
 from app.jobs import database as jobs_db
+from app.preview import formats as preview_formats
 from app.preview.generator import build_preview_paths
 
 public_router = APIRouter()
@@ -626,14 +627,21 @@ def get_preview(photo_id: str, size: str) -> Response:
         preview_root=PREVIEW_ROOT,
         photo_id=photo_id,
     )
-    path = paths.small if size == "small" else paths.middle
+    requested = paths.small if size == "small" else paths.middle
 
-    if not path.is_file():
+    # Текущий формат (SCENE_PREVIEW_FORMAT), затем прежний JPEG: во время
+    # перехода часть файлов ещё не пересоздана, и отдавать 404 нельзя.
+    path = next(
+        (candidate for candidate in preview_candidates(requested) if candidate.is_file()),
+        None,
+    )
+
+    if path is None:
         raise HTTPException(status_code=404, detail="preview not found")
 
     return Response(
         content=path.read_bytes(),
-        media_type="image/jpeg",
+        media_type=preview_media_type(path),
         headers={"Cache-Control": "public, max-age=3600"},
     )
 
@@ -665,6 +673,24 @@ def get_original_status(photo_id: str) -> dict:
         "available": status == file_access.ORIGINAL_OK,
         "reason": status,
     }
+
+
+def preview_candidates(path: Path) -> list[Path]:
+    """Пути превью этого размера: текущий формат, затем прежний JPEG."""
+
+    return preview_formats.candidate_paths(path)
+
+
+def preview_media_type(path: Path) -> str:
+    """MIME по расширению отданного файла, а не по настройке."""
+
+    suffix = path.suffix.lower()
+
+    for _name, (extension, media) in preview_formats.FORMATS.items():
+        if suffix == extension:
+            return media
+
+    return preview_formats.media_type()
 
 
 def _allowed_original_path(source_path: str) -> Path | None:

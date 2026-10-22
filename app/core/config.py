@@ -3,6 +3,8 @@ from pathlib import Path
 import os
 import torch
 
+from app.preview import formats
+
 @dataclass(frozen=True)
 class Settings:
     host: str = os.getenv("SCENE_HOST", "127.0.0.1")
@@ -24,11 +26,18 @@ class Settings:
     preview_workers: int = int(
         os.getenv("SCENE_PREVIEW_WORKERS", "0")
     )
-    # JPEG quality of SMALL/MIDDLE previews. 90 keeps fine print; 85 saves
-    # about 20 % of the middle size with no visible loss (see
-    # docs/preview_experiment_20261022.md).
-    preview_quality: int = int(
-        os.getenv("SCENE_PREVIEW_QUALITY", "90")
+    # Format of SMALL/MIDDLE previews: "webp" (default) or "jpeg".
+    # WebP q80 measured -46 % against JPEG q90 at the same 1280 px with no
+    # visible difference on 1:1 crops (docs/preview_experiment_20261022.md).
+    preview_format: str = formats.normalize_format(
+        os.getenv("SCENE_PREVIEW_FORMAT", formats.DEFAULT_FORMAT)
+    )
+    # Encode quality; None -> the format's own default (WebP 80, JPEG 90),
+    # overridable with SCENE_PREVIEW_QUALITY.
+    preview_quality: int | None = (
+        int(os.environ["SCENE_PREVIEW_QUALITY"])
+        if os.getenv("SCENE_PREVIEW_QUALITY", "").strip()
+        else None
     )
 
     # DINO worker threads per batch. Default 1: measured on CPU, threads give

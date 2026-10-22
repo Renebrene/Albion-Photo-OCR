@@ -5,6 +5,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from app.preview.formats import SUPPORTED_PIL_FORMATS
+
 
 @dataclass(frozen=True)
 class PreviewValidation:
@@ -26,13 +28,14 @@ def validate_preview(
     *,
     expected_width: int | None = None,
     expected_height: int | None = None,
+    allowed_formats: frozenset[str] | set[str] | None = None,
 ) -> PreviewValidation:
     """
     Validate an existing preview JPEG.
 
     Validation includes:
       - file existence and regular-file check;
-      - JPEG format check;
+      - format check (JPEG/WebP — see app.preview.formats);
       - Pillow structural verification;
       - full image decoding;
       - optional exact dimension check.
@@ -41,6 +44,7 @@ def validate_preview(
     """
 
     path = Path(path)
+    accepted = set(allowed_formats or SUPPORTED_PIL_FORMATS)
 
     if not path.exists() or not path.is_file():
         return PreviewValidation(
@@ -58,7 +62,7 @@ def validate_preview(
             image_format = image.format
             width, height = image.size
 
-            if image_format != "JPEG":
+            if image_format not in accepted:
                 return PreviewValidation(
                     path=str(path),
                     exists=True,

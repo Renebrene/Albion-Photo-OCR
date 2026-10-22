@@ -15,7 +15,7 @@ from pathlib import Path
 from PIL import Image
 
 from app.ingest.register import PhotoRecord
-from app.preview.generator import generate_previews
+from app.preview.generator import build_preview_paths, generate_previews
 
 
 def _record(source: Path, photo_id: str) -> PhotoRecord:
@@ -71,8 +71,11 @@ def test_success_publishes_previews_without_temp(tmp_path):
     assert result.ready is True
     assert result.small.action == "CREATE"
     assert result.middle.action == "CREATE"
-    assert (root / "small" / f"{record.photo_id}.jpg").exists()
-    assert (root / "middle" / f"{record.photo_id}.jpg").exists()
+    # Расширение задаёт SCENE_PREVIEW_FORMAT: путь берём из генератора,
+    # а не хардкодим .jpg.
+    paths = build_preview_paths(preview_root=root, photo_id=record.photo_id)
+    assert paths.small.exists()
+    assert paths.middle.exists()
     assert _temp_files(root / "small") == []
     assert _temp_files(root / "middle") == []
 
@@ -91,7 +94,8 @@ def test_failed_create_leaves_no_output_and_no_temp(tmp_path):
     assert result.ready is False
     assert result.small.action == "ERROR"
     assert result.middle.action == "ERROR"
-    assert not (root / "small" / f"{record.photo_id}.jpg").exists()
+    paths = build_preview_paths(preview_root=root, photo_id=record.photo_id)
+    assert not paths.small.exists()
     assert _temp_files(root / "small") == []
     assert _temp_files(root / "middle") == []
 
@@ -108,7 +112,9 @@ def test_failed_regenerate_keeps_existing_file(tmp_path):
         middle_size=64,
     )
 
-    small_path = root / "small" / f"{record.photo_id}.jpg"
+    small_path = build_preview_paths(
+        preview_root=root, photo_id=record.photo_id
+    ).small
     small_path.write_bytes(b"corrupted-not-a-jpeg")
 
     # Make regeneration impossible so the create step fails.
