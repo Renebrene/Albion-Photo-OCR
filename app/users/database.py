@@ -1,12 +1,14 @@
 """
 Users and server-side sessions (public.users / public.sessions).
 
-Passwords are hashed with app.users.security; session ids are opaque random
-tokens stored in PostgreSQL.
+Passwords are hashed with app.users.security. Session tokens are opaque random
+values that are **not** stored: the table keeps only their SHA-256, so a
+database dump does not contain working credentials (schema/045).
 """
 
 from __future__ import annotations
 
+import hashlib
 import secrets
 
 from app.ingest.database import get_connection
@@ -170,33 +172,47 @@ def set_password(user_id: int, password: str | None) -> None:
 # ---------------------------------------------------------------------------
 
 
+def hash_session_token(token: str) -> str:
+    """
+    SHA-256 of a bearer token, hex-encoded.
+
+    The digest is what the database stores; the token itself is returned to the
+    client once and never persisted. Hashing is deterministic, so a lookup by
+    the presented token stays a single indexed comparison.
+    """
+
+    return hashlib.sha256(str(token).encode("utf-8")).hexdigest()
+
+
 def create_session(
     user_id: int,
     *,
     ttl_hours: int = DEFAULT_SESSION_TTL_HOURS,
 ) -> str:
-    session_id = secrets.token_urlsafe(32)
+    """Create a session and return its token (the DB keeps only the hash)."""
+
+    token = secrets.token_urlsafe(32)
 
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO public.sessions (session_id, user_id, expires_at)
+                INSERT INTO public.sessions (token_hash, user_id, expires_at)
                 VALUES (
                     %s, %s,
                     CURRENT_TIMESTAMP + (%s || ' hours')::interval
                 )
                 """,
-                (session_id, user_id, str(int(ttl_hours))),
+                (hash_session_token(token), user_id, str(int(ttl_hours))),
             )
 
-    return session_id
+    return token
 
 
-def get_session(session_id: str) -> dict | None:
-    """Return the active user for a session, or None when invalid/expired."""
+def get_session(token: str) -> dict | None:
+    """Return the active user for a session token, or None when invalid."""
 
-    if not session_id:
+    if not token:
         return None
 
     with get_connection() as conn:
@@ -207,23 +223,23 @@ def get_session(session_id: str) -> dict | None:
                        u.password_hash, u.created_at
                 FROM public.sessions AS s
                 JOIN public.users AS u ON u.user_id = s.user_id
-                WHERE s.session_id = %s
+                WHERE s.token_hash = %s
                   AND s.expires_at > CURRENT_TIMESTAMP
                   AND u.active
                 """,
-                (session_id,),
+                (hash_session_token(token),),
             )
             row = cur.fetchone()
 
     return _row_to_user(row) if row is not None else None
 
 
-def delete_session(session_id: str) -> bool:
+def delete_session(token: str) -> bool:
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "DELETE FROM public.sessions WHERE session_id = %s",
-                (session_id,),
+                "DELETE FROM public.sessions WHERE token_hash = %s",
+                (hash_session_token(token),),
             )
             return cur.rowcount == 1
 
