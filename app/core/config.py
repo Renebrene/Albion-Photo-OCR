@@ -24,6 +24,12 @@ class Settings:
     preview_workers: int = int(
         os.getenv("SCENE_PREVIEW_WORKERS", "0")
     )
+    # JPEG quality of SMALL/MIDDLE previews. 90 keeps fine print; 85 saves
+    # about 20 % of the middle size with no visible loss (see
+    # docs/preview_experiment_20261022.md).
+    preview_quality: int = int(
+        os.getenv("SCENE_PREVIEW_QUALITY", "90")
+    )
 
     # DINO worker threads per batch. Default 1: measured on CPU, threads give
     # almost no wall-clock gain while inflating per-item time (GIL/CPU-bound).

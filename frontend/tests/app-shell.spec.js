@@ -512,6 +512,7 @@ describe('оболочка приложения', () => {
     expect(html).not.toContain('photo_camera')
     expect(wrapper.text()).not.toContain('Скачать')
     expect(wrapper.text()).not.toContain('В подборку')
+    expect(wrapper.text()).not.toContain('Обновление базы')
     expect(html).not.toContain('/technical')
 
     wrapper.unmount()

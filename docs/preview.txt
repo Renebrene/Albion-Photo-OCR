@@ -403,3 +403,10 @@ Add PREVIEW pipeline with configurable previews
 b043a616917db4622f275a9bd39cade1a9ee36c6
 
 Эта версия является стабильной точкой восстановления перед дальнейшей разработкой DINO/HYBRID.
+
+
+## Качество JPEG (2026-10-22)
+
+SMALL и MIDDLE пишутся с `SCENE_PREVIEW_QUALITY` (по умолчанию 90).
+Замер и рекомендации — `docs/preview_experiment_20261022.md`: q85 даёт
+примерно −20 % веса MIDDLE без изменения разрешения.

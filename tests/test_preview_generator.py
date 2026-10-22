@@ -125,3 +125,21 @@ def test_failed_regenerate_keeps_existing_file(tmp_path):
     assert small_path.exists()
     assert small_path.read_bytes() == b"corrupted-not-a-jpeg"
     assert _temp_files(root / "small") == []
+
+
+def test_preview_quality_is_validated(tmp_path):
+    source = _make_source(tmp_path)
+    record = _record(source, "PH_" + "3" * 24)
+
+    for quality in (0, 101):
+        try:
+            generate_previews(
+                record=record,
+                preview_root=tmp_path / "preview",
+                small_size=32,
+                middle_size=64,
+                quality=quality,
+            )
+        except ValueError:
+            continue
+        raise AssertionError(f"quality {quality} must be rejected")

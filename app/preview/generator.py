@@ -107,6 +107,7 @@ def _create_one(
     kind: str,
     max_size: int,
     action: str,
+    quality: int = 90,
 ) -> PreviewFileResult:
     """
     Create one preview in a temporary file, validate it, then publish.
@@ -140,7 +141,7 @@ def _create_one(
         preview.save(
             temp_path,
             format="JPEG",
-            quality=90,
+            quality=quality,
             optimize=True,
         )
 
@@ -206,6 +207,7 @@ def _process_one(
     output_path: Path,
     kind: str,
     max_size: int,
+    quality: int = 90,
 ) -> PreviewFileResult:
     """
     Check an existing preview and create it only when necessary.
@@ -236,6 +238,7 @@ def _process_one(
         kind=kind,
         max_size=max_size,
         action=action,
+        quality=quality,
     )
 
 
@@ -245,6 +248,7 @@ def generate_previews(
     preview_root: str | Path,
     small_size: int,
     middle_size: int,
+    quality: int = 90,
 ) -> PreviewResult:
     """
     Create or validate small and middle previews for one photo.
@@ -261,6 +265,9 @@ def generate_previews(
     if middle_size < 1:
         raise ValueError("middle_size must be >= 1")
 
+    if not 1 <= int(quality) <= 100:
+        raise ValueError("quality must be in 1..100")
+
     paths = build_preview_paths(
         preview_root=preview_root,
         photo_id=record.photo_id,
@@ -271,6 +278,7 @@ def generate_previews(
         output_path=paths.small,
         kind="SMALL",
         max_size=small_size,
+        quality=quality,
     )
 
     middle = _process_one(
@@ -278,6 +286,7 @@ def generate_previews(
         output_path=paths.middle,
         kind="MIDDLE",
         max_size=middle_size,
+        quality=quality,
     )
 
     return PreviewResult(

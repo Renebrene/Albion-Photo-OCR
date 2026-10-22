@@ -1,11 +1,17 @@
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import { fetchSystem } from '../api/client'
 
 const info = ref(null)
 const error = ref(null)
 let timer = null
+
+const maxLoginIp = computed(() => {
+  const entries = Object.entries(info.value?.security?.login_failures_by_ip || {})
+  if (!entries.length) return null
+  return entries.sort((a, b) => b[1] - a[1])[0]
+})
 
 function gb(bytes) {
   return (bytes / 1024 ** 3).toFixed(1)
@@ -47,6 +53,23 @@ onUnmounted(() => {
 
     <div v-if="error" class="q-mb-md">
       <q-banner class="bg-red-1 text-negative">{{ error }}</q-banner>
+    </div>
+
+    <div v-if="info && info.alerts && info.alerts.length" class="q-mb-md">
+      <q-banner
+        v-for="alert in info.alerts"
+        :key="alert.code + (alert.ip || '')"
+        dense
+        rounded
+        :class="alert.severity === 'critical'
+          ? 'bg-red-2 text-negative q-mb-xs'
+          : 'bg-orange-2 text-dark q-mb-xs'"
+      >
+        <template #avatar>
+          <q-icon name="warning" />
+        </template>
+        {{ alert.message }}
+      </q-banner>
     </div>
 
     <div v-if="info" class="row q-col-gutter-md">
@@ -112,10 +135,62 @@ onUnmounted(() => {
         class="col-12 col-sm-6"
       >
         <q-card-section>
-          <div class="text-caption text-grey">Сеть (с запуска)</div>
+          <div class="text-caption text-grey">Сеть</div>
           <div class="text-body2 q-mt-xs">
             ↓ {{ gb(info.network.bytes_recv) }} ГБ ·
             ↑ {{ gb(info.network.bytes_sent) }} ГБ
+            <span v-if="info.network.rate_mbps != null">
+              · {{ info.network.rate_mbps }} МБ/с
+            </span>
+          </div>
+          <div
+            v-if="info.network.errors || info.network.drops"
+            class="text-caption text-negative q-mt-xs"
+          >
+            ошибки: {{ info.network.errors }} · потери: {{ info.network.drops }}
+          </div>
+        </q-card-section>
+      </q-card>
+
+      <q-card
+        v-for="gpu in info.gpus || []"
+        :key="gpu.index"
+        flat
+        bordered
+        class="col-12 col-sm-6"
+      >
+        <q-card-section>
+          <div class="text-caption text-grey">GPU {{ gpu.index }}</div>
+          <div class="text-h6">{{ gpu.utilization.toFixed(0) }}%</div>
+          <q-linear-progress
+            :value="gpu.utilization / 100"
+            color="deep-purple"
+            class="q-mt-sm"
+          />
+          <div class="text-caption text-grey q-mt-xs">
+            {{ gpu.name }} · VRAM {{ gpu.memory_percent.toFixed(0) }}%
+            · {{ gpu.temperature }}°C
+          </div>
+        </q-card-section>
+      </q-card>
+
+      <q-card
+        v-if="info.security"
+        flat
+        bordered
+        class="col-12 col-sm-6"
+      >
+        <q-card-section>
+          <div class="text-caption text-grey">Безопасность (окно)</div>
+          <div class="text-body2 q-mt-xs">
+            неудачных входов: {{ info.security.login_failures }}
+            <span v-if="maxLoginIp">
+              · максимум с IP: {{ maxLoginIp[1] }} ({{ maxLoginIp[0] }})
+            </span>
+          </div>
+          <div class="text-caption text-grey q-mt-xs">
+            лимит {{ info.security.login_failure_limit }} за
+            {{ Math.round(info.security.login_failure_window_sec / 60) }} мин
           </div>
         </q-card-section>
       </q-card>

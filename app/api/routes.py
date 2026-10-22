@@ -25,6 +25,7 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    Request,
     Response,
     UploadFile,
 )
@@ -1914,14 +1915,19 @@ def _public_user(user: dict) -> dict:
 
 
 @auth_router.post("/v1/auth/login")
-def login(request: LoginRequest):
-    user = users_db.get_user_by_name(request.name)
+def login(payload: LoginRequest, http_request: Request):
+    from app.api import security
+
+    ip = security.client_ip(http_request)
+    user = users_db.get_user_by_name(payload.name)
 
     if user is None or not user["active"]:
+        security.record_login_failure(ip, payload.name)
         raise HTTPException(status_code=401, detail="invalid credentials")
 
     # Fail-closed: an account with no password set cannot log in.
     if not has_password(user.get("password_hash")):
+        security.record_login_failure(ip, payload.name)
         raise HTTPException(
             status_code=403,
             detail=(
@@ -1930,7 +1936,8 @@ def login(request: LoginRequest):
             ),
         )
 
-    if not verify_password(request.password, user.get("password_hash")):
+    if not verify_password(payload.password, user.get("password_hash")):
+        security.record_login_failure(ip, payload.name)
         raise HTTPException(status_code=401, detail="invalid credentials")
 
     token = users_db.create_session(user["user_id"])

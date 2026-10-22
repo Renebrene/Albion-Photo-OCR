@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -75,6 +75,20 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def _security_counters(request: Request, call_next):
+        from app.api import security
+
+        try:
+            if request.url.path.startswith("/api/"):
+                security.record_request(
+                    security.client_ip(request), request.url.path
+                )
+        except Exception:  # noqa: BLE001 - counters must not break requests
+            pass
+
+        return await call_next(request)
 
     app.include_router(public_router, prefix="/api")
     app.include_router(read_router, prefix="/api")

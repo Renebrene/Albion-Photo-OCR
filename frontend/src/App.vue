@@ -266,7 +266,7 @@ function toggleDark() {
         <!-- Обновление базы: запускает/ведёт полный прогон. Виден, только
              когда серверный супервизор уже развёрнут. -->
         <PipelineUpdateButton
-          v-if="session.user || !session.authEnabled"
+          v-if="canRunPipeline"
           :can-run="canRunPipeline"
           @finished="loadStats"
         />

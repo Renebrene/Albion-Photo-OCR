@@ -46,6 +46,7 @@ def process_record(
     preview_root: str | Path,
     small_size: int,
     middle_size: int,
+    quality: int = 90,
 ) -> PreviewResult:
     """
     Generate or validate previews for one already-registered photo.
@@ -59,6 +60,7 @@ def process_record(
         preview_root=preview_root,
         small_size=small_size,
         middle_size=middle_size,
+        quality=quality,
     )
 
 
@@ -163,6 +165,7 @@ def run(
     preview_root = settings.preview_root
     small_size = settings.preview_small_size
     middle_size = settings.preview_middle_size
+    quality = settings.preview_quality
 
     results: list[PreviewResult] = []
     database_updated = 0
@@ -173,6 +176,7 @@ def run(
         preview_root=preview_root,
         small_size=small_size,
         middle_size=middle_size,
+        quality=quality,
     )
 
     def _consume(result: PreviewResult) -> None:
