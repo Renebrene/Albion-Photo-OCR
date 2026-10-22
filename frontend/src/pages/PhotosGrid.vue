@@ -1849,8 +1849,24 @@ function tileMeta(photo) {
 }
 
 /** «клиент · бренд» для карточки; пусто, когда распознавания ещё нет. */
+/**
+ * Клиент и бренд для подписи. Если чего-то не распознали — вместо него
+ * показывается категория (если она определена), чтобы подпись не пустовала.
+ */
 function clientBrand(photo) {
-  return [photo?.client, photo?.brand].filter(Boolean).join(', ')
+  const client = photo?.client || photo?.category || ''
+  const brand = photo?.brand || photo?.category || ''
+  const parts = []
+
+  if (client) parts.push(client)
+  if (brand && brand !== client) parts.push(brand)
+
+  return parts.join(', ')
+}
+
+/** Подпись собрана из категории: клиент или бренд не определены. */
+function clientBrandFromCategory(photo) {
+  return Boolean(photo?.category) && (!photo?.client || !photo?.brand)
 }
 
 // Значок QWEN на плитке/в списке: зелёный — описание есть, оранжевый —
@@ -3077,6 +3093,9 @@ function tagList(meta) {
                     class="ellipsis text-caption font-italic"
                   >
                     {{ clientBrand(photo) }}
+                    <q-tooltip v-if="clientBrandFromCategory(photo)">
+                      Клиент или бренд не определены — показана категория.
+                    </q-tooltip>
                   </div>
                 </q-card-section>
 
@@ -3724,11 +3743,21 @@ function tagList(meta) {
                 <div class="row q-col-gutter-sm q-mt-sm">
                   <div class="col-12 col-sm-6">
                     <div class="text-caption text-grey">Клиент</div>
-                    <div class="ellipsis" :title="qwen?.client || ''">{{ qwen?.client || '—' }}</div>
+                    <div class="ellipsis" :title="qwen?.client || qwen?.category || ''">
+                      {{ qwen?.client || qwen?.category || '—' }}
+                      <span v-if="!qwen?.client && qwen?.category" class="text-grey-6">
+                        · категория
+                      </span>
+                    </div>
                   </div>
                   <div class="col-12 col-sm-6">
                     <div class="text-caption text-grey">Бренд</div>
-                    <div class="ellipsis" :title="qwen?.brand || ''">{{ qwen?.brand || '—' }}</div>
+                    <div class="ellipsis" :title="qwen?.brand || qwen?.category || ''">
+                      {{ qwen?.brand || qwen?.category || '—' }}
+                      <span v-if="!qwen?.brand && qwen?.category" class="text-grey-6">
+                        · категория
+                      </span>
+                    </div>
                   </div>
                 </div>
 
