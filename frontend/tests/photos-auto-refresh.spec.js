@@ -1,5 +1,7 @@
 // Грид показывает только распознанные фото, поэтому во время HYBRID он должен
-// перечитываться сам, когда меняется размер выборки, и сообщать о совпадениях.
+// перечитываться сам, когда меняется размер выборки. Стадию и число
+// совпадений опрашивает шапка (stores/pipeline.js) — здесь проверяется,
+// что тик этого опроса доходит до грида.
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -9,6 +11,7 @@ import { Notify, QLayout, QPageContainer, Quasar } from 'quasar'
 import { createPinia, setActivePinia } from 'pinia'
 
 import PhotosGrid from '../src/pages/PhotosGrid.vue'
+import { usePipelineStore } from '../src/stores/pipeline'
 
 Notify.create = vi.fn()
 
@@ -98,19 +101,29 @@ async function mountGrid() {
     global: { plugins: [Quasar, pinia] },
   })
   await flushPromises()
-  return wrapper
+
+  // Тот же тик, что делает шапка по таймеру.
+  const pipeline = usePipelineStore(pinia)
+
+  return {
+    wrapper,
+    async tick() {
+      await pipeline.refresh()
+      await flushPromises()
+    },
+    pipeline,
+  }
 }
 
 describe('грид следит за HYBRID', () => {
   it('перечитывает выборку и сообщает о новых распознанных фото', async () => {
-    const wrapper = await mountGrid()
+    const { wrapper, tick } = await mountGrid()
 
     expect(wrapper.text()).toContain('За период 2 фото')
 
     // HYBRID доработал ещё одно фото: размер выборки вырос.
     photoTotal = 3
-    await vi.advanceTimersByTimeAsync(10_000)
-    await flushPromises()
+    await tick()
 
     expect(wrapper.text()).toContain('За период 3 фото')
     expect(Notify.create).toHaveBeenCalledWith(
@@ -120,15 +133,14 @@ describe('грид следит за HYBRID', () => {
   })
 
   it('не перечитывает грид, пока открыт просмотрщик', async () => {
-    const wrapper = await mountGrid()
+    const { wrapper, tick } = await mountGrid()
 
     await wrapper.find('.photo-card .auth-image-root').trigger('click')
     await flushPromises()
 
     // HYBRID доработал фото, но просмотрщик открыт: страницы не сбрасываем.
     photoTotal = 3
-    await vi.advanceTimersByTimeAsync(10_000)
-    await flushPromises()
+    await tick()
 
     expect(wrapper.text()).toContain('За период 2 фото')
     expect(Notify.create).not.toHaveBeenCalledWith(
@@ -137,14 +149,17 @@ describe('грид следит за HYBRID', () => {
     wrapper.unmount()
   })
 
-  it('показывает стадию и число совпадений во время HYBRID', async () => {
-    const wrapper = await mountGrid()
+  it('стадия и число совпадений собираются общим store для шапки', async () => {
+    const { wrapper, tick, pipeline } = await mountGrid()
 
-    await vi.advanceTimersByTimeAsync(10_000)
-    await flushPromises()
+    await tick()
 
-    expect(wrapper.text()).toContain('стадия HYBRID')
-    expect(wrapper.text()).toContain('совпадений 3 из 10')
+    expect(pipeline.active).toBe(true)
+    expect(pipeline.text).toContain('стадия HYBRID')
+    expect(pipeline.text).toContain('совпадений 3 из 10')
+
+    // В гриде этой строки больше нет: её место — шапка рядом с кнопкой.
+    expect(wrapper.text()).not.toContain('совпадений 3 из 10')
     wrapper.unmount()
   })
 })

@@ -467,6 +467,56 @@ describe('оболочка приложения', () => {
     wrapper.unmount()
   })
 
+
+  it('во время прогона строку о стадии показывает шапка, рядом с кнопкой', async () => {
+    installFetch()
+    const baseFetch = global.fetch
+    global.fetch = vi.fn(async (url, options) => {
+      const path = String(url).split('?')[0]
+
+      if (path.endsWith('/v1/runs/activity')) {
+        return json({
+          active: { kind: 'pipeline', run_id: 1, stage: 'HYBRID' },
+          message: 'идёт «Обновление базы» (стадия HYBRID)',
+        })
+      }
+      if (path.endsWith('/v1/sort/status')) {
+        return json({ current: { total: 935, done: 700, matched: 697 }, last: null })
+      }
+
+      return baseFetch(url, options)
+    })
+
+    const wrapper = await mountShell()
+    await flushPromises()
+
+    const header = wrapper.find('header')
+
+    expect(header.text()).toContain('Обновление базы')
+    expect(header.text()).toContain('стадия HYBRID')
+    expect(header.text()).toContain('совпадений 697 из 935')
+
+    wrapper.unmount()
+  })
+
+  it('после завершения прогона строки в шапке нет', async () => {
+    installFetch()
+    const baseFetch = global.fetch
+    global.fetch = vi.fn(async (url, options) => {
+      if (String(url).split('?')[0].endsWith('/v1/runs/activity')) {
+        return json({ active: null })
+      }
+      return baseFetch(url, options)
+    })
+
+    const wrapper = await mountShell()
+    await flushPromises()
+
+    expect(wrapper.find('header').text()).not.toContain('совпадений')
+
+    wrapper.unmount()
+  })
+
   it('в открытом демо-режиме доступны вкладки и техраздел', async () => {
     installFetch()
     const baseFetch = global.fetch

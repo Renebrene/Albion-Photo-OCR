@@ -6,6 +6,7 @@ import { useRouter } from 'vue-router'
 import PipelineUpdateButton from './components/PipelineUpdateButton.vue'
 import { fetchMediaStatistics, fetchStats } from './api/client'
 import { ADDRESS_CLIENT_MODES, useDisplayStore } from './stores/display'
+import { usePipelineStore } from './stores/pipeline'
 import { usePhotosStore } from './stores/photos'
 import { useSessionStore } from './stores/session'
 
@@ -14,6 +15,7 @@ const router = useRouter()
 const session = useSessionStore()
 const photos = usePhotosStore()
 const display = useDisplayStore()
+const pipeline = usePipelineStore()
 
 const password = ref('')
 const loginName = ref('')
@@ -54,6 +56,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', measureChrome)
   window.removeEventListener('pagehide', flushDisplay)
   if (statsTimer !== null) window.clearInterval(statsTimer)
+  pipeline.stop()
 })
 
 function flushDisplay() {
@@ -84,6 +87,9 @@ async function afterAuth() {
   if (canPersist) await display.loadFromServer()
   await loadStats()
   if (statsTimer === null) statsTimer = window.setInterval(loadStats, 60_000)
+  // Стадию прогона опрашивает шапка: она видна на любой странице. Гостю
+  // число совпадений недоступно (нет jobs:read), но стадия показывается.
+  pipeline.start(() => ({ withMatched: canRunPipeline.value }))
   booted.value = true
 
   // Шапка и подвал уже отрисованы: измеряем их и отдаём размер странице фото,
@@ -241,6 +247,7 @@ async function doLogin() {
 async function doLogout() {
   // Успеть сохранить последние изменения настроек до сброса токена.
   await display.flush()
+  pipeline.stop()
   await session.logout()
   Notify.create({ type: 'info', message: 'Выход выполнен' })
 
@@ -270,6 +277,16 @@ function toggleDark() {
           :can-run="canRunPipeline"
           @finished="loadStats"
         />
+
+        <!-- Стадия прогона и число совпадений — рядом с кнопкой, которая его
+             запускает. Видно с любой страницы, а не только из грида. -->
+        <div
+          v-if="pipeline.text"
+          class="row items-center no-wrap text-caption q-mr-sm header-pipeline-live"
+        >
+          <q-spinner-dots size="14px" class="q-mr-xs" />
+          <span class="ellipsis">{{ pipeline.text }}</span>
+        </div>
 
         <q-btn
           flat
@@ -523,6 +540,13 @@ function toggleDark() {
 </template>
 
 <style scoped>
+
+/* Живая строка о ходе прогона в шапке: не должна растягивать панель. */
+.header-pipeline-live {
+  max-width: 42vw;
+  overflow: hidden;
+  white-space: nowrap;
+}
 .media-stats-dialog { width: min(760px, 94vw); max-width: 94vw; }
 
 /* Подсказка с демо-доступом на экране входа. */

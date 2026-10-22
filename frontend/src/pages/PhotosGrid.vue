@@ -43,6 +43,7 @@ import {
   useDisplayStore,
 } from '../stores/display'
 import { usePhotosStore } from '../stores/photos'
+import { usePipelineStore } from '../stores/pipeline'
 import { useSessionStore } from '../stores/session'
 import { addressEntryForPhoto as findAddressEntry } from '../utils/addressForPhoto'
 import { PERIODS, periodRange } from '../utils/periodRange'
@@ -50,6 +51,7 @@ import { PERIODS, periodRange } from '../utils/periodRange'
 const store = usePhotosStore()
 const display = useDisplayStore()
 const session = useSessionStore()
+const pipeline = usePipelineStore()
 
 // Гость (read-only) не работает с подборками и «Избранным»: это писательские
 // функции (scopes searches:write / collections:write). В открытом локальном
@@ -751,52 +753,10 @@ function currentDates() {
 
 // Пока идёт пайплайн, число распознанных фото растёт: грид показывает фото
 // только после HYBRID, поэтому одних обновлённых строк мало — нужен полный
-// перечит, когда меняется размер выборки. Заодно показываем, сколько
-// совпадений уже нашлось (это же число видно на вкладке «Сортировка»).
-let pipelineSyncTimer = null
+// перечит, когда меняется размер выборки. Саму стадию и число совпадений
+// опрашивает шапка (stores/pipeline.js): здесь только реакция на её тики.
 let pipelineSyncTick = 0
 let pipelineWasActive = false
-const pipelineStatus = ref(null)
-
-const pipelineStatusText = computed(() => {
-  const status = pipelineStatus.value
-  if (!status) return ''
-
-  const parts = []
-  if (status.label) parts.push(status.label)
-  if (status.matched !== null && status.total !== null) {
-    parts.push(`совпадений ${status.matched} из ${status.total}`)
-  }
-  return parts.join(' · ')
-})
-
-async function pipelineStage() {
-  const data = await fetchRunActivity()
-
-  if (!data.active) return null
-
-  // Совпадения считает тот же модуль, что и вкладку «Сортировка»; у Гостя
-  // нет jobs:read — для него остаётся только общее сообщение о стадии.
-  let matched = null
-  let total = null
-
-  if (canUseCollective.value) {
-    try {
-      const status = await fetchSortStatus()
-      const stats = status?.current || status?.last?.stats || null
-      matched = stats?.matched ?? null
-      total = stats?.total ?? null
-    } catch {
-      // Сводка — вспомогательная: стадия всё равно покажется.
-    }
-  }
-
-  return {
-    label: data.message || 'идёт обновление базы',
-    matched,
-    total,
-  }
-}
 
 async function syncDuringPipeline() {
   // Не трогаем грид, пока он занят загрузкой или открыт просмотрщик:
@@ -805,14 +765,13 @@ async function syncDuringPipeline() {
   if (store.loading || viewerOpen.value) return
 
   try {
-    const status = await pipelineStage()
+    const active = pipeline.active
 
-    if (!status) {
+    if (!active) {
       // Пайплайн только что закончился: перечитываем грид один раз, чтобы
       // последние сработавшие HYBRID-совпадения попали на экран.
       if (pipelineWasActive) {
         pipelineWasActive = false
-        pipelineStatus.value = null
         await store.refresh()
         await store.loadFacets()
         Notify.create({
@@ -824,7 +783,6 @@ async function syncDuringPipeline() {
     }
 
     pipelineWasActive = true
-    pipelineStatus.value = status
 
     const known = store.total
     const total = await store.countFiltered()
@@ -888,12 +846,11 @@ onMounted(async () => {
   loadQwenModels()
   apply()
 
-  // Если прогон уже идёт, стадия и число совпадений появляются сразу, а не
-  // через первый десятисекундный тик.
+  // Первый тик store уже прошёл (или пройдёт вот-вот) — синхронизируемся
+  // сразу, не дожидаясь десяти секунд.
   void syncDuringPipeline()
 
   if (gridScrollEl.value) gridScrollEl.value.scrollTop = 0
-  pipelineSyncTimer = window.setInterval(syncDuringPipeline, 10_000)
   await nextTick()
 
   if (gridScrollEl.value && typeof ResizeObserver !== 'undefined') {
@@ -918,8 +875,12 @@ onBeforeUnmount(() => {
 
   if (suggestTimer !== null) window.clearTimeout(suggestTimer)
   if (clientSuggestTimer !== null) window.clearTimeout(clientSuggestTimer)
-  if (pipelineSyncTimer !== null) window.clearInterval(pipelineSyncTimer)
 })
+
+// Каждый тик опроса в шапке — повод синхронизировать грид. Запросы к
+// /v1/runs/activity и /v1/sort/status делает только store, поэтому сеть не
+// нагружается дважды.
+watch(() => pipeline.tick, () => void syncDuringPipeline())
 
 // Arrow keys page through the gallery in the order it is displayed.
 function onKeydown(event) {
@@ -2836,15 +2797,6 @@ function tagList(meta) {
              боковые панели. -->
         <div class="row items-center q-gutter-xs q-mb-sm">
           <span class="text-caption text-grey-8">{{ periodLabel }}</span>
-          <!-- Пока идёт DINO/HYBRID: стадия и число совпадений; грид
-               перечитывается сам, когда появляются распознанные фото. -->
-          <span
-            v-if="pipelineStatusText"
-            class="row items-center no-wrap text-caption text-primary pipeline-live"
-          >
-            <q-spinner-dots size="14px" class="q-mr-xs" />
-            {{ pipelineStatusText }}
-          </span>
           <!-- Выделение — «корзина»: оно может содержать фото не из текущего
                фильтра. Клик по счётчику снимает выделение целиком. -->
           <q-badge
