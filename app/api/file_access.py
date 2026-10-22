@@ -4,6 +4,51 @@ from __future__ import annotations
 
 from pathlib import Path
 
+# Why an original cannot be served, in a form the UI can show without
+# exposing the path itself (see original_availability).
+ORIGINAL_OK = "ok"
+ORIGINAL_NOT_CONFIGURED = "not_configured"
+ORIGINAL_OUTSIDE_ROOTS = "outside_roots"
+ORIGINAL_MISSING = "missing"
+
+
+def original_availability(source_path: str | None, roots: list[Path]) -> str:
+    """
+    Classify a registered source path without leaking it.
+
+    Unlike `allowed_media_path`, the missing file and the disallowed root are
+    told apart, because they mean different things to a user: "оригинал
+    недоступен, используйте превью" versus a configuration problem. No
+    content is read — only resolve() and is_file().
+    """
+
+    if not source_path:
+        return ORIGINAL_MISSING
+    if not roots:
+        return ORIGINAL_NOT_CONFIGURED
+
+    try:
+        resolved = Path(source_path).resolve(strict=False)
+    except (OSError, RuntimeError, ValueError):
+        return ORIGINAL_MISSING
+
+    inside = False
+    for root in roots:
+        try:
+            root_resolved = root.resolve(strict=False)
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if resolved == root_resolved or root_resolved in resolved.parents:
+            inside = True
+            break
+
+    if not inside:
+        return ORIGINAL_OUTSIDE_ROOTS
+    try:
+        return ORIGINAL_OK if resolved.is_file() else ORIGINAL_MISSING
+    except OSError:
+        return ORIGINAL_MISSING
+
 
 def allowed_media_path(source_path: str, roots: list[Path]) -> Path | None:
     """Resolve a registered source only when it remains within an allowed root."""

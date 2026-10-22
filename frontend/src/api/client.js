@@ -837,6 +837,24 @@ export function originalUrl(photoId) {
   return `${BASE}/v1/photos/${photoId}/original`
 }
 
+/**
+ * Доступен ли оригинал: проверяется при открытии фото, до нажатия «скачать».
+ * Ответ — `{photo_id, available, reason}`; путь наружу не отдаётся.
+ */
+export function fetchOriginalStatus(photoId) {
+  return getJson(`${BASE}/v1/photos/${photoId}/original/status`)
+}
+
+/** Пересоздать превью: без списка — по всей базе, со списком — по photo_id. */
+export function backfillPreviews({ photoIds = null, limit = 500 } = {}) {
+  const query = new URLSearchParams({ limit: String(limit) })
+
+  return postJson(
+    `${BASE}/v1/previews/backfill?${query.toString()}`,
+    photoIds && photoIds.length ? { photo_ids: photoIds } : {},
+  )
+}
+
 async function postJson(url, body) {
   const response = await fetch(url, {
     method: 'POST',

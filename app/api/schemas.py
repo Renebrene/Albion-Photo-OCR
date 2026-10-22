@@ -402,6 +402,18 @@ class SourceRunRequest(BaseModel):
         return self
 
 
+class PreviewBackfillRequest(BaseModel):
+    """
+    Optional body for the preview backfill: re-create previews by photo_id.
+
+    Omitted (no body at all, or an empty body) keeps the original behaviour —
+    walk the whole table. With a non-empty list, only those photos are
+    considered; an explicitly empty list is rejected as a likely mistake.
+    """
+
+    photo_ids: list[str] | None = Field(default=None, min_length=1, max_length=5000)
+
+
 class PipelineStartRequest(BaseModel):
     """Start a resumable pipeline run (Обновление базы)."""
 

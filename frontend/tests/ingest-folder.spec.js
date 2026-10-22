@@ -44,7 +44,7 @@ const scanWithErrors = {
   problems: [{ filename: 'empty.mp4', reason: 'файл пуст' }],
 }
 
-function installFetch({ scan = scanWithErrors } = {}) {
+function installFetch({ scan = scanWithErrors, previews = null } = {}) {
   const calls = []
 
   global.fetch = vi.fn(async (url, options = {}) => {
@@ -55,6 +55,9 @@ function installFetch({ scan = scanWithErrors } = {}) {
       body: options.body ? JSON.parse(options.body) : null,
     })
 
+    if (path.includes('/v1/previews/backfill')) {
+      return json(previews || { selected: 3, queued: 3, already_active: 0 })
+    }
     if (path.includes('/v1/ingest/scan')) return json(scan)
     if (path.includes('/v1/ingest/run')) return json({ job_id: 42 })
     if (path.includes('/v1/fingerprints/browse')) {
@@ -265,5 +268,39 @@ describe('глубина сканирования по времени', () => {
     expect(wrapper.text()).toContain('В периоде')
     expect(wrapper.text()).toContain('Вне периода')
     expect(wrapper.text()).toContain('4')
+  })
+})
+
+// ---- пересоздание превью ---------------------------------------------------
+
+describe('пересоздание превью', () => {
+  it('ставит задания и сообщает результат', async () => {
+    const calls = installFetch()
+    const wrapper = mountFolder()
+    await flushPromises()
+
+    await clickButton(wrapper, 'Пересоздать превью')
+
+    const call = calls.find((item) => item.path.includes('/v1/previews/backfill'))
+    expect(call).toBeTruthy()
+    expect(call.method).toBe('POST')
+    expect(call.body).toEqual({})
+    expect(Notify.create).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('заданий: 3') }),
+    )
+  })
+
+  it('предупреждает про фото с недоступным оригиналом', async () => {
+    installFetch({
+      previews: { selected: 2, queued: 2, already_active: 0, originals_missing: 5 },
+    })
+    const wrapper = mountFolder()
+    await flushPromises()
+
+    await clickButton(wrapper, 'Пересоздать превью')
+
+    const notice = Notify.create.mock.calls.at(-1)[0]
+    expect(notice.type).toBe('warning')
+    expect(notice.message).toContain('Оригинал недоступен у 5 фото')
   })
 })

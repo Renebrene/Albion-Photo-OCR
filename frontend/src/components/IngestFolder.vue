@@ -6,6 +6,7 @@ import { computed, onMounted, ref } from 'vue'
 import { Notify } from 'quasar'
 
 import {
+  backfillPreviews,
   browseFolders,
   fetchIngestFolder,
   pickFolderNative,
@@ -160,6 +161,44 @@ async function start() {
         ? 'Обход этой папки уже в очереди'
         : `Задание инспектирования поставлено в очередь: ${result.job_id}${depth}`,
     })
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    busy.value = false
+  }
+}
+
+/**
+ * Пересоздать превью для фото, у которых файлов нет.
+ *
+ * Работает по photo_id (путь к оригиналу берётся из базы), рабочая папка не
+ * сканируется. Фото, чей оригинал недоступен, не удаляются и не меняются —
+ * сервер сообщает их число отдельно.
+ */
+async function rebuildPreviews() {
+  busy.value = true
+  try {
+    const result = await backfillPreviews({ limit: 500 })
+    const parts = [
+      `без файлов превью: ${result.selected}`,
+      `заданий: ${result.queued}`,
+    ]
+
+    if (result.already_active) parts.push(`уже в очереди: ${result.already_active}`)
+
+    if (result.originals_missing) {
+      Notify.create({
+        type: 'warning',
+        message:
+          `${parts.join(', ')}. Оригинал недоступен у ${result.originals_missing} фото — ` +
+          'их записи и превью сохранены, файл нужно вернуть на том.',
+      })
+    } else {
+      Notify.create({
+        type: result.queued ? 'positive' : 'info',
+        message: parts.join(', '),
+      })
+    }
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   } finally {
@@ -417,6 +456,27 @@ onMounted(load)
         <div class="text-caption text-grey-7 q-mt-sm">
           Фоновый вотчер не подключён: обход запускается кнопкой или командой
           <code>scene-fingerprint ingest &lt;папка&gt;</code>.
+        </div>
+
+        <div class="row q-gutter-sm q-mt-sm items-center">
+          <q-btn
+            dense
+            outline
+            color="primary"
+            icon="image"
+            label="Пересоздать превью"
+            :loading="busy"
+            @click="rebuildPreviews"
+          >
+            <q-tooltip>
+              Поставить задания PREVIEW для фото, у которых файлы превью
+              отсутствуют. Работает по photo_id, папка не сканируется; фото с
+              недоступным оригиналом не трогаются.
+            </q-tooltip>
+          </q-btn>
+          <span class="text-caption text-grey-7">
+            Пригодится после переноса хранилища или очистки производных файлов.
+          </span>
         </div>
       </div>
 

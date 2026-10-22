@@ -22,6 +22,7 @@ import {
   setPhotoAddressOverride,
   fetchQwenHistory,
   fetchQwenSettings,
+  fetchOriginalStatus,
   originalUrl,
   previewUrl,
   searchByMedia,
@@ -168,6 +169,12 @@ const viewerOpen = ref(false)
 const current = ref(null)
 const details = ref(null)
 const detailsLoading = ref(false)
+// Доступен ли оригинал открытого фото. Проверяется сразу при открытии, до
+// нажатия «посмотреть/скачать»: если тома с исходниками нет, вместо ошибки
+// загрузки показываем «оригинал недоступен, используйте превью».
+const originalStatus = ref(null)
+const originalStatusLoading = ref(false)
+let originalStatusRequest = 0
 // Прежние результаты распознавания: что перезаписала новая модель.
 const qwenHistory = ref([])
 
@@ -1940,6 +1947,10 @@ async function downloadSelected() {
     return
   }
 
+  // Одно недоступное фото не должно останавливать выгрузку остальных:
+  // пропускаем его, считаем и сообщаем в конце.
+  const skipped = []
+
   for (const photoId of [...store.selected]) {
     // Use the real file name, not the PH_… id (item 11 of the UI backlog);
     // the address prefix follows the display settings (item 11b).
@@ -1949,10 +1960,19 @@ async function downloadSelected() {
         originalUrl(photoId),
         downloadFileName(photo || { photo_id: photoId }, display.downloadNameMode),
       )
-    } catch (err) {
-      Notify.create({ type: 'negative', message: err.message })
-      break
+    } catch {
+      skipped.push(photo?.filename || photoId)
     }
+  }
+
+  if (skipped.length) {
+    Notify.create({
+      type: 'warning',
+      message:
+        `Пропущено фото без доступного оригинала: ${skipped.length} ` +
+        `(${skipped.slice(0, 3).join(', ')}${skipped.length > 3 ? '…' : ''}). ` +
+        'Их записи и превью сохранены.',
+    })
   }
 }
 
@@ -2226,13 +2246,70 @@ async function open(photo) {
   current.value = photo
   details.value = null
   qwenHistory.value = []
+  originalStatus.value = null
   viewerOpen.value = true
   detailsLoading.value = true
+  loadOriginalStatus(photo)
 
   try {
     await loadDetails(photo)
   } finally {
     if (current.value?.photo_id === photo.photo_id) detailsLoading.value = false
+  }
+}
+
+/**
+ * Проверка доступности оригинала при открытии фото.
+ *
+ * Только чтение и только признак: сервер не отдаёт путь. Ответ приходит
+ * асинхронно и применяется, лишь если фото всё ещё открыто (иначе быстрые
+ * перелистывания перезаписывали бы состояние чужого снимка).
+ */
+async function loadOriginalStatus(photo) {
+  const request = ++originalStatusRequest
+  originalStatusLoading.value = true
+
+  try {
+    const status = await fetchOriginalStatus(photo.photo_id)
+
+    if (request === originalStatusRequest && current.value?.photo_id === photo.photo_id) {
+      originalStatus.value = status
+    }
+  } catch {
+    // Не смогли проверить — не блокируем кнопки: отказ покажет сама загрузка.
+    if (request === originalStatusRequest) originalStatus.value = null
+  } finally {
+    if (request === originalStatusRequest) originalStatusLoading.value = false
+  }
+}
+
+const originalUnavailable = computed(
+  () => originalStatus.value?.available === false,
+)
+
+const ORIGINAL_REASONS = {
+  missing: 'файл не найден',
+  outside_roots: 'путь вне разрешённых корней',
+  not_configured: 'хранилище оригиналов не подключено',
+}
+
+function originalReasonText(reason) {
+  return ORIGINAL_REASONS[reason] || 'файл недоступен'
+}
+
+const originalUnavailableReason = computed(() =>
+  originalReasonText(originalStatus.value?.reason),
+)
+
+/** Статус для произвольного фото: у открытого он уже загружен. */
+async function originalStatusFor(photo) {
+  if (current.value?.photo_id === photo.photo_id && originalStatus.value) {
+    return originalStatus.value
+  }
+  try {
+    return await fetchOriginalStatus(photo.photo_id)
+  } catch {
+    return null
   }
 }
 
@@ -2327,8 +2404,31 @@ function listExtraFields(photo) {
 }
 
 
+/**
+ * Общая проверка перед «посмотреть/скачать»: запись фото не удаляется, но
+ * если оригинала нет, пользователь получает понятное сообщение и остаётся с
+ * превью, а не с ошибкой загрузки.
+ */
+async function originalUnavailableNotice(photo) {
+  const status = await originalStatusFor(photo)
+
+  if (status && status.available === false) {
+    Notify.create({
+      type: 'warning',
+      message:
+        `Оригинал недоступен (${originalReasonText(status.reason)}). ` +
+        'Доступно превью — фото и его данные не удалены.',
+    })
+    return true
+  }
+
+  return false
+}
+
 async function openOriginal(photo) {
   try {
+    if (await originalUnavailableNotice(photo)) return
+
     const objectUrl = await authImageUrl(originalUrl(photo.photo_id))
     window.open(objectUrl, '_blank')
   } catch (err) {
@@ -2338,6 +2438,8 @@ async function openOriginal(photo) {
 
 async function saveOriginal(photo) {
   try {
+    if (await originalUnavailableNotice(photo)) return
+
     await downloadAuthenticated(
       originalUrl(photo.photo_id),
       downloadFileName(photo, display.downloadNameMode),
@@ -3383,22 +3485,44 @@ function tagList(meta) {
             dense
             flat
             icon="open_in_new"
+            :disable="originalUnavailable"
             @click="openOriginal(current)"
           >
-            <q-tooltip>Открыть оригинал</q-tooltip>
+            <q-tooltip>
+              {{ originalUnavailable ? `Оригинал недоступен: ${originalUnavailableReason}` : 'Открыть оригинал' }}
+            </q-tooltip>
           </q-btn>
           <q-btn
             v-if="canUseCollective"
             dense
             flat
             icon="download"
+            :disable="originalUnavailable"
             @click="saveOriginal(current)"
           >
-            <q-tooltip>Сохранить оригинал</q-tooltip>
+            <q-tooltip>
+              {{ originalUnavailable ? `Оригинал недоступен: ${originalUnavailableReason}` : 'Сохранить оригинал' }}
+            </q-tooltip>
           </q-btn>
           <q-btn dense flat icon="close" v-close-popup />
         </q-card-section>
         <q-separator />
+
+        <!-- Оригинал пропал (том отмонтирован, файл удалён): запись и превью
+             остаются, меняется только доступность оригинала. -->
+        <q-banner
+          v-if="originalUnavailable"
+          dense
+          rounded
+          class="bg-orange-1 text-orange-9 q-ma-sm"
+        >
+          <template #avatar>
+            <q-icon name="link_off" />
+          </template>
+          Оригинал недоступен ({{ originalUnavailableReason }}). Используйте
+          превью — запись фото и его данные не удалены. Восстановить файл можно
+          повторным инспектированием папки или из бэкапа.
+        </q-banner>
 
         <div class="row no-wrap" style="max-height: 80vh">
           <div class="col-7 column items-center bg-grey-3 q-pa-sm relative-position">

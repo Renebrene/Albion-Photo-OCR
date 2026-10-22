@@ -19,6 +19,7 @@ from pathlib import Path
 
 from fastapi import (
     APIRouter,
+    Body,
     Depends,
     File,
     Form,
@@ -66,6 +67,7 @@ from app.api.schemas import (
     MediaLinkRequest,
     NlSearchRequest,
     PhotoAddressRequest,
+    PreviewBackfillRequest,
     QwenJobRequest,
     QwenTextUpdate,
     QwenModelRequest,
@@ -634,6 +636,35 @@ def get_preview(photo_id: str, size: str) -> Response:
         media_type="image/jpeg",
         headers={"Cache-Control": "public, max-age=3600"},
     )
+
+
+@read_router.get("/v1/photos/{photo_id}/original/status")
+def get_original_status(photo_id: str) -> dict:
+    """
+    Whether the original file of a photo can be served right now.
+
+    The UI calls this before the user clicks "посмотреть" or "скачать", so a
+    disappeared original (unmounted volume, deleted file) turns into
+    "оригинал недоступен, используйте превью" instead of a failed request.
+    Only the availability is reported — never the path, and nothing is read.
+    The photo row itself is never deleted: the preview stays usable.
+    """
+
+    photo_id = _validate_photo_id(photo_id)
+    source = repository.get_photo_source(photo_id)
+
+    if source is None:
+        raise HTTPException(status_code=404, detail="photo not found")
+
+    status = file_access.original_availability(
+        source.get("source_path"), ORIGINALS_ROOTS
+    )
+
+    return {
+        "photo_id": photo_id,
+        "available": status == file_access.ORIGINAL_OK,
+        "reason": status,
+    }
 
 
 def _allowed_original_path(source_path: str) -> Path | None:
@@ -2196,12 +2227,25 @@ def scan_ingest_folder(request: SourcePathRequest):
     "/v1/previews/backfill",
     dependencies=[Depends(require_scope("jobs:write"))],
 )
-def queue_missing_previews(limit: int = Query(500, ge=1, le=5000)):
-    """Queue a bounded page of registered photos without a preview record."""
+def queue_missing_previews(
+    limit: int = Query(500, ge=1, le=5000),
+    request: PreviewBackfillRequest | None = Body(default=None),
+):
+    """
+    Queue a bounded page of registered photos without a preview record.
+
+    With a `{"photo_ids": [...]}` body only those photos are considered —
+    the "пересоздать превью по photo_id" path after preview files were
+    cleared. Photos whose original is unavailable are reported in
+    `originals_missing` and never queued.
+    """
 
     from app.preview.queue import enqueue_missing_previews
 
-    return enqueue_missing_previews(limit=limit)
+    return enqueue_missing_previews(
+        limit=limit,
+        photo_ids=request.photo_ids if request and request.photo_ids else None,
+    )
 
 
 @jobs_router.post(

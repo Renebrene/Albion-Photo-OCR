@@ -12,15 +12,50 @@ def test_preview_backfill_route_is_bounded_and_delegates(monkeypatch):
     calls = []
     from app.preview import queue as preview_queue
 
-    monkeypatch.setattr(preview_queue, "enqueue_missing_previews", lambda *, limit: calls.append(limit) or {
-        "selected": 2, "queued": 2, "already_active": 0,
-    })
+    def fake(*, limit, photo_ids=None):
+        calls.append({"limit": limit, "photo_ids": photo_ids})
+        return {"selected": 2, "queued": 2, "already_active": 0}
+
+    monkeypatch.setattr(preview_queue, "enqueue_missing_previews", fake)
 
     response = client.post("/api/v1/previews/backfill?limit=10")
 
     assert response.status_code == 200
     assert response.json() == {"selected": 2, "queued": 2, "already_active": 0}
-    assert calls == [10]
+    assert calls == [{"limit": 10, "photo_ids": None}]
+
+
+def test_preview_backfill_accepts_an_explicit_photo_id_list(monkeypatch):
+    """Пересоздание превью по photo_id: папка не сканируется, идёт список."""
+
+    calls = []
+    from app.preview import queue as preview_queue
+
+    def fake(*, limit, photo_ids=None):
+        calls.append({"limit": limit, "photo_ids": photo_ids})
+        return {
+            "selected": 1,
+            "queued": 1,
+            "already_active": 0,
+            "originals_missing": 1,
+        }
+
+    monkeypatch.setattr(preview_queue, "enqueue_missing_previews", fake)
+
+    ids = ["PH_" + "ab" * 12, "PH_" + "cd" * 12]
+    response = client.post(
+        "/api/v1/previews/backfill?limit=10", json={"photo_ids": ids}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["originals_missing"] == 1
+    assert calls == [{"limit": 10, "photo_ids": ids}]
+
+
+def test_preview_backfill_rejects_an_empty_photo_id_list():
+    response = client.post("/api/v1/previews/backfill", json={"photo_ids": []})
+
+    assert response.status_code == 422
 
 
 def test_preview_backfill_rejects_unbounded_limit():
