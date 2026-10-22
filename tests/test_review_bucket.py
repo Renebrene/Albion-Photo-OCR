@@ -242,14 +242,48 @@ def test_preview_route_returns_the_count(monkeypatch):
     monkeypatch.setattr(
         routes.repository,
         "review_count",
-        lambda value=None: calls.append(value) or 300,
+        lambda value=None, margin=None: calls.append((value, margin)) or 300,
     )
 
     response = TestClient(app).get("/api/v1/hybrid/settings/preview?low_score=0.9")
 
     assert response.status_code == 200
-    assert response.json() == {"low_score": 0.9, "review_count": 300}
-    assert calls == [0.9]
+    assert response.json() == {
+        "low_score": 0.9,
+        "min_margin": 0.0,
+        "review_count": 300,
+    }
+    assert calls == [(0.9, 0.0)]
+
+
+def test_preview_route_accepts_the_margin(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app.api import routes
+    from app.api.main import app
+
+    calls = []
+    monkeypatch.setattr(
+        routes.repository,
+        "review_count",
+        lambda value=None, margin=None: calls.append((value, margin)) or 41,
+    )
+
+    response = TestClient(app).get(
+        "/api/v1/hybrid/settings/preview?low_score=0&min_margin=0.015"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["review_count"] == 41
+    assert calls == [(0.0, 0.015)]
+
+
+def test_margin_is_validated():
+    from app.hybrid import config as hybrid_config
+
+    for value in (-0.1, 1.5, "много"):
+        with pytest.raises(ValueError):
+            hybrid_config.set_min_margin(value)
 
 
 def test_preview_route_rejects_out_of_range():

@@ -3044,8 +3044,13 @@ function tagList(meta) {
                         Дино-гибрид предлагал: {{ photo.suggested_address }}<br />
                       </template>
                       <template v-if="confidenceText(photo.confidence)">
-                        Уверенность {{ confidenceText(photo.confidence) }} — ниже
-                        порога распознавания.<br />
+                        Уверенность {{ confidenceText(photo.confidence) }}.<br />
+                      </template>
+                      <template v-if="typeof photo.margin === 'number'">
+                        Отрыв от второго адреса {{ photo.margin.toFixed(3) }}.<br />
+                      </template>
+                      <template v-if="photo.runner_up_address">
+                        Рядом: {{ photo.runner_up_address }}<br />
                       </template>
                       Назначьте адрес вручную в карточке фото.
                     </q-tooltip>
@@ -3480,6 +3485,22 @@ function tagList(meta) {
               Дино-гибрид предлагал: {{ current.suggested_address }}
               <template v-if="confidenceText(current.confidence)">
                 · уверенность {{ confidenceText(current.confidence) }}
+              </template>
+            </div>
+            <!-- Ближайшая альтернатива: видно, куда ещё можно отнести фото и
+                 насколько выбор был однозначным. -->
+            <div
+              v-if="current?.runner_up_address || current?.margin !== null"
+              class="text-caption text-grey-7 ellipsis"
+            >
+              <template v-if="current?.runner_up_address">
+                рядом: {{ current.runner_up_address }}
+                <template v-if="typeof current.runner_up_score === 'number'">
+                  ({{ current.runner_up_score.toFixed(3) }})
+                </template>
+              </template>
+              <template v-if="typeof current?.margin === 'number'">
+                · отрыв {{ current.margin.toFixed(3) }}
               </template>
             </div>
           </div>

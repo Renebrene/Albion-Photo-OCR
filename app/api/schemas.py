@@ -49,6 +49,12 @@ class PhotoSummary(BaseModel):
     suggested_fingerprint: str | None = None
     suggested_address: str | None = None
 
+    # Отрыв лучшего адреса от второго и второй кандидат: видно, насколько
+    # выбор был однозначным и куда ещё можно отнести фото.
+    margin: float | None = None
+    runner_up_address: str | None = None
+    runner_up_score: float | None = None
+
     # QWEN icon in the grid: status plus whether a description actually exists
     # (a failed re-run keeps the previous description row).
     qwen_status: str | None = None
@@ -427,7 +433,9 @@ class PreviewBackfillRequest(BaseModel):
 class HybridSettingsUpdate(BaseModel):
     """Порог уверенности распознавания (корзина «Требуют проверки»)."""
 
-    low_score: float = Field(ge=0, le=1)
+    low_score: float | None = Field(default=None, ge=0, le=1)
+    # 0 убирает критерий; None — «не менять».
+    min_margin: float | None = Field(default=None, ge=0, le=1)
 
 
 class PipelineStartRequest(BaseModel):

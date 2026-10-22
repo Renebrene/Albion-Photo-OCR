@@ -65,7 +65,61 @@ def _latest_confidence_sql(photo_ref: str) -> str:
     )
 
 
-def _address_sql(photo_ref: str, low_score: float | None = None) -> str:
+def _latest_margin_sql(photo_ref: str) -> str:
+    """
+    Отрыв лучшего адреса от второго в последнем вердикте HYBRID.
+
+    Уже хранится (`hybrid_results.hybrid_margin`, это разница между лучшим и
+    вторым кандидатом DINO). Замер: медиана по корпусу 0.070, а у всех ручных
+    исправлений — 0.005–0.014, то есть маленький отрыв и есть признак
+    «уверенно, но мимо».
+    """
+
+    return (
+        "(SELECT h.hybrid_margin FROM public.hybrid_results AS h "
+        f"WHERE h.photo_id = {photo_ref}.photo_id AND h.status = 'DONE' "
+        "ORDER BY h.finished_at DESC NULLS LAST, h.hybrid_run_id DESC "
+        "LIMIT 1)"
+    )
+
+
+def _runner_up_sql(photo_ref: str, column: str) -> str:
+    """
+    Лучший кандидат ДРУГОГО адреса в последнем вердикте: ближайшая альтернатива.
+
+    Важно: сравнивать с выбранным слепком нельзя по рангу. Гибрид иногда
+    выбирает не первый кандидат DINO (ранг 2 может оказаться выбранным), и
+    тогда «второй по рангу» — это тот же адрес. Поэтому берём лучший кандидат,
+    чей адрес отличается от адреса вердикта.
+    """
+
+    chosen = (
+        "(SELECT afx.address_id FROM public.address_fingerprints AS afx "
+        "WHERE afx.fingerprint_id = h.hybrid_final_id AND afx.active LIMIT 1)"
+    )
+
+    return (
+        "(SELECT " + column + " FROM public.hybrid_results AS h "
+        "JOIN public.dino_candidates AS c ON c.run_id = h.dino_run_id "
+        "JOIN public.address_fingerprints AS af "
+        "  ON af.fingerprint_id = c.fingerprint_id AND af.active "
+        "JOIN public.fingerprints AS f "
+        "  ON f.fingerprint_id = af.fingerprint_id AND f.active "
+        "JOIN public.address_directory AS ad "
+        "  ON ad.address_id = af.address_id AND ad.active "
+        f"WHERE h.photo_id = {photo_ref}.photo_id AND h.status = 'DONE' "
+        f"  AND af.address_id <> COALESCE({chosen}, -1) "
+        "ORDER BY h.finished_at DESC NULLS LAST, h.hybrid_run_id DESC, "
+        "         c.score DESC "
+        "LIMIT 1)"
+    )
+
+
+def _address_sql(
+    photo_ref: str,
+    low_score: float | None = None,
+    min_margin: float | None = None,
+) -> str:
     """
     Адрес с учётом порога уверенности: слабое совпадение адреса не даёт.
 
@@ -78,19 +132,33 @@ def _address_sql(photo_ref: str, low_score: float | None = None) -> str:
 
     final = _latest_hybrid_final_sql(photo_ref)
     low = hybrid_config.low_score() if low_score is None else float(low_score)
+    min_margin = hybrid_config.min_margin() if min_margin is None else float(min_margin)
 
-    if low <= 0:
+    conditions: list[str] = []
+
+    if low > 0:
+        confidence = _latest_confidence_sql(photo_ref)
+        conditions.append(f"({confidence} IS NULL OR {confidence} >= {low})")
+
+    if min_margin > 0:
+        margin = _latest_margin_sql(photo_ref)
+        conditions.append(f"({margin} IS NULL OR {margin} >= {float(min_margin)})")
+
+    # Оба критерия независимы: можно включить только отрыв, только сходство
+    # или оба. NULL считается «не знаем» и фото не отбрасывает.
+    if not conditions:
         return final
 
-    confidence = _latest_confidence_sql(photo_ref)
-
     return (
-        f"(CASE WHEN {confidence} IS NULL OR {confidence} >= {low} "
-        f"THEN {final} ELSE NULL END)"
+        "(CASE WHEN " + " AND ".join(conditions) + f" THEN {final} ELSE NULL END)"
     )
 
 
-def _recognized_sql(photo_ref: str = "t", low_score: float | None = None) -> str:
+def _recognized_sql(
+    photo_ref: str = "t",
+    low_score: float | None = None,
+    min_margin: float | None = None,
+) -> str:
     """
     The single definition of "распознано" used by every read path.
 
@@ -102,7 +170,7 @@ def _recognized_sql(photo_ref: str = "t", low_score: float | None = None) -> str
     """
 
     return (
-        f"({_address_sql(photo_ref, low_score)} IS NOT NULL OR EXISTS ("
+        f"({_address_sql(photo_ref, low_score, min_margin)} IS NOT NULL OR EXISTS ("
         "SELECT 1 FROM public.photo_address_overrides AS ov "
         f"WHERE ov.photo_id = {photo_ref}.photo_id))"
     )
@@ -154,7 +222,10 @@ _PHOTO_BASE = """
         p.taken_at AS taken_at,
         p.size_bytes AS size_bytes,
         p.source_path AS source_path,
-        """ + _latest_confidence_sql("p") + """ AS confidence
+        """ + _latest_confidence_sql("p") + """ AS confidence,
+        """ + _latest_margin_sql("p") + """ AS margin,
+        """ + _runner_up_sql("p", "COALESCE(ad.simple_address, ad.legal_address)") + """ AS runner_up_address,
+        """ + _runner_up_sql("p", "c.score") + """ AS runner_up_score
     FROM public.photos AS p
     LEFT JOIN public.photo_qwen AS q ON q.photo_id = p.photo_id
 """
@@ -201,7 +272,7 @@ _PHOTO_SELECT = (
     "SELECT photo_id, filename, width, height, container_format, "
     "address, client, brand, category, created_at, taken_at, size_bytes, source_path, "
     "legal_address, simple_address, qwen_status, qwen_described, confidence, "
-    "suggested_fingerprint, suggested_address "
+    "suggested_fingerprint, suggested_address, margin, runner_up_address, runner_up_score "
     "FROM (" + _PHOTO_DERIVED + ") AS t"
 )
 
@@ -228,6 +299,9 @@ def _photo_row(row) -> PhotoSummary:
         confidence=float(row[17]) if row[17] is not None else None,
         suggested_fingerprint=row[18],
         suggested_address=row[19],
+        margin=float(row[20]) if row[20] is not None else None,
+        runner_up_address=row[21],
+        runner_up_score=float(row[22]) if row[22] is not None else None,
     )
 
 
@@ -822,7 +896,10 @@ def all_photo_ids() -> list[str]:
             return [row[0] for row in cur.fetchall()]
 
 
-def review_count(low_score: float | None = None) -> int:
+def review_count(
+    low_score: float | None = None,
+    min_margin: float | None = None,
+) -> int:
     """
     Сколько фото попадёт в «Требуют проверки» при заданном пороге.
 
@@ -834,7 +911,7 @@ def review_count(low_score: float | None = None) -> int:
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT count(*) FROM public.photos AS p "
-                f"WHERE NOT {_recognized_sql('p', low_score)}"
+                f"WHERE NOT {_recognized_sql('p', low_score, min_margin)}"
             )
             row = cur.fetchone()
 

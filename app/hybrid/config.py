@@ -23,8 +23,12 @@ import time
 from app import settings_store
 
 LOW_SCORE_KEY = "hybrid_low_score"
+MIN_MARGIN_KEY = "hybrid_min_margin"
 
 DEFAULT_LOW_SCORE = float(os.getenv("SCENE_HYBRID_LOW_SCORE", "0.85"))
+# Отрыв лучшего адреса от второго. 0 — проверка выключена.
+# Замер: медиана по корпусу 0.070, у всех ручных исправлений 0.005–0.014.
+DEFAULT_MIN_MARGIN = float(os.getenv("SCENE_HYBRID_MIN_MARGIN", "0"))
 
 MIN_LOW_SCORE = 0.0
 MAX_LOW_SCORE = 1.0
@@ -62,6 +66,38 @@ def low_score() -> float:
     return value
 
 
+def min_margin() -> float:
+    """Текущий минимальный отрыв лучшего адреса от второго (0 — выключено)."""
+
+    try:
+        stored = settings_store.get(MIN_MARGIN_KEY)
+
+        if stored is not None:
+            value = float(stored)
+
+            return max(0.0, min(1.0, value))
+    except Exception:  # noqa: BLE001 - без базы остаётся умолчание
+        pass
+
+    return DEFAULT_MIN_MARGIN
+
+
+def set_min_margin(value: object) -> float:
+    """Сохранить порог отрыва; 0 выключает проверку."""
+
+    try:
+        parsed = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise ValueError("отрыв должен быть числом от 0 до 1") from exc
+
+    if not 0 <= parsed <= 1:
+        raise ValueError("отрыв должен быть числом от 0 до 1")
+
+    settings_store.set_value(MIN_MARGIN_KEY, parsed)
+
+    return parsed
+
+
 def set_low_score(value: object) -> float:
     """Сохранить порог; нечисловое или выходящее за 0…1 значение отклоняется."""
 
@@ -92,5 +128,7 @@ def resolve_settings() -> dict:
     return {
         "low_score": low_score(),
         "default_low_score": DEFAULT_LOW_SCORE,
-        "enabled": low_score() > 0,
+        "min_margin": min_margin(),
+        "default_min_margin": DEFAULT_MIN_MARGIN,
+        "enabled": low_score() > 0 or min_margin() > 0,
     }

@@ -23,6 +23,8 @@ const tab = ref('dino')
 // Порог уверенности распознавания: ниже него фото уходит в «Требуют проверки».
 const lowScore = ref(null)
 const lowScoreSaved = ref(null)
+const minMargin = ref(0)
+const minMarginSaved = ref(0)
 const lowScoreBusy = ref(false)
 const reviewCount = ref(0)
 // Предпросмотр: сколько фото попадёт в корзину при введённом значении.
@@ -57,6 +59,8 @@ async function loadReviewSettings() {
     const settings = await fetchHybridSettings()
     lowScore.value = settings.low_score
     lowScoreSaved.value = settings.low_score
+    minMargin.value = settings.min_margin ?? 0
+    minMarginSaved.value = settings.min_margin ?? 0
   } catch (err) {
     // Настройка необязательная: без неё вкладка работает как раньше.
     lowScore.value = null
@@ -89,7 +93,7 @@ function schedulePreview() {
 
     previewBusy.value = true
     try {
-      const data = await previewHybridSettings(value)
+      const data = await previewHybridSettings(value, Number(minMargin.value) || 0)
       previewCount.value = data.review_count
     } catch {
       previewCount.value = null
@@ -104,8 +108,12 @@ async function saveReviewSettings() {
 
   lowScoreBusy.value = true
   try {
-    const settings = await saveHybridSettings({ low_score: Number(lowScore.value) })
+    const settings = await saveHybridSettings({
+      low_score: Number(lowScore.value),
+      min_margin: Number(minMargin.value) || 0,
+    })
     lowScoreSaved.value = settings.low_score
+    minMarginSaved.value = settings.min_margin ?? 0
     previewCount.value = null
     Notify.create({
       type: 'positive',
@@ -430,12 +438,33 @@ onBeforeUnmount(() => {
               получает и попадает в «Требуют проверки». 0 — проверка выключена.
             </q-tooltip>
           </q-input>
+          <q-input
+            v-model.number="minMargin"
+            type="number"
+            dense
+            outlined
+            step="0.005"
+            min="0"
+            max="1"
+            label="Минимальный отрыв"
+            style="max-width: 200px"
+            @update:model-value="schedulePreview"
+          >
+            <q-tooltip>
+              Насколько лучший адрес должен опережать второй. Меньше значения —
+              фото уходит в «Требуют проверки»: выбор был почти равным.
+              0 — проверка выключена.
+            </q-tooltip>
+          </q-input>
           <q-btn
             color="primary"
             no-caps
             label="Сохранить"
             :loading="lowScoreBusy"
-            :disable="lowScore === null || lowScore === lowScoreSaved"
+            :disable="
+              lowScore === null
+              || (lowScore === lowScoreSaved && minMargin === minMarginSaved)
+            "
             @click="saveReviewSettings"
           />
           <div class="text-caption text-grey-8">

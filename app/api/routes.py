@@ -2166,7 +2166,10 @@ def hybrid_settings():
 
 
 @read_router.get("/v1/hybrid/settings/preview", response_model=None)
-def preview_hybrid_settings(low_score: float = Query(0.85, ge=0, le=1)):
+def preview_hybrid_settings(
+    low_score: float = Query(0.85, ge=0, le=1),
+    min_margin: float = Query(0.0, ge=0, le=1),
+):
     """
     Сколько фото попадёт в «Требуют проверки» при таком пороге.
 
@@ -2176,7 +2179,8 @@ def preview_hybrid_settings(low_score: float = Query(0.85, ge=0, le=1)):
 
     return {
         "low_score": low_score,
-        "review_count": repository.review_count(low_score),
+        "min_margin": min_margin,
+        "review_count": repository.review_count(low_score, min_margin),
     }
 
 
@@ -2188,7 +2192,10 @@ def update_hybrid_settings(request: HybridSettingsUpdate):
     from app.hybrid import config as hybrid_config
 
     try:
-        hybrid_config.set_low_score(request.low_score)
+        if request.low_score is not None:
+            hybrid_config.set_low_score(request.low_score)
+        if request.min_margin is not None:
+            hybrid_config.set_min_margin(request.min_margin)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

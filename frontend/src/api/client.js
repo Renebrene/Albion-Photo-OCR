@@ -672,9 +672,17 @@ export function fetchHybridSettings() {
   return getJson(`${BASE}/v1/hybrid/settings`)
 }
 
-/** Сколько фото попадёт в «Требуют проверки» при таком пороге (ничего не сохраняет). */
-export function previewHybridSettings(lowScore) {
-  return getJson(`${BASE}/v1/hybrid/settings/preview?low_score=${lowScore}`)
+/**
+ * Сколько фото попадёт в «Требуют проверки» при таких порогах
+ * (ничего не сохраняет).
+ */
+export function previewHybridSettings(lowScore, minMargin = 0) {
+  const query = new URLSearchParams({
+    low_score: String(lowScore),
+    min_margin: String(minMargin),
+  })
+
+  return getJson(`${BASE}/v1/hybrid/settings/preview?${query.toString()}`)
 }
 
 export function saveHybridSettings(payload) {
