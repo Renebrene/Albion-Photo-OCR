@@ -232,6 +232,65 @@ def find_gaps(series, field_index: int):
     return gaps
 
 
+def find_truncated(rows, field_index: int, *, max_length: int, ratio: int):
+    """
+    Похоже на обрезанное чтение: короткое значение — начало длинного.
+
+    Признак, который пережил проверку на данных: время и хеш кадра ролик не
+    различают (ролики по 5 с, между двумя кадрами успевает смениться реклама).
+    Зато видно другое — на одном экране короткое чтение соседствует с полным
+    и встречается редко: «Ян» при «Яндекс» на том же экране.
+
+    Условия намеренно строгие, чтобы не склеить разные бренды (`Яндекс Маркет`
+    и `Яндекс Лавка` — не одно и то же):
+      - короткое значение — строгое начало длинного (без учёта регистра,
+        пробелов и латиницы/кириллицы);
+      - короткое не длиннее `max_length` символов;
+      - длинное встречается минимум в `ratio` раз чаще.
+    """
+
+    by_screen = defaultdict(lambda: defaultdict(int))
+    photos = defaultdict(list)
+
+    for row in rows:
+        value = (row[field_index] or "").strip()
+
+        if value:
+            by_screen[row[3]][value] += 1
+            photos[value].append(row[0])
+
+    findings = []
+
+    for screen, values in by_screen.items():
+        for short, short_count in values.items():
+            short_key = skeleton(short)
+
+            if not short_key or len(short_key) > max_length:
+                continue
+
+            for long, long_count in values.items():
+                long_key = skeleton(long)
+
+                if long is short or not long_key.startswith(short_key):
+                    continue
+
+                if long_key == short_key or long_count < short_count * ratio:
+                    continue
+
+                findings.append(
+                    {
+                        "short": short,
+                        "long": long,
+                        "photos_short": short_count,
+                        "photos_long": long_count,
+                        "screen": screen,
+                        "samples": photos[short][:3],
+                    }
+                )
+
+    return findings
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Найти кадры, где один бренд прочитан по-разному",
@@ -242,6 +301,13 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--json", action="store_true", help="машиночитаемый вывод")
     parser.add_argument("--limit", type=int, default=0, help="обработать не больше N кадров")
     parser.add_argument("--field", choices=["client", "brand", "both"], default="both")
+    parser.add_argument("--suspicious", action="store_true",
+                        help="показать короткие чтения, которые выглядят обрезанными "
+                             "(«Ян» при «Яндекс» на том же экране)")
+    parser.add_argument("--max-length", type=int, default=6,
+                        help="максимальная длина подозрительного значения (по умолчанию 6)")
+    parser.add_argument("--ratio", type=int, default=3,
+                        help="во сколько раз полное значение должно быть чаще (по умолчанию 3)")
     parser.add_argument("--gaps", action="store_true",
                         help="черновая оценка: кадры без значения, которые можно "
                              "дополнить от соседей по серии (только по времени — "
@@ -297,6 +363,18 @@ def main(argv: list[str] | None = None) -> int:
             ],
         }
 
+    if args.suspicious:
+        report["suspicious"] = {}
+
+        for name, index in fields:
+            findings = find_truncated(
+                rows, index, max_length=args.max_length, ratio=args.ratio
+            )
+            report["suspicious"][name] = {
+                "items": sorted(findings, key=lambda item: -item["photos_short"]),
+                "photos": sum(item["photos_short"] for item in findings),
+            }
+
     if args.gaps:
         report["gaps"] = {}
 
@@ -323,6 +401,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"      например: {', '.join(item['samples'][:2])}")
         if len(data["items"]) > SAMPLE_LIMIT:
             print(f"  … ещё {len(data['items']) - SAMPLE_LIMIT} пар")
+
+    for name, data in (report.get("suspicious") or {}).items():
+        print(f"\n=== {name}: подозрительных чтений {len(data['items'])}, "
+              f"фото {data['photos']} ===")
+        for item in data["items"][:SAMPLE_LIMIT]:
+            print(f"  {item['short']!r} ({item['photos_short']}) → {item['long']!r} "
+                  f"({item['photos_long']})   экран {item['screen']}")
+            print(f"      например: {', '.join(item['samples'][:2])}")
 
     for name, data in (report.get("gaps") or {}).items():
         print(f"\n=== {name}: пустых {data['photos']} фото на {data['screens']} экранах ===")
