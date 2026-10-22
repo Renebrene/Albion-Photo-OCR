@@ -18,14 +18,14 @@ const logError = ref(null)
 
 const KIND_LABELS = {
   pipeline: 'Обновление базы',
-  ingest: 'Ingest',
+  ingest: 'Инспектирование',
   sort: 'Сортировка',
   qwen: 'QWEN',
   scheduler: 'Планировщик',
 }
 
 const STAGE_LABELS = {
-  INGEST: 'Загрузка',
+  INGEST: 'Инспектирование',
   PREVIEW: 'Превью',
   DINO: 'DINO',
   HYBRID: 'HYBRID',

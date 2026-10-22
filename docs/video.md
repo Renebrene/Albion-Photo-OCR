@@ -10,7 +10,7 @@ Durable-видео хранится отдельно от фото. Времен
 - регистрация и отображение не ограничены размером и длительностью;
 - `ffprobe` читает контейнер, видеокодек, размер, длительность, fps/frame count и best-effort `creation_time`;
 - ID новых видео — `VI_` + первые 24 hex SHA-256 от канонического JSON tuple `[basename, UTC-дата YYYY-MM-DD, size_bytes]`; это hash только метаданных, полный файл не читается. Дата берётся из `creation_time`, иначе из UTC-дня mtime. Старые content-hash IDs и их значения сохраняются как legacy;
-- INGEST читает stat + ffprobe метаданные и повторяет stat после probe, но не вычисляет content SHA и не декодирует видеопоток целиком;
+- INSPECT читает stat + ffprobe метаданные и повторяет stat после probe, но не вычисляет content SHA и не декодирует видеопоток целиком;
 - `taken_at` сохраняется UTC из встроенного `creation_time`, если тот есть; иначе NULL. `created_at` — время регистрации в БД;
 - source-файл только читается. Poster JPEG пишется атомарно в отдельный `SCENE_VIDEO_PREVIEW_ROOT`, не рядом с исходником;
 - DINO, HYBRID, QWEN и photo fingerprint jobs на video assets не запускаются.
@@ -41,7 +41,7 @@ Scope `videos:read`, `videos:write`, `videos:download` выданы Менедж
 пустых/нечитаемых файлов. Это shallow stat-walk без декодирования; полная
 проверка остаётся в `INGEST_DIR`.
 
-Статус-бар показывает photo/video counts и последние даты ingest. Кнопка «Статистика» открывает месячные photo/video counts, период базы, текущий месяц, сегодня/вчера/позавчера и последние 7 дней.
+Статус-бар показывает photo/video counts и последние даты инспектирования. Кнопка «Статистика» открывает месячные photo/video counts, период базы, текущий месяц, сегодня/вчера/позавчера и последние 7 дней.
 
 ## Сжатие, мини-редактор и runtime
 

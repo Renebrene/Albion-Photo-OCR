@@ -47,7 +47,7 @@ credential считается недействительным и возвращ
 | `originals` | Скачивание оригиналов фото и ZIP-архива выбранного (`/v1/photos/.../original`, `/v1/photos/archive`). Проверка пути — внутри `SCENE_ORIGINALS_ROOTS`. |
 | `upload:write` | Загрузка файлов (`POST /v1/upload`). |
 | `jobs:read` | Просмотр заданий очереди. |
-| `jobs:write` | Запуск/остановка рабочих заданий: DINO/HYBRID/QWEN, INGEST, сборка слепков, pause/resume/cancel/requeue, автоматизация, выгрузка QWEN-модели из памяти. |
+| `jobs:write` | Запуск/остановка рабочих заданий: DINO/HYBRID/QWEN, INSPECT, сборка слепков, pause/resume/cancel/requeue, автоматизация, выгрузка QWEN-модели из памяти. |
 | `settings:write` | Изменение провайдера/модели QWEN, Base URL и API-ключа. Только Администратор; Менеджер по-прежнему запускает QWEN-задания, но не управляет учётными данными провайдера. |
 | `addresses:write` | Справочник адресов, привязка слепков к адресам, импорт адресов. |
 | `collections:write` | Подборки и нормализация клиентов (alias→canonical). |

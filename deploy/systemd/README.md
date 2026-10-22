@@ -5,7 +5,7 @@ Several long-running services cover the web app:
 | Unit | Runs | Maps to legacy |
 |---|---|---|
 | `scene-api.service` | FastAPI app + built Quasar SPA (`app.api.main:app`) | `dashboard.service` |
-| `scene-worker.service` | general queue: DINO/HYBRID/INGEST/MEDIA_EXPORT/NL; excludes preview, QWEN, video and billboard jobs | `lora.service` (worker) |
+| `scene-worker.service` | general queue: DINO/HYBRID/INSPECT/MEDIA_EXPORT/NL; excludes preview, QWEN, video and billboard jobs | `lora.service` (worker) |
 | `scene-builder.service` (user unit) | parallel fingerprint builder (`--only FINGERPRINT_BUILD --parallel 3`) | — |
 | `scene-qwen-worker.service` (user unit) | isolated `QWEN_PHOTO` queue poller | — |
 | `scene-video-worker.service` (user unit) | isolated `VIDEO_TRANSCODE` / `VIDEO_TRIM` / `VIDEO_STORYBOARD` jobs; smoke-gated NVENC or CPU | — |
@@ -28,7 +28,7 @@ frontend unit.
    ```
 3. PostgreSQL reachable and the schema applied (`scripts/db_bootstrap.sh`).
 4. Ollama running with the QWEN model (worker only).
-5. For video INGEST/transcode, install a trusted FFmpeg build that includes both `ffmpeg` and `ffprobe` and the H.264 encoder/decoder. Set `SCENE_FFMPEG_BIN` / `SCENE_FFPROBE_BIN` in the environment file. `scene-video-worker` is separate and must not be enabled before FFmpeg/FFprobe paths are readable from the user-service context, schema/030 is applied, output roots are writable/outside source roots, and the synthetic CPU smoke passes. NVENC is used only if its runtime test succeeds in that context; otherwise auto mode falls back to CPU.
+5. For video INSPECT/transcode, install a trusted FFmpeg build that includes both `ffmpeg` and `ffprobe` and the H.264 encoder/decoder. Set `SCENE_FFMPEG_BIN` / `SCENE_FFPROBE_BIN` in the environment file. `scene-video-worker` is separate and must not be enabled before FFmpeg/FFprobe paths are readable from the user-service context, schema/030 is applied, output roots are writable/outside source roots, and the synthetic CPU smoke passes. NVENC is used only if its runtime test succeeds in that context; otherwise auto mode falls back to CPU.
 6. Build the SPA once so the API can serve it:
    ```bash
    cd frontend && bun install --frozen-lockfile && bun run build
@@ -104,7 +104,7 @@ Notes that matter:
 
 ## Early photo previews
 
-Photo registration in directory INGEST and upload enqueues one `PHOTO_PREVIEW`
+Photo registration in directory INSPECT and upload enqueues one `PHOTO_PREVIEW`
 job per newly registered photo. The general worker excludes this type by default;
 `scene-preview-worker.service` claims only it, so older DINO/QWEN work cannot hold
 preview generation behind its FIFO position. Preview files remain independent
@@ -176,7 +176,7 @@ replace it with a trusted service-accessible path on other installations.
   source photo folders live outside the checkout, add them to `ReadWritePaths`.
 - **Uploads** land in `SCENE_INBOX` (`data/inbox`); ensure it is on the same
   filesystem as the process user can write.
-- **INGEST folder**: `SCENE_SOURCE_FOLDER` (default, overridable in the UI and
+- **INSPECT folder**: `SCENE_SOURCE_FOLDER` (default, overridable in the UI and
   stored in `app_settings`) is scanned by the worker when `POST /v1/ingest/run`
   or `scene-fingerprint ingest <folder>` is used. Set `SCENE_SOURCE_ROOTS` to
   restrict which folders may be picked; leave it empty only on a single-owner

@@ -152,8 +152,8 @@ it('последний запуск: сводка по видам, остано�
   expect(text).toContain('Обновление базы')
   expect(text).toContain('прервано')
   expect(text).toContain('Остановлено на этапе')
-  expect(text).toContain('Загрузка: 120 с')
-  expect(text).toContain('Ingest')
+  expect(text).toContain('Инспектирование: 120 с')
+  expect(text).toContain('Инспектирование')
   expect(text).toContain('Сортировка')
   expect(text).toContain('Планировщик')
 

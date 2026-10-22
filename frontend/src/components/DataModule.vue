@@ -94,8 +94,8 @@ onMounted(load)
         <q-card-section>
           <div class="text-subtitle2 q-mb-sm">Импорт</div>
           <q-banner class="bg-grey-2 text-caption">
-            Импорт из легаси-NiceGUI пока не реализован: он затрагивает INGEST
-            и требует отдельного согласования. Используйте штатный ingest.
+            Импорт из легаси-NiceGUI пока не реализован: он затрагивает инспектирование
+            и требует отдельного согласования. Используйте штатный «Инспектор».
           </q-banner>
         </q-card-section>
       </q-card>

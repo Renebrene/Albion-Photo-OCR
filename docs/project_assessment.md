@@ -16,7 +16,7 @@
 > **Обновление (2026-10-16).** Добавлены роли/доступ: Менеджеру выдан
 > `jobs:read`/`jobs:write` (рабочие задачи пайплайна); проверка сессии
 > сделана fail-closed (недоступная БД → `401`, не `500`). Отдельный
-> видеорежим, durable video INGEST, transcode/trim реализованы в коде
+> видеорежим, durable video INSPECT, transcode/trim реализованы в коде
 > (см. `video.md`), но миграция `030` и video-worker ещё не развёрнуты.
 > Матрица ролей — `auth_roles.md`.
 >
@@ -35,7 +35,7 @@
 > теперь исправлены/реализованы. Актуальная сверка длинного пользовательского
 > списка на 2026-10-17 находится в `roadmap_implementation_audit_20261017.md`.
 > Оставшиеся подтверждённые gaps включают предварительную видео-статистику
-> папочного INGEST, scheduler exact-time mode, объединённое облачное медиахранилище,
+> папочного INSPECT, scheduler exact-time mode, объединённое облачное медиахранилище,
 > глобальную взаимную блокировку pipeline/manual/scheduler и полную наблюдаемость
 > per-kind runs; детали и приоритеты — в новом audit-файле.
 
@@ -43,7 +43,7 @@
 
 ## 1. Краткое резюме
 
-Репозиторий содержит Python-систему распознавания сцен по визуальным fingerprint с текущим UI на NiceGUI, CLI, набором компонентов INGEST/PREVIEW и отдельными DINO/HYBRID pipeline. PostgreSQL используется для сохранения исходной идентичности, preview, результатов DINO и HYBRID. Основные оригиналы обрабатываются как read-only.
+Репозиторий содержит Python-систему распознавания сцен по визуальным fingerprint с текущим UI на NiceGUI, CLI, набором компонентов INSPECT/PREVIEW и отдельными DINO/HYBRID pipeline. PostgreSQL используется для сохранения исходной идентичности, preview, результатов DINO и HYBRID. Основные оригиналы обрабатываются как read-only.
 
 Ключевой архитектурный принцип — отделить **физическую идентичность фото** от вычислительных выводов: SHA-256 определяет неизменную идентичность `photo_id`; DINO формирует первичных кандидатов; HYBRID оценивает последовательность/соседство по сохранённым результатам; PREVIEW отвечает только за производные изображения интерфейса. PostgreSQL должен быть контрольной точкой между этапами.
 
@@ -60,10 +60,10 @@
 | Компонент | Назначение | Источник / состояние |
 |---|---|---|
 | NiceGUI UI | Создание fingerprint, распознавание папки, просмотр базы fingerprint | `app/main.py`; тяжелые `SceneEmbedder`, `FingerprintManager`, `SceneRecognizer` создаются при импорте модуля |
-| CLI | Операции с fingerprint, очередью, анализом и распознаванием | `app/cli.py`; команды INGEST/PREVIEW/DINO/HYBRID как полноценное orchestration API не обнаружены |
+| CLI | Операции с fingerprint, очередью, анализом и распознаванием | `app/cli.py`; команды INSPECT/PREVIEW/DINO/HYBRID как полноценное orchestration API не обнаружены |
 | Core | DINOv2 embeddings, fingerprint storage, compact descriptors, recognition | `app/core/embedder.py`, `fingerprint.py`, `scene_analyzer.py`, `recognizer.py` |
-| INGEST | Обнаружить JPG/JPEG, проверить, вычислить SHA-256, сформировать идентичность и результат | `app/ingest/*`, подробная спецификация `docs/ingest.md` |
-| PostgreSQL INGEST | Проверка `NEW`/`EXISTING`/`CONFLICT`, регистрация | `app/ingest/database.py`, `schema/001_ingest.sql`; отдельно от `pipeline.run()` |
+| INSPECT | Обнаружить JPG/JPEG, проверить, вычислить SHA-256, сформировать идентичность и результат | `app/ingest/*`, подробная спецификация `docs/ingest.md` |
+| PostgreSQL INSPECT | Проверка `NEW`/`EXISTING`/`CONFLICT`, регистрация | `app/ingest/database.py`, `schema/001_ingest.sql`; отдельно от `pipeline.run()` |
 | PREVIEW | SMALL/MIDDLE JPEG, валидатор, DB upsert | `app/preview/*`, `docs/preview.txt`, `schema/002_preview.sql` |
 | DINO | Неизменяемый batch, inference, TOP-5 и per-image results | `app/dino/*`, `docs/dino.txt`, схемы `003`–`004` |
 | HYBRID | Финальный выбор по DINO результатам и последовательному контексту | `app/hybrid/*`, `docs/hybrid.txt`, `schema/005_hybrid.sql` |
@@ -74,7 +74,7 @@
 
 ## 4. Алгоритмы и потоки данных
 
-### 4.1 INGEST: идентичность и целостность
+### 4.1 INSPECT: идентичность и целостность
 
 Документированный поток: `DISCOVER → INTEGRITY → IDENTITY → REGISTER → RESULT` (`docs/ingest.md`). В коде обнаружение ограничено непосредственными файлами выбранной папки, расширениями `.jpg`/`.jpeg`; сортировка детерминирована, рекурсивного поиска нет. Для каждого файла вычисляется SHA-256 всего физического файла чтением блоками 1 MiB; Pillow определяет контейнер/размеры/число кадров, делает `verify()`, затем файл открывается повторно и frame 0 фактически декодируется. Допустимые контейнеры — JPEG и MPO; оригинал read-only.
 
@@ -147,7 +147,7 @@ Fingerprint v3.3 использует `facebook/dinov2-base` через Transfor
 4. Кэшировать query embeddings/compact descriptors в течение одного recognition request; исторические записи упоминают лишнее повторение DINO inference при сравнении кандидатов. Отдельно профилировать disk IO и загрузку fingerprint.
 5. ~~Атомарная публикация артефактов~~ **— исправлено (2026-10-12)**: `FingerprintManager.create()` строит слепок во временном каталоге и публикует через `os.replace`; PREVIEW `_create_one()` пишет JPEG во временный файл, валидирует и публикует через `os.replace`. При сбое промежуточные файлы не остаются, повторный запуск не блокируется. Покрыто юнит-тестами.
 6. Индексы/пагинация для поиска; проверить размер и рост FAISS index, версионирование embeddings/model/preprocessing; benchmark exact `IndexFlatIP` vs допустимые ANN решения без утраты нужной recall.
-7. ~~Исправить метрики `database_skipped` и лишний upsert в PREVIEW~~ **— исправлено (2026-10-12)**: upsert только при отсутствии/расхождении строки, иначе `database_skipped`. Таймер `dino_time_sec` при ошибке исправлен ранее. Метаданные слепка пишут фактическое имя модели (`SCENE_MODEL`), а не хардкод `dinov2_vitb14`. Покрыты повторный и параллельный вызовы `finish_batch`. Сообщения об ошибках больше не содержат локальных путей (`app/core/errors.py:redact_paths` применён в INGEST и PREVIEW) — закрыто.
+7. ~~Исправить метрики `database_skipped` и лишний upsert в PREVIEW~~ **— исправлено (2026-10-12)**: upsert только при отсутствии/расхождении строки, иначе `database_skipped`. Таймер `dino_time_sec` при ошибке исправлен ранее. Метаданные слепка пишут фактическое имя модели (`SCENE_MODEL`), а не хардкод `dinov2_vitb14`. Покрыты повторный и параллельный вызовы `finish_batch`. Сообщения об ошибках больше не содержат локальных путей (`app/core/errors.py:redact_paths` применён в INSPECT и PREVIEW) — закрыто.
 8. Сформировать CI: unit-тесты algorithms/DTO/state machine; integration tests только на disposable PostgreSQL; dependency lock/security scan; migration validation и coverage.
 
 ## 8. Roadmap
@@ -188,7 +188,7 @@ Saved searches, collections, multi-query AND/OR, фильтрация по ад�
 
 - `app/main.py`, `app/cli.py` — действующее приложение и CLI.
 - `app/core/embedder.py`, `fingerprint.py`, `recognizer.py`, `scene_analyzer.py`, `image.py` — embeddings, storage, similarity и descriptors.
-- `app/ingest/integrity.py`, `identity.py`, `register.py`, `result.py`, `pipeline.py`, `database.py` — INGEST.
+- `app/ingest/integrity.py`, `identity.py`, `register.py`, `result.py`, `pipeline.py`, `database.py` — INSPECT.
 - `app/preview/generator.py`, `validator.py`, `pipeline.py`, `database.py` — PREVIEW.
 - `app/dino/runner.py`, `database.py`, `app/hybrid/runner.py`, `database.py` — DINO/HYBRID.
 - `schema/001_ingest.sql` … `schema/005_hybrid.sql` — схема PostgreSQL; сначала проверить миграционный порядок и существующие данные.

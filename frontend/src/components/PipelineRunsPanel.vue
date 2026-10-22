@@ -11,7 +11,7 @@ const available = ref(false)
 const loading = ref(false)
 
 const STAGE_LABELS = {
-  INGEST: 'Загрузка',
+  INGEST: 'Инспектирование',
   PREVIEW: 'Превью',
   DINO: 'DINO',
   HYBRID: 'HYBRID',

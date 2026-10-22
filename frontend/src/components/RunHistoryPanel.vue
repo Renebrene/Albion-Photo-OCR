@@ -30,7 +30,7 @@ const modeLabels = {
 
 const kindLabels = {
   pipeline: 'Обновление базы',
-  ingest: 'Загрузка',
+  ingest: 'Инспектирование',
   sort: 'Сортировка',
   qwen: 'QWEN',
   scheduler: 'Планировщик',

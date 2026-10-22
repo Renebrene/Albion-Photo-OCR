@@ -32,7 +32,7 @@ describe('общая история запусков', () => {
     const { wrapper } = mountPanel({ items: [
       {
         run_id: 21, kind: 'ingest', mode: 'manual', status: 'PARTIAL',
-        title: 'Ingest: новые фото', created_at: '2026-10-17T01:00:00Z',
+        title: 'Инспектирование: новые фото', created_at: '2026-10-17T01:00:00Z',
         counts: { total: 4, done: 3, failed: 1 }, error_count: 1,
         message: 'часть файлов пропущена', has_log: true, stages: [],
       },
@@ -59,7 +59,7 @@ describe('общая история запусков', () => {
     await flushPromises()
     const text = wrapper.text()
     expect(text).toContain('История запусков')
-    expect(text).toContain('Ingest: новые фото')
+    expect(text).toContain('Инспектирование: новые фото')
     expect(text).toContain('частично')
     expect(text).toContain('готово 3/4')
     expect(text).toContain('Обновление базы')

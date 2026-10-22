@@ -11,7 +11,7 @@ PREVIEW Maker НЕ выполняет распознавание сцены, Н�
 
 ORIGINAL PHOTO
       |
-    INGEST
+    INSPECT
       |
  PhotoRecord
       |
@@ -26,7 +26,7 @@ ORIGINAL PHOTO
 
 2. ВХОДНОЙ КОНТРАКТ
 
-PREVIEW Maker принимает только уже зарегистрированные объекты PhotoRecord, сформированные модулем INGEST.
+PREVIEW Maker принимает только уже зарегистрированные объекты PhotoRecord, сформированные модулем INSPECT.
 
 PhotoRecord содержит:
 
@@ -45,7 +45,7 @@ PREVIEW Maker НЕ выполняет самостоятельный поиск 
 
 Правильный поток:
 
-INGEST
+INSPECT
   |
 photo_id
   |
@@ -236,13 +236,13 @@ photos
 
 PREVIEW Maker не использует наличие файла в PREVIEW_ROOT как источник регистрации фотографии.
 
-Принадлежность preview определяется через photo_id, полученный от INGEST.
+Принадлежность preview определяется через photo_id, полученный от INSPECT.
 
 Нормальный поток:
 
 SOURCE FILE
     |
-  INGEST
+  INSPECT
     |
 PhotoRecord
     |
@@ -333,7 +333,7 @@ PREVIEW не зависит от результата распознавания
                          |                              |
                          |                           SMALL / MIDDLE
                          |                              |
-ORIGINAL -> INGEST ------+------------------------------+--> grid image ready
+ORIGINAL -> INSPECT ------+------------------------------+--> grid image ready
                          |
                          +--> DINO -> HYBRID -> address / recognition metadata
                                                    |
@@ -345,7 +345,7 @@ PREVIEW создаётся независимо от назначения адр
 
 GRID использует SMALL preview для изображения плитки; поля распознавания/address могут заполниться позже отдельным DINO/HYBRID pipeline. Само наличие preview не означает, что адрес уже распознан. API списка фото опирается на registered `photos`, а не на наличие `photo_previews`.
 
-Актуальная очередь выполнения: после успешного commit новой строки `public.photos` INGEST ставит `PHOTO_PREVIEW` job с одним `photo_id`. Synchronous upload использует тот же принцип. API request не генерирует изображения. `scene-preview-worker.service` claim-ит только `PHOTO_PREVIEW`; обычный worker по умолчанию исключает этот тип, поэтому старые DINO/QWEN jobs в общей FIFO queue его не задерживают. Внутри одного preview job вызывается существующий `ProcessPoolExecutor`; число CPU процессов задаётся `SCENE_PREVIEW_WORKERS` (0/по умолчанию — половина логических CPU). Запускается один queue poller, не несколько вложенных half-CPU pools.
+Актуальная очередь выполнения: после успешного commit новой строки `public.photos` INSPECT ставит `PHOTO_PREVIEW` job с одним `photo_id`. Synchronous upload использует тот же принцип. API request не генерирует изображения. `scene-preview-worker.service` claim-ит только `PHOTO_PREVIEW`; обычный worker по умолчанию исключает этот тип, поэтому старые DINO/QWEN jobs в общей FIFO queue его не задерживают. Внутри одного preview job вызывается существующий `ProcessPoolExecutor`; число CPU процессов задаётся `SCENE_PREVIEW_WORKERS` (0/по умолчанию — половина логических CPU). Запускается один queue poller, не несколько вложенных half-CPU pools.
 
 Активные preview jobs атомарно дедуплицируются PostgreSQL partial unique index по `photo_id`. FAILED/CANCELLED jobs остаются историей и могут быть поставлены заново; генератор повторно валидирует и пропускает уже готовые SMALL/MIDDLE. Сбой постановки job не отменяет регистрацию фото, но отражается в ingest summary/upload result. Пропущенные (например, зарегистрированные до внедрения очереди) фото можно планово ставить ограниченными порциями через `POST /v1/previews/backfill?limit=500` (scope `jobs:write`, максимум 5000 за вызов).
 
@@ -386,7 +386,7 @@ MIDDLE:
 
 Итог:
 
-INGEST -> photo_id -> PREVIEW -> validation -> PostgreSQL
+INSPECT -> photo_id -> PREVIEW -> validation -> PostgreSQL
 
 подтверждён на всём тестовом наборе.
 

@@ -9,7 +9,7 @@
 ## Зачем
 
 Кнопка «Обновление базы» должна запускать один управляемый прогон
-**INGEST → PREVIEW → DINO → HYBRID → QWEN**, показывать прогресс по стадиям,
+**INSPECT → PREVIEW → DINO → HYBRID → QWEN**, показывать прогресс по стадиям,
 уметь остановиться и продолжиться с того же места, не подхватывая новые файлы,
 и сохранять историю запусков в БД в реальном времени.
 
@@ -33,11 +33,11 @@
 
 ## Неизменяемый снимок входа (manifest)
 
-- При старте стадии INGEST список файлов папки (`discover_files` +
+- При старте стадии INSPECT список файлов папки (`discover_files` +
   `discover_video_files`) замораживается в `manifest["files"]` (относительные
   имена). Задача INGEST_DIR получает этот список в payload (`only_files`), и
   `pipeline.run`/`_ingest_videos` фильтруют обход по нему.
-- По завершении INGEST записывается `manifest["photo_cutoff"]` — момент времени
+- По завершении INSPECT записывается `manifest["photo_cutoff"]` — момент времени
   (DB `CURRENT_TIMESTAMP::timestamp`). Стадии DINO/HYBRID/QWEN работают только с
   фото, у которых `created_at <= photo_cutoff`.
 
@@ -51,7 +51,7 @@
 
 | Стадия | Что делает | Признак завершения |
 |---|---|---|
-| INGEST | `enqueue_ingest(folder, only_files=manifest.files)` | задача `INGEST_DIR` → DONE/FAILED |
+| INSPECT | `enqueue_ingest(folder, only_files=manifest.files)` | задача `INGEST_DIR` → DONE/FAILED |
 | PREVIEW | `enqueue_missing_previews()` (батчами) | нет активных `PHOTO_PREVIEW` |
 | DINO | `create_batch("NORMAL", photo_ids=фото без DINO ≤ cutoff)` + `enqueue DINO_BATCH` | batch `DONE`/`FAILED` |
 | HYBRID | `create_run(batch_id)` + `enqueue HYBRID_RUN` | run `DONE`/`FAILED` |
@@ -117,7 +117,7 @@ python -m app.jobs.worker --pipeline --interval 3
 
 он **не** берёт задачи очереди — только двигает активный запуск. Юнит
 `deploy/systemd/user/scene-pipeline-worker.service`. Реальные
-INGEST/PREVIEW/DINO/HYBRID/QWEN выполняют обычные воркеры.
+INSPECT/PREVIEW/DINO/HYBRID/QWEN выполняют обычные воркеры.
 
 ## Интерфейс
 
@@ -127,7 +127,7 @@ INGEST/PREVIEW/DINO/HYBRID/QWEN выполняют обычные воркеры
 
 - **скрывается**, пока маршрут недоступен (API без применённой 031 отвечает
   404) — поэтому UI можно выкладывать раньше backend-rollout;
-- показывает статус по стадии: INGEST — «Обработано медиа x/y» (живой прогресс
+- показывает статус по стадии: INSPECT — «Обработано медиа x/y» (живой прогресс
   из задачи INGEST_DIR), PREVIEW — «Превью x/y», DINO — «Совпадений: x»,
   HYBRID — «Сверка x/y», QWEN — «Описаний: x (ошибок: y)»; по завершении —
   «База обновлена <дата>», при остановке — «Процесс прерван <дата>»;
@@ -151,10 +151,10 @@ INGEST/PREVIEW/DINO/HYBRID/QWEN выполняют обычные воркеры
 базы»; кнопка запуска QWEN перенесена на вкладку «Распознавание» рядом со
 статистикой описаний.
 
-**Уточнение по «Обработано медиа x/y»**: INGEST-задача сейчас не публикует
+**Уточнение по «Обработано медиа x/y»**: INSPECT-задача сейчас не публикует
 живой прогресс (в `progress` пишут только сборки слепков), поэтому для стадии
-INGEST показывается число медиа в снимке папки, а не «обработано из». Живой
-прогресс INGEST — отдельная доработка.
+INSPECT показывается число медиа в снимке папки, а не «обработано из». Живой
+прогресс INSPECT — отдельная доработка.
 
 ## Rollout (выполнено 2026-10-16)
 
@@ -174,7 +174,7 @@ INGEST показывается число медиа в снимке папки
    `scene-api` и `scene-worker` перезапущены. Все 6 сервисов активны; `/api/health`
    200, `/v1/pipeline/current` без токена 401 (fail-closed), маршруты
    `/v1/pipeline/*` присутствуют в OpenAPI.
-5. **Сквозной smoke** (folder=None, реальной обработки нет): INGEST SKIPPED →
+5. **Сквозной smoke** (folder=None, реальной обработки нет): INSPECT SKIPPED →
    PREVIEW DONE 326/326 → DINO SKIPPED (нет фото без DINO) → HYBRID SKIPPED →
    QWEN DONE 325/326 (1 известная ошибка) → run `DONE` «база обновлена». Тестовый
    запуск удалён.

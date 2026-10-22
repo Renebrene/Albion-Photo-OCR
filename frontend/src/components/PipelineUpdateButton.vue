@@ -213,7 +213,7 @@ onBeforeUnmount(() => {
       @click="onClick"
     >
       <q-tooltip>
-        INGEST → превью → DINO/HYBRID → описания. Запускает или управляет
+        Инспектирование → превью → DINO/HYBRID → описания. Запускает или управляет
         текущим прогоном.
       </q-tooltip>
     </q-btn>

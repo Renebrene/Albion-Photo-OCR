@@ -199,7 +199,7 @@ onMounted(load)
           />
           <div class="text-caption text-grey">
             По умолчанию выключено. Если включено, QWEN запускается сразу после
-            INGEST (после получения ID) и идёт параллельно DINO/HYBRID.
+            Инспектирование (после получения ID) и идёт параллельно DINO/HYBRID.
           </div>
 
           <div class="text-caption text-grey">

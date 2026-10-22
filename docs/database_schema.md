@@ -85,7 +85,7 @@ erDiagram
 
 ## 4. Таблицы
 
-### 4.1 `photos` — физическая идентичность (INGEST)
+### 4.1 `photos` — физическая идентичность (INSPECT)
 
 Создаёт `schema/001_ingest.sql`; пишет только `app/ingest/database.py` (`insert_photos` / `insert_photo`), проверяет `check_identity_batch` (NEW/EXISTING/CONFLICT).
 
@@ -355,10 +355,10 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 ### 4.19 Пул соединений и bounded futures (2026-10-13)
 
 - **Пул соединений.** `app/ingest/database.py:get_connection()` теперь отдаёт подключение из общего `psycopg_pool.ConnectionPool` (те же commit/rollback-семантики, что и `psycopg.connect`). Управление: `SCENE_DB_POOL` (по умолчанию `1`), `SCENE_DB_POOL_MIN` (1), `SCENE_DB_POOL_MAX` (10). DINO/PREVIEW/HYBRID используют тот же аксессор.
-  - **Fork-безопасность.** INGEST/PREVIEW форкают процессы через `ProcessPoolExecutor`; в ребёнке пул **отключается** (`os.register_at_fork`), а унаследованные соединения не собираются GC (иначе закрытие отправило бы Terminate в сокет родителя).
+  - **Fork-безопасность.** INSPECT/PREVIEW форкают процессы через `ProcessPoolExecutor`; в ребёнке пул **отключается** (`os.register_at_fork`), а унаследованные соединения не собираются GC (иначе закрытие отправило бы Terminate в сокет родителя).
   - **Замер (локально, 20 запросов, медиана):** `/v1/photos?limit=50` 20.63 → **2.42 мс**, `/v1/clients` 18.68 → **2.04 мс**, `/v1/qwen/stats` 34.42 → **1.06 мс**. Под нагрузкой 64 параллельных запроса при `max_size=10` — все 200, без PoolTimeout.
   - Ограничение: с пулом нельзя рассчитывать на `CREATE TEMP TABLE` между вызовами `get_connection()` (соединение может отличаться).
-- **Bounded futures.** `app/core/parallel.py:bounded_submit()` ограничивает число одновременных futures (окно ≈ 2×workers) в INGEST, PREVIEW, DINO и HYBRID — вместо создания future на каждый элемент сразу (важно для больших импортов).
+- **Bounded futures.** `app/core/parallel.py:bounded_submit()` ограничивает число одновременных futures (окно ≈ 2×workers) в INSPECT, PREVIEW, DINO и HYBRID — вместо создания future на каждый элемент сразу (важно для больших импортов).
 
 ### 4.20 `client_aliases` — нормализация клиентов и брендов QWEN
 
@@ -403,7 +403,7 @@ PRIMARY KEY `(hybrid_run_id, photo_id)`; индексы по `photo_id`, `dino_r
 
 ### 4.23 `video_assets` — identity durable source video
 
-Создаёт `schema/026_video_assets.sql`; записывает только video-specific INGEST (`app/ingest/video_register.py`). Таблица намеренно не связана с `photos`, `photo_previews`, `dino_runs`, `hybrid_results` или `photo_qwen`.
+Создаёт `schema/026_video_assets.sql`; записывает только video-specific INSPECT (`app/ingest/video_register.py`). Таблица намеренно не связана с `photos`, `photo_previews`, `dino_runs`, `hybrid_results` или `photo_qwen`.
 
 | Колонка | Тип | Ограничения |
 |---|---|---|

@@ -145,7 +145,7 @@ describe('папка INGEST', () => {
     await input.setValue('/another-folder')
     await flushPromises()
 
-    await clickButton(wrapper, 'Сканировать')
+    await clickButton(wrapper, 'Инспектировать')
 
     const run = calls.find((call) => call.path.includes('/v1/ingest/run'))
     expect(run).toBeTruthy()

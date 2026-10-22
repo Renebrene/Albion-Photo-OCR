@@ -2214,7 +2214,7 @@ def run_ingest(request: SourceRunRequest):
     history_id = run_history.create_run(
         kind="ingest",
         mode="manual",
-        title=f"Ingest: {directory.name}",
+        title=f"Инспектирование: {directory.name}",
         counts={"total": 1},
     )
     job_id = jobs_db.enqueue_ingest(

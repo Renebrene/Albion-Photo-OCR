@@ -44,12 +44,17 @@ API-обработчики создают задания, а тяжёлая ра
 
 ## 3. Фото: идентичность и обработка
 
-### 3.1 INGEST
+### 3.1 INSPECT
+
+> **Терминология.** В интерфейсе этап называется **INSPECT /
+> «Инспектор»**, процесс — «инспектирование». В коде, API и job type пока
+> используются исторические имена `ingest`/`INGEST_DIR`; это внутренние
+> идентификаторы и на UI не влияют.
 
 1. Worker рекурсивно обнаруживает `.jpg`/`.jpeg` в выбранном каталоге.
 2. Для нового фото файл проверяется Pillow: формат JPEG/MPO, размеры, число кадров, `verify()` и декодирование первого кадра. Исходник не изменяется.
 3. `photo_id` строится как `PH_` + первые 24 hex SHA-256 всего физического файла. Полный digest хранится в `photos.sha256`; имя, каталог и EXIF не являются идентичностью фотографии.
-4. Регистрация идемпотентно классифицирует фото как `NEW`, `EXISTING` или `CONFLICT`. В обычном folder ingest возможен быстрый пропуск известной пары `(filename, size)`; это ускоритель, не подтверждение идентичности содержимого.
+4. Регистрация идемпотентно классифицирует фото как `NEW`, `EXISTING` или `CONFLICT`. В обычном инспектирование папки возможен быстрый пропуск известной пары `(filename, size)`; это ускоритель, не подтверждение идентичности содержимого.
 5. Новая запись ставит задачу PREVIEW. Переносы/изменения реестра — транзакционные; оригиналы read-only.
 
 Схема потока: `DISCOVER → INTEGRITY → IDENTITY → REGISTER → RESULT`.
@@ -82,7 +87,7 @@ Preview нужен UI и локальному QWEN. Он не изменяет �
 
 Для новых строк `video_id` — `VI_` + первые 24 hex SHA-256 **метаданных**, а не файла: канонически сериализованные basename, UTC-день и размер в байтах. Дата берётся из `creation_time`; при отсутствии — UTC-день mtime. Legacy video IDs/content-SHA значения сохраняются. Metadata ID не доказывает совпадение bytes: два разных файла с одинаковыми basename, датой и размером могут иметь один ID.
 
-Video INGEST использует stat и ffprobe, не хеширует и не декодирует весь оригинал. Проверка stat до/после probe обнаруживает изменение размера/mtime во время чтения метаданных, но не замену bytes при сохранении тех же метаданных. Для новых видео нет общего лимита размера или длительности при регистрации и отображении.
+Video INSPECT использует stat и ffprobe, не хеширует и не декодирует весь оригинал. Проверка stat до/после probe обнаруживает изменение размера/mtime во время чтения метаданных, но не замену bytes при сохранении тех же метаданных. Для новых видео нет общего лимита размера или длительности при регистрации и отображении.
 
 Poster JPEG создаётся отдельно в `SCENE_VIDEO_PREVIEW_ROOT`. Исходники выдаются только в пределах `SCENE_ORIGINALS_ROOTS`; клиенту возвращается безопасное имя/каталог, но не абсолютный путь. Playback и скачивание используют короткоживущий HttpOnly cookie-ticket. Видео передаётся потоково с поддержкой HTTP byte ranges, а не целиком читается в память API или браузера.
 
@@ -110,7 +115,7 @@ QWEN — отдельный queued job для описаний/атрибуто�
 
 Для crop используется отдельный prompt, который явно просит `description`, `client`, `brand`, `category` и `tags`; поле `address` не запрашивается, потому что мелкий юридический адрес на рекламе может быть адресом рекламодателя, а не местом съёмки. После успешного QWEN crop удаляется; при отсутствии щита, выключенной опции или ошибке детекции обработка fallback-ится на полный кадр. Модуль детекции — отдельное optional расширение `ultralytics` с YOLO-World checkpoint и migration/table `photo_regions`; оно не является обязательной зависимостью базового режима и должно устанавливаться/включаться отдельно. В текущей рабочей конфигурации toggle включён; на сервере deployment state определяется его `app_settings`/environment значением. Код billboard-ветки и migration 040 находятся в незакоммиченном WIP, отдельно от commit видео/UI; для нового deployment эту ветку нужно включать только вместе со всеми её модулями, схемой, optional dependency и checkpoint.
 
-Облачный QWEN снимает потребность в локальном GPU для этой конкретной модели, но **не** переносит туда DINO/HYBRID, сборку fingerprint, preview/INGEST, PostgreSQL или video transcode. Если billboard crop включён, внешнему QWEN provider передаётся crop; при fallback — подготовленный полный кадр. Albion cloud links — отдельная опциональная интеграция, не вычислительная платформа; для неё нужны отдельные endpoint/API credentials.
+Облачный QWEN снимает потребность в локальном GPU для этой конкретной модели, но **не** переносит туда DINO/HYBRID, сборку fingerprint, preview/INSPECT, PostgreSQL или video transcode. Если billboard crop включён, внешнему QWEN provider передаётся crop; при fallback — подготовленный полный кадр. Albion cloud links — отдельная опциональная интеграция, не вычислительная платформа; для неё нужны отдельные endpoint/API credentials.
 
 **Массовое пересканирование QWEN.** В «Распознавании» доступна деструктивная операция за явно выбранный период (по дате загрузки или съёмки): текущие строки `photo_qwen` выбранных фото сначала копируются в `photo_qwen_history`, затем удаляются, после чего ставится новое распознавание с зафиксированной текущей моделью. Пока есть активные QWEN jobs, операция отклоняется. Ответ API и история запуска содержат число архивных записей и поставленных jobs. Текстовый журнал последних версий доступен через `GET /v1/qwen/history`, третьей колонкой в настройках распознавания и внизу per-photo истории описаний.
 
@@ -121,7 +126,7 @@ Linux user-unit профиль содержит:
 | Unit | Роль |
 |---|---|
 | `scene-api` | FastAPI + раздача SPA |
-| `scene-worker` | Общая очередь заданий, включая INGEST/DINO/HYBRID и операционные задачи |
+| `scene-worker` | Общая очередь заданий, включая INSPECT/DINO/HYBRID и операционные задачи |
 | `scene-preview-worker` | Фото SMALL/MIDDLE preview queue |
 | `scene-qwen-worker` | QWEN queue, чтобы модель/внешние запросы были изолированы |
 | `scene-video-worker` | VIDEO_TRANSCODE, VIDEO_TRIM, VIDEO_STORYBOARD |
@@ -137,7 +142,7 @@ Linux user-unit профиль содержит:
 - **Python 3.12** (`>=3.12,<3.13`), зависимости проекта установлены из `pyproject.toml`/lockfile.
 - **PostgreSQL**; в Windows Compose указан PostgreSQL 16. Постоянная установка должна использовать versioned SQL migrations через `scripts/migrate.py`.
 - **Linux/systemd** — рекомендуемый production-like хост по текущим unit-файлам. Для Windows есть demo Compose; GPU/worker parity и производительность необходимо проверять отдельно.
-- **FFprobe** для чтения metadata при video INGEST и проверки результата; **FFmpeg** с H.264 decode/encode компонентами для storyboard, trim и transcode. Постер создаётся через OpenCV VideoCapture. NVENC необязателен: использовать его только после успешного runtime smoke в контексте того же worker service; CPU `libx264` остаётся fallback.
+- **FFprobe** для чтения metadata при видео-инспектирование и проверки результата; **FFmpeg** с H.264 decode/encode компонентами для storyboard, trim и transcode. Постер создаётся через OpenCV VideoCapture. NVENC необязателен: использовать его только после успешного runtime smoke в контексте того же worker service; CPU `libx264` остаётся fallback.
 - **Собранный SPA**: Node-compatible package manager Bun для `bun install --frozen-lockfile` и `bun run build`; в runtime браузерные assets обслуживает `scene-api`.
 - **Ollama или облачный QWEN provider** — только если используется QWEN. Для локального inference нужен подходящий instruct vision-language model; облачный вариант требует исходящего HTTPS и настроенных credentials.
 - Доступ к PostgreSQL, configured originals/source roots, writable `SCENE_DATA`, preview/storyboard/derivative/inbox roots и место для резервных копий.
@@ -152,7 +157,7 @@ Linux user-unit профиль содержит:
 | Удобный локальный сервер | 6–8 физических ядер / 12–16 потоков | 32 ГБ | NVMe 1 ТБ или больше; оригиналы на отдельном диске/NAS | опционально NVIDIA 8–12 ГБ |
 | Запас для нескольких workers/локального QWEN | 8–12 ядер | 64 ГБ | NVMe под ОС/БД/cache + рассчитанный объём для media/preview/derivatives | NVIDIA 12 ГБ — проверенный класс для текущего local profile, не минимальный requirement |
 
-Оригиналы, неучаствующие в обработке, можно держать на NAS. Для интенсивного INGEST/preview желателен стабильный 1 Gbit/s LAN; медленная сеть увеличивает время чтения файлов. SSD рекомендуется прежде всего для PostgreSQL, job queue, preview/fingerprint metadata и temp-файлов. Ёмкость оригинального хранилища считать отдельно от system/database disk; предусмотреть рост preview, derivatives и резервных копий.
+Оригиналы, неучаствующие в обработке, можно держать на NAS. Для интенсивного INSPECT/preview желателен стабильный 1 Gbit/s LAN; медленная сеть увеличивает время чтения файлов. SSD рекомендуется прежде всего для PostgreSQL, job queue, preview/fingerprint metadata и temp-файлов. Ёмкость оригинального хранилища считать отдельно от system/database disk; предусмотреть рост preview, derivatives и резервных копий.
 
 **Без GPU:** основной сайт, PostgreSQL, фото/видео каталог, QWEN через облачный provider, CPU DINO/HYBRID и CPU video transcode остаются возможными. Тяжёлые локальные этапы будут медленнее. Облако для QWEN не делает всё приложение «облачным».
 

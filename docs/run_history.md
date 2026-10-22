@@ -11,7 +11,7 @@
 qwen, scheduler), а не новая очередь и не источник истины исполнения. Задачи
 по-прежнему исполняет `public.job_queue`, а stages — `pipeline_runs` и
 `pipeline_run_stages`. `run_history_jobs` связывает одну запись запуска с одной
-или несколькими задачами очереди. Подключены ручной INGEST/QWEN, ручные DINO и
+или несколькими задачами очереди. Подключены ручной INSPECT/QWEN, ручные DINO и
 HYBRID (kind `sort`), фактические scheduler ticks и supervisor pipeline; UI
 списка и логов доступен на вкладке «Последний запуск».
 

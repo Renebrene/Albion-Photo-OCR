@@ -114,7 +114,7 @@ async function start() {
       type: result.skipped ? 'warning' : 'positive',
       message: result.skipped
         ? 'Обход этой папки уже в очереди'
-        : `Задание ingest поставлено в очередь: ${result.job_id}`,
+        : `Задание инспектирования поставлено в очередь: ${result.job_id}`,
     })
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
@@ -172,7 +172,7 @@ onMounted(load)
     <q-card-section class="row q-col-gutter-md">
       <!-- Слева: выбор папки и действия -->
       <div class="col-12 col-md-7">
-        <div class="text-subtitle2 q-mb-sm">Папка с рабочими фотографиями</div>
+        <div class="text-subtitle2 q-mb-sm">Инспектор: папка с рабочими фотографиями</div>
 
         <q-input
           v-model="path"
@@ -230,13 +230,13 @@ onMounted(load)
             dense
             color="secondary"
             icon="play_arrow"
-            label="Сканировать"
+            label="Инспектировать"
             :loading="busy"
             :disable="!canScan"
             @click="start"
           >
             <q-tooltip>
-              Запустить ingest: файлы проверяются декодером и вносятся в базу
+              Запустить инспектирование: файлы проверяются декодером и вносятся в базу
             </q-tooltip>
           </q-btn>
         </div>
@@ -272,8 +272,8 @@ onMounted(load)
             ОК, но есть ошибки: {{ state.problem_count }}
           </div>
           <div class="text-caption q-mb-xs">
-            Такие файлы будут пропущены при сканировании. Можно пересканировать
-            папку или всё равно запустить ingest, а затем перейти к этапу
+            Такие файлы будут пропущены при инспектировании. Можно пересканировать
+            папку или всё равно запустить инспектирование, а затем перейти к этапу
             «Сортировка».
           </div>
           <div class="row q-gutter-sm">
@@ -301,7 +301,7 @@ onMounted(load)
               color="secondary"
               size="sm"
               icon="skip_next"
-              label="Пропустить и сканировать"
+              label="Пропустить и инспектировать"
               :loading="busy"
               @click="start"
             />

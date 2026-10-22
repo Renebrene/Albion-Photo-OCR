@@ -53,7 +53,7 @@ describe('История запусков', () => {
     const text = wrapper.text()
     expect(text).toContain('#3')
     expect(text).toContain('завершён')
-    expect(text).toContain('Загрузка')
+    expect(text).toContain('Инспектирование')
     expect(text).toContain('30 с')
     expect(text).toContain('270 с')
     expect(text).toContain('ошибок: 1')

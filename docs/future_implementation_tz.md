@@ -10,7 +10,7 @@
 
 Входит:
 
-1. Безопасная загрузка JPEG/MPO и полный INGEST lifecycle с DB identity check/insert.
+1. Безопасная загрузка JPEG/MPO и полный INSPECT lifecycle с DB identity check/insert.
 2. Получение photo metadata и двух preview размеров.
 3. Создание/статус неизменяемого DINO batch и запуск HYBRID строго для успешного batch.
 4. Поиск/GRID с cursor pagination и базовыми фильтрами.
@@ -39,13 +39,13 @@
 - Ошибки переводить в стабильный envelope с кодом и request_id; raw exception, SQL, token и stack trace не отдавать клиенту.
 - Health/readiness отделить: liveness не обращаться к модели/БД; readiness описывает недоступные зависимости без секретов.
 
-### 4.2 INGEST / обработка изображения
+### 4.2 INSPECT / обработка изображения
 
 - Разрешённые физические форматы и Pillow проверка должны соответствовать `docs/ingest.md`; декодировать ограниченно, учитывать decompression bomb, invalid frame и чрезмерные размеры.
 - Максимальный размер файла, число файлов, job quota и timeout конфигурируются.
 - Загрузка — в приватный quarantine, уникальное серверное имя; никакого доверия MIME/filename/path клиента. Исходник никогда не перезаписывать.
 - Сначала полная проверка и SHA-256, затем transaction с unique constraint по полному sha256/photo_id. Повтор того же digest должен дать EXISTING идемпотентно; недопустимое различие атрибутов/коллизия — CONFLICT и audit event.
-- Удаление quarantine/orphans — отдельная политика retention, не часть синхронного ingest.
+- Удаление quarantine/orphans — отдельная политика retention, не часть синхронного инспектирования.
 
 ### 4.3 DINO / HYBRID / PostgreSQL
 
@@ -59,7 +59,7 @@
 
 - Экран **Фото**: фильтры и явная кнопка «Показать фотографии»/применить фильтры; GRID lazy loads cursor pages до 100 элементов; карточки используют SMALL preview, viewer — MIDDLE, original загружается отдельно.
 - В карточке доступны filename, адрес/клиент/дата (если имеются), DINO/HYBRID статус и score с пояснением; пустые/ошибочные значения не должны вводить в заблуждение.
-- Экран **Обработка**: действия INGEST, NORMAL/FORCE_RERUN DINO, HYBRID; подтверждать дорогие/широкие операции; показывать запуск, batch id, прогресс и per-item ошибки. UI отражает server state и не хранит альтернативный журнал.
+- Экран **Обработка**: действия INSPECT, NORMAL/FORCE_RERUN DINO, HYBRID; подтверждать дорогие/широкие операции; показывать запуск, batch id, прогресс и per-item ошибки. UI отражает server state и не хранит альтернативный журнал.
 - Навигация/фильтры доступны клавиатуре; скринридер labels, контраст, responsive layout, clear loading/error/empty states. Подтверждённые сообщения на русском языке.
 - Collection/saved search можно добавить отдельным этапом. Saved search хранит выражение условий, collection — набор photo_id; не копировать изображения.
 
@@ -112,7 +112,7 @@
 
 1. **Стабилизация:** исправить/протестировать batch state, threshold semantics, timers, preview exception isolation/metrics; зафиксировать чистый Python service contract.
 2. **Backend foundation:** app factory, config, auth, error schema, repositories, migration baseline, health/readiness и disposable PG integration fixtures.
-3. **INGEST vertical slice:** quarantine upload → validate/hash → identity check/register → job/result → тесты duplicate/corrupt/oversize.
+3. **INSPECT vertical slice:** quarantine upload → validate/hash → identity check/register → job/result → тесты duplicate/corrupt/oversize.
 4. **UI GRID:** API search/preview → Vue/Quasar grid, filters, pagination, viewer; usability/accessibility review.
 5. **Batch control:** DINO job + progress/history; HYBRID gated start; recovery and retry.
 6. **Hardening:** load/security tests, logs/metrics, backup/restore, staging rollout, operational docs; production rollout только после approve.
