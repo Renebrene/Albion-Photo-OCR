@@ -426,7 +426,9 @@ def test_run_photo_analyses_billboard_crop_when_present(monkeypatch, tmp_path):
     assert "client" in seen["config"]["prompt"]
     assert saved["fields"] == {"brand": "X", "client": "Y"}
     # Кроп — временный: после успешного сохранения он удаляется.
-    assert discarded == [str(crop)]
+    # Кропы больше не удаляются после успешного описания: по ним идёт
+    # прогон серий (docs/series_merge.md), удаление — по возрасту.
+    assert discarded == []
 
 
 def test_run_photo_merges_two_billboard_crops(monkeypatch, tmp_path):
@@ -511,7 +513,8 @@ def test_run_photo_merges_two_billboard_crops(monkeypatch, tmp_path):
 
     # Токены двух вызовов суммируются.
     assert saved["raw"]["usage"]["total_tokens"] == 220
-    assert discarded == [str(first), str(second)]
+    # Оба кропа остаются на диске для прогона серий.
+    assert discarded == []
 
 
 def test_run_photo_keeps_primary_result_when_second_crop_fails(monkeypatch, tmp_path):

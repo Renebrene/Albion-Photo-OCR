@@ -2,11 +2,12 @@
 
 Algorithm
 ---------
-1. Crops of a photo whose QWEN description is DONE are consumed: they can be
-   removed immediately, provided no QWEN/BILLBOARD job for that photo is
-   active.
-2. Crops of FAILED or not-yet-described photos are kept for
-   ``--older-than-days`` (default 7) so a retry does not have to re-detect.
+1. Crops are kept after a successful QWEN: a separate series pass
+   (docs/series_merge.md) groups frames of one screen by the crop hash. They
+   are removed only by age — ``--older-than-days`` (default 7) — so the pass
+   has time to run; if it does not run within that window, the crops go.
+2. Crops of FAILED or not-yet-described photos follow the same age rule: a
+   retry does not have to re-detect the billboard.
 3. Directories under SCENE_CROPS_ROOT that do not belong to a known
    photo_regions row are orphans; they are removed only after the same age
    threshold.
@@ -60,8 +61,14 @@ def _directory_mtime(directory: Path) -> float:
 
 
 def _eligible(qwen_status: str | None, directory: Path, cutoff: float) -> bool:
-    if qwen_status == "DONE":
-        return True
+    """
+    Кроп удаляется только по возрасту — независимо от статуса QWEN.
+
+    Раньше кропы DONE-фото удалялись сразу как «прочитанные». Теперь после
+    описания по ним идёт прогон серий, поэтому статус ничего не ускоряет:
+    иначе кропы исчезли бы до того, как прогон их увидит.
+    """
+
     return _directory_mtime(directory) < cutoff
 
 

@@ -1140,10 +1140,12 @@ def run_photo(
     )
 
     # The crops existed only for this recognition. Delete them after a
-    # successful save; on any failure above they stay for the retry. A later
-    # run detects the billboards again and recreates the crops on demand.
-    if crop_paths and discard_crops is not None:
-        discard_crops(crop_paths)
+    # Кропы НЕ удаляются после успешного описания: по ним идёт отдельный
+    # прогон «серии» — он связывает кадры одного экрана и приводит чтения к
+    # одному виду (docs/series_merge.md). Удаление — по возрасту
+    # (scripts/cleanup_crops.py, по умолчанию 7 дней), чтобы прогон успел
+    # пройти. При ошибке выше кропы тоже остаются — для повтора.
+    _ = discard_crops  # оставлено для совместимости вызова
 
     return {
         "photo_id": photo_id,

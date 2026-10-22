@@ -61,16 +61,19 @@ def test_job_cleanup_archive_batch_keeps_compact_fields():
     assert cur.params[-1] == 100
 
 
-def test_crop_eligibility_done_immediately_others_by_age(tmp_path):
+def test_crop_eligibility_is_age_based_for_every_status(tmp_path):
+    """Кропы нужны прогону серий и после успешного QWEN: статус не ускоряет удаление."""
+
     module = _load("cleanup_crops", "scripts/cleanup_crops.py")
     directory = tmp_path / "PH_test"
     directory.mkdir()
     (directory / "crop_01.jpg").write_bytes(b"jpeg")
 
     mtime = directory.stat().st_mtime
-    assert module._eligible("DONE", directory, 0) is True
-    assert module._eligible("FAILED", directory, mtime - 1) is False
-    assert module._eligible("FAILED", directory, mtime + 1) is True
+
+    for status in ("DONE", "FAILED", None):
+        assert module._eligible(status, directory, mtime - 60) is False
+        assert module._eligible(status, directory, mtime + 60) is True
 
 
 def test_crop_removal_respects_dry_run_and_limit(tmp_path, monkeypatch):
@@ -155,3 +158,46 @@ def test_restore_dry_run_prints_command(tmp_path, capsys, monkeypatch):
 
     assert result == 0
     assert "pg_restore" in capsys.readouterr().out
+
+
+def test_crop_hash_separates_different_pictures():
+    from PIL import Image
+
+    from app.billboard import phash
+
+    left = Image.new("RGB", (64, 64), "white")
+    right = Image.new("RGB", (64, 64), "white")
+    for x in range(32):
+        for y in range(32):
+            right.putpixel((x + 16, y + 16), (0, 0, 0))
+
+    first = phash.image_dhash(left)
+    second = phash.image_dhash(right)
+
+    assert 0 <= first < 2**64
+    assert phash.same_frame(first, first) is True
+    assert phash.distance(first, second) > phash.DEFAULT_MAX_DISTANCE
+    assert phash.same_frame(first, second) is False
+
+
+def test_crop_hash_ignores_brightness():
+    from PIL import Image
+
+    from app.billboard import phash
+
+    image = Image.new("RGB", (64, 64), "white")
+    for x in range(32):
+        for y in range(64):
+            image.putpixel((x, y), (0, 0, 0))
+
+    bright = image.point(lambda value: min(255, value + 40))
+    dark = image.point(lambda value: max(0, value - 40))
+
+    assert phash.image_dhash(bright) == phash.image_dhash(dark)
+
+
+def test_crop_hash_of_missing_file_is_none(tmp_path):
+    from app.billboard import phash
+
+    assert phash.file_dhash(tmp_path / "nope.jpg") is None
+    assert phash.same_frame(None, 123) is False
