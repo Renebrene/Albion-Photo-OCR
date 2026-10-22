@@ -224,6 +224,33 @@ def enqueue_billboard_detect(photo_id: str) -> int | None:
             return int(row[0]) if row is not None else None
 
 
+def enqueue_refine(limit: int = 5000) -> int | None:
+    """
+    Поставить «Уточнение» после того, как QWEN закончил.
+
+    Дубли не нужны: пока задание в очереди, второе не создаётся.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO public.job_queue (job_type, payload, status)
+                SELECT 'REFINE', %s, 'PENDING'
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM public.job_queue
+                    WHERE job_type = 'REFINE'
+                      AND status IN ('PENDING', 'RUNNING')
+                )
+                RETURNING id
+                """,
+                (Json({"limit": int(limit)}),),
+            )
+            row = cur.fetchone()
+
+            return int(row[0]) if row is not None else None
+
+
 def enqueue_fingerprint_build(
     fingerprint_id: str,
     folder: str,

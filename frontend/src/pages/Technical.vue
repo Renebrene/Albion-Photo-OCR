@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 
 import { useSessionStore } from '../stores/session'
 import Processing from './Processing.vue'
+import RefineStage from '../components/RefineStage.vue'
 import Settings from './Settings.vue'
 import BaseSettings from '../components/BaseSettings.vue'
 import UsersAdmin from '../components/UsersAdmin.vue'
@@ -47,6 +48,7 @@ const canEditClients = computed(() =>
       <q-tab name="ingest" icon="folder_open" label="Инспектор" />
       <q-tab name="processing" icon="play_circle" label="Сортировка" />
       <q-tab name="qwen" icon="auto_awesome" label="Распознавание" />
+      <q-tab name="refine" icon="tune" label="Уточнение" />
       <span class="tab-sep" />
       <q-tab name="automation" icon="schedule" label="Автоматизация" />
       <q-tab name="last_run" icon="history" label="Последний запуск" />
@@ -75,6 +77,10 @@ const canEditClients = computed(() =>
 
       <q-tab-panel name="statistics">
         <MediaStatistics />
+      </q-tab-panel>
+
+      <q-tab-panel name="refine">
+        <RefineStage />
       </q-tab-panel>
 
       <q-tab-panel name="qwen">

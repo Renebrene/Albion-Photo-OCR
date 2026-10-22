@@ -667,6 +667,15 @@ export function fetchVisits(limit = 100) {
 }
 
 // Address directory (schema/022): legal/simple names for fingerprint ids.
+// Этап «Уточнение»: включение и параметры (ручного запуска нет).
+export function fetchRefineSettings() {
+  return getJson(`${BASE}/v1/refine/settings`)
+}
+
+export function saveRefineSettings(payload) {
+  return putJson(`${BASE}/v1/refine/settings`, payload)
+}
+
 // Порог уверенности распознавания: ниже него фото уходит в «Требуют проверки».
 export function fetchHybridSettings() {
   return getJson(`${BASE}/v1/hybrid/settings`)

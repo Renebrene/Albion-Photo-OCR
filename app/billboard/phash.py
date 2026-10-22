@@ -57,6 +57,25 @@ def file_dhash(path: str | Path, size: int = DEFAULT_SIZE) -> int | None:
         return None
 
 
+# BIGINT в PostgreSQL знаковый, а dHash — 64 беззнаковых бита. Храним как
+# знаковое число (так же, как это делает Java/Go), при чтении возвращаем
+# беззнаковое: иначе Python считает bit_count по модулю и расстояние врёт.
+_UNSIGNED_MASK = 0xFFFFFFFFFFFFFFFF
+_SIGN_BIT = 1 << 63
+
+
+def to_db(value: int) -> int:
+    """Перевести 64-битный хеш в знаковое значение для BIGINT."""
+
+    return value - (1 << 64) if value >= _SIGN_BIT else value
+
+
+def from_db(value: int | None) -> int | None:
+    """Обратное преобразование: снова 64 беззнаковых бита."""
+
+    return None if value is None else int(value) & _UNSIGNED_MASK
+
+
 def distance(left: int, right: int) -> int:
     """Расстояние Хэмминга между двумя хешами."""
 

@@ -74,6 +74,7 @@ from app.api.schemas import (
     QwenModelRequest,
     QwenRescanRequest,
     QwenSettingsUpdate,
+    RefineSettingsUpdate,
     SavedSearchCreate,
     PipelineStartRequest,
     SearchQueryRequest,
@@ -2163,6 +2164,41 @@ def hybrid_settings():
     from app.hybrid import config as hybrid_config
 
     return hybrid_config.resolve_settings()
+
+
+@read_router.get("/v1/refine/settings", response_model=None)
+def refine_settings():
+    """
+    Настройки этапа «Уточнение» и готовность данных.
+
+    Ручного запуска нет: этап идёт сам после QWEN. Здесь только состояние —
+    включён ли, сколько кадров готово (кроп с хешем и описание).
+    """
+
+    from app.refine import config as refine_config
+    from app.refine.runner import ready_count
+
+    return {**refine_config.resolve_settings(), "photos_ready": ready_count()}
+
+
+@jobs_router.put(
+    "/v1/refine/settings",
+    dependencies=[Depends(require_scope("settings:write"))],
+)
+def update_refine_settings(request: RefineSettingsUpdate):
+    from app.refine import config as refine_config
+
+    try:
+        if request.enabled is not None:
+            refine_config.set_enabled(request.enabled)
+        if request.gap_seconds is not None:
+            refine_config.set_gap_seconds(request.gap_seconds)
+        if request.crop_retention_days is not None:
+            refine_config.set_retention_days(request.crop_retention_days)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return refine_config.resolve_settings()
 
 
 @read_router.get("/v1/hybrid/settings/preview", response_model=None)

@@ -15,7 +15,7 @@ import tempfile
 from pathlib import Path
 
 from app.billboard import database
-from app.billboard.phash import file_dhash
+from app.billboard.phash import file_dhash, to_db
 from app.billboard.config import CROPS_ROOT, resolve_settings
 from app.billboard.detector import detect_billboards
 from app.core.errors import redact_absolute_paths
@@ -205,7 +205,9 @@ def _detect_and_store(photo_id: str, cfg: dict) -> dict:
                 "crop_height": crop_height,
                 # Хеш содержимого кропа и время съёмки фото: по ним серия
                 # связывается позже, когда кропы уже лежат на диске.
-                "crop_phash": file_dhash(output_path),
+                "crop_phash": (
+                    to_db(value) if (value := file_dhash(output_path)) is not None else None
+                ),
                 # У фото может не быть EXIF-даты — тогда поле остаётся пустым.
                 "photo_taken_at": getattr(record, "taken_at", None),
             }

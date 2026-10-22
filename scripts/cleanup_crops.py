@@ -173,8 +173,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
-        "--older-than-days", type=int, default=7,
-        help="retention for non-DONE/orphan crops (default 7)",
+        "--older-than-days", type=int, default=None,
+        help="срок хранения кропов; по умолчанию — настройка этапа «Уточнение» (7 дней)",
     )
     parser.add_argument(
         "--max-delete", type=int, default=5000,
@@ -190,6 +190,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+
+    if args.older_than_days is None:
+        # Срок хранения задаётся в настройках этапа: если владелец увеличил
+        # его, чистка обязана подождать, иначе кропы исчезнут до прогона.
+        try:
+            from app.refine import config as refine_config
+
+            args.older_than_days = refine_config.retention_days()
+        except Exception:  # noqa: BLE001 - без базы остаётся 7 дней
+            args.older_than_days = 7
 
     if args.older_than_days < 0:
         print("--older-than-days must be >= 0", file=sys.stderr)

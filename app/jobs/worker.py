@@ -97,6 +97,29 @@ def job_control(job_id: int):
     return callback
 
 
+def _maybe_enqueue_refine() -> None:
+    """
+    Поставить «Уточнение» после последнего задания QWEN.
+
+    Этап выключен по умолчанию; ошибка постановки не должна ломать QWEN —
+    описание уже сохранено, а этап можно запустить и на следующем прогоне.
+    """
+
+    try:
+        from app.jobs import database as jobs_db
+        from app.refine import config as refine_config
+
+        if not refine_config.enabled():
+            return
+
+        if jobs_db.active_count("QWEN_PHOTO"):
+            return
+
+        jobs_db.enqueue_refine()
+    except Exception:  # noqa: BLE001 - фоновая работа, не повод падать
+        pass
+
+
 def _execute(job: dict) -> dict:
     job_type = job["job_type"]
     payload = job["payload"] or {}
@@ -177,11 +200,23 @@ def _execute(job: dict) -> dict:
 
         # Разовая пересборка из карточки фото может попросить конкретного
         # провайдера/модель; обычные задания идут на текущих настройках.
-        return run_photo(
+        result = run_photo(
             str(payload["photo_id"]),
             provider=payload.get("provider"),
             model=payload.get("model"),
         )
+
+        # «Уточнение» идёт только после того, как QWEN закончил целиком:
+        # иначе сравнивать нечего. Ставится здесь, после каждого описания —
+        # когда очередь QWEN опустеет, задание появится одно.
+        _maybe_enqueue_refine()
+
+        return result
+
+    if job_type == "REFINE":
+        from app.refine.runner import run_refine
+
+        return run_refine(limit=int(payload.get("limit") or 5000))
 
     if job_type == "NL_SEARCH":
         from app.api.nl_search import run as nl_run

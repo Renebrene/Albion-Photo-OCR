@@ -396,6 +396,47 @@ def save_manual(
             )
 
 
+def apply_refined_values(
+    photo_id: str,
+    changes: dict[str, str],
+    *,
+    reason: str = "refine",
+) -> bool:
+    """
+    Обновить отдельные поля описания после этапа «Уточнение».
+
+    Прежняя строка уходит в историю (`photo_qwen_history`) с пометкой причины,
+    поэтому результат обратим и виден в истории распознавания фото. Меняются
+    только переданные поля; описание, теги и токены не трогаются.
+
+    Возвращает True, если строка действительно обновлена.
+    """
+
+    fields = {
+        key: value
+        for key, value in changes.items()
+        if key in {"client", "brand"} and value
+    }
+
+    if not fields:
+        return False
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            _archive_previous(cur, photo_id, reason)
+
+            assignments = ", ".join(f"{key} = %s" for key in fields)
+            params = list(fields.values()) + [photo_id]
+
+            cur.execute(
+                f"UPDATE public.photo_qwen SET {assignments} "  # noqa: S608 - ключи из фиксированного набора
+                "WHERE photo_id = %s AND status = 'DONE'",
+                params,
+            )
+
+            return cur.rowcount == 1
+
+
 def save_failure(photo_id: str, error_message: str) -> None:
     with get_connection() as conn:
         with conn.cursor() as cur:

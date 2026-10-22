@@ -438,6 +438,14 @@ class HybridSettingsUpdate(BaseModel):
     min_margin: float | None = Field(default=None, ge=0, le=1)
 
 
+class RefineSettingsUpdate(BaseModel):
+    """Настройки этапа «Уточнение» (все поля необязательные)."""
+
+    enabled: bool | None = None
+    gap_seconds: float | None = Field(default=None, ge=0, le=600)
+    crop_retention_days: int | None = Field(default=None, ge=1, le=90)
+
+
 class PipelineStartRequest(BaseModel):
     """Start a resumable pipeline run (Обновление базы)."""
 
