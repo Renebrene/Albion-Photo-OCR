@@ -39,6 +39,10 @@ class PhotoSummary(BaseModel):
     legal_address: str | None = None
     simple_address: str | None = None
 
+    # Уверенность распознавания (DINO-сходство выбранного кандидата, 0…1).
+    # None — вердикта нет; ниже порога из настроек фото уходит в «Уточнить».
+    confidence: float | None = None
+
     # QWEN icon in the grid: status plus whether a description actually exists
     # (a failed re-run keeps the previous description row).
     qwen_status: str | None = None
@@ -412,6 +416,12 @@ class PreviewBackfillRequest(BaseModel):
     """
 
     photo_ids: list[str] | None = Field(default=None, min_length=1, max_length=5000)
+
+
+class HybridSettingsUpdate(BaseModel):
+    """Порог уверенности распознавания (корзина «Уточнить»)."""
+
+    low_score: float = Field(ge=0, le=1)
 
 
 class PipelineStartRequest(BaseModel):

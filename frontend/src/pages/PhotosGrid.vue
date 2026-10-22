@@ -163,6 +163,11 @@ const sortedItems = computed(() =>
   sortPhotos(items.value, sortKey.value, sortDirection.value),
 )
 
+/** Уверенность распознавания строкой: 0.87. Пусто, если вердикта нет. */
+function confidenceText(value) {
+  return typeof value === 'number' ? value.toFixed(2) : ''
+}
+
 function toggleSortDirection() {
   sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc'
 }
@@ -2563,9 +2568,18 @@ function tagList(meta) {
                 active-class="bg-primary text-white"
                 @click="pickAddress(item.address)"
               >
+                <q-item-section v-if="item.review" avatar>
+                  <q-icon name="help_outline" color="orange-9" size="18px">
+                    <q-tooltip>
+                      Фото, которые не разошлись по адресам: слабое совпадение
+                      или совпадения нет. Назначьте адрес вручную — фото уйдёт
+                      из этой корзины.
+                    </q-tooltip>
+                  </q-icon>
+                </q-item-section>
                 <q-item-section>
                   <div class="address-line">
-                    <span class="address-name">
+                    <span class="address-name" :class="{ 'text-orange-9': item.review }">
                       {{ item.name }}
                       <q-tooltip v-if="item.name !== item.address">
                         {{ item.address }}
@@ -3017,6 +3031,20 @@ function tagList(meta) {
                       {{ photo.address }}
                     </q-tooltip>
                   </div>
+                  <!-- Фото без адреса: слабое совпадение или его отсутствие.
+                       Такие фото ждут ручного разбора в «Уточнить». -->
+                  <div
+                    v-else
+                    class="ellipsis text-caption text-orange-9"
+                  >
+                    <q-icon name="help_outline" size="14px" />
+                    требует уточнения
+                    <q-tooltip v-if="confidenceText(photo.confidence)">
+                      Уверенность {{ confidenceText(photo.confidence) }} — ниже
+                      порога распознавания. Назначьте адрес вручную в карточке
+                      фото.
+                    </q-tooltip>
+                  </div>
                   <div class="ellipsis text-caption">
                     <q-icon
                       name="auto_awesome"
@@ -3426,7 +3454,7 @@ function tagList(meta) {
           <!-- Simplified recognition address, with the position in the gallery. -->
           <div class="col ellipsis">
             <div class="text-subtitle1 ellipsis">
-              {{ current?.simple_address || current?.address || 'адрес не определён' }}
+              {{ current?.simple_address || current?.address || 'требует уточнения' }}
             </div>
             <div class="text-caption text-grey-7 ellipsis">
               {{ current?.filename }}

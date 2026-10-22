@@ -139,6 +139,13 @@ def _fake_connection(monkeypatch, repository, captured):
             return []
 
         def fetchone(self):
+            # Счётчик корзины «Уточнить» читается отдельным запросом; фейк
+            # отвечает на него парой нулей, чтобы распаковка не падала.
+            sql = captured["queries"][-1][0] if captured.get("queries") else ""
+
+            if "period_total" in sql:
+                return (0, 0)
+
             return None
 
         def __enter__(self):

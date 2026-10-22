@@ -63,6 +63,7 @@ from app.api.schemas import (
     FingerprintBuildRequest,
     FingerprintUpdate,
     HybridRequest,
+    HybridSettingsUpdate,
     LoginRequest,
     MediaLinkRequest,
     NlSearchRequest,
@@ -2153,6 +2154,30 @@ def qwen_stats():
     result["failed_photo_ids"] = repository.photo_ids_with_qwen_status("FAILED")
 
     return result
+
+
+@read_router.get("/v1/hybrid/settings", response_model=None)
+def hybrid_settings():
+    """Порог уверенности: ниже него фото уходит в «Уточнить»."""
+
+    from app.hybrid import config as hybrid_config
+
+    return hybrid_config.resolve_settings()
+
+
+@jobs_router.put(
+    "/v1/hybrid/settings",
+    dependencies=[Depends(require_scope("settings:write"))],
+)
+def update_hybrid_settings(request: HybridSettingsUpdate):
+    from app.hybrid import config as hybrid_config
+
+    try:
+        hybrid_config.set_low_score(request.low_score)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return hybrid_config.resolve_settings()
 
 
 @read_router.get("/v1/qwen/settings", response_model=None)

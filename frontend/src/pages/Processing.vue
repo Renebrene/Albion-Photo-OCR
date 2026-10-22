@@ -4,6 +4,9 @@ import { Notify } from 'quasar'
 
 import {
   createDinoBatch,
+  fetchAddresses,
+  fetchHybridSettings,
+  saveHybridSettings,
   createHybridRun,
   fetchDinoBatchRuns,
   fetchDinoBatches,
@@ -15,6 +18,12 @@ import {
 } from '../api/client'
 
 const tab = ref('dino')
+
+// Порог уверенности распознавания: ниже него фото уходит в «Уточнить».
+const lowScore = ref(null)
+const lowScoreSaved = ref(null)
+const lowScoreBusy = ref(false)
+const reviewCount = ref(0)
 const loading = ref(false)
 const error = ref(null)
 const starting = ref(false)
@@ -37,6 +46,44 @@ const operationText = computed(() => {
   return 'другая операция'
 })
 let activityTimer = null
+
+async function loadReviewSettings() {
+  try {
+    const settings = await fetchHybridSettings()
+    lowScore.value = settings.low_score
+    lowScoreSaved.value = settings.low_score
+  } catch (err) {
+    // Настройка необязательная: без неё вкладка работает как раньше.
+    lowScore.value = null
+  }
+
+  try {
+    const data = await fetchAddresses()
+    const review = (data.items || []).find((item) => item.review)
+    reviewCount.value = review ? review.count : 0
+  } catch {
+    reviewCount.value = 0
+  }
+}
+
+async function saveReviewSettings() {
+  if (lowScore.value === null || lowScoreBusy.value) return
+
+  lowScoreBusy.value = true
+  try {
+    const settings = await saveHybridSettings({ low_score: Number(lowScore.value) })
+    lowScoreSaved.value = settings.low_score
+    Notify.create({
+      type: 'positive',
+      message: `Порог сохранён: ${settings.low_score}`,
+    })
+    await loadReviewSettings()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    lowScoreBusy.value = false
+  }
+}
 
 // Сводка последней виртуальной сортировки.
 const sortStatus = ref(null)
@@ -201,6 +248,7 @@ async function loadJobs() {
 }
 
 function reload() {
+  loadReviewSettings()
   if (tab.value === 'dino') loadDino()
   else if (tab.value === 'hybrid') loadHybrid()
   else loadJobs()
@@ -274,6 +322,7 @@ async function loadActivity() {
 
 onMounted(() => {
   loadDino()
+  loadReviewSettings()
   loadActivity()
   loadSortStatus()
   activityTimer = window.setInterval(() => {
@@ -323,6 +372,49 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Сводка сортировки: первой, таблицы — ниже. -->
+    <q-card flat bordered class="q-mb-md">
+      <q-card-section>
+        <div class="text-subtitle2 q-mb-xs">
+          Уверенность распознавания: корзина «Уточнить»
+        </div>
+        <div class="row items-center q-gutter-md">
+          <q-input
+            v-model.number="lowScore"
+            type="number"
+            dense
+            outlined
+            step="0.01"
+            min="0"
+            max="1"
+            label="Нижний порог"
+            style="max-width: 180px"
+            :disable="lowScore === null"
+          >
+            <q-tooltip>
+              Сходство выбранного кандидата (0…1). Ниже порога фото адреса не
+              получает и попадает в «Уточнить». 0 — проверка выключена.
+            </q-tooltip>
+          </q-input>
+          <q-btn
+            color="primary"
+            no-caps
+            label="Сохранить"
+            :loading="lowScoreBusy"
+            :disable="lowScore === null || lowScore === lowScoreSaved"
+            @click="saveReviewSettings"
+          />
+          <div class="text-caption text-grey-8">
+            В «Уточнить» сейчас: <b>{{ reviewCount }}</b> фото
+          </div>
+        </div>
+        <div class="text-caption text-grey-7 q-mt-xs">
+          Порог применяется при чтении: данные не пересчитываются, значение
+          можно менять и смотреть, сколько фото требует ручного разбора.
+          Переопределение адреса в карточке фото выводит его из корзины.
+        </div>
+      </q-card-section>
+    </q-card>
+
     <q-card flat bordered class="q-mb-md">
       <q-card-section>
         <div class="row items-center q-gutter-sm">

@@ -17,7 +17,16 @@ from app.api.schemas import (
     HybridRunSummary,
     PhotoSummary,
 )
+from app.hybrid import config as hybrid_config
 from app.ingest.database import get_connection
+
+
+# Значение фильтра «Уточнить» в панели адресов. Настоящие адреса — целые id,
+# поэтому слово не может столкнуться с ними.
+REVIEW_ADDRESS_ID = "review"
+REVIEW_ADDRESS_VALUE = f"addr:{REVIEW_ADDRESS_ID}"
+REVIEW_NAME = "Уточнить"
+
 
 def _latest_hybrid_final_sql(photo_ref: str) -> str:
     """
@@ -36,17 +45,62 @@ def _latest_hybrid_final_sql(photo_ref: str) -> str:
     )
 
 
+def _latest_confidence_sql(photo_ref: str) -> str:
+    """
+    DINO-сходство выбранного кандидата (0…1) последнего вердикта HYBRID.
+
+    Это `dino_candidates.score` первого ранга для того же DINO-прогона, что
+    породил вердикт. Взвешенная сумма гибрида (`hybrid_score`, ~12) зависит от
+    числа кандидатов и бонуса за согласие соседей, поэтому для порога не
+    годится. NULL — вердикта нет либо у прогона нет кандидатов.
+    """
+
+    return (
+        "(SELECT c.score FROM public.hybrid_results AS h "
+        "JOIN public.dino_candidates AS c "
+        "  ON c.run_id = h.dino_run_id AND c.rank = 1 "
+        f"WHERE h.photo_id = {photo_ref}.photo_id AND h.status = 'DONE' "
+        "ORDER BY h.finished_at DESC NULLS LAST, h.hybrid_run_id DESC "
+        "LIMIT 1)"
+    )
+
+
+def _address_sql(photo_ref: str) -> str:
+    """
+    Адрес с учётом порога уверенности: слабое совпадение адреса не даёт.
+
+    Порог берётся из настроек (`app/hybrid/config.py`); 0 отключает проверку и
+    возвращает прежнее поведение. Сравнение подставляется числом: значение
+    провалидировано (0…1), поэтому текст SQL от него не зависит.
+    """
+
+    final = _latest_hybrid_final_sql(photo_ref)
+    low = hybrid_config.low_score()
+
+    if low <= 0:
+        return final
+
+    confidence = _latest_confidence_sql(photo_ref)
+
+    return (
+        f"(CASE WHEN {confidence} IS NULL OR {confidence} >= {low} "
+        f"THEN {final} ELSE NULL END)"
+    )
+
+
 def _recognized_sql(photo_ref: str = "t") -> str:
     """
     The single definition of "распознано" used by every read path.
 
-    A photo is recognised when the latest HYBRID verdict has a final id, or
-    when an operator set a manual address override. Older verdicts cannot keep
-    a photo in the grid after a failed re-run.
+    A photo is recognised when the latest HYBRID verdict has a final id **and
+    its confidence is not below the review threshold**, or when an operator set
+    a manual address override. Older verdicts cannot keep a photo in the grid
+    after a failed re-run. Everything else — a weak match, no match, or no
+    verdict at all — lands in «Уточнить» (see list_addresses).
     """
 
     return (
-        f"({_latest_hybrid_final_sql(photo_ref)} IS NOT NULL OR EXISTS ("
+        f"({_address_sql(photo_ref)} IS NOT NULL OR EXISTS ("
         "SELECT 1 FROM public.photo_address_overrides AS ov "
         f"WHERE ov.photo_id = {photo_ref}.photo_id))"
     )
@@ -68,7 +122,7 @@ _PHOTO_BASE = """
         p.height          AS height,
         p.container_format AS container_format,
         COALESCE(
-            """ + _latest_hybrid_final_sql("p") + """,
+            """ + _address_sql("p") + """,
             CASE WHEN NOT EXISTS (
                 SELECT 1 FROM public.hybrid_results AS hx
                 WHERE hx.photo_id = p.photo_id
@@ -93,7 +147,8 @@ _PHOTO_BASE = """
         p.created_at AS created_at,
         p.taken_at AS taken_at,
         p.size_bytes AS size_bytes,
-        p.source_path AS source_path
+        p.source_path AS source_path,
+        """ + _latest_confidence_sql("p") + """ AS confidence
     FROM public.photos AS p
     LEFT JOIN public.photo_qwen AS q ON q.photo_id = p.photo_id
 """
@@ -128,7 +183,7 @@ _PHOTO_DERIVED = """
 _PHOTO_SELECT = (
     "SELECT photo_id, filename, width, height, container_format, "
     "address, client, brand, category, created_at, taken_at, size_bytes, source_path, "
-    "legal_address, simple_address, qwen_status, qwen_described "
+    "legal_address, simple_address, qwen_status, qwen_described, confidence "
     "FROM (" + _PHOTO_DERIVED + ") AS t"
 )
 
@@ -152,6 +207,7 @@ def _photo_row(row) -> PhotoSummary:
         simple_address=row[14],
         qwen_status=row[15],
         qwen_described=bool(row[16]) if row[16] is not None else None,
+        confidence=float(row[17]) if row[17] is not None else None,
     )
 
 
@@ -246,8 +302,19 @@ def _photo_where(
             text = str(value).strip()
 
             if text.lower().startswith("addr:"):
+                suffix = text.split(":", 1)[1].strip()
+
+                if suffix.lower() == REVIEW_ADDRESS_ID:
+                    # «Уточнить»: всё, что не получило адреса — слабое
+                    # совпадение, отсутствие совпадения или отсутствие
+                    # вердикта. Ручное переопределение выводит фото отсюда.
+                    address_parts.append(
+                        "NOT " + _recognized_sql("t")
+                    )
+                    continue
+
                 try:
-                    address_id = int(text.split(":", 1)[1])
+                    address_id = int(suffix)
                 except ValueError:
                     # Never silently drop a malformed value: with address
                     # priority it would turn into "no filter" and show ALL
@@ -421,7 +488,20 @@ def _photo_where(
         clauses.append("t.photo_id = ANY(%s)")
         params.append(list(ids))
 
-    if recognized_only:
+    # Фильтр «Уточнить» выбирает ровно те фото, которые НЕ распознаны, поэтому
+    # вместе с recognized_only он дал бы пустую страницу: «только распознанные»
+    # и «только требующие уточнения» не пересекаются. Когда корзина выбрана,
+    # показываем её содержимое (объединение с обычными адресами работает как
+    # раньше — обе части уже ограничены обработанными фото).
+    review_requested = bool(
+        addresses
+        and any(
+            str(value).strip().lower().endswith(f":{REVIEW_ADDRESS_ID}")
+            for value in addresses
+        )
+    )
+
+    if recognized_only and not review_requested:
         # The grid shows a photo only after recognition has produced an
         # address: the LATEST HYBRID verdict has a final id, or a manual
         # override exists. A newer failed re-run hides the photo; an older
@@ -819,6 +899,21 @@ def list_addresses(
             )
             rows = cur.fetchall()
 
+            # «Уточнить»: фото, которые не разошлись по адресам. Считаются тем
+            # же условием распознавания и тем же периодом, что и адреса выше.
+            cur.execute(
+                """
+                WITH t AS (""" + _PHOTO_SELECT + """)
+                SELECT count(*) AS total,
+                       count(*) FILTER (WHERE """ + period_sql + """) AS period_total
+                FROM t
+                WHERE NOT """ + _recognized_sql("t") + """
+                  """ + client_filter + """
+                """,
+                period_params + client_params,
+            )
+            review_total, review_period = cur.fetchone()
+
             cur.execute(
                 """
                 SELECT af.address_id, af.fingerprint_id
@@ -836,6 +931,21 @@ def list_addresses(
 
     items: list[dict] = []
 
+    if int(review_total or 0) > 0:
+        items.append(
+            {
+                "address": REVIEW_ADDRESS_VALUE,
+                "address_id": None,
+                "name": REVIEW_NAME,
+                "simple_address": REVIEW_NAME,
+                "legal_address": "",
+                "fingerprints": [],
+                "count": int(review_total),
+                "period_count": int(review_period or 0),
+                "review": True,
+            }
+        )
+
     for address_id, simple_address, legal_address, count, period_count in rows:
         address_id = int(address_id)
         name = (simple_address or legal_address or f"Адрес {address_id}").strip()
@@ -850,6 +960,7 @@ def list_addresses(
                 "fingerprints": mapped.get(address_id, []),
                 "count": int(count),
                 "period_count": int(period_count),
+                "review": False,
             }
         )
 
