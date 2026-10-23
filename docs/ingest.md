@@ -62,6 +62,10 @@ DISCOVER → INTEGRITY → IDENTITY → REGISTER → PhotoRecord → RESULT
 - `INTEGRITY` — проверка физического файла, SHA-256 и декодирования;
 - `IDENTITY` — создание детерминированного `photo_id`;
 - `REGISTER` — формирование неизменяемого `PhotoRecord`;
+
+Режим наблюдения за будущей схемой идентичности (`SCENE_IDENTITY_SHADOW=1`)
+пишет рядом оба id — текущий SHA и metadata-v1 — в локальный журнал, не
+меняя регистрацию: `docs/identity_shadow.md`.
 - `RESULT` — формирование `IngestFileResult` и итогового `IngestResult`.
 
 Результат обработки файла:

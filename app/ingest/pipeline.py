@@ -10,6 +10,7 @@ from app.core.parallel import bounded_submit, default_window
 from app.ingest.identity import create_identity
 from app.ingest.integrity import check_file, date_in_period, discover, file_date
 from app.ingest.register import PhotoRecord, register_photo
+from app.ingest.shadow import record_shadow
 from app.ingest.result import (
     IngestResult,
     create_ingest_result,
@@ -63,6 +64,10 @@ def process_file(path: str | Path) -> PhotoRecord:
         )
 
     identity = create_identity(integrity["sha256"])
+
+    # Теневая проверка будущей схемы идентичности (SCENE_IDENTITY_SHADOW=1):
+    # только локальный журнал, регистрация ниже по-прежнему идёт по SHA-256.
+    record_shadow(path, identity.sha256, identity.photo_id, integrity)
 
     return register_photo(
         photo_id=identity.photo_id,

@@ -16,6 +16,9 @@ EXIF_DATETIME_ORIGINAL = 0x9003  # DateTimeOriginal (Exif sub-IFD)
 EXIF_DATETIME_DIGITIZED = 0x9004  # DateTimeDigitized (Exif sub-IFD)
 EXIF_SUB_IFD = 0x8769  # ExifOffset, pointer to the Exif sub-IFD
 EXIF_DATETIME_FORMAT = "%Y:%m:%d %H:%M:%S"
+# Parts of the metadata identity (app/ingest/identity_v2.py).
+EXIF_BODY_SERIAL = 0xA431  # BodySerialNumber
+EXIF_SUB_SEC_ORIGINAL = 0x9291  # SubSecTimeOriginal, hundredths of a second
 
 
 def calculate_sha256(path: Path) -> str:
@@ -95,6 +98,44 @@ def read_taken_at(image: Image.Image) -> str | None:
     return None
 
 
+def read_identity_metadata(image: Image.Image) -> dict:
+    """
+    Camera serial and sub-second capture time for the metadata identity.
+
+    Best-effort, like taken_at: missing tags are normal (edited exports) and
+    must never fail the integrity check. The capture time is read with the
+    same rules as read_taken_at(), so seconds always come from the same tag.
+    """
+
+    result = {"exif_serial": None, "exif_subsec": None}
+
+    try:
+        exif = image.getexif()
+    except Exception:
+        return result
+
+    if not exif:
+        return result
+
+    try:
+        sub_ifd = exif.get_ifd(EXIF_SUB_IFD)
+    except Exception:
+        sub_ifd = {}
+
+    serial = (sub_ifd or {}).get(EXIF_BODY_SERIAL) or exif.get(EXIF_BODY_SERIAL)
+    subsec = (sub_ifd or {}).get(EXIF_SUB_SEC_ORIGINAL) or exif.get(
+        EXIF_SUB_SEC_ORIGINAL
+    )
+
+    if serial is not None:
+        result["exif_serial"] = str(serial).strip() or None
+
+    if subsec is not None:
+        result["exif_subsec"] = str(subsec).strip() or None
+
+    return result
+
+
 def check_file(path: Path) -> dict:
     result = {
         "filename": path.name,
@@ -109,6 +150,8 @@ def check_file(path: Path) -> dict:
         "height": None,
         "frame_count": None,
         "taken_at": None,
+        "exif_serial": None,
+        "exif_subsec": None,
         "decoded": False,
         "integrity_status": "INVALID",
         "error": None,
@@ -139,6 +182,7 @@ def check_file(path: Path) -> dict:
             result["frame_count"] = getattr(image, "n_frames", 1)
             # Capture date of frame 0 (MPO), best-effort: never fails the check.
             result["taken_at"] = read_taken_at(image)
+            result.update(read_identity_metadata(image))
 
             image.verify()
 
