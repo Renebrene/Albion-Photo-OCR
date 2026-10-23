@@ -307,6 +307,23 @@ class DinoRunner:
             "candidates": ranked,
         }
 
+    def _input_path(self, item: DinoWorkItem) -> Path:
+        """
+        Read the MIDDLE preview when it exists, else the original.
+
+        The model resizes to 518/128 px anyway; decoding a 1280 px WebP is
+        about twice as fast as a full-size JPEG (docs/dino_preview_experiment.md).
+        A missing preview is normal for a fresh ingest and never blocks a batch.
+        """
+
+        from app.preview.lookup import dino_input_path
+
+        return dino_input_path(
+            item.photo_id,
+            item.source_path,
+            use_preview=getattr(self.cpu_settings, "dino_use_preview", True),
+        )
+
     def _query_descriptors(self, path: Path):
         image = CompactDescriptor._load(path)
 
@@ -314,7 +331,7 @@ class DinoRunner:
 
     def recognize_one(self, item: DinoWorkItem) -> dict:
         started = time.perf_counter()
-        path = Path(item.source_path)
+        path = self._input_path(item)
 
         query_global = self.embedder.embed_paths([path])[0]
         query_environment, query_color, query_spatial = (
@@ -343,7 +360,7 @@ class DinoRunner:
         if not items:
             return []
 
-        paths = [Path(item.source_path) for item in items]
+        paths = [self._input_path(item) for item in items]
         query_globals = self.embedder.embed_paths(paths)
 
         results = []

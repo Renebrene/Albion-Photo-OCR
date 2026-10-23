@@ -287,20 +287,22 @@ def generate_previews(
         image_format=image_format,
     )
 
-    small = _process_one(
-        record=record,
-        output_path=paths.small,
-        kind="SMALL",
-        max_size=small_size,
-        quality=resolved_quality,
-        image_format=image_format,
-    )
-
+    # MIDDLE first: DINO reads it as its input and may start before SMALL is
+    # ready. Both use the same source file, so the order changes nothing else.
     middle = _process_one(
         record=record,
         output_path=paths.middle,
         kind="MIDDLE",
         max_size=middle_size,
+        quality=resolved_quality,
+        image_format=image_format,
+    )
+
+    small = _process_one(
+        record=record,
+        output_path=paths.small,
+        kind="SMALL",
+        max_size=small_size,
         quality=resolved_quality,
         image_format=image_format,
     )

@@ -13,6 +13,15 @@ class Settings:
     model_name: str = os.getenv("SCENE_MODEL", "facebook/dinov2-base")
     device: str = os.getenv("SCENE_DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
     batch_size: int = int(os.getenv("SCENE_BATCH", "16"))
+    # DINO reads the MIDDLE preview when it exists and falls back to the
+    # original otherwise: the model resizes to 518 px anyway, and the preview
+    # is ~2x faster to decode (docs/dino_preview_experiment.md). Set
+    # SCENE_DINO_USE_PREVIEW=0 to go back to originals without a code change.
+    dino_use_preview: bool = os.getenv("SCENE_DINO_USE_PREVIEW", "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+    }
 
     preview_root: Path = Path(
         os.getenv("SCENE_PREVIEW_ROOT", str(data_dir / "preview"))
