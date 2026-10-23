@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Iterable
+from dataclasses import replace
 from pathlib import Path
 
 from app.ingest.database import get_connection
@@ -95,36 +96,71 @@ def classify_metadata(
     by_hash = {row[1]: row for row in rows if row[1]}
 
     for record in records:
-        same_id = by_id.get(record.photo_id)
-        same_hash = by_hash.get(record.identity_hash) if record.identity_hash else None
-        existing = same_id or same_hash
-
-        if existing is None:
-            result["NEW"].append(record)
-            continue
-
-        existing_id, existing_hash, _existing_sha, existing_path = existing
-
-        if existing_hash and record.identity_hash and existing_hash != record.identity_hash:
-            result["CONFLICT"].append(record)
-            continue
-
-        if existing_id != record.photo_id:
-            # The same photo_id under a different identity, or the same
-            # identity under a different photo_id: both indicate a collision
-            # or a changed file, never a plain duplicate.
-            result["CONFLICT"].append(record)
-            continue
-
-        if record.identity_hash and not _same_content(
-            record.source_path, existing_path
-        ):
-            result["CONFLICT"].append(record)
-            continue
-
-        result["EXISTING"].append(record)
+        status, resolved = classify_one(
+            record,
+            by_id.get(record.photo_id),
+            by_hash.get(record.identity_hash) if record.identity_hash else None,
+        )
+        result[status].append(resolved)
 
     return result
+
+
+def classify_one(
+    record: PhotoRecord,
+    same_id: tuple | None,
+    same_hash: tuple | None,
+) -> tuple[str, PhotoRecord]:
+    """
+    Decide NEW / EXISTING / CONFLICT for one record.
+
+    *same_id* / *same_hash* are (photo_id, identity_hash, sha256, source_path)
+    rows found by the two keys. They are passed in so the decision can be
+    tested without a database.
+    """
+
+    if same_id is None and same_hash is None:
+        return "NEW", record
+
+    # A photo_id and an identity_hash resolving to two different rows is a
+    # real collision, never a plain duplicate.
+    if (
+        same_id is not None
+        and same_hash is not None
+        and same_id[0] != same_hash[0]
+    ):
+        return "CONFLICT", record
+
+    existing = same_id or same_hash
+    existing_id, existing_hash, _existing_sha, existing_path = existing
+
+    # The same photo_id carrying a different identity: the file changed or
+    # the metadata key collided.
+    if (
+        same_id is not None
+        and existing_hash
+        and record.identity_hash
+        and existing_hash != record.identity_hash
+    ):
+        return "CONFLICT", record
+
+    # This is the normal case after the identity_hash backfill: a legacy row
+    # has a SHA-based photo_id while the new record has a metadata id. The
+    # identity matches, so verify the content once and keep the stored id —
+    # enqueueing previews for a second id would duplicate the photo.
+    if record.identity_hash and not _same_content(
+        record.source_path, existing_path
+    ):
+        return "CONFLICT", record
+
+    if existing_id == record.photo_id:
+        return "EXISTING", record
+
+    return "EXISTING", replace(
+        record,
+        photo_id=existing_id,
+        identity_hash=existing_hash or record.identity_hash,
+    )
 
 
 def insert_metadata_photos(records: Iterable[PhotoRecord]) -> set[str]:

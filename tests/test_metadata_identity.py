@@ -20,7 +20,7 @@ from app.ingest.identity_v2 import (
     create_metadata_identity,
 )
 from app.ingest.metadata_integrity import check_file_metadata
-from app.ingest.metadata_register import _same_content
+from app.ingest.metadata_register import _same_content, classify_one
 from app.ingest.register import register_photo_metadata
 
 
@@ -158,6 +158,76 @@ def test_incomplete_exif_falls_back_to_content_sha(tmp_path, monkeypatch):
 
 
 # ---- collision guard -------------------------------------------------------
+
+
+def _metadata_record(path: Path, identity_hash: str = "a" * 64):
+    return register_photo_metadata(
+        photo_id="PH_" + "c" * 24,
+        source_path=str(path),
+        filename=path.name,
+        identity_hash=identity_hash,
+        container_format="JPEG",
+        frame_count=1,
+        width=64,
+        height=48,
+        size_bytes=path.stat().st_size,
+    )
+
+
+def test_legacy_row_with_same_identity_keeps_its_photo_id(tmp_path):
+    original = tmp_path / "original.JPG"
+    copy = tmp_path / "copy.JPG"
+    original.write_bytes(b"same-content")
+    copy.write_bytes(b"same-content")
+
+    record = _metadata_record(copy, "b" * 64)
+    row = ("PH_" + "1" * 24, "b" * 64, "f" * 64, str(original))
+
+    status, resolved = classify_one(record, None, row)
+
+    assert status == "EXISTING"
+    # The legacy row keeps its SHA-based id: a second id would duplicate the
+    # photo and enqueue a second preview job.
+    assert resolved.photo_id == row[0]
+
+
+def test_identity_match_with_different_content_is_a_conflict(tmp_path):
+    original = tmp_path / "original.JPG"
+    copy = tmp_path / "copy.JPG"
+    original.write_bytes(b"one-content")
+    copy.write_bytes(b"other-content")
+
+    record = _metadata_record(copy, "b" * 64)
+    row = ("PH_" + "1" * 24, "b" * 64, "f" * 64, str(original))
+
+    status, _ = classify_one(record, None, row)
+
+    assert status == "CONFLICT"
+
+
+def test_same_photo_id_with_another_identity_is_a_conflict(tmp_path):
+    path = tmp_path / "a.JPG"
+    path.write_bytes(b"content")
+    record = _metadata_record(path, "b" * 64)
+    row = (record.photo_id, "c" * 64, None, str(path))
+
+    status, _ = classify_one(record, row, None)
+
+    assert status == "CONFLICT"
+
+
+def test_two_different_rows_are_a_collision(tmp_path):
+    path = tmp_path / "a.JPG"
+    path.write_bytes(b"content")
+    record = _metadata_record(path, "b" * 64)
+
+    status, _ = classify_one(
+        record,
+        ("PH_" + "1" * 24, "b" * 64, None, str(path)),
+        ("PH_" + "2" * 24, "b" * 64, None, str(path)),
+    )
+
+    assert status == "CONFLICT"
 
 
 def test_same_content_guard_compares_both_files(tmp_path):
