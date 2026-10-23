@@ -1,0 +1,46 @@
+{
+  "old_photos": 1518,
+  "new_photos": 1518,
+  "matched": 1512,
+  "only_old": 6,
+  "only_new": 6,
+  "dino_same_best": 1498,
+  "dino_compared": 1503,
+  "dino_same_best_rate": 0.9967,
+  "dino_score_delta_mean": 0.004103,
+  "dino_score_delta_max": 0.068984,
+  "accuracy_old": {
+    "labelled": 369,
+    "correct": 362,
+    "accuracy": 0.981
+  },
+  "accuracy_new": {
+    "labelled": 369,
+    "correct": 361,
+    "accuracy": 0.9783
+  },
+  "qwen_old_done": 1511,
+  "qwen_new_done": 1512,
+  "qwen_client_same": 393,
+  "qwen_brand_same": 1164,
+  "qwen_category_same": 1475,
+  "qwen_description_same": 1363,
+  "time_old_dino_avg": 1.078,
+  "time_new_dino_avg": 0.785,
+  "only_old_samples": [
+    "Добровольского17_06.JPG",
+    "Добровольского17_07.JPG",
+    "Добровольского17_08.JPG",
+    "Добровольского17_09.JPG",
+    "Комарова28_01.jpg",
+    "Комарова28_02.JPG"
+  ],
+  "only_new_samples": [
+    "80_011.JPG",
+    "80_012.JPG",
+    "82_049.JPG",
+    "82_050.JPG",
+    "82_051.JPG",
+    "82_053.JPG"
+  ]
+}
