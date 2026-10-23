@@ -944,19 +944,29 @@ def list_addresses(
     if date_mode not in {"upload", "capture"}:
         raise ValueError("date_mode must be 'upload' or 'capture'")
 
+    # Два запроса ниже используют разные алиасы: список адресов — `eff AS e`,
+    # счётчик «Требуют проверки» — CTE `t`. Один общий период с `e.` в обоих
+    # давал UndefinedTable во втором запросе.
     date_column = "e.taken_at" if date_mode == "capture" else "e.created_at"
+    date_column_t = "t.taken_at" if date_mode == "capture" else "t.created_at"
     period_parts: list[str] = []
+    period_parts_t: list[str] = []
     period_params: list[object] = []
 
     if date_from:
         period_parts.append(f"{date_column} >= %s::date")
+        period_parts_t.append(f"{date_column_t} >= %s::date")
         period_params.append(date_from)
 
     if date_to:
         period_parts.append(f"{date_column} < (%s::date + interval '1 day')")
+        period_parts_t.append(
+            f"{date_column_t} < (%s::date + interval '1 day')"
+        )
         period_params.append(date_to)
 
     period_sql = " AND ".join(period_parts) or "TRUE"
+    period_sql_t = " AND ".join(period_parts_t) or "TRUE"
 
     # В режиме приоритета по клиентам адреса сужаются до тех, где эти
     # клиенты есть; счётчики считаются по тому же условию.
@@ -1021,7 +1031,7 @@ def list_addresses(
                 """
                 WITH t AS (""" + _PHOTO_SELECT + """)
                 SELECT count(*) AS total,
-                       count(*) FILTER (WHERE """ + period_sql + """) AS period_total
+                       count(*) FILTER (WHERE """ + period_sql_t + """) AS period_total
                 FROM t
                 WHERE NOT """ + _recognized_sql("t") + """
                   """ + client_filter + """

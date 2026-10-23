@@ -224,6 +224,35 @@ def test_address_counts_follow_the_override(monkeypatch):
     assert "reg.active" in sql
 
 
+def test_address_period_uses_the_alias_of_each_query(monkeypatch):
+    """
+    Период подставляется в два запроса с разными алиасами.
+
+    Регрессия: в счётчике «Требуют проверки» оставался `e.`, тогда как там
+    таблица называется `t` — PostgreSQL отвечал UndefinedTable, и панель
+    адресов падала с 500 при выбранном периоде.
+    """
+
+    from app.api import repository
+
+    captured = {}
+    _fake_connection(monkeypatch, repository, captured)
+
+    repository.list_addresses(
+        limit=10,
+        date_from="2026-10-01",
+        date_to="2026-10-31",
+        date_mode="capture",
+    )
+
+    address_sql = captured["queries"][0][0]
+    review_sql = captured["queries"][1][0]
+
+    assert "e.taken_at >= %s::date" in address_sql
+    assert "t.taken_at >= %s::date" in review_sql
+    assert "e.taken_at" not in review_sql
+
+
 def test_save_manual_qwen_text(monkeypatch):
     photo = SimpleNamespace(model_dump=lambda: {"photo_id": PHOTO_ID})
     calls = []
