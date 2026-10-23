@@ -8,6 +8,7 @@ from pathlib import Path
 from app.core.errors import redact_paths
 from app.core.parallel import bounded_submit, default_window
 from app.ingest.identity import create_identity
+from app.ingest.identity_v2 import IDENTITY_SCHEME, active_scheme
 from app.ingest.integrity import check_file, date_in_period, discover, file_date
 from app.ingest.register import PhotoRecord, register_photo
 from app.ingest.shadow import record_shadow
@@ -54,6 +55,11 @@ def process_file(path: str | Path) -> PhotoRecord:
     """
 
     path = Path(path)
+
+    if active_scheme() == IDENTITY_SCHEME:
+        from app.ingest.metadata_pipeline import process_file_metadata
+
+        return process_file_metadata(path)
 
     integrity = check_file(path)
 

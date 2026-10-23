@@ -311,7 +311,9 @@ def get_registered_photo(photo_id: str) -> PhotoRecord | None:
         return None
     return PhotoRecord(
         photo_id=str(row[0]), source_path=str(row[1]), filename=str(row[2]),
-        sha256=str(row[3]), container_format=str(row[4]), frame_count=int(row[5]),
+        # NULL for metadata-v1 rows: they deliberately carry no content hash.
+        sha256=str(row[3]) if row[3] is not None else None,
+        container_format=str(row[4]), frame_count=int(row[5]),
         width=int(row[6]), height=int(row[7]),
         size_bytes=int(row[8]) if row[8] is not None else None,
         taken_at=row[9].isoformat(sep=" ") if hasattr(row[9], "isoformat") else row[9],

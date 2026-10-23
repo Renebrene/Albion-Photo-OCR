@@ -233,13 +233,27 @@ def ingest_directory(
         if item.status == "VALID" and item.record is not None
     ]
 
-    classification = check_identity_batch(records)
+    # A scan can mix both schemes: a metadata record whose EXIF is incomplete
+    # falls back to the content SHA. Each group is classified by its own rules.
+    from app.ingest.identity_v2 import IDENTITY_SCHEME
+    from app.ingest.metadata_register import classify_and_insert_metadata
+
+    legacy_records = [
+        record for record in records if record.identity_scheme != IDENTITY_SCHEME
+    ]
+    metadata_records = [
+        record for record in records if record.identity_scheme == IDENTITY_SCHEME
+    ]
+
+    classification = {"NEW": [], "EXISTING": [], "CONFLICT": []}
+
+    legacy = check_identity_batch(legacy_records)
 
     # Conflicts are reported, not fatal: one contradictory file must not block
     # the rest of a folder. register_new_photos() keeps the strict behaviour
     # for the upload path.
-    if classification["NEW"]:
-        inserted = insert_photos(classification["NEW"])
+    if legacy["NEW"]:
+        inserted = insert_photos(legacy["NEW"])
 
         # A parallel ingest may have inserted the same file between the
         # identity check and our INSERT. Those rows lost the race and are
@@ -247,15 +261,24 @@ def ingest_directory(
         if inserted is not None:
             raced = [
                 record
-                for record in classification["NEW"]
+                for record in legacy["NEW"]
                 if record.photo_id not in inserted
             ]
-            classification["NEW"] = [
+            legacy["NEW"] = [
                 record
-                for record in classification["NEW"]
+                for record in legacy["NEW"]
                 if record.photo_id in inserted
             ]
-            classification["EXISTING"].extend(raced)
+            legacy["EXISTING"].extend(raced)
+
+    for key in classification:
+        classification[key].extend(legacy[key])
+
+    if metadata_records:
+        metadata = classify_and_insert_metadata(metadata_records)
+
+        for key in classification:
+            classification[key].extend(metadata[key])
 
     preview_queued = 0
     preview_active = 0

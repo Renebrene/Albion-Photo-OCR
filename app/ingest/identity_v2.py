@@ -23,11 +23,36 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import dataclass
 
 PHOTO_ID_PREFIX = "PH"
 PHOTO_ID_HASH_LENGTH = 24
 IDENTITY_SCHEME = "metadata-v1"
+LEGACY_SCHEME = "legacy-content-sha256"
+
+
+def active_scheme() -> str:
+    """
+    Which identity scheme INGEST uses.
+
+    Default is the legacy content SHA: switching must be an explicit act after
+    the shadow log and the schema migration (docs/identity_shadow.md). An
+    unknown value is rejected instead of silently falling back.
+    """
+
+    raw = os.getenv("SCENE_IDENTITY_SCHEME", "").strip().lower()
+
+    if raw in {"", "sha256", "legacy", "legacy-content-sha256"}:
+        return LEGACY_SCHEME
+
+    if raw in {"metadata", "metadata-v1"}:
+        return IDENTITY_SCHEME
+
+    raise ValueError(
+        "SCENE_IDENTITY_SCHEME must be sha256 or metadata-v1, "
+        f"got {raw!r}"
+    )
 
 
 @dataclass(frozen=True)

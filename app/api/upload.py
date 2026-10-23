@@ -134,7 +134,13 @@ def ingest_upload(filename: str | None, stream) -> dict:
 
     try:
         record = process_file(path)
-        classification = register_new_photos([record])
+
+        if record.identity_scheme == "metadata-v1":
+            from app.ingest.metadata_register import register_new_metadata
+
+            classification = register_new_metadata([record])
+        else:
+            classification = register_new_photos([record])
     except ValueError as exc:
         # Invalid image (decoder rejected it) or identity conflict.
         return {"filename": path.name, "error": str(exc)}
