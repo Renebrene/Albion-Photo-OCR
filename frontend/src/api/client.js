@@ -369,6 +369,11 @@ export function rescanQwenPeriod(payload) {
   return postJson(`${BASE}/v1/jobs/qwen/rescan`, payload)
 }
 
+// Non-destructive catch-up: only photos without a successful description.
+export function scanQwenPeriod(payload) {
+  return postJson(`${BASE}/v1/jobs/qwen/scan`, payload)
+}
+
 // Durable video library (separate from photo-only DINO/HYBRID/QWEN).
 export function fetchVideos({ limit = 50, cursor = null, q = null, date_from = null, date_to = null, date_mode = 'upload' } = {}) {
   const params = new URLSearchParams()

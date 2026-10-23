@@ -181,6 +181,7 @@ def create_run(
     mode: str = "manual",
     folder: str | None = None,
     created_by: str | None = None,
+    skip_qwen: bool = False,
 ) -> dict:
     """
     Start a new run, superseding any stopped run.
@@ -210,11 +211,18 @@ def create_run(
                 cur.execute(
                     """
                     INSERT INTO public.pipeline_runs
-                        (mode, status, stage, folder, created_by, started_at)
-                    VALUES (%s, 'RUNNING', 'INGEST', %s, %s, CURRENT_TIMESTAMP)
+                        (mode, status, stage, folder, created_by, manifest,
+                         started_at)
+                    VALUES (%s, 'RUNNING', 'INGEST', %s, %s, %s,
+                            CURRENT_TIMESTAMP)
                     RETURNING run_id
                     """,
-                    (mode, folder, created_by),
+                    (
+                        mode,
+                        folder,
+                        created_by,
+                        Json({"skip_qwen": True}) if skip_qwen else Json({}),
+                    ),
                 )
                 run_id = int(cur.fetchone()[0])
                 for position, stage in enumerate(STAGES):
@@ -394,7 +402,11 @@ def _enqueue_early_qwen(run: dict, manifest: dict) -> None:
     added later wait for the next run.
     """
 
-    if manifest.get("qwen_early") or not _auto_qwen_enabled():
+    if (
+        manifest.get("skip_qwen")
+        or manifest.get("qwen_early")
+        or not _auto_qwen_enabled()
+    ):
         return
 
     manifest["qwen_early"] = True
@@ -634,6 +646,18 @@ def _stage_hybrid(run: dict, stage: dict) -> dict:
 
 
 def _stage_qwen(run: dict, stage: dict) -> dict:
+    if (run.get("manifest") or {}).get("skip_qwen"):
+        return {
+            "outcome": "SKIPPED",
+            "total_count": 0,
+            "done_count": 0,
+            "failed_count": 0,
+            "message": (
+                "QWEN пропущен — запустите отдельно за период "
+                "(POST /v1/jobs/qwen/scan)"
+            ),
+        }
+
     cutoff = _cutoff(run)
 
     if stage["status"] == "PENDING":

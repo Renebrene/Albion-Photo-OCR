@@ -19,6 +19,7 @@ let enqueued
 let qwenSettings
 let updated
 let rescanned
+let scanned
 let historyLog
 
 function jsonResponse(body, status = 200) {
@@ -63,6 +64,11 @@ function installFetch() {
       return jsonResponse({ jobs: 3, skipped: 0, photos: 3, archived: 1, model: 'qwen3-vl:4b-instruct', run_history_id: 7 }, 202)
     }
 
+    if (method === 'POST' && path === '/api/v1/jobs/qwen/scan') {
+      scanned.push(JSON.parse(options.body))
+      return jsonResponse({ photos: 5, jobs: 4, skipped: 1, model: 'qwen3-vl:4b-instruct', run_history_id: 8 }, 202)
+    }
+
     if (method === 'GET' && path === '/api/v1/client-aliases') {
       return jsonResponse({ items: [] })
     }
@@ -93,6 +99,7 @@ beforeEach(() => {
   enqueued = []
   updated = []
   rescanned = []
+  scanned = []
   historyLog = { items: [], text: '' }
   stats = { counts: { DONE: 256 }, failed_photo_ids: [] }
   qwenSettings = {
@@ -192,7 +199,7 @@ describe('Settings.vue', () => {
     wrapper.vm.rescanTo = '2026-01-31'
     wrapper.vm.rescanDateMode = 'capture'
     await flushPromises()
-    await wrapper.vm.runDestructiveRescan()
+    await wrapper.vm.runRescan()
     await flushPromises()
 
     expect(rescanned).toEqual([{
@@ -200,6 +207,34 @@ describe('Settings.vue', () => {
       date_to: '2026-01-31',
       date_mode: 'capture',
     }])
+    expect(scanned).toEqual([])
+    wrapper.unmount()
+  })
+
+  it('enqueues a non-destructive catch-up for a period', async () => {
+    const wrapper = mountSettings({ role: 'Администратор' })
+    await flushPromises()
+
+    const openButton = wrapper.findAll('button')
+      .find((button) => button.text().includes('Дозаполнить за период'))
+    expect(openButton).toBeTruthy()
+    await openButton.trigger('click')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('только фото без успешного описания')
+    wrapper.vm.rescanFrom = '2026-02-01'
+    wrapper.vm.rescanTo = '2026-02-28'
+    wrapper.vm.rescanDateMode = 'capture'
+    await flushPromises()
+    await wrapper.vm.runRescan()
+    await flushPromises()
+
+    expect(scanned).toEqual([{
+      date_from: '2026-02-01',
+      date_to: '2026-02-28',
+      date_mode: 'capture',
+    }])
+    expect(rescanned).toEqual([])
     wrapper.unmount()
   })
 

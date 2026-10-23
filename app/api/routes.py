@@ -72,6 +72,7 @@ from app.api.schemas import (
     QwenJobRequest,
     QwenTextUpdate,
     QwenModelRequest,
+    QwenPeriodScanRequest,
     QwenRescanRequest,
     QwenSettingsUpdate,
     RefineSettingsUpdate,
@@ -1239,6 +1240,93 @@ def rescan_qwen_period(request: QwenRescanRequest):
         "archived": archived,
         "model": config["model"],
         "run_history_id": history_id,
+    }
+
+
+@jobs_router.post(
+    "/v1/jobs/qwen/scan",
+    status_code=202,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def scan_qwen_period(request: QwenPeriodScanRequest):
+    """
+    Non-destructive QWEN catch-up for one date range.
+
+    Only photos without a successful description are enqueued; existing rows
+    are never removed. This is the second half of "skip QWEN in the pipeline,
+    run it later for the period".
+    """
+
+    config = qwen.resolve_settings()
+
+    if not config.get("provider") or not config.get("model"):
+        raise HTTPException(status_code=422, detail="Модель QWEN не настроена")
+
+    photo_ids = qwen_db.photo_ids_missing_in_period(
+        date_from=request.date_from,
+        date_to=request.date_to,
+        date_mode=request.date_mode,
+        limit=request.limit,
+    )
+
+    if not photo_ids:
+        return {
+            "photos": 0,
+            "jobs": 0,
+            "skipped": 0,
+            "run_history_id": None,
+            "model": config["model"],
+        }
+
+    from app.runs import history as run_history
+
+    history_id = run_history.create_run(
+        kind="qwen",
+        mode="manual",
+        title=(
+            f"QWEN: дозаполнение {request.date_from} — {request.date_to}"
+        ),
+        total=len(photo_ids),
+    )
+
+    job_ids = []
+    skipped = 0
+
+    try:
+        for photo_id in photo_ids:
+            job_id = jobs_db.enqueue_qwen(
+                photo_id,
+                source="manual",
+                provider=config["provider"],
+                model=config["model"],
+                run_history_id=history_id,
+            )
+
+            if job_id is None:
+                skipped += 1
+            else:
+                job_ids.append(job_id)
+    except Exception as exc:
+        run_history.add_jobs(history_id, job_ids, skipped=skipped)
+        run_history.finish_enqueue(history_id, total=len(photo_ids), skipped=0)
+        run_history.update_run(
+            history_id,
+            status="PARTIAL" if job_ids else "FAILED",
+            message=f"Очередь QWEN создана не полностью: {type(exc).__name__}",
+            finished=True,
+            error_count_delta=1,
+        )
+        raise
+
+    run_history.add_jobs(history_id, job_ids, skipped=skipped)
+    run_history.finish_enqueue(history_id, total=len(photo_ids), skipped=0)
+
+    return {
+        "photos": len(photo_ids),
+        "jobs": len(job_ids),
+        "skipped": skipped,
+        "run_history_id": history_id,
+        "model": config["model"],
     }
 
 
@@ -2514,7 +2602,11 @@ def start_pipeline_run(request: PipelineStartRequest):
                     detail=coordination.busy_message(active),
                 )
 
-            run = pipeline_runs.create_run(mode=request.mode, folder=folder)
+            run = pipeline_runs.create_run(
+                mode=request.mode,
+                folder=folder,
+                skip_qwen=request.skip_qwen,
+            )
     except coordination.OperationBusy as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except pipeline_runs.PipelineBusy as exc:

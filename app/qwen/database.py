@@ -208,6 +208,47 @@ def photo_ids_in_period(
             return [str(row[0]) for row in cur.fetchall()]
 
 
+def photo_ids_missing_in_period(
+    *,
+    date_from,
+    date_to,
+    date_mode: str = "capture",
+    limit: int = 1000,
+) -> list[str]:
+    """
+    Photo ids in [from, to] that have no successful QWEN row yet.
+
+    Non-destructive: existing descriptions are never touched. Used after a
+    pipeline run that skipped QWEN, and for a targeted catch-up scan.
+    """
+
+    if date_mode not in {"upload", "capture"}:
+        raise ValueError("date_mode must be upload or capture")
+
+    date_column = "p.taken_at" if date_mode == "capture" else "p.created_at"
+    limit = max(1, min(int(limit), 5000))
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT p.photo_id
+                FROM public.photos AS p
+                WHERE {date_column} >= %s::date
+                  AND {date_column} < (%s::date + interval '1 day')
+                  AND NOT EXISTS (
+                      SELECT 1 FROM public.photo_qwen AS q
+                      WHERE q.photo_id = p.photo_id
+                        AND q.status = 'DONE'
+                  )
+                ORDER BY p.photo_id
+                LIMIT %s
+                """,  # noqa: S608 - date_column is allowlisted above
+                (date_from, date_to, limit),
+            )
+            return [str(row[0]) for row in cur.fetchall()]
+
+
 def archive_and_clear(photo_ids: list[str], *, replaced_by_model: str) -> int:
     """Copy current QWEN rows to history, then delete them in one transaction."""
     if not photo_ids:

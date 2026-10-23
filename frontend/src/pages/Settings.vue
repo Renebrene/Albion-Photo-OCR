@@ -10,6 +10,7 @@ import {
   fetchQwenSettings,
   fetchQwenStats,
   rescanQwenPeriod,
+  scanQwenPeriod,
   stopQwenJobs,
   unloadQwen,
   updateQwenSettings,
@@ -58,11 +59,13 @@ const historyLog = ref({ items: [], text: '' })
 const historyLoading = ref(false)
 const historyError = ref('')
 const rescanOpen = ref(false)
+const rescanMode = ref('destructive')
 const rescanBusy = ref(false)
 const rescanDateMode = ref('upload')
 const rescanFrom = ref('')
 const rescanTo = ref('')
 const rescanError = ref('')
+const isDestructiveRescan = computed(() => rescanMode.value === 'destructive')
 
 
 function sizeLabel(size) {
@@ -204,32 +207,45 @@ function canRescan() {
     && rescanTo.value >= rescanFrom.value
 }
 
-function openRescan() {
+function openRescan(mode = 'destructive') {
+  rescanMode.value = mode
   rescanFrom.value = ''
   rescanTo.value = ''
   rescanError.value = ''
   rescanOpen.value = true
 }
 
-async function runDestructiveRescan() {
+function openScan() {
+  openRescan('scan')
+}
+
+async function runRescan() {
   if (!canRescan() || rescanBusy.value) return
   rescanBusy.value = true
   rescanError.value = ''
   try {
-    const result = await rescanQwenPeriod({
+    const payload = {
       date_from: rescanFrom.value,
       date_to: rescanTo.value,
       date_mode: rescanDateMode.value,
-    })
+    }
+    const result = isDestructiveRescan.value
+      ? await rescanQwenPeriod(payload)
+      : await scanQwenPeriod(payload)
+
     rescanOpen.value = false
     Notify.create({
       type: 'positive',
-      message: `В историю сохранено: ${result.archived}; новых заданий: ${result.jobs}`,
+      message: isDestructiveRescan.value
+        ? `В историю сохранено: ${result.archived}; новых заданий: ${result.jobs}`
+        : result.photos
+          ? `Фото без описания: ${result.photos}; поставлено заданий: ${result.jobs}`
+          : 'За выбранный период нет фото без описания',
     })
     await loadStats()
     await loadHistoryLog()
   } catch (err) {
-    rescanError.value = err.message || 'Пересканирование не запущено'
+    rescanError.value = err.message || 'Запуск не выполнен'
   } finally {
     rescanBusy.value = false
   }
@@ -745,10 +761,22 @@ onBeforeUnmount(stopStatsPolling)
                 label="Пересканировать"
                 class="full-width"
                 :disable="qwenQueue > 0"
-                @click="openRescan"
+                @click="openRescan()"
               />
               <div class="text-caption text-negative q-mt-xs">
                 Удалит текущие QWEN-результаты за выбранный период, сохранив их в историю, и запустит распознавание заново.
+              </div>
+              <q-btn
+                outline
+                color="primary"
+                icon="playlist_add"
+                label="Дозаполнить за период"
+                class="full-width q-mt-sm"
+                @click="openScan"
+              />
+              <div class="text-caption text-grey-7 q-mt-xs">
+                Поставит в очередь только фото без успешного описания за
+                выбранный период. Существующие результаты не меняются.
               </div>
             </template>
 
@@ -856,12 +884,23 @@ onBeforeUnmount(stopStatsPolling)
 
     <q-dialog v-model="rescanOpen">
       <q-card style="width: 520px; max-width: calc(100vw - 32px)">
-        <q-card-section class="text-subtitle1">Пересканировать QWEN за период</q-card-section>
+        <q-card-section class="text-subtitle1">
+          {{ isDestructiveRescan ? 'Пересканировать QWEN за период' : 'Дозаполнить QWEN за период' }}
+        </q-card-section>
         <q-card-section class="q-gutter-sm">
-          <q-banner class="bg-red-1 text-negative text-caption" rounded>
+          <q-banner
+            v-if="isDestructiveRescan"
+            class="bg-red-1 text-negative text-caption"
+            rounded
+          >
             ДЕСТРУКТИВНО: текущие результаты QWEN за выбранный период будут удалены.
             Сначала они сохраняются в историю, затем для выбранных фото запускается
             новое распознавание с текущей моделью <b>{{ current || '—' }}</b>.
+          </q-banner>
+          <q-banner v-else class="bg-blue-1 text-caption" rounded>
+            В очередь попадут только фото без успешного описания за выбранный
+            период. Существующие результаты не удаляются и не перезаписываются;
+            модель — <b>{{ current || '—' }}</b>.
           </q-banner>
           <q-select
             v-model="rescanDateMode"
@@ -888,11 +927,11 @@ onBeforeUnmount(stopStatsPolling)
         <q-card-actions align="right">
           <q-btn flat label="Отмена" v-close-popup :disable="rescanBusy" />
           <q-btn
-            color="negative"
-            label="Пересканировать"
+            :color="isDestructiveRescan ? 'negative' : 'primary'"
+            :label="isDestructiveRescan ? 'Пересканировать' : 'Поставить в очередь'"
             :disable="!canRescan() || rescanBusy"
             :loading="rescanBusy"
-            @click="runDestructiveRescan"
+            @click="runRescan"
           />
         </q-card-actions>
       </q-card>

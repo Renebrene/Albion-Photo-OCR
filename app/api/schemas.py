@@ -218,6 +218,26 @@ class QwenRescanRequest(BaseModel):
         return self
 
 
+class QwenPeriodScanRequest(BaseModel):
+    """
+    Non-destructive QWEN catch-up for one upload/capture date range.
+
+    Only photos without a successful description are enqueued; existing
+    results are never archived or replaced.
+    """
+
+    date_from: date
+    date_to: date
+    date_mode: str = Field(default="capture", pattern="^(upload|capture)$")
+    limit: int = Field(default=1000, ge=1, le=5000)
+
+    @model_validator(mode="after")
+    def validate_range(self):
+        if self.date_to < self.date_from:
+            raise ValueError("date_to must not be earlier than date_from")
+        return self
+
+
 class QwenModelRequest(BaseModel):
     """Select the QWEN model used for metadata extraction."""
 
@@ -451,6 +471,9 @@ class PipelineStartRequest(BaseModel):
 
     folder: str | None = Field(default=None, max_length=4096)
     mode: str = Field(default="manual", pattern="^(manual|schedule|outofqueue)$")
+    # Skip the QWEN stage: run it later for a chosen period
+    # (POST /v1/jobs/qwen/scan). INGEST/PREVIEW/DINO/HYBRID still run.
+    skip_qwen: bool = False
 
 
 class SearchQueryRequest(BaseModel):

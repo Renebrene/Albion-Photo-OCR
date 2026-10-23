@@ -35,6 +35,11 @@ const ACTIVE = ['PENDING', 'RUNNING']
 const isActive = computed(() => ACTIVE.includes(run.value?.status))
 const isStopped = computed(() => run.value?.status === 'STOPPED')
 const isDone = computed(() => run.value?.status === 'DONE')
+const isIdle = computed(() => !isActive.value && !isStopped.value)
+
+// Skip the QWEN stage and run it later for a chosen period
+// (Техраздел → Распознавание → «Дозаполнить за период»).
+const skipQwen = ref(false)
 
 function stageRow(stage) {
   return (run.value?.stages || []).find((item) => item.stage === stage) || null
@@ -122,12 +127,7 @@ async function onClick() {
     return
   }
 
-  if (isStopped.value) {
-    dialogOpen.value = true
-    return
-  }
-
-  await startNew()
+  dialogOpen.value = true
 }
 
 async function startNew() {
@@ -138,7 +138,8 @@ async function startNew() {
 
   busy.value = true
   try {
-    await startPipeline({})
+    await startPipeline({ skip_qwen: skipQwen.value })
+    dialogOpen.value = false
     Notify.create({ type: 'info', message: 'Обновление базы запущено' })
     await poll()
   } catch (err) {
@@ -166,7 +167,7 @@ async function doRestart() {
   if (busy.value) return
   busy.value = true
   try {
-    await startPipeline({})
+    await startPipeline({ skip_qwen: skipQwen.value })
     dialogOpen.value = false
     await poll()
   } catch (err) {
@@ -225,21 +226,43 @@ onBeforeUnmount(() => {
     <q-dialog v-model="dialogOpen">
       <q-card style="width: min(520px, 92vw)">
         <q-card-section class="text-subtitle1">
-          {{ isStopped ? 'Процесс остановлен' : 'Обновление базы выполняется' }}
+          {{
+            isActive
+              ? 'Обновление базы выполняется'
+              : isStopped
+                ? 'Процесс остановлен'
+                : 'Обновление базы'
+          }}
         </q-card-section>
         <q-separator />
 
         <q-card-section class="q-gutter-sm">
-          <div>{{ statusText }}</div>
+          <div v-if="!isIdle">{{ statusText }}</div>
+          <div v-if="isIdle" class="text-caption text-grey-7">
+            Инспектор → превью → DINO/HYBRID → описания. Тяжёлые шаги идут в
+            фоновых воркерах, окно можно закрыть.
+          </div>
           <div v-if="isStopped" class="text-caption text-grey-7">
             Продолжить — с того же набора медиа. Начать заново — новый прогон,
             он учтёт появившиеся файлы, а уже обработанные не пересчитывает.
           </div>
-          <div v-else class="text-caption text-grey-7">
+          <div v-else-if="isActive" class="text-caption text-grey-7">
             Вы уверены, что хотите остановить? Текущий статус будет запомнен и
             продолжен после повторного запуска. Информацию можно посмотреть в
             Техническом разделе. Остановка произойдёт после текущего шага; уже
             запущенные задачи доиграют, состояние сохранится.
+          </div>
+
+          <q-toggle
+            v-if="!isActive"
+            v-model="skipQwen"
+            label="Пропустить QWEN — запущу отдельно за период"
+            dense
+          />
+          <div v-if="!isActive" class="text-caption text-grey-7">
+            Без QWEN прогон завершится быстрее. Затем в Техническом разделе →
+            «Распознавание» → «Дозаполнить за период» можно поставить в очередь
+            только выбранные даты.
           </div>
         </q-card-section>
 
@@ -252,11 +275,18 @@ onBeforeUnmount(() => {
               <q-btn color="secondary" label="Начать заново" :loading="busy" @click="doRestart" />
             </template>
             <q-btn
-              v-else
+              v-else-if="isActive"
               color="negative"
               label="Остановить"
               :loading="busy"
               @click="doStop"
+            />
+            <q-btn
+              v-else
+              color="primary"
+              label="Запустить"
+              :loading="busy"
+              @click="startNew"
             />
           </template>
         </q-card-actions>
