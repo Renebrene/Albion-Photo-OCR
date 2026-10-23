@@ -35,6 +35,14 @@ FINGERPRINTS_ROOT = Path(
 # faiss/opencv into the API process, which this module exists to avoid.
 FINGERPRINT_PREVIEW_NAME = "preview.jpg"
 
+# Сессионная кука: браузер прикладывает её к <img> сам, поэтому превью
+# грузятся нативно (и кэшируются), а не через fetch + blob. Кука принимается
+# ТОЛЬКО для GET/HEAD: записи по-прежнему требуют заголовок Authorization,
+# иначе появился бы CSRF.
+SESSION_COOKIE = "scene_session"
+COOKIE_SECURE = os.getenv("SCENE_COOKIE_SECURE", "0") == "1"
+COOKIE_MAX_AGE = int(os.getenv("SCENE_COOKIE_MAX_AGE", str(7 * 24 * 3600)))
+
 # Interactive docs (/docs, /redoc, /openapi.json). Closed by default:
 # the schema describes every route and the deployment is reachable from a
 # LAN and, through a tunnel, from the internet. Set SCENE_ENABLE_DOCS=1

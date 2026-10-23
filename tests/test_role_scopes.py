@@ -16,11 +16,34 @@ from __future__ import annotations
 
 import pytest
 from fastapi import HTTPException
+from starlette.requests import Request
 
 from app.api import auth
 from app.users import database as users_db
 
 ROLES = ("Администратор", "Менеджер", "Гость")
+
+
+def _request(method="GET", cookie: str | None = None) -> Request:
+    """Минимальный запрос: метод и, при необходимости, кука сессии."""
+
+    headers = []
+
+    if cookie is not None:
+        headers.append((b"cookie", f"scene_session={cookie}".encode()))
+
+    return Request(
+        {
+            "type": "http",
+            "method": method,
+            "headers": headers,
+            "query_string": b"",
+            "path": "/",
+            "server": ("test", 80),
+            "scheme": "http",
+            "client": ("test", 1234),
+        }
+    )
 
 
 def _resolve(monkeypatch, role: str):
@@ -120,7 +143,7 @@ def test_require_scope_denies_and_allows_by_role(monkeypatch):
 
     dependency = auth.require_scope("jobs:write")
     with pytest.raises(HTTPException) as denied:
-        dependency(authorization="Bearer sess")
+        dependency(_request(), authorization="Bearer sess")
     assert denied.value.status_code == 403
 
     # ...while the same scope is granted to Менеджер.
@@ -129,7 +152,9 @@ def test_require_scope_denies_and_allows_by_role(monkeypatch):
         "get_session",
         lambda token: {"user_id": 2, "name": "m", "role": "Менеджер"},
     )
-    principal = auth.require_scope("jobs:write")(authorization="Bearer sess")
+    principal = auth.require_scope("jobs:write")(
+        _request(), authorization="Bearer sess"
+    )
     assert principal["kind"] == "user"
     assert "jobs:write" in principal["scopes"]
 
@@ -139,8 +164,63 @@ def test_require_scope_is_401_without_any_credential(monkeypatch):
     monkeypatch.delenv("SCENE_API_TOKENS", raising=False)
 
     with pytest.raises(HTTPException) as exc:
-        auth.require_scope("read")(authorization=None)
+        auth.require_scope("read")(_request(), authorization=None)
     assert exc.value.status_code == 401
+
+
+def test_cookie_is_accepted_for_reads_only(monkeypatch):
+    """
+    Кука нужна нативным <img>: GET/HEAD проходят, изменяющие — нет.
+
+    Иначе кука, которую браузер прикладывает сам, открыла бы CSRF.
+    """
+
+    monkeypatch.setenv("SCENE_AUTH_REQUIRED", "1")
+    monkeypatch.delenv("SCENE_API_TOKENS", raising=False)
+    monkeypatch.setattr(
+        users_db,
+        "get_session",
+        lambda token: (
+            {"user_id": 1, "name": "g", "role": "Менеджер"}
+            if token == "sess"
+            else None
+        ),
+    )
+
+    read = auth.require_scope("read")(_request("GET", "sess"), authorization=None)
+    assert read["kind"] == "user"
+
+    head = auth.require_scope("read")(_request("HEAD", "sess"), authorization=None)
+    assert head["kind"] == "user"
+
+    with pytest.raises(HTTPException) as denied:
+        auth.require_scope("read")(_request("POST", "sess"), authorization=None)
+    assert denied.value.status_code == 401
+
+
+def test_authorization_header_wins_over_cookie(monkeypatch):
+    """Явный (в том числе неверный) заголовок не подменяется кукой."""
+
+    monkeypatch.setenv("SCENE_AUTH_REQUIRED", "1")
+    monkeypatch.setenv("SCENE_API_TOKENS", "service-token:read")
+    monkeypatch.setattr(
+        users_db,
+        "get_session",
+        lambda token: {"user_id": 1, "name": "g", "role": "Менеджер"}
+        if token == "sess"
+        else None,
+    )
+
+    principal = auth.require_scope("read")(
+        _request("GET", "sess"), authorization="Bearer service-token"
+    )
+    assert principal["kind"] == "service"
+
+    with pytest.raises(HTTPException) as denied:
+        auth.require_scope("read")(
+            _request("GET", "sess"), authorization="Bearer wrong"
+        )
+    assert denied.value.status_code == 401
 
 
 def test_role_scopes_cover_only_known_roles():

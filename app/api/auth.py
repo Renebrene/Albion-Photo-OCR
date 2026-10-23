@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import os
 
-from fastapi import Header, HTTPException
+from fastapi import Request, Header, HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -166,14 +166,18 @@ def _bearer_token(authorization: str | None) -> str | None:
     return authorization.split(" ", 1)[1].strip()
 
 
-def resolve_principal(authorization: str | None) -> dict | None:
+def resolve_principal(
+    authorization: str | None,
+    cookie_token: str | None = None,
+) -> dict | None:
     """
     Resolve a bearer credential into a principal, or None when invalid.
 
     Returns {"kind": "service"|"user", "scopes": set, "user": dict|None}.
     """
 
-    token = _bearer_token(authorization)
+    # Заголовок важнее куки: если клиент прислал явный токен, работаем с ним.
+    token = _bearer_token(authorization) or (str(cookie_token or "").strip() or None)
 
     if not token:
         return None
@@ -210,12 +214,24 @@ def resolve_principal(authorization: str | None) -> dict | None:
 def require_scope(scope: str):
     """FastAPI dependency enforcing *scope* when authentication is enabled."""
 
-    def dependency(authorization: str | None = Header(default=None)):
+    def dependency(
+        request: Request,
+        authorization: str | None = Header(default=None),
+    ):
+        # Кука нужна только для чтения: <img>/<link> не умеют заголовок, а
+        # изменяющие запросы должны нести Authorization, иначе появляется CSRF.
+        cookie_token = None
+
+        if request.method in {"GET", "HEAD"}:
+            from app.api.config import SESSION_COOKIE
+
+            cookie_token = request.cookies.get(SESSION_COOKIE)
+
         if not auth_enabled():
             # Open mode: a valid session is still reported when provided.
-            return resolve_principal(authorization)
+            return resolve_principal(authorization, cookie_token)
 
-        principal = resolve_principal(authorization)
+        principal = resolve_principal(authorization, cookie_token)
 
         if principal is None:
             raise HTTPException(

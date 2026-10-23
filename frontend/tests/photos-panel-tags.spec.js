@@ -461,7 +461,7 @@ describe('строка тегов', () => {
 
     const url = global.fetch.mock.calls
       .map(([value]) => String(value))
-      .filter((value) => value.includes('/v1/photos'))
+      .filter((value) => value.includes('/v1/photos?'))
       .at(-1)
     const params = new URL(url, 'http://localhost').searchParams
 
@@ -522,7 +522,7 @@ describe('строка тегов', () => {
 
     const photoCalls = global.fetch.mock.calls
       .map(([url]) => String(url))
-      .filter((url) => url.includes('/v1/photos'))
+      .filter((url) => url.includes('/v1/photos?'))
 
     expect(photoCalls.length).toBeGreaterThan(0)
 

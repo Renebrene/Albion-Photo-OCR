@@ -45,6 +45,11 @@ const ratioValue = computed(() => {
 // previews existed) instead of just showing the broken-image placeholder.
 const emit = defineEmits(['error', 'loaded'])
 
+// Основной путь — обычный src: браузер сам приложит сессионную куку, сам
+// загрузит и закэширует картинку, без fetch/blob на каждую плитку.
+// Blob остаётся запасным путём на случай, когда куки нет (старая сессия,
+// запрет сторонних cookie) — тогда грузим вручную с заголовком.
+const usingBlob = ref(false)
 const src = ref('')
 const failed = ref(false)
 const heldUrl = ref('')
@@ -101,6 +106,14 @@ function startLoading() {
   if (!src.value && !failed.value) load(props.url)
 }
 
+/** Прямая загрузка не сработала — переключаемся на ручную, с заголовком. */
+function onDirectError() {
+  if (usingBlob.value) return
+
+  usingBlob.value = true
+  load(props.url)
+}
+
 function stopLoading() {
   requestId += 1
   releaseHeld()
@@ -132,9 +145,13 @@ onMounted(() => {
   }
 })
 
-watch(() => props.url, (url) => {
-  if (!props.lazy || visible) load(url)
-  else stopLoading()
+watch(() => props.url, () => {
+  // Новый кадр: снова начинаем с прямого пути. Если он не сработает,
+  // onDirectError переключит на ручную загрузку.
+  usingBlob.value = false
+  failed.value = false
+  src.value = ''
+  releaseHeld()
 })
 
 onBeforeUnmount(() => {
@@ -149,7 +166,14 @@ onBeforeUnmount(() => {
   <!-- Один корень: иначе @click/class от родителя (плитка грида) не
        наследуются, и клик по превью не открывает фото. -->
   <div class="auth-image-root">
-    <div v-if="lazy" ref="rootEl" class="auth-image">
+    <q-img
+      v-if="!usingBlob"
+      :src="url"
+      :ratio="ratioValue"
+      :fit="fit || undefined"
+      @error="onDirectError"
+    />
+    <div v-else-if="lazy" ref="rootEl" class="auth-image">
       <q-img v-if="src" :src="src" :ratio="ratioValue" :fit="fit || undefined" />
       <div
         v-else-if="failed"

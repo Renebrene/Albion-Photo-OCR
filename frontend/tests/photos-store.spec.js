@@ -67,7 +67,7 @@ afterEach(() => {
 
 function lastPhotosUrl() {
   const call = global.fetch.mock.calls
-    .filter(([url]) => String(url).includes('/v1/photos'))
+    .filter(([url]) => String(url).includes('/v1/photos?'))
     .at(-1)
   return String(call[0])
 }

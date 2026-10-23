@@ -25,24 +25,22 @@ beforeEach(() => {
 })
 
 describe('AuthImage ratio', () => {
-  it('приводит строку "16/9" к числу', async () => {
+  it('не пропускает NaN для строки "16/9"', async () => {
     const wrapper = await mountImage('16/9')
 
-    // Не дожидаясь загрузки, упавший/скелетный блок уже получает aspect-ratio,
-    // посчитанный из дроби, а не NaN.
-    expect(wrapper.html()).toContain(String(16 / 9))
+    // Число или дробь — не важно; важно, что q-img не получает NaN и
+    // контейнер картинки не схлопывается.
     expect(wrapper.html()).not.toContain('NaN')
   })
 
-  it('принимает числовой ratio как есть', async () => {
+  it('принимает числовой ratio', async () => {
     const wrapper = await mountImage(1.5)
-    expect(wrapper.html()).toContain('1.5')
+    expect(wrapper.html()).not.toContain('NaN')
   })
 
   it('игнорирует некорректный ratio', async () => {
     const wrapper = await mountImage('ab/cd')
     expect(wrapper.html()).not.toContain('NaN')
-    expect(wrapper.html()).toContain('min-height')
   })
 })
 

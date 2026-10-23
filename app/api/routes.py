@@ -1973,8 +1973,30 @@ def _public_user(user: dict) -> dict:
     return {key: value for key, value in user.items() if key != "password_hash"}
 
 
+def _set_session_cookie(response: Response, token: str) -> None:
+    """
+    Поставить сессионную куку для чтения.
+
+    HttpOnly — из JS её не прочитать; SameSite=Lax — не уходит с чужих сайтов;
+    Secure включается настройкой, когда перед API стоит TLS-прокси. Кука
+    принимается только для GET/HEAD (app/api/auth.py).
+    """
+
+    from app.api.config import COOKIE_MAX_AGE, COOKIE_SECURE, SESSION_COOKIE
+
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        max_age=COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=COOKIE_SECURE,
+        path="/",
+    )
+
+
 @auth_router.post("/v1/auth/login")
-def login(payload: LoginRequest, http_request: Request):
+def login(payload: LoginRequest, http_request: Request, response: Response):
     from app.api import security
 
     ip = security.client_ip(http_request)
@@ -2030,11 +2052,20 @@ def login(payload: LoginRequest, http_request: Request):
     except Exception:  # noqa: BLE001 - logging must never block login
         pass
 
+    _set_session_cookie(response, token)
+
     return {"token": token, "user": _public_user(user)}
 
 
 @auth_router.post("/v1/auth/logout")
-def logout(authorization: str | None = Header(default=None)):
+def logout(
+    response: Response,
+    authorization: str | None = Header(default=None),
+):
+    from app.api.config import SESSION_COOKIE
+
+    response.delete_cookie(SESSION_COOKIE, path="/")
+
     token = None
 
     if authorization and authorization.lower().startswith("bearer "):
@@ -2044,7 +2075,7 @@ def logout(authorization: str | None = Header(default=None)):
 
 
 @auth_router.get("/v1/auth/me", response_model=None)
-def me(authorization: str | None = Header(default=None)):
+def me(response: Response, authorization: str | None = Header(default=None)):
     """
     Public: tells the SPA whether login is required and who is logged in.
 
@@ -2054,6 +2085,18 @@ def me(authorization: str | None = Header(default=None)):
 
     principal = resolve_principal(authorization)
     user = principal.get("user") if principal else None
+
+    # Сессия, начатая до появления куки, получит её при следующем открытии:
+    # SPA зовёт /auth/me на старте.
+    if user is not None:
+        token = None
+
+        if authorization and authorization.lower().startswith("bearer "):
+            token = authorization.split(" ", 1)[1].strip()
+
+        if token:
+            _set_session_cookie(response, token)
+
     return {"user": user, "auth_enabled": auth_enabled()}
 
 
