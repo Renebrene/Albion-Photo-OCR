@@ -68,7 +68,7 @@ const { items, error, loading, addresses, clients, savedSearches } =
   storeToRefs(store)
 
 const q = ref('')
-const dateMode = ref('upload')
+const dateMode = ref('capture')
 // Точные фильтры, выбранные из подсказок поиска.
 const selectedBrand = ref(null)
 const selectedTag = ref(null)
@@ -121,9 +121,10 @@ const manualQwenText = computed(() => {
   if (qwenElapsedSeconds.value > 0) return `QWEN завершил за ${qwenElapsedSeconds.value} с`
   return 'В очереди QWEN…'
 })
-// По умолчанию — текущий месяц: так переключатель «Дата загрузки / съёмки»
-// сразу меняет выдачу, а не показывает один и тот же полный список.
-const period = ref('month')
+// По умолчанию — дата съёмки за последнюю неделю (решение владельца):
+// свежие съёмки видны сразу, а переключатель «Дата загрузки / съёмки»
+// по-прежнему меняет выдачу.
+const period = ref('week')
 const customFrom = ref(null)
 const customTo = ref(null)
 
@@ -149,7 +150,7 @@ watch(
 
 // Grid presentation (mirrors the legacy list/tile toggle + sorting).
 const viewMode = ref('tiles')
-const sortKey = ref('filename')
+const sortKey = ref('address')
 const sortDirection = ref('asc')
 
 const sortOptions = [
@@ -838,10 +839,10 @@ onMounted(async () => {
   store.clientCollectionValues = []
   store.nlIds = []
   q.value = ''
-  period.value = 'month'
+  period.value = 'week'
   customFrom.value = null
   customTo.value = null
-  dateMode.value = 'upload'
+  dateMode.value = 'capture'
   clearStructuredFilters()
   addressSearch.value = ''
   clientSearch.value = ''
@@ -1299,8 +1300,8 @@ async function reset() {
   if (manualOpen.value) await closeManual({ cancel: false })
 
   q.value = ''
-  period.value = 'month'
-  dateMode.value = 'upload'
+  period.value = 'week'
+  dateMode.value = 'capture'
   customFrom.value = null
   customTo.value = null
   store.resetSelectionFilters()
@@ -3052,6 +3053,14 @@ function tagList(meta) {
                     v-if="photo.address"
                     class="ellipsis text-caption text-weight-bold"
                   >
+                    <q-icon
+                      name="auto_awesome"
+                      size="14px"
+                      :color="qwenColor(photo)"
+                      class="q-mr-xs"
+                    >
+                      <q-tooltip>{{ qwenHint(photo) }}</q-tooltip>
+                    </q-icon>
                     {{ photo.simple_address || photo.address }}
                     <q-tooltip v-if="photo.simple_address">
                       {{ photo.address }}
@@ -3063,6 +3072,14 @@ function tagList(meta) {
                     v-else
                     class="ellipsis text-caption text-orange-9"
                   >
+                    <q-icon
+                      name="auto_awesome"
+                      size="14px"
+                      :color="qwenColor(photo)"
+                      class="q-mr-xs"
+                    >
+                      <q-tooltip>{{ qwenHint(photo) }}</q-tooltip>
+                    </q-icon>
                     <q-icon name="help_outline" size="14px" />
                     требует проверки
                     <q-tooltip>
@@ -3081,15 +3098,10 @@ function tagList(meta) {
                       Назначьте адрес вручную в карточке фото.
                     </q-tooltip>
                   </div>
-                  <div class="ellipsis text-caption">
-                    <q-icon
-                      name="auto_awesome"
-                      size="14px"
-                      :color="qwenColor(photo)"
-                      class="q-mr-xs"
-                    >
-                      <q-tooltip>{{ qwenHint(photo) }}</q-tooltip>
-                    </q-icon>
+                  <div
+                    v-if="display.tileShowFilename"
+                    class="ellipsis text-caption"
+                  >
                     {{ photo.filename }}
                   </div>
                   <div

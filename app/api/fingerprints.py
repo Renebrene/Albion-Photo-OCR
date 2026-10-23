@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from pathlib import Path
 
 from app.api.config import FINGERPRINTS_ROOT, FINGERPRINT_PREVIEW_NAME
@@ -518,6 +519,93 @@ def update_fingerprint(
                 return None
 
     return get_fingerprint(fingerprint_id)
+
+
+def _active_recognition_jobs(cur, fingerprint_id: str) -> int:
+    """Recognition or a rebuild currently using the registry."""
+
+    cur.execute(
+        """
+        SELECT count(*)
+        FROM public.job_queue
+        WHERE status IN ('PENDING', 'RUNNING', 'PAUSED')
+          AND (
+              job_type IN ('DINO_BATCH', 'HYBRID_RUN')
+              OR (
+                  job_type = 'FINGERPRINT_BUILD'
+                  AND payload ->> 'fingerprint_id' = %s
+              )
+          )
+        """,
+        (fingerprint_id,),
+    )
+    return int(cur.fetchone()[0])
+
+
+def delete_fingerprint(fingerprint_id: str) -> dict | None:
+    """
+    Remove one fingerprint completely: registry row, address link, files.
+
+    Historical DINO/HYBRID rows keep the id as text; they are results of past
+    runs and are left untouched. Recognition must not be running while the
+    vectors disappear, so an active DINO/HYBRID/rebuild job blocks the call.
+    """
+
+    fingerprint_id = _check_id(fingerprint_id)
+    root = Path(FINGERPRINTS_ROOT).resolve()
+    target = (root / fingerprint_id).resolve()
+
+    if target.parent != root:
+        raise FingerprintError("unsafe fingerprint path")
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            if _active_recognition_jobs(cur, fingerprint_id):
+                raise FingerprintError(
+                    "recognition or a fingerprint rebuild is running; "
+                    "stop it before deleting"
+                )
+
+            cur.execute(
+                "SELECT fingerprint_id FROM public.fingerprints "
+                "WHERE fingerprint_id = %s",
+                (fingerprint_id,),
+            )
+
+            if cur.fetchone() is None:
+                return None
+
+            cur.execute(
+                "DELETE FROM public.address_fingerprints "
+                "WHERE fingerprint_id = %s",
+                (fingerprint_id,),
+            )
+            cur.execute(
+                "DELETE FROM public.fingerprints WHERE fingerprint_id = %s",
+                (fingerprint_id,),
+            )
+
+    removed = 0
+
+    if target.is_dir():
+        removed = sum(1 for path in target.rglob("*") if path.is_file())
+
+        try:
+            shutil.rmtree(target)
+        except OSError as exc:
+            return {
+                "fingerprint_id": fingerprint_id,
+                "files_removed": 0,
+                "files_total": removed,
+                "error": f"registry row removed, files left: {type(exc).__name__}",
+            }
+
+    return {
+        "fingerprint_id": fingerprint_id,
+        "files_removed": removed,
+        "files_total": removed,
+        "error": None,
+    }
 
 
 def address_label(simple_address: object, legal_address: object) -> str:

@@ -1,0 +1,159 @@
+{
+  "id": "231_v33",
+  "version": "3.3",
+  "source_folder": "/media/alexice/F819-A20B/00/231",
+  "image_meta": [
+    {
+      "name": "001 (1).JPG",
+      "taken_at": "2026-10-11 09:50:31"
+    },
+    {
+      "name": "001 (10).JPG",
+      "taken_at": "2026-06-02 12:21:37"
+    },
+    {
+      "name": "001 (11).JPG",
+      "taken_at": "2026-06-02 12:21:38"
+    },
+    {
+      "name": "001 (2).JPG",
+      "taken_at": "2026-10-11 09:50:10"
+    },
+    {
+      "name": "001 (3).JPG",
+      "taken_at": "2026-10-11 09:50:10"
+    },
+    {
+      "name": "001 (4).JPG",
+      "taken_at": "2026-10-11 09:50:11"
+    },
+    {
+      "name": "001 (5).JPG",
+      "taken_at": "2026-10-11 09:50:30"
+    },
+    {
+      "name": "001 (6).JPG",
+      "taken_at": "2026-10-11 09:50:31"
+    },
+    {
+      "name": "001 (7).JPG",
+      "taken_at": "2026-10-01 10:36:53"
+    },
+    {
+      "name": "001 (8).JPG",
+      "taken_at": "2026-10-01 10:36:54"
+    },
+    {
+      "name": "001 (9).JPG",
+      "taken_at": "2026-06-02 12:21:36"
+    },
+    {
+      "name": "IMG_4500.JPG",
+      "taken_at": "2026-10-19 09:27:59"
+    },
+    {
+      "name": "IMG_4501.JPG",
+      "taken_at": "2026-10-19 09:27:59"
+    },
+    {
+      "name": "IMG_4502.JPG",
+      "taken_at": "2026-10-19 09:28:00"
+    },
+    {
+      "name": "IMG_4503.JPG",
+      "taken_at": "2026-10-19 09:28:01"
+    },
+    {
+      "name": "IMG_4504.JPG",
+      "taken_at": "2026-10-19 09:28:15"
+    },
+    {
+      "name": "IMG_4505.JPG",
+      "taken_at": "2026-10-19 09:28:15"
+    },
+    {
+      "name": "IMG_4506.JPG",
+      "taken_at": "2026-10-19 09:28:16"
+    },
+    {
+      "name": "Стачки 231 А (1).JPG",
+      "taken_at": "2026-06-02 12:21:39"
+    },
+    {
+      "name": "Стачки 231 А (2).JPG",
+      "taken_at": "2026-06-02 12:20:29"
+    },
+    {
+      "name": "Стачки 231 А (3).JPG",
+      "taken_at": "2026-06-02 12:20:30"
+    },
+    {
+      "name": "Стачки 231 А (4).JPG",
+      "taken_at": "2026-06-02 12:20:53"
+    },
+    {
+      "name": "Стачки 231 А (5).JPG",
+      "taken_at": "2026-06-02 12:20:54"
+    },
+    {
+      "name": "Стачки 231 А (6).JPG",
+      "taken_at": "2026-06-02 12:20:55"
+    },
+    {
+      "name": "Стачки 231 А (7).JPG",
+      "taken_at": "2026-06-02 12:20:58"
+    },
+    {
+      "name": "Стачки 231 А (8).JPG",
+      "taken_at": "2026-06-02 12:21:36"
+    }
+  ],
+  "model": "facebook/dinov2-base",
+  "images": 26,
+  "dimension": 768,
+  "representatives": 16,
+  "patch_tokens": 0,
+  "patch_storage": false,
+  "environment_descriptor": "compact_v1",
+  "environment_dimension": 640,
+  "color_descriptor": "hsv_histogram_v1",
+  "color_dimension": 48,
+  "spatial_descriptor": "gray_grid_v1",
+  "spatial_dimension": 32,
+  "weights": {
+    "global": 0.7,
+    "environment": 0.2,
+    "color": 0.07,
+    "spatial": 0.03
+  },
+  "image_names": [
+    "001 (1).JPG",
+    "001 (10).JPG",
+    "001 (11).JPG",
+    "001 (2).JPG",
+    "001 (3).JPG",
+    "001 (4).JPG",
+    "001 (5).JPG",
+    "001 (6).JPG",
+    "001 (7).JPG",
+    "001 (8).JPG",
+    "001 (9).JPG",
+    "IMG_4500.JPG",
+    "IMG_4501.JPG",
+    "IMG_4502.JPG",
+    "IMG_4503.JPG",
+    "IMG_4504.JPG",
+    "IMG_4505.JPG",
+    "IMG_4506.JPG",
+    "Стачки 231 А (1).JPG",
+    "Стачки 231 А (2).JPG",
+    "Стачки 231 А (3).JPG",
+    "Стачки 231 А (4).JPG",
+    "Стачки 231 А (5).JPG",
+    "Стачки 231 А (6).JPG",
+    "Стачки 231 А (7).JPG",
+    "Стачки 231 А (8).JPG"
+  ],
+  "preview": "preview.jpg",
+  "skipped_images": []
+}

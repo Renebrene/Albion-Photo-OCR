@@ -2957,6 +2957,31 @@ def update_fingerprint_registry(
     return result
 
 
+@fingerprints_router.delete(
+    "/v1/fingerprints/registry/{fingerprint_id}",
+    response_model=None,
+    dependencies=[Depends(require_scope("settings:write"))],
+)
+def delete_fingerprint_registry(fingerprint_id: str):
+    """
+    Delete one fingerprint: registry row, address link and vector files.
+
+    Admin-only: the operation is irreversible (a fingerprint can be rebuilt,
+    but its versions and address mapping are gone). Historical DINO/HYBRID
+    results keep the id as text and are not touched.
+    """
+
+    try:
+        deleted = fingerprints_mod.delete_fingerprint(fingerprint_id)
+    except fingerprints_mod.FingerprintError as exc:
+        raise _fingerprint_error(exc) from exc
+
+    if deleted is None:
+        raise HTTPException(status_code=404, detail="fingerprint not found")
+
+    return deleted
+
+
 @fingerprints_router.get(
     "/v1/fingerprints/registry/{fingerprint_id}/versions",
     response_model=None,

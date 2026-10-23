@@ -302,6 +302,9 @@ def resume_run(run_id: int) -> bool:
             changed = cur.rowcount == 1
 
     if changed:
+        # Jobs paused by the stop go back to PENDING; the run continues from
+        # the same stage and does not redo finished work.
+        jobs_db.resume_paused_for_pipeline(run_id)
         _sync_history(run_id)
     return changed
 
@@ -345,7 +348,18 @@ def _advance(run_id: int) -> dict:
         return {"skipped": "no active run"}
 
     if run["stop_requested"]:
-        _finish_run(run_id, "STOPPED", message="остановлено пользователем")
+        # Pause the run's queued child jobs: otherwise PREVIEW/QWEN jobs keep
+        # the workers busy long after the run is marked STOPPED. Jobs already
+        # running finish on their own, as documented.
+        paused = jobs_db.pause_pending_for_pipeline(
+            run_id,
+            run.get("started_at") or run.get("created_at"),
+        )
+        _finish_run(
+            run_id,
+            "STOPPED",
+            message=f"остановлено пользователем; заданий приостановлено: {paused}",
+        )
         return {"outcome": "STOPPED"}
 
     # QWEN may have been started right after INGEST and runs in parallel with

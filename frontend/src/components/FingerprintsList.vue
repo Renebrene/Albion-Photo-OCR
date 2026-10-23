@@ -13,6 +13,7 @@ import {
   buildFingerprint,
   buildFingerprintBatch,
   cancelJob,
+  deleteFingerprint,
   fetchAddressDirectory,
   fetchFingerprintBatch,
   fetchFingerprintRegistry,
@@ -39,6 +40,41 @@ const error = ref(null)
 // edit dialog
 const editOpen = ref(false)
 const editTarget = ref(null)
+
+// delete dialog (admin only; destroys the registry row and vector files)
+const deleteOpen = ref(false)
+const deleteTarget = ref(null)
+const deleteBusy = ref(false)
+const deleteError = ref(null)
+
+function openDelete(item) {
+  deleteTarget.value = item
+  deleteError.value = null
+  deleteOpen.value = true
+}
+
+async function doDelete() {
+  if (!deleteTarget.value || deleteBusy.value) return
+
+  deleteBusy.value = true
+  deleteError.value = null
+
+  try {
+    const result = await deleteFingerprint(deleteTarget.value.fingerprint_id)
+    deleteOpen.value = false
+    Notify.create({
+      type: result.error ? 'warning' : 'positive',
+      message: result.error
+        ? `Реестр очищен, файлы остались: ${result.error}`
+        : `Слепок удалён, файлов: ${result.files_removed}`,
+    })
+    await load()
+  } catch (err) {
+    deleteError.value = err.message || 'Не удалось удалить слепок'
+  } finally {
+    deleteBusy.value = false
+  }
+}
 
 // versions dialog
 const versionsOpen = ref(false)
@@ -224,6 +260,8 @@ const batchParent = ref('')
 const batchParentPath = ref('') // родитель текущего списка, для кнопки «вверх»
 const batchDirs = ref([])
 const batchSelected = ref([])
+// Пользовательский ID на папку; пусто — берётся <имя_папки>_v33.
+const batchIds = ref({})
 const batchMaxPhotos = ref(30)
 const batchState = ref(null) // агрегат от /v1/fingerprints/batch/{id}
 
@@ -232,8 +270,21 @@ function openBatch() {
   batchParentPath.value = ''
   batchDirs.value = []
   batchSelected.value = []
+  batchIds.value = {}
   batchState.value = null
   batchOpen.value = true
+}
+
+function defaultBatchId(path) {
+  return `${path.split('/').filter(Boolean).pop()}_v33`
+}
+
+function batchIdFor(path) {
+  return batchIds.value[path] ?? defaultBatchId(path)
+}
+
+function setBatchId(path, value) {
+  batchIds.value = { ...batchIds.value, [path]: String(value ?? '') }
 }
 
 async function loadBatchDirs(path) {
@@ -283,14 +334,28 @@ async function startBatch() {
     return
   }
 
+  const items = batchSelected.value.map((path) => ({
+    fingerprint_id: batchIdFor(path).trim(),
+    folder: path,
+  }))
+  const ids = items.map((item) => item.fingerprint_id)
+
+  if (ids.some((id) => !/^[A-Za-z0-9._-]{1,64}$/.test(id))) {
+    Notify.create({
+      type: 'warning',
+      message: 'ID может содержать буквы, цифры, точку, дефис и подчёркивание',
+    })
+    return
+  }
+
+  if (new Set(ids).size !== ids.length) {
+    Notify.create({ type: 'warning', message: 'ID слепков не должны повторяться' })
+    return
+  }
+
   batchBusy.value = true
 
   try {
-    const items = batchSelected.value.map((path) => ({
-      fingerprint_id: `${path.split('/').filter(Boolean).pop()}_v33`,
-      folder: path,
-    }))
-
     const started = await buildFingerprintBatch({
       items,
       max_photos: batchMaxPhotos.value || null,
@@ -634,6 +699,16 @@ function day(value) {
           <q-btn v-if="isAdmin" dense flat icon="refresh" @click="openBuild(props.row)">
             <q-tooltip>Пересобрать из папки</q-tooltip>
           </q-btn>
+          <q-btn
+            v-if="isAdmin"
+            dense
+            flat
+            color="negative"
+            icon="delete"
+            @click="openDelete(props.row)"
+          >
+            <q-tooltip>Удалить слепок, версии и файлы</q-tooltip>
+          </q-btn>
         </q-td>
       </template>
     </q-table>
@@ -642,6 +717,36 @@ function day(value) {
       Векторы слепков лежат в <code>data/fingerprints/&lt;id&gt;</code>; реестр
       только описывает их. Адрес сопоставляется во вкладке «Адреса».
     </div>
+
+    <!-- delete: registry + versions + address link + vector files -->
+    <q-dialog v-model="deleteOpen">
+      <q-card style="min-width: 420px; max-width: 92vw">
+        <q-card-section class="text-subtitle1">
+          Удалить слепок {{ deleteTarget?.fingerprint_id }}?
+        </q-card-section>
+        <q-separator />
+        <q-card-section class="q-gutter-sm">
+          <q-banner class="bg-red-1 text-negative text-caption" rounded>
+            Будут удалены запись реестра, все версии, привязка к адресу и файлы
+            в <code>data/fingerprints/&lt;id&gt;</code>. Восстановить нельзя —
+            слепок можно только собрать заново. Прошлые результаты DINO/HYBRID
+            останутся в истории и будут ссылаться на удалённый id.
+          </q-banner>
+          <div v-if="deleteError" class="text-negative text-caption">
+            {{ deleteError }}
+          </div>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Отмена" v-close-popup :disable="deleteBusy" />
+          <q-btn
+            color="negative"
+            label="Удалить"
+            :loading="deleteBusy"
+            @click="doDelete"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
 
     <!-- edit -->
     <q-dialog v-model="editOpen">
@@ -1101,7 +1206,18 @@ function day(value) {
                 />
               </q-item-section>
               <q-item-section>
-                <q-item-label>{{ dir.name }}_v33</q-item-label>
+                <q-item-label class="row items-center q-gutter-sm">
+                  <span>{{ dir.name }}</span>
+                  <q-input
+                    :model-value="batchIdFor(dir.path)"
+                    dense
+                    outlined
+                    label="ID слепка"
+                    class="batch-id-input"
+                    @click.stop
+                    @update:model-value="(value) => setBatchId(dir.path, value)"
+                  />
+                </q-item-label>
                 <q-item-label caption>{{ dir.path }}</q-item-label>
               </q-item-section>
               <q-item-section side>
@@ -1191,5 +1307,11 @@ function day(value) {
   max-height: 160px;
   overflow-y: auto;
   font-size: 12px;
+}
+
+/* ID слепка в строке папки: не растягивает список и не перехватывает клик. */
+.batch-id-input {
+  max-width: 240px;
+  min-width: 180px;
 }
 </style>

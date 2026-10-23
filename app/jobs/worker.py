@@ -633,6 +633,27 @@ def _pipeline_loop(interval: float) -> None:
         time.sleep(interval)
 
 
+def resolve_parallel(
+    requested: int,
+    *,
+    preview_only: bool,
+    cpu_count: int | None = None,
+) -> int:
+    """
+    Number of parallel worker processes.
+
+    `--parallel 0` means "half of the logical cores" for the preview worker:
+    WebP encoding is CPU-bound, and half leaves room for the API and DINO.
+    Other worker types keep the old meaning (0 -> 1), except video, which has
+    its own encoder-based choice.
+    """
+
+    if preview_only and int(requested) == 0:
+        return max(1, (cpu_count or os.cpu_count() or 1) // 2)
+
+    return max(1, int(requested))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="PhotoBAse job worker")
     parser.add_argument(
@@ -734,7 +755,10 @@ def main() -> None:
         if encoder == "h264_nvenc":
             parallel = min(parallel, 2)
     else:
-        parallel = max(1, args.parallel)
+        parallel = resolve_parallel(
+            args.parallel,
+            preview_only=preview_only,
+        )
 
     video_threads = max(1, (os.cpu_count() or 1) // parallel)
     if video_only:

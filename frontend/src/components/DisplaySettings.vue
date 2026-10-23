@@ -36,6 +36,18 @@ const display = useDisplayStore()
     </div>
 
     <div>
+      <q-toggle
+        v-model="display.tileShowFilename"
+        dense
+        label="Показывать исходное имя файла в плитке"
+      />
+      <div class="text-caption text-grey">
+        Если выключить, в плитке останутся адрес, дата и клиент. Значок
+        распознавания QWEN стоит перед адресом.
+      </div>
+    </div>
+
+    <div>
       <div class="text-subtitle2">Режим «Список»: отображаемые поля</div>
       <q-option-group
         v-model="display.listFields"

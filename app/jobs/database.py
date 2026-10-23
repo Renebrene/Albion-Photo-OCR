@@ -755,6 +755,61 @@ def clear_finished_jobs(
             return cur.rowcount
 
 
+PIPELINE_JOB_TYPES = (
+    "INGEST_DIR",
+    "PHOTO_PREVIEW",
+    "DINO_BATCH",
+    "HYBRID_RUN",
+    "QWEN_PHOTO",
+)
+
+
+def pause_pending_for_pipeline(run_id: int, since) -> int:
+    """
+    Pause the run's queued child jobs so "Остановить" really stops work.
+
+    In-flight jobs keep running (their result is still useful), but PENDING
+    ones would otherwise keep the workers busy for hours after the run is
+    marked STOPPED. The marker in the payload lets resume() find exactly the
+    jobs paused by this run.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.job_queue
+                SET status = 'PAUSED',
+                    payload = payload || jsonb_build_object(
+                        'paused_by_pipeline_run', %s::int
+                    )
+                WHERE status = 'PENDING'
+                  AND job_type = ANY(%s)
+                  AND created_at >= COALESCE(%s, '-infinity'::timestamptz)
+                """,
+                (int(run_id), list(PIPELINE_JOB_TYPES), since),
+            )
+            return cur.rowcount
+
+
+def resume_paused_for_pipeline(run_id: int) -> int:
+    """Return jobs paused by this run's stop back to PENDING."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.job_queue
+                SET status = 'PENDING',
+                    payload = payload - 'paused_by_pipeline_run'
+                WHERE status = 'PAUSED'
+                  AND payload ->> 'paused_by_pipeline_run' = %s
+                """,
+                (str(int(run_id)),),
+            )
+            return cur.rowcount
+
+
 def cancel_jobs(
     job_type: str,
     *,

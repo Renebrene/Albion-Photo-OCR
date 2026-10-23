@@ -32,6 +32,8 @@ export const SIDE_LIST_LIMITS = { min: 140, max: 640 }
 export const LIST_FIELDS = [
   { value: 'filename', label: 'Имя файла' },
   { value: 'address', label: 'Адрес (распознавание)' },
+  { value: 'legal_address', label: 'Юридический адрес' },
+  { value: 'simple_address', label: 'Упрощённый адрес' },
   { value: 'client', label: 'Клиент' },
   { value: 'brand', label: 'Бренд' },
   { value: 'category', label: 'Категория' },
@@ -78,6 +80,8 @@ const DEFAULT_TILE_COLUMNS = 'auto'
 const DEFAULT_PANEL_WIDTH = 340
 const DEFAULT_SIDE_LIST_HEIGHT = 300
 const DEFAULT_LIST_FIELDS = ['filename', 'address', 'client']
+// Плитка грида: исходное имя файла можно скрыть, оставив адрес и метаданные.
+const DEFAULT_TILE_SHOW_FILENAME = true
 const DEFAULT_DOWNLOAD_NAME_MODE = 'filename'
 // The side panels of the photo page (addresses/collections on the left,
 // clients/collections on the right). Each can be collapsed to the edge; the
@@ -128,6 +132,7 @@ export const useDisplayStore = defineStore('display', () => {
   const tileColumns = ref(DEFAULT_TILE_COLUMNS)
   const listFields = ref([...DEFAULT_LIST_FIELDS])
   const downloadNameMode = ref(DEFAULT_DOWNLOAD_NAME_MODE)
+  const tileShowFilename = ref(DEFAULT_TILE_SHOW_FILENAME)
   const addressClientMode = ref('union')
   // Desired (persisted) widths. The effective width shown in the grid is
   // clamped to the current window and is never written back to storage.
@@ -202,6 +207,11 @@ export const useDisplayStore = defineStore('display', () => {
       typeof saved.rightPanelOpen === 'boolean'
         ? saved.rightPanelOpen
         : DEFAULT_SIDE_PANELS_OPEN
+
+    tileShowFilename.value =
+      typeof saved.tileShowFilename === 'boolean'
+        ? saved.tileShowFilename
+        : DEFAULT_TILE_SHOW_FILENAME
   }
 
   applyState(loadState())
@@ -253,6 +263,7 @@ export const useDisplayStore = defineStore('display', () => {
       tileColumns: tileColumns.value,
       listFields: [...listFields.value],
       downloadNameMode: downloadNameMode.value,
+      tileShowFilename: tileShowFilename.value,
       addressClientMode: addressClientMode.value,
       leftPanelOpen: leftPanelOpen.value,
       rightPanelOpen: rightPanelOpen.value,
@@ -429,6 +440,7 @@ export const useDisplayStore = defineStore('display', () => {
       tileColumns,
       listFields,
       downloadNameMode,
+      tileShowFilename,
       addressClientMode,
       leftPanelOpen,
       rightPanelOpen,
@@ -444,6 +456,7 @@ export const useDisplayStore = defineStore('display', () => {
     tileColumns.value = DEFAULT_TILE_COLUMNS
     listFields.value = [...DEFAULT_LIST_FIELDS]
     downloadNameMode.value = DEFAULT_DOWNLOAD_NAME_MODE
+    tileShowFilename.value = DEFAULT_TILE_SHOW_FILENAME
     addressClientMode.value = 'union'
     leftPanelOpen.value = DEFAULT_SIDE_PANELS_OPEN
     rightPanelOpen.value = DEFAULT_SIDE_PANELS_OPEN
@@ -477,6 +490,7 @@ export const useDisplayStore = defineStore('display', () => {
     tileColumns,
     listFields,
     downloadNameMode,
+    tileShowFilename,
     addressClientMode,
     leftPanelOpen,
     rightPanelOpen,

@@ -582,6 +582,12 @@ export function syncFingerprints() {
   return postJson(`${BASE}/v1/fingerprints/sync`, {})
 }
 
+export function deleteFingerprint(fingerprintId) {
+  return deleteJson(
+    `${BASE}/v1/fingerprints/registry/${encodeURIComponent(fingerprintId)}`,
+  )
+}
+
 export function updateFingerprint(fingerprintId, payload) {
   return putJson(
     `${BASE}/v1/fingerprints/registry/${encodeURIComponent(fingerprintId)}`,

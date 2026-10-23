@@ -103,6 +103,7 @@ describe('display store', () => {
       tileColumns: 6,
       listFields: ['filename', 'brand'],
       downloadNameMode: 'filename',
+      tileShowFilename: true,
       addressClientMode: 'union',
       leftPanelOpen: true,
       rightPanelOpen: true,

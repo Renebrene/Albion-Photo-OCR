@@ -215,6 +215,21 @@ def ingest_directory(
     if since is not None and until is not None and until < since:
         raise ValueError("date_to must not be earlier than date_from")
 
+    # Videos are probed and registered in parallel with the photo pass: the
+    # video grid fills as soon as the Inspector starts, instead of waiting for
+    # thousands of photos to finish. The two branches touch different tables.
+    video_pool = ThreadPoolExecutor(max_workers=1)
+    video_future = video_pool.submit(
+        _ingest_videos,
+        directory,
+        workers=workers,
+        recursive=recursive,
+        only_files=subset,
+        since=since,
+        until=until,
+        date_mode=date_mode,
+    )
+
     result = run(
         directory,
         workers,
@@ -296,15 +311,10 @@ def ingest_directory(
     # Video validation/registration is a separate branch: video IDs live in a
     # distinct table and are never sent to the photo preview/DINO/HYBRID/QWEN
     # pipelines. Photo counters keep their existing shape for old clients.
-    videos = _ingest_videos(
-        directory,
-        workers=workers,
-        recursive=recursive,
-        only_files=subset,
-        since=since,
-        until=until,
-        date_mode=date_mode,
-    )
+    try:
+        videos = video_future.result()
+    finally:
+        video_pool.shutdown(wait=True)
 
     return {
         "directory": str(directory),
