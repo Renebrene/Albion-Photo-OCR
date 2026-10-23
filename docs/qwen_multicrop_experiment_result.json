@@ -1,0 +1,3026 @@
+{
+  "photos": 10,
+  "second_banner_differs": 8,
+  "model": "qwen3-vl:4b-instruct",
+  "variants": [
+    "2048q95",
+    "2048q90",
+    "1280q90"
+  ],
+  "summary": {
+    "2048q95": {
+      "checked": 46,
+      "matched": 46,
+      "rate": 1.0
+    },
+    "2048q95_again": {
+      "checked": 46,
+      "matched": 46,
+      "rate": 1.0
+    },
+    "2048q90": {
+      "checked": 46,
+      "matched": 42,
+      "rate": 0.913
+    },
+    "1280q90": {
+      "checked": 46,
+      "matched": 40,
+      "rate": 0.87
+    },
+    "combined_flat": {
+      "checked": 46,
+      "matched": 21,
+      "rate": 0.457
+    },
+    "combined_banners": {
+      "checked": 46,
+      "matched": 28,
+      "rate": 0.609
+    }
+  },
+  "details": [
+    {
+      "photo_id": "PH_255deb4fea38ad7facf59eb4",
+      "crops": {
+        "crop_1": {
+          "reference": {
+            "client": null,
+            "brand": "Единая Россия",
+            "category": "Политическая реклама"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Рекламный щит партии 'Единая Россия' с призывом 'ВМЕСТЕ!' к голосованию.",
+                "address": null,
+                "client": null,
+                "brand": "Единая Россия",
+                "category": "Политическая реклама",
+                "tags": [
+                  "выборы",
+                  "партия",
+                  "голосование",
+                  "18-19-20 сентября",
+                  "№1",
+                  "вместе"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.83,
+              "prompt_tokens": 1241,
+              "eval_count": 117
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Рекламный щит партии 'Единая Россия' с призывом 'ВМЕСТЕ!' к голосованию.",
+                "address": null,
+                "client": null,
+                "brand": "Единая Россия",
+                "category": "Политическая реклама",
+                "tags": [
+                  "выборы",
+                  "партия",
+                  "голосование",
+                  "18-19-20 сентября",
+                  "№1",
+                  "вместе"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.43,
+              "prompt_tokens": 1241,
+              "eval_count": 117
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Рекламный щит партии 'Единая Россия' с призывом 'ВМЕСТЕ!' к голосованию.",
+                "address": null,
+                "client": null,
+                "brand": "Единая Россия",
+                "category": "Политическая реклама",
+                "tags": [
+                  "выборы",
+                  "партия",
+                  "голосование",
+                  "18-19-20 сентября",
+                  "№1",
+                  "вместе",
+                  "рекламный щит"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.48,
+              "prompt_tokens": 1241,
+              "eval_count": 128
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Рекламный щит партии 'Единая Россия' с призывом голосовать за №1 в выборах 18-19-20 сентября.",
+                "address": null,
+                "client": null,
+                "brand": "Единая Россия",
+                "category": "Политическая реклама",
+                "tags": [
+                  "выборы",
+                  "партия",
+                  "голосование",
+                  "№1",
+                  "сентябрь",
+                  "вместе"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.4,
+              "prompt_tokens": 1241,
+              "eval_count": 120
+            }
+          }
+        },
+        "crop_2": {
+          "reference": {
+            "client": null,
+            "brand": "Единая Россия",
+            "category": "Политическая реклама"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Рекламный щит кандидата на выборы в Госдуму России, Д. Сизякина, главного врача ЦГБ им. Семашко.",
+                "address": null,
+                "client": null,
+                "brand": "Единая Россия",
+                "category": "Политическая реклама",
+                "tags": [
+                  "выборы в Госдуму",
+                  "Дмитрий Сизякин",
+                  "главный врач ЦГБ им. Семашко",
+                  "13-19-20 сентября",
+                  "помогать каждому",
+                  "сизякин.рф"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.09,
+              "prompt_tokens": 1235,
+              "eval_count": 158
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Рекламный щит кандидата на выборы в Госдуму России, Д. Сизякина, главного врача ЦГБ им. Семашко.",
+                "address": null,
+                "client": null,
+                "brand": "Единая Россия",
+                "category": "Политическая реклама",
+                "tags": [
+                  "выборы в Госдуму",
+                  "Дмитрий Сизякин",
+                  "главный врач ЦГБ им. Семашко",
+                  "13-19-20 сентября",
+                  "помогать каждому",
+                  "сизякин.рф"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.98,
+              "prompt_tokens": 1235,
+              "eval_count": 158
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Рекламный щит кандидата на выборы в Госдуму России, Д. Сизякина, главного врача ЦГБ им. Семашко.",
+                "address": null,
+                "client": null,
+                "brand": "Единая Россия",
+                "category": "Политическая реклама",
+                "tags": [
+                  "выборы в Госдуму",
+                  "Дмитрий Сизякин",
+                  "главный врач ЦГБ им. Семашко",
+                  "13-19-20 сентября",
+                  "помогать каждому",
+                  "сизякин.рф"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.91,
+              "prompt_tokens": 1235,
+              "eval_count": 158
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Рекламный щит кандидата на выборы в Госдуму России, Д. Сизякина, главного врача ЦГБ им. Семашко, с лозунгом «Помогать каждому!»",
+                "address": null,
+                "client": null,
+                "brand": "Единая Россия",
+                "category": "политическая реклама",
+                "tags": [
+                  "выборы в Госдуму",
+                  "Дмитрий Сизякин",
+                  "главный врач ЦГБ им. Семашко",
+                  "13-19-20 сентября",
+                  "помогать каждому",
+                  "сайт сизякин.рф"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.15,
+              "prompt_tokens": 1235,
+              "eval_count": 175
+            }
+          }
+        }
+      },
+      "modes": {
+        "combined_flat": {
+          "fields": {
+            "description": "Рекламный щит партии «Единая Россия» с лозунгом «ВМЕСТЕ!» и датами выборов.",
+            "address": null,
+            "client": null,
+            "brand": "Единая Россия",
+            "category": "Политическая реклама",
+            "tags": [
+              "выборы",
+              "партия",
+              "Единая Россия",
+              "дата выборов",
+              "лозунг"
+            ]
+          },
+          "banners": 1,
+          "matched": {
+            "crop_1": {
+              "brand": true,
+              "category": true
+            },
+            "crop_2": {
+              "brand": true,
+              "category": true
+            }
+          },
+          "time_sec": 2.5,
+          "prompt_tokens": 2293,
+          "eval_count": 113
+        },
+        "combined_banners": {
+          "fields": {
+            "banners": [
+              {
+                "description": "Рекламный щит партии \"Единая Россия\" с логотипом, надписью \"ВМЕСТЕ!\" и датами выборов 18-19-20 сентября. Щит имеет синий фон с красно-синими градиентными полосами.",
+                "client": null,
+                "brand": "Единая Россия",
+                "category": "политическая реклама",
+                "tags": [
+                  "Единая Россия",
+                  "выборы",
+                  "18-19-20 сентября",
+                  "ВМЕСТЕ!",
+                  "партия",
+                  "политика"
+                ]
+              },
+              {
+                "description": "Рекламный щит с изображением Дмитрия Сизякина, главного врача ЦГБ им. Семашко, и надписями \"ПОМОГАТЬ КАЖДОМУ!\" и \"СИЗЯКИН.РФ\". Щит имеет синий фон с красно-синими полосами.",
+                "client": null,
+                "brand": "Единая Россия",
+                "category": "политическая реклама",
+                "tags": [
+                  "Дмитрий Сизякин",
+                  "главный врач ЦГБ им. Семашко",
+                  "ПОМОГАТЬ КАЖДОМУ!",
+                  "СИЗЯКИН.РФ",
+                  "Единая Россия",
+                  "выборы в Госдуму России",
+                  "13-19-20 сентября"
+                ]
+              }
+            ]
+          },
+          "banners": 2,
+          "matched": {
+            "crop_1": {
+              "brand": true,
+              "category": true
+            },
+            "crop_2": {
+              "brand": true,
+              "category": true
+            }
+          },
+          "time_sec": 4.45,
+          "prompt_tokens": 2287,
+          "eval_count": 346
+        }
+      },
+      "second_banner_differs": false
+    },
+    {
+      "photo_id": "PH_2f43ff19a098aace4f9c3f78",
+      "crops": {
+        "crop_1": {
+          "reference": {
+            "client": null,
+            "brand": "АКБ",
+            "category": "Товары"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Реклама аккумуляторов для любой техники с бесплатной доставкой и установкой.",
+                "address": null,
+                "client": null,
+                "brand": "АКБ",
+                "category": "Товары",
+                "tags": [
+                  "аккумуляторы",
+                  "бесплатная доставка",
+                  "установка",
+                  "телефон для заказа",
+                  "торговая сеть"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.67,
+              "prompt_tokens": 1235,
+              "eval_count": 106
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Реклама аккумуляторов для любой техники с бесплатной доставкой и установкой.",
+                "address": null,
+                "client": null,
+                "brand": "АКБ",
+                "category": "Товары",
+                "tags": [
+                  "аккумуляторы",
+                  "бесплатная доставка",
+                  "установка",
+                  "телефон для заказа",
+                  "торговая сеть"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.27,
+              "prompt_tokens": 1235,
+              "eval_count": 106
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Реклама аккумуляторов для любой техники с бесплатной доставкой и установкой.",
+                "address": null,
+                "client": null,
+                "brand": "АКБ",
+                "category": "Товары",
+                "tags": [
+                  "аккумуляторы",
+                  "бесплатная доставка",
+                  "установка",
+                  "телефон для заказа",
+                  "торговая сеть"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.22,
+              "prompt_tokens": 1235,
+              "eval_count": 106
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Реклама аккумуляторов для любой техники с бесплатной доставкой и установкой.",
+                "address": null,
+                "client": null,
+                "brand": "АКБ",
+                "category": "Товары",
+                "tags": [
+                  "аккумуляторы",
+                  "бесплатная доставка",
+                  "установка",
+                  "телефон для заказа",
+                  "торговая сеть"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.31,
+              "prompt_tokens": 1235,
+              "eval_count": 106
+            }
+          }
+        },
+        "crop_2": {
+          "reference": {
+            "client": null,
+            "brand": null,
+            "category": "политическая реклама"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Реклама выборов депутатов Государственной Думы в России",
+                "address": null,
+                "client": null,
+                "brand": null,
+                "category": "политическая реклама",
+                "tags": [
+                  "выборы",
+                  "Госдума",
+                  "2026",
+                  "18-19 сентября",
+                  "твой голос",
+                  "сила России"
+                ]
+              },
+              "matched": {
+                "category": true
+              },
+              "time_sec": 1.35,
+              "prompt_tokens": 1251,
+              "eval_count": 99
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Реклама выборов депутатов Государственной Думы в России",
+                "address": null,
+                "client": null,
+                "brand": null,
+                "category": "политическая реклама",
+                "tags": [
+                  "выборы",
+                  "Госдума",
+                  "2026",
+                  "18-19 сентября",
+                  "твой голос",
+                  "сила России"
+                ]
+              },
+              "matched": {
+                "category": true
+              },
+              "time_sec": 1.19,
+              "prompt_tokens": 1251,
+              "eval_count": 99
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Реклама выборов депутатов Государственной Думы в России",
+                "address": null,
+                "client": null,
+                "brand": null,
+                "category": "политическая реклама",
+                "tags": [
+                  "выборы",
+                  "Госдума",
+                  "2026",
+                  "18-19 сентября",
+                  "твой голос",
+                  "сила России"
+                ]
+              },
+              "matched": {
+                "category": true
+              },
+              "time_sec": 2.12,
+              "prompt_tokens": 1251,
+              "eval_count": 99
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Реклама выборов депутатов Государственной Думы в России",
+                "address": null,
+                "client": null,
+                "brand": null,
+                "category": "политическая реклама",
+                "tags": [
+                  "выборы",
+                  "Госдума",
+                  "2026",
+                  "18-19 сентября",
+                  "твой голос",
+                  "сила России"
+                ]
+              },
+              "matched": {
+                "category": true
+              },
+              "time_sec": 1.19,
+              "prompt_tokens": 1251,
+              "eval_count": 99
+            }
+          }
+        }
+      },
+      "modes": {
+        "combined_flat": {
+          "fields": {
+            "description": "Реклама аккумуляторов для любой техники с бесплатной доставкой и установкой.",
+            "address": null,
+            "client": null,
+            "brand": "АКБ",
+            "category": "реклама товаров",
+            "tags": [
+              "аккумуляторы",
+              "бесплатная доставка",
+              "установка",
+              "телефон 8 800 550 15 88"
+            ]
+          },
+          "banners": 1,
+          "matched": {
+            "crop_1": {
+              "brand": true,
+              "category": false
+            },
+            "crop_2": {
+              "category": false
+            }
+          },
+          "time_sec": 2.47,
+          "prompt_tokens": 2303,
+          "eval_count": 114
+        },
+        "combined_banners": {
+          "fields": {
+            "banners": [
+              {
+                "description": "Рекламный щит с надписями: \"НАДЕЖНЫЕ АККУМУЛЯТОРЫ\", \"НА ЛЮБУЮ ТЕХНИКУ\", \"БЕСПЛАТНАЯ ДОСТАВКА И УСТАНОВКА\", телефон 8 800 550 15 88, логотип \"АКБ НА ВСЁ\". Фон — красно-голубой.",
+                "client": "АКБ",
+                "brand": "АКБ",
+                "category": "аккумуляторы",
+                "tags": [
+                  "надежные аккумуляторы",
+                  "на любую технику",
+                  "бесплатная доставка и установка",
+                  "телефон 8 800 550 15 88",
+                  "АКБ на всё"
+                ]
+              },
+              {
+                "description": "Рекламный щит с надписями: \"ВЫБОРЫ ДЕПУТАТОВ ГОСУДАРСТВЕННОЙ ДУМЫ\", дата \"2026 18 19 СЕНТЯБРЯ\", слоган \"ТВОЙ ГОЛОС — СИЛА РОССИИ!\". Фон — вертикальные полосы.",
+                "client": null,
+                "brand": null,
+                "category": "выборы",
+                "tags": [
+                  "выборы депутатов государственной думы",
+                  "2026 18 19 сентября",
+                  "твой голос — сила россии"
+                ]
+              }
+            ]
+          },
+          "banners": 2,
+          "matched": {
+            "crop_1": {
+              "brand": true,
+              "category": false
+            },
+            "crop_2": {
+              "category": false
+            }
+          },
+          "time_sec": 4.78,
+          "prompt_tokens": 2297,
+          "eval_count": 373
+        }
+      },
+      "second_banner_differs": false
+    },
+    {
+      "photo_id": "PH_5d8b7af1b4f9da1c33504a6a",
+      "crops": {
+        "crop_1": {
+          "reference": {
+            "client": "OMODA AAA Моторс-Запад",
+            "brand": "OMODA",
+            "category": "автомобили"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Реклама электрического автомобиля OMODA C7 с ценой от 2 859 900 руб.",
+                "address": null,
+                "client": "OMODA AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобили",
+                "tags": [
+                  "электромобиль",
+                  "OMODA C7",
+                  "цена от 2859900 руб",
+                  "рекламный щит",
+                  "автомобильная реклама"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.02,
+              "prompt_tokens": 1217,
+              "eval_count": 134
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Реклама электрического автомобиля OMODA C7 с ценой от 2 859 900 руб.",
+                "address": null,
+                "client": "OMODA AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобили",
+                "tags": [
+                  "электромобиль",
+                  "OMODA C7",
+                  "цена от 2 859 900 руб.",
+                  "рекламный щит",
+                  "автомобильная реклама"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.64,
+              "prompt_tokens": 1217,
+              "eval_count": 136
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Реклама электрического автомобиля OMODA C7 с ценой от 2 859 900 руб.",
+                "address": null,
+                "client": "OMODA AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобили",
+                "tags": [
+                  "электромобиль",
+                  "OMODA C7",
+                  "цена от 2859900 руб",
+                  "рекламный щит",
+                  "автомобильная реклама"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.57,
+              "prompt_tokens": 1217,
+              "eval_count": 134
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Реклама электрического автомобиля OMODA C7 с ценой от 2 859 900 руб.",
+                "address": null,
+                "client": "OMODA AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобили",
+                "tags": [
+                  "электромобиль",
+                  "OMODA C7",
+                  "цена от 2859900 руб",
+                  "рекламный щит",
+                  "автомобильная реклама"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.58,
+              "prompt_tokens": 1217,
+              "eval_count": 134
+            }
+          }
+        },
+        "crop_2": {
+          "reference": {
+            "client": "МегаФон",
+            "brand": "realme",
+            "category": "телефоны"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Реклама смартфонов Realme C85 и C85 Pro от МегаФона с акцией на покупку телефона и тарифа.",
+                "address": null,
+                "client": "МегаФон",
+                "brand": "realme",
+                "category": "телефоны",
+                "tags": [
+                  "акция",
+                  "смартфон",
+                  "Realme C85",
+                  "C85 Pro",
+                  "тариф",
+                  "абонемент",
+                  "МегаФон"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.71,
+              "prompt_tokens": 1265,
+              "eval_count": 131
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Реклама смартфонов Realme C85 и C85 Pro от МегаФона с акцией на покупку телефона и тарифа.",
+                "address": null,
+                "client": "МегаФон",
+                "brand": "realme",
+                "category": "телефоны",
+                "tags": [
+                  "акция",
+                  "смартфон",
+                  "Realme C85",
+                  "C85 Pro",
+                  "тариф",
+                  "абонемент",
+                  "МегаФон"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.54,
+              "prompt_tokens": 1265,
+              "eval_count": 131
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Реклама смартфонов Realme C85 и C85 Pro от МегаФона с акцией на покупку телефона + тариф.",
+                "address": null,
+                "client": "МегаФон",
+                "brand": "realme",
+                "category": "телефоны",
+                "tags": [
+                  "акция",
+                  "смартфон",
+                  "Realme C85",
+                  "C85 Pro",
+                  "тариф",
+                  "абонемент",
+                  "новый абонент"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.51,
+              "prompt_tokens": 1265,
+              "eval_count": 130
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Реклама смартфонов Realme C85 и C85 Pro от МегаФона с акцией на покупку телефона + тариф.",
+                "address": null,
+                "client": "МегаФон",
+                "brand": "realme",
+                "category": "Телефоны",
+                "tags": [
+                  "акция",
+                  "смартфон",
+                  "Realme C85",
+                  "C85 Pro",
+                  "тариф",
+                  "абонемент",
+                  "новый абонент"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.54,
+              "prompt_tokens": 1265,
+              "eval_count": 130
+            }
+          }
+        }
+      },
+      "modes": {
+        "combined_flat": {
+          "fields": {
+            "description": "Реклама автомобиля OMODA C7 с ценой от 2 859 900 руб.",
+            "address": null,
+            "client": "OMODA AAA Моторс-Запад",
+            "brand": "OMODA",
+            "category": "автомобили",
+            "tags": [
+              "автомобиль",
+              "OMODA C7",
+              "цена",
+              "реклама",
+              "баннер"
+            ]
+          },
+          "banners": 1,
+          "matched": {
+            "crop_1": {
+              "client": true,
+              "brand": true,
+              "category": true
+            },
+            "crop_2": {
+              "client": false,
+              "brand": false,
+              "category": false
+            }
+          },
+          "time_sec": 2.42,
+          "prompt_tokens": 2299,
+          "eval_count": 110
+        },
+        "combined_banners": {
+          "fields": {},
+          "banners": 0,
+          "matched": {
+            "crop_1": {
+              "client": false,
+              "brand": false,
+              "category": false
+            },
+            "crop_2": {
+              "client": false,
+              "brand": false,
+              "category": false
+            }
+          },
+          "time_sec": 12.96,
+          "prompt_tokens": 2293,
+          "eval_count": 1024
+        }
+      },
+      "second_banner_differs": true
+    },
+    {
+      "photo_id": "PH_13a5920187e745b7533a856b",
+      "crops": {
+        "crop_1": {
+          "reference": {
+            "client": null,
+            "brand": "Айс Дэ Люкс",
+            "category": "Продукт питания"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Реклама напитка «Айс Дэ Люкс» с карамелью по цене 89 рублей, с акцентом на вкус до мурасhek.",
+                "address": null,
+                "client": null,
+                "brand": "Айс Дэ Люкс",
+                "category": "Продукт питания",
+                "tags": [
+                  "Напиток",
+                  "Карамель",
+                  "Скидка",
+                  "Реклама",
+                  "Баннер"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.97,
+              "prompt_tokens": 1265,
+              "eval_count": 123
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Реклама напитка «Айс Дэ Люкс» с карамелью по цене 89 рублей, с акцентом на вкус до мурасhek.",
+                "address": null,
+                "client": null,
+                "brand": "Айс Дэ Люкс",
+                "category": "Продукт питания",
+                "tags": [
+                  "Напиток",
+                  "Карамель",
+                  "Скидка",
+                  "Реклама",
+                  "Дешево",
+                  "Мурасhek"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.61,
+              "prompt_tokens": 1265,
+              "eval_count": 131
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Реклама напитка «Айс Дэ Люкс Карамель» с ценой 89 рублей, акция до 25 октября.",
+                "address": null,
+                "client": null,
+                "brand": "Айс Дэ Люкс",
+                "category": "Напитки",
+                "tags": [
+                  "Карамель",
+                  "Айс Дэ Люкс",
+                  "Реклама",
+                  "Цена 89 руб.",
+                  "Акция",
+                  "До 25 октября"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": false
+              },
+              "time_sec": 2.56,
+              "prompt_tokens": 1265,
+              "eval_count": 129
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Реклама напитка «Айс Дэ Люкс Карамель» с ценой 89 рублей, акция до 152 рублей.",
+                "address": null,
+                "client": null,
+                "brand": "Айс Дэ Люкс",
+                "category": "Напитки/Ингредиенты",
+                "tags": [
+                  "Карамель",
+                  "Скидка",
+                  "89 руб",
+                  "152 руб",
+                  "Айс Дэ Люкс",
+                  "Рекламный щит"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": false
+              },
+              "time_sec": 1.69,
+              "prompt_tokens": 1265,
+              "eval_count": 137
+            }
+          }
+        },
+        "crop_2": {
+          "reference": {
+            "client": "AAA Моторс-Запад",
+            "brand": "OMODA",
+            "category": "автомобили"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Реклама нового автомобиля OMODA C5 в салоне AAA Моторс-Запад",
+                "address": null,
+                "client": "AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобили",
+                "tags": [
+                  "новый автомобиль",
+                  "OMODA C5",
+                  "рекламный щит",
+                  "доступен в салоне",
+                  "ул. Доватора, 259",
+                  "телефон +7 863 306 00 10"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.96,
+              "prompt_tokens": 1241,
+              "eval_count": 147
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Реклама нового автомобиля OMODA C5 в салоне AAA Моторс-Запад",
+                "address": null,
+                "client": "AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобили",
+                "tags": [
+                  "новый автомобиль",
+                  "OMODA C5",
+                  "рекламный щит",
+                  "доступен в салоне",
+                  "ул. Доватора, 259",
+                  "телефон +7 863 306 00 10"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.79,
+              "prompt_tokens": 1241,
+              "eval_count": 147
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Реклама нового автомобиля OMODA C5 в салоне AAA Моторс-Запад",
+                "address": null,
+                "client": "AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобили",
+                "tags": [
+                  "новый автомобиль",
+                  "OMODA C5",
+                  "рекламный щит",
+                  "дилерский центр",
+                  "улица Доватора, 259",
+                  "телефон +7 863 306 00 10"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.73,
+              "prompt_tokens": 1241,
+              "eval_count": 145
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Реклама нового автомобиля OMODA C5 в салоне AAA Моторс-Запад",
+                "address": null,
+                "client": "AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобили",
+                "tags": [
+                  "новый автомобиль",
+                  "OMODA C5",
+                  "рекламный щит",
+                  "дилерский центр",
+                  "улица Доватора, 259"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.53,
+              "prompt_tokens": 1241,
+              "eval_count": 123
+            }
+          }
+        }
+      },
+      "modes": {
+        "combined_flat": {
+          "fields": {
+            "description": "Реклама напитка Айс Дэ Люкс с карамелью по цене 89 рублей.",
+            "address": null,
+            "client": null,
+            "brand": "Айс Де Люкс",
+            "category": "еда и напитки",
+            "tags": [
+              "напиток",
+              "какао",
+              "карамель",
+              "цена 89 руб",
+              "рекламный щит"
+            ]
+          },
+          "banners": 1,
+          "matched": {
+            "crop_1": {
+              "brand": true,
+              "category": false
+            },
+            "crop_2": {
+              "client": false,
+              "brand": false,
+              "category": false
+            }
+          },
+          "time_sec": 2.55,
+          "prompt_tokens": 2323,
+          "eval_count": 114
+        },
+        "combined_banners": {
+          "fields": {
+            "banners": [
+              {
+                "description": "Рекламный щит с изображением коктейля «Айс Дэ Люкс Карамель» от 89₽, надпись «Вкусно до мурашек», фон — зеленые листья. Внизу мелкий текст о условиях продажи.",
+                "client": null,
+                "brand": "Айс Дэ Люкс",
+                "category": "ресторан/кофе",
+                "tags": [
+                  "89₽",
+                  "Вкусно до мурашек",
+                  "Айс Дэ Люкс Карамель",
+                  "152₽",
+                  "коктейль",
+                  "фото на фоне листьев"
+                ]
+              },
+              {
+                "description": "Рекламный щит с изображением красного автомобиля OMODA C5, рядом — женщина. Надпись: «Новый OMODA C5 уже в AAA Моторс-Запад». Внизу — адрес и телефон.",
+                "client": "AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобили",
+                "tags": [
+                  "Новый OMODA C5",
+                  "AAA Моторс-Запад",
+                  "ул. Доватора, 259",
+                  "тел. +7 863 306 00 10",
+                  "красный автомобиль",
+                  "женщина рядом с автомобилем"
+                ]
+              }
+            ]
+          },
+          "banners": 2,
+          "matched": {
+            "crop_1": {
+              "brand": true,
+              "category": false
+            },
+            "crop_2": {
+              "client": true,
+              "brand": true,
+              "category": true
+            }
+          },
+          "time_sec": 4.13,
+          "prompt_tokens": 2317,
+          "eval_count": 324
+        }
+      },
+      "second_banner_differs": true
+    },
+    {
+      "photo_id": "PH_666fe41ab2fa3dedce2ff267",
+      "crops": {
+        "crop_1": {
+          "reference": {
+            "client": "AAA Моторс-Запад",
+            "brand": "OMODA",
+            "category": "автомобили"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Реклама нового автомобиля OMODA C5 в салоне AAA Моторс-Запад.",
+                "address": null,
+                "client": "AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобили",
+                "tags": [
+                  "новый автомобиль",
+                  "OMODA C5",
+                  "рекламный щит",
+                  "салон авто",
+                  "ул. Доватора, 259",
+                  "телефон +7 863 306 00 10"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.04,
+              "prompt_tokens": 1241,
+              "eval_count": 140
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Реклама нового автомобиля OMODA C5 в салоне AAA Моторс-Запад.",
+                "address": null,
+                "client": "AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобили",
+                "tags": [
+                  "новый автомобиль",
+                  "OMODA C5",
+                  "рекламный щит",
+                  "салон авто",
+                  "ул. Доватора, 259",
+                  "телефон +7 863 306 00 10"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.68,
+              "prompt_tokens": 1241,
+              "eval_count": 140
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Реклама нового автомобиля OMODA C5 в автосалоне AAA Моторс-Запад.",
+                "address": null,
+                "client": "AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобили",
+                "tags": [
+                  "новый автомобиль",
+                  "OMODA C5",
+                  "автосалон",
+                  "рекламный щит",
+                  "улица Доватора, 259",
+                  "телефон +7 863 306 00 10"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.69,
+              "prompt_tokens": 1241,
+              "eval_count": 146
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Реклама нового автомобиля OMODA C5 в автосалоне AAA Моторс-Запад.",
+                "address": null,
+                "client": "AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобили",
+                "tags": [
+                  "новый автомобиль",
+                  "OMODA C5",
+                  "автосалон",
+                  "рекламный щит",
+                  "улица Доватора, 259",
+                  "телефон +7 863 306 00 10"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.75,
+              "prompt_tokens": 1241,
+              "eval_count": 146
+            }
+          }
+        },
+        "crop_2": {
+          "reference": {
+            "client": null,
+            "brand": "Комус",
+            "category": "Продажа товаров"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Реклама офисного кресла от Комус на красном фоне с ценой 7649 руб.",
+                "address": null,
+                "client": null,
+                "brand": "Комус",
+                "category": "Продажа товаров",
+                "tags": [
+                  "офисное кресло",
+                  "рекламный щит",
+                  "цена 7649₽",
+                  "акция",
+                  "для офиса",
+                  "Комус.ком"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.6,
+              "prompt_tokens": 1241,
+              "eval_count": 120
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Реклама офисного кресла от Комус на красном фоне с ценой 7649 руб.",
+                "address": null,
+                "client": null,
+                "brand": "Комус",
+                "category": "Продажа товаров",
+                "tags": [
+                  "офисное кресло",
+                  "рекламный щит",
+                  "цена 7649₽",
+                  "акция",
+                  "для офиса",
+                  "Комус.ком"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.46,
+              "prompt_tokens": 1241,
+              "eval_count": 120
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Реклама офисного кресла от Коммус",
+                "address": null,
+                "client": null,
+                "brand": "Коммус",
+                "category": "Продажа товаров",
+                "tags": [
+                  "офисное кресло",
+                  "акция",
+                  "7649₽",
+                  "для офиса",
+                  "KOMUS.COM",
+                  "8 (800) 200 33 83"
+                ]
+              },
+              "matched": {
+                "brand": false,
+                "category": true
+              },
+              "time_sec": 2.27,
+              "prompt_tokens": 1241,
+              "eval_count": 112
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Реклама офисного кресла от Коммус",
+                "address": null,
+                "client": null,
+                "brand": "Коммус",
+                "category": "Продажа товаров",
+                "tags": [
+                  "офисное кресло",
+                  "акция",
+                  "7649₽",
+                  "для офиса",
+                  "KOMUS.COM",
+                  "8 (800) 200 33 83"
+                ]
+              },
+              "matched": {
+                "brand": false,
+                "category": true
+              },
+              "time_sec": 1.37,
+              "prompt_tokens": 1241,
+              "eval_count": 112
+            }
+          }
+        }
+      },
+      "modes": {
+        "combined_flat": {
+          "fields": {
+            "description": "Реклама нового электромобиля OMODA C5 в автосалоне AAA Моторс-Запад",
+            "address": null,
+            "client": "AAA Моторс-Запад",
+            "brand": "OMODA",
+            "category": "автомобильная реклама",
+            "tags": [
+              "новый автомобиль",
+              "электромобиль",
+              "OMODA C5",
+              "автосалон",
+              "AAA Моторс-Запад"
+            ]
+          },
+          "banners": 1,
+          "matched": {
+            "crop_1": {
+              "client": true,
+              "brand": true,
+              "category": false
+            },
+            "crop_2": {
+              "brand": false,
+              "category": false
+            }
+          },
+          "time_sec": 2.57,
+          "prompt_tokens": 2299,
+          "eval_count": 122
+        },
+        "combined_banners": {
+          "fields": {
+            "banners": [
+              {
+                "description": "Новый OMODA C5 уже в AAA Моторс-Запад",
+                "client": "AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобили",
+                "tags": [
+                  "Новый OMODA C5",
+                  "услуги продажи автомобилей",
+                  "AAA Моторс-Запад",
+                  "ул. Доватора, 259",
+                  "тел. +7 863 306 00 10"
+                ]
+              },
+              {
+                "description": "Коммус для офиса",
+                "client": "Коммус",
+                "brand": "KOMUS",
+                "category": "офисная мебель",
+                "tags": [
+                  "Коммус",
+                  "для офиса",
+                  "7649₽",
+                  "KOMUS.COM",
+                  "8 (800) 200 33 83"
+                ]
+              }
+            ]
+          },
+          "banners": 2,
+          "matched": {
+            "crop_1": {
+              "client": true,
+              "brand": true,
+              "category": true
+            },
+            "crop_2": {
+              "brand": false,
+              "category": false
+            }
+          },
+          "time_sec": 2.74,
+          "prompt_tokens": 2293,
+          "eval_count": 213
+        }
+      },
+      "second_banner_differs": true
+    },
+    {
+      "photo_id": "PH_54a68015dda2c87763ffa08e",
+      "crops": {
+        "crop_1": {
+          "reference": {
+            "client": "OMODA AAA Моторс-Запад",
+            "brand": "OMODA",
+            "category": "автомобильная реклама"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Реклама электромобиля OMODA C7 с ценой от 2 859 900 руб.",
+                "address": null,
+                "client": "OMODA AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобильная реклама",
+                "tags": [
+                  "электромобиль",
+                  "OMODA C7",
+                  "цена от 2 859 900 руб.",
+                  "рекламный щит",
+                  "дилерский центр",
+                  "автомобили"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.13,
+              "prompt_tokens": 1241,
+              "eval_count": 143
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Реклама электромобиля OMODA C7 с ценой от 2 859 900 руб.",
+                "address": null,
+                "client": "OMODA AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобильная реклама",
+                "tags": [
+                  "электромобиль",
+                  "OMODA C7",
+                  "цена от 2 859 900 руб.",
+                  "рекламный щит",
+                  "дилерский центр",
+                  "автомобили"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.72,
+              "prompt_tokens": 1241,
+              "eval_count": 143
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Реклама электромобиля OMODA C7 с ценой от 2 859 900 руб.",
+                "address": null,
+                "client": "OMODA AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобильная реклама",
+                "tags": [
+                  "электромобиль",
+                  "OMODA C7",
+                  "цена от 2 859 900 руб.",
+                  "рекламный щит",
+                  "автомобили",
+                  "сроки акции",
+                  "дилерский центр"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.73,
+              "prompt_tokens": 1241,
+              "eval_count": 151
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Реклама электромобиля OMODA C7 с ценой от 2 859 900 руб.",
+                "address": null,
+                "client": "OMODA AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобильная реклама",
+                "tags": [
+                  "электромобиль",
+                  "OMODA C7",
+                  "цена от 2 859 900 руб.",
+                  "рекламный щит",
+                  "автомобили",
+                  "сроки акции",
+                  "дилерский центр"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.81,
+              "prompt_tokens": 1241,
+              "eval_count": 151
+            }
+          }
+        },
+        "crop_2": {
+          "reference": {
+            "client": null,
+            "brand": "Звук",
+            "category": "музыка"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Реклама музыкального сервиса Звук с акцией бесплатной подписки через СберПрайм.",
+                "address": null,
+                "client": null,
+                "brand": "Звук",
+                "category": "музыка",
+                "tags": [
+                  "бесплатно",
+                  "СберПрайм",
+                  "музыка",
+                  "подписка",
+                  "12+"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.39,
+              "prompt_tokens": 1243,
+              "eval_count": 102
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Реклама музыкального сервиса Звук с акцией бесплатной подписки через СберПрайм.",
+                "address": null,
+                "client": null,
+                "brand": "Звук",
+                "category": "музыка",
+                "tags": [
+                  "бесплатно",
+                  "СберПрайм",
+                  "музыка",
+                  "подписка",
+                  "12+"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.23,
+              "prompt_tokens": 1243,
+              "eval_count": 102
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Реклама музыкального сервиса 'Звук' с акцией бесплатной подписки через СберПрайм.",
+                "address": null,
+                "client": null,
+                "brand": "Звук",
+                "category": "музыка",
+                "tags": [
+                  "бесплатно",
+                  "СберПрайм",
+                  "музыка",
+                  "подписка",
+                  "12+"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.2,
+              "prompt_tokens": 1243,
+              "eval_count": 104
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Реклама музыкального сервиса 'Звук' с акцией бесплатной подписки через СберПрайм.",
+                "address": null,
+                "client": null,
+                "brand": "Звук",
+                "category": "музыка",
+                "tags": [
+                  "бесплатно",
+                  "СберПрайм",
+                  "музыка",
+                  "подписка",
+                  "12+"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.25,
+              "prompt_tokens": 1243,
+              "eval_count": 104
+            }
+          }
+        }
+      },
+      "modes": {
+        "combined_flat": {
+          "fields": {
+            "description": "Реклама электромобиля OMODA C7 с ценой от 2 859 900 руб.",
+            "address": null,
+            "client": "OMODA AAA Моторс-Запад",
+            "brand": "OMODA",
+            "category": "автомобильная реклама",
+            "tags": [
+              "электромобиль",
+              "OMODA C7",
+              "цена от 2859900 руб",
+              "рекламный щит",
+              "автомобили",
+              "сроки акции"
+            ]
+          },
+          "banners": 1,
+          "matched": {
+            "crop_1": {
+              "client": true,
+              "brand": true,
+              "category": true
+            },
+            "crop_2": {
+              "brand": false,
+              "category": false
+            }
+          },
+          "time_sec": 2.79,
+          "prompt_tokens": 2301,
+          "eval_count": 140
+        },
+        "combined_banners": {
+          "fields": {
+            "banners": [
+              {
+                "description": "Рекламный щит с автомобилем OMODA C7. На фоне — футуристическое здание. Текст: \"Технологичный OMODA C7 от 2 859 900 ₽\". Подпись: \"ул. Доватора, 259 OMODA AAA Моторс-Запад тел. +7 863 303 31 08\".",
+                "client": "ООО «ЗВУК», ОГРН 517746137005, г. Москва. АО «ЦПЛ», ОГРН 111746689840, г. Москва",
+                "brand": "OMODA",
+                "category": "автомобили",
+                "tags": [
+                  "Технологичный OMODA C7",
+                  "от 2 859 900 ₽",
+                  "ул. Доватора, 259",
+                  "OMODA AAA Моторс-Запад",
+                  "тел. +7 863 303 31 08"
+                ]
+              },
+              {
+                "description": "Рекламный щит с логотипом «Звук» и надписью \"Очень много музыки\". На фоне — изображения смартфонов с музыкой. Подпись: \"бесплатно с Прайм\", \"12+\", \"ООО «ЗВУК», ОГРН 517746137005, г. МОСКВА. ПОДПИСКА «СБЕРПРАЙМ» — АО «ЦПЛ», ОГРН 111746689840, г. МОСКВА. ПОДРОБНОСТИ:\"",
+                "client": "ООО «ЗВУК», ОГРН 517746137005, г. Москва. АО «ЦПЛ», ОГРН 111746689840, г. Москва",
+                "brand": "Звук",
+                "category": "музыка",
+                "tags": [
+                  "Звук",
+                  "Очень много музыки",
+                  "бесплатно с Прайм",
+                  "12+",
+                  "ООО «ЗВУК», ОГРН 517746137005, г. МОСКВА. ПОДПИСКА «СБЕРПРАЙМ» — АО «ЦПЛ», ОГРН 111746689840, г. МОСКВА. ПОДРОБНОСТИ:"
+                ]
+              }
+            ]
+          },
+          "banners": 2,
+          "matched": {
+            "crop_1": {
+              "client": true,
+              "brand": true,
+              "category": false
+            },
+            "crop_2": {
+              "brand": true,
+              "category": true
+            }
+          },
+          "time_sec": 8.32,
+          "prompt_tokens": 2295,
+          "eval_count": 652
+        }
+      },
+      "second_banner_differs": true
+    },
+    {
+      "photo_id": "PH_a8a206d6c24be8d75963d79f",
+      "crops": {
+        "crop_1": {
+          "reference": {
+            "client": "OMODA AAA Моторс-Запад",
+            "brand": "OMODA",
+            "category": "автомобильная реклама"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Реклама электромобиля OMODA C7 с ценой от 2 859 900 руб.",
+                "address": null,
+                "client": "OMODA AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобильная реклама",
+                "tags": [
+                  "электромобиль",
+                  "OMODA C7",
+                  "цена от 2 859 900 руб.",
+                  "рекламный щит",
+                  "Украина",
+                  "ул. Доватора, 259"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.16,
+              "prompt_tokens": 1220,
+              "eval_count": 147
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Реклама электромобиля OMODA C7 с ценой от 2 859 900 руб.",
+                "address": null,
+                "client": "OMODA AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобильная реклама",
+                "tags": [
+                  "электромобиль",
+                  "OMODA C7",
+                  "цена от 2 859 900 руб.",
+                  "рекламный щит",
+                  "Украина",
+                  "ул. Доватора, 259"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.76,
+              "prompt_tokens": 1220,
+              "eval_count": 147
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Реклама электромобиля OMODA C7 с ценой от 2 859 900 руб.",
+                "address": null,
+                "client": "OMODA AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобильная реклама",
+                "tags": [
+                  "электромобиль",
+                  "OMODA C7",
+                  "от 2 859 900 руб.",
+                  "рекламный щит",
+                  "Украина",
+                  "ул. Доватора, 259"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.66,
+              "prompt_tokens": 1220,
+              "eval_count": 145
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Реклама электромобиля OMODA C7 с ценой от 2 859 900 руб.",
+                "address": null,
+                "client": "OMODA AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобильная реклама",
+                "tags": [
+                  "электромобиль",
+                  "OMODA C7",
+                  "от 2 859 900 руб.",
+                  "технологический",
+                  "ул. Доватора, 259",
+                  "телефон +7 863 303 31 08"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.85,
+              "prompt_tokens": 1220,
+              "eval_count": 155
+            }
+          }
+        },
+        "crop_2": {
+          "reference": {
+            "client": "Яндекс.Маркет",
+            "brand": "DÉMIANO",
+            "category": "Электроника / Кухонная техника"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Реклама распродажи аэрогрилей Demiando, №1 бренд в России, через Яндекс.Маркет",
+                "address": null,
+                "client": "Яндекс.Маркет",
+                "brand": "DÉMIANO",
+                "category": "Электроника / Кухонная техника",
+                "tags": [
+                  "распродажа",
+                  "аэрогриль",
+                  "демиано",
+                  "яндекс маркет",
+                  "рекламный щит",
+                  "россия",
+                  "№1 бренд"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.61,
+              "prompt_tokens": 1241,
+              "eval_count": 139
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Реклама распродажи аэрогрилей Demiando, №1 бренд в России, через Яндекс.Маркет",
+                "address": null,
+                "client": "Яндекс.Маркет",
+                "brand": "DÉMIANO",
+                "category": "Электроника / Кухонная техника",
+                "tags": [
+                  "распродажа",
+                  "аэрогриль",
+                  "демиано",
+                  "яндекс маркет",
+                  "рекламный щит",
+                  "россия",
+                  "№1 бренд"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.67,
+              "prompt_tokens": 1241,
+              "eval_count": 139
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Реклама распродажи аэрогрилей Demiando в Яндекс Маркете, утверждение №1 по продажам в России.",
+                "address": null,
+                "client": "Яндекс Маркет",
+                "brand": "Demiando",
+                "category": "Распродажа бытовой техники",
+                "tags": [
+                  "распродажа",
+                  "аэрогриль",
+                  "демиано",
+                  "яндекс маркет",
+                  "рекламный щит",
+                  "россия",
+                  "бренд №1"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": false,
+                "category": false
+              },
+              "time_sec": 2.62,
+              "prompt_tokens": 1241,
+              "eval_count": 141
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Реклама на красном фоне с изображением аэрогриля Demian, утверждение о #1 в России по продажам, акция на Яндекс Маркете.",
+                "address": null,
+                "client": null,
+                "brand": "Demian",
+                "category": "Распродажа бытовой техники",
+                "tags": [
+                  "Аэрогриль",
+                  "Яндекс Маркет",
+                  "Распродажа",
+                  "Топ продаж",
+                  "Россия"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": false,
+                "category": false
+              },
+              "time_sec": 1.55,
+              "prompt_tokens": 1241,
+              "eval_count": 128
+            }
+          }
+        }
+      },
+      "modes": {
+        "combined_flat": {
+          "fields": {
+            "description": "Реклама автомобиля OMODA C7 с ценой от 2 859 900 руб.",
+            "address": null,
+            "client": "OMODA AAA Моторс-Запад",
+            "brand": "OMODA",
+            "category": "автомобили",
+            "tags": [
+              "автомобиль",
+              "OMODA C7",
+              "цена",
+              "реклама",
+              "дешево"
+            ]
+          },
+          "banners": 1,
+          "matched": {
+            "crop_1": {
+              "client": true,
+              "brand": true,
+              "category": false
+            },
+            "crop_2": {
+              "client": false,
+              "brand": false,
+              "category": false
+            }
+          },
+          "time_sec": 2.48,
+          "prompt_tokens": 2278,
+          "eval_count": 112
+        },
+        "combined_banners": {
+          "fields": {
+            "banners": [
+              {
+                "description": "Технологичный OMODA C7 от 2 859 900 Р",
+                "client": "OMODA AAA Моторс-Запад",
+                "brand": "OMODA",
+                "category": "автомобили",
+                "tags": [
+                  "Технологичный OMODA C7",
+                  "от 2 859 900 Р",
+                  "ул. Доватора, 259",
+                  "тел. +7 863 303 31 08"
+                ]
+              },
+              {
+                "description": "ДЭМИАНД БРЕНД N°1 АЭРОГРИЛЕЙ В РОССИИ",
+                "client": "Яндекс Маркет",
+                "brand": "DÉMIANO",
+                "category": "домашние товары",
+                "tags": [
+                  "ДЭМИАНАНД БРЕНД N°1 АЭРОГРИЛЕЙ В РОССИИ",
+                  "РАСПРОДАЖА",
+                  "0+",
+                  "Яндекс Маркет"
+                ]
+              }
+            ]
+          },
+          "banners": 2,
+          "matched": {
+            "crop_1": {
+              "client": true,
+              "brand": true,
+              "category": false
+            },
+            "crop_2": {
+              "client": true,
+              "brand": true,
+              "category": false
+            }
+          },
+          "time_sec": 3.16,
+          "prompt_tokens": 2272,
+          "eval_count": 243
+        }
+      },
+      "second_banner_differs": true
+    },
+    {
+      "photo_id": "PH_e55d4f1f1c89618442e77056",
+      "crops": {
+        "crop_1": {
+          "reference": {
+            "client": "СБЕР",
+            "brand": "Сбер",
+            "category": "Реклама банковских скидок"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Реклама скидок на колонки Сбер в отделениях банка за бонусы Спасибо и Прайм.",
+                "address": null,
+                "client": "СБЕР",
+                "brand": "Сбер",
+                "category": "Реклама банковских скидок",
+                "tags": [
+                  "скидки до 99%",
+                  "бонусы Спасибо",
+                  "Прайм",
+                  "колонки",
+                  "отделения банка",
+                  "24.06.2026",
+                  "20.07.2026"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.88,
+              "prompt_tokens": 1265,
+              "eval_count": 150
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Реклама скидок на колонки Сбер в отделениях банка за бонусы Спасибо и Прайм.",
+                "address": null,
+                "client": "СБЕР",
+                "brand": "Сбер",
+                "category": "Реклама банковских скидок",
+                "tags": [
+                  "скидки до 99%",
+                  "бонусы Спасибо",
+                  "Прайм",
+                  "колонки",
+                  "отделения банка",
+                  "24.06.2026",
+                  "20.07.2026"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.81,
+              "prompt_tokens": 1265,
+              "eval_count": 150
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Реклама скидок на колонки Сбер в отделениях банка за бонусы Спасибо и Прайм.",
+                "address": null,
+                "client": "СБЕР",
+                "brand": "Сбер",
+                "category": "Реклама банковских скидок",
+                "tags": [
+                  "скидки до 99%",
+                  "бонусы Спасибо",
+                  "Прайм",
+                  "колонки",
+                  "отделения банка",
+                  "24.06.2026",
+                  "20.07.2026"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.78,
+              "prompt_tokens": 1265,
+              "eval_count": 150
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Реклама скидок на колонки Сбер в отделениях банка за бонусы Спасибо и Прайм",
+                "address": null,
+                "client": "СБЕР",
+                "brand": "Сбер",
+                "category": "Рекламный щит",
+                "tags": [
+                  "скидки до 99%",
+                  "бонусы Спасибо",
+                  "Прайм",
+                  "колонки",
+                  "отделения банка",
+                  "24.06.2026 - 20.07.2026"
+                ]
+              },
+              "matched": {
+                "client": true,
+                "brand": true,
+                "category": false
+              },
+              "time_sec": 1.75,
+              "prompt_tokens": 1265,
+              "eval_count": 146
+            }
+          }
+        },
+        "crop_2": {
+          "reference": {
+            "client": null,
+            "brand": "ТОЧНО",
+            "category": "ЖК"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Реклама жилья: двухкомнатная квартира по цене однокомнатной, срок акции — 1 месяц.",
+                "address": null,
+                "client": null,
+                "brand": "ТОЧНО",
+                "category": "ЖК",
+                "tags": [
+                  "два комнаты",
+                  "по цене одной",
+                  "акция",
+                  "1 месяц",
+                  "жильё",
+                  "Точно.Life"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.33,
+              "prompt_tokens": 1265,
+              "eval_count": 110
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Реклама жилья: двухкомнатная квартира по цене однокомнатной, срок акции — 1 месяц.",
+                "address": null,
+                "client": null,
+                "brand": "ТОЧНО",
+                "category": "ЖК",
+                "tags": [
+                  "два комнаты",
+                  "по цене одной",
+                  "акция",
+                  "1 месяц",
+                  "жильё",
+                  "рекламный щит"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.37,
+              "prompt_tokens": 1265,
+              "eval_count": 113
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Реклама жилья: двухкомнатная квартира по цене однокомнатной, срок акции — 1 месяц.",
+                "address": null,
+                "client": null,
+                "brand": "ТОЧНО",
+                "category": "ЖК",
+                "tags": [
+                  "два комнаты",
+                  "по цене одной",
+                  "акция",
+                  "1 месяц",
+                  "жильё",
+                  "Точно.Life"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.29,
+              "prompt_tokens": 1265,
+              "eval_count": 110
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Реклама жилья: двухкомнатная квартира по цене однокомнатной, срок акции — 1 месяц.",
+                "address": null,
+                "client": null,
+                "brand": "ТОЧНО",
+                "category": "Недвижимость",
+                "tags": [
+                  "два комнаты",
+                  "по цене одной",
+                  "акция",
+                  "1 месяц",
+                  "квартира",
+                  "продажа",
+                  "рекламный щит"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": false
+              },
+              "time_sec": 1.48,
+              "prompt_tokens": 1265,
+              "eval_count": 123
+            }
+          }
+        }
+      },
+      "modes": {
+        "combined_flat": {
+          "fields": {
+            "description": "Реклама скидок на колонки Сбер в отделениях банка за бонусы Спасибо и Прайм.",
+            "address": null,
+            "client": "СБЕР",
+            "brand": "Сбербанк",
+            "category": "Продажа товаров",
+            "tags": [
+              "скидки",
+              "колонки",
+              "Сбербанк",
+              "Спасибо",
+              "Прайм"
+            ]
+          },
+          "banners": 1,
+          "matched": {
+            "crop_1": {
+              "client": true,
+              "brand": true,
+              "category": false
+            },
+            "crop_2": {
+              "brand": false,
+              "category": false
+            }
+          },
+          "time_sec": 2.45,
+          "prompt_tokens": 2347,
+          "eval_count": 109
+        },
+        "combined_banners": {
+          "fields": {
+            "banners": [
+              {
+                "description": "Чемпионские скидки на колонки Сбер в отделениях ПАО «Сбербанк» Скидки до 99% за бонусы Спасибо. ВАУ скидки. ОOO «САЛЮТДЕВАЙСЫ», ОГРН:1197746592394, МОСКВА. СКИДКИ ДЕЙСТВУЮТ С 24.06.2026 ПО 20.07.2026",
+                "client": "Сбербанк",
+                "brand": "Сбер",
+                "category": "электроника",
+                "tags": [
+                  "Чемпионские скидки",
+                  "колонки Сбер",
+                  "отделения ПАО «Сбербанк»",
+                  "скидки до 99%",
+                  "за бонусы Спасибо",
+                  "ВАУ скидки",
+                  "ОOO «САЛЮТДЕВАЙСЫ»",
+                  "МОСКВА",
+                  "24.06.2026",
+                  "20.07.2026"
+                ]
+              },
+              {
+                "description": "СТОЛИЦЫНО ДВУШКА ПО ЦЕНЕ ОДНУШКИ ТОЛЬКО 1 МЕСЯЦ! ТОЛЬКО 1 МЕСЯЦ! ТОЧНО СКИДКА НА ЕВРО 2 К. КОЗ. В УЧРЕЖДЕНИИ 1731 ЗА СЧЁТ СОБСТВЕННЫХ ОБЩЕСТВ, ПОДДРУЖНЕ: НА САЙТЕ TOCHNO.LIFE. ЗАМЕСТИТЕЛЬ: КОД СЗ «ТОЧНО» 16-Н-238624452. ПРОДУКТЫ ДЕЖАРАВИЯ НА САЙТЕ НАШ ДОМ.RF, НЕ ОБОПРЕТА.",
+                "client": "TOCHNO.LIFE",
+                "brand": "ТОЧНО",
+                "category": "недвижимость",
+                "tags": [
+                  "СТОЛИЦЫНО",
+                  "ДВУШКА",
+                  "ПО ЦЕНЕ ОДНУШКИ",
+                  "ТОЛЬКО 1 МЕСЯЦ!",
+                  "ТОЧНО",
+                  "СКИДКА НА ЕВРО 2 К. КОЗ.",
+                  "УЧРЕЖДЕНИЕ 1731",
+                  "НА САЙТЕ TOCHNO.LIFE",
+                  "ЗАМЕСТИТЕЛЬ: КОД СЗ «ТОЧНО» 16-Н-238624452",
+                  "ПРОДУКТЫ ДЕЖАРАВИЯ НА САЙТЕ НАШ ДОМ.RF",
+                  "НЕ ОБОПРЕТА"
+                ]
+              },
+              {
+                "description": "Спасибо Прайм",
+                "client": null,
+                "brand": null,
+                "category": null,
+                "tags": [
+                  "Спасибо",
+                  "Прайм"
+                ]
+              }
+            ]
+          },
+          "banners": 3,
+          "matched": {
+            "crop_1": {
+              "client": true,
+              "brand": true,
+              "category": false
+            },
+            "crop_2": {
+              "brand": true,
+              "category": false
+            }
+          },
+          "time_sec": 9.16,
+          "prompt_tokens": 2341,
+          "eval_count": 720
+        }
+      },
+      "second_banner_differs": true
+    },
+    {
+      "photo_id": "PH_f078ce974faf8da939e4f77d",
+      "crops": {
+        "crop_1": {
+          "reference": {
+            "client": null,
+            "brand": null,
+            "category": "рекламные щиты"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Рекламная сеть щитов в России, включая Ростов-на-Дону, Таганрог, Шахты, Новочеркасск, Волгоград.",
+                "address": null,
+                "client": null,
+                "brand": null,
+                "category": "рекламные щиты",
+                "tags": [
+                  "Ростов-на-Дону",
+                  "Таганрог",
+                  "Шахты",
+                  "Новочеркасск",
+                  "Волгоград",
+                  "реклама",
+                  "рекламные щиты",
+                  "Albion.ru"
+                ]
+              },
+              "matched": {
+                "category": true
+              },
+              "time_sec": 3.07,
+              "prompt_tokens": 1235,
+              "eval_count": 162
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Рекламная сеть щитов в России, включая Ростов-на-Дону, Таганрог, Шахты, Новочеркасск, Волгогодонск.",
+                "address": null,
+                "client": null,
+                "brand": null,
+                "category": "рекламные щиты",
+                "tags": [
+                  "Ростов-на-Дону",
+                  "Таганрог",
+                  "Шахты",
+                  "Новочеркасск",
+                  "Волгогодонск",
+                  "реклама",
+                  "рекламные щиты",
+                  "Albion.ru"
+                ]
+              },
+              "matched": {
+                "category": true
+              },
+              "time_sec": 1.99,
+              "prompt_tokens": 1235,
+              "eval_count": 166
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Рекламная сеть щитов в Ростове-на-Дону, Таганроге, Шахтах, Новочеркасске и Волгогодонске.",
+                "address": null,
+                "client": null,
+                "brand": null,
+                "category": "рекламные щиты",
+                "tags": [
+                  "Ростов-на-Дону",
+                  "Таганрог",
+                  "Шахты",
+                  "Новочеркасск",
+                  "Волгогодонск",
+                  "ALBION.SU",
+                  "телефон (863) 320-30-20"
+                ]
+              },
+              "matched": {
+                "category": true
+              },
+              "time_sec": 2.92,
+              "prompt_tokens": 1235,
+              "eval_count": 166
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Рекламная сеть щитов в Ростове-на-Дону, Таганроге, Шахтах, Новочеркасске и Волгогодонске.",
+                "address": null,
+                "client": null,
+                "brand": null,
+                "category": "рекламные щиты",
+                "tags": [
+                  "Ростов-на-Дону",
+                  "Таганрог",
+                  "Шахты",
+                  "Новочеркасск",
+                  "Волгогодонск",
+                  "ALBION.SU",
+                  "телефон (863) 320-30-20"
+                ]
+              },
+              "matched": {
+                "category": true
+              },
+              "time_sec": 1.98,
+              "prompt_tokens": 1235,
+              "eval_count": 166
+            }
+          }
+        },
+        "crop_2": {
+          "reference": {
+            "client": null,
+            "brand": "Единая Россия",
+            "category": "Политическая реклама"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Рекламный щит партии «Единая Россия» для выборов в Государственную Думу России, с лозунгом «Сказано – Сделано!»",
+                "address": null,
+                "client": null,
+                "brand": "Единая Россия",
+                "category": "Политическая реклама",
+                "tags": [
+                  "выборы в Госдуму",
+                  "Единая Россия",
+                  "народная программа",
+                  "Сказано – Сделано!",
+                  "18-20 сентября"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.6,
+              "prompt_tokens": 1251,
+              "eval_count": 138
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Рекламный щит партии «Единая Россия» для выборов в Государственную Думу России, с лозунгом «Сказано – Сделано!»",
+                "address": null,
+                "client": null,
+                "brand": "Единая Россия",
+                "category": "Политическая реклама",
+                "tags": [
+                  "выборы в Госдуму",
+                  "Единая Россия",
+                  "народная программа",
+                  "Сказано – Сделано!",
+                  "18-20 сентября"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.65,
+              "prompt_tokens": 1251,
+              "eval_count": 138
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Реклама выборов в Государственную Думу России, кампания «Единая Россия»",
+                "address": null,
+                "client": null,
+                "brand": "Единая Россия",
+                "category": "Политическая реклама",
+                "tags": [
+                  "выборы",
+                  "Госдума",
+                  "Единая Россия",
+                  "народная программа",
+                  "сказано - сделано",
+                  "18-20 сентября"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.38,
+              "prompt_tokens": 1251,
+              "eval_count": 119
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Реклама выборов в Государственную Думу России, кампания «Единая Россия»",
+                "address": null,
+                "client": null,
+                "brand": "Единая Россия",
+                "category": "Политическая реклама",
+                "tags": [
+                  "выборы",
+                  "Госдума",
+                  "Единая Россия",
+                  "народная программа",
+                  "сказано - сделано",
+                  "18-20 сентября"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.44,
+              "prompt_tokens": 1251,
+              "eval_count": 119
+            }
+          }
+        }
+      },
+      "modes": {
+        "combined_flat": {
+          "fields": {
+            "description": "Реклама сети щитов для рекламных кампаний в городах России",
+            "address": null,
+            "client": null,
+            "brand": null,
+            "category": "рекламные щиты",
+            "tags": [
+              "реклама",
+              "сети щитов",
+              "Ростов-на-Дону",
+              "Таганрог",
+              "Шахты",
+              "Новочеркасск",
+              "Волгоград",
+              "телефон",
+              "сайт"
+            ]
+          },
+          "banners": 1,
+          "matched": {
+            "crop_1": {
+              "category": true
+            },
+            "crop_2": {
+              "brand": false,
+              "category": false
+            }
+          },
+          "time_sec": 2.75,
+          "prompt_tokens": 2303,
+          "eval_count": 136
+        },
+        "combined_banners": {
+          "fields": {
+            "banners": [
+              {
+                "description": "СЕТЬ РЕКЛАМНЫХ ЩИТОВ. Карта с маркерами в Ростове-на-Дону, Таганроге, Шахтах, Новочеркасске, Волгогодонске. Телефон (863) 320-30-20. Сайт ALBION.SU.",
+                "client": "ALBION",
+                "brand": null,
+                "category": "реклама",
+                "tags": [
+                  "СЕТЬ РЕКЛАМНЫХ ЩИТОВ",
+                  "Ростов-на-Дону",
+                  "Таганрог",
+                  "Шахты",
+                  "Новочеркасск",
+                  "Волгогодонск",
+                  "(863) 320-30-20",
+                  "ALBION.SU"
+                ]
+              },
+              {
+                "description": "ВЫБОРЫ В ГОСУДАРСТВЕННУЮ ДИМУ РОССИИ — 18 – 19 – 20 СЕНТЯБРЯ. НАРОДНАЯ ПРОГРАММА. СКАЗАНО — СДЕЛАНО!. Логотип Единой России.",
+                "client": "Единая Россия",
+                "brand": "Единая Россия",
+                "category": "политическая реклама",
+                "tags": [
+                  "ВЫБОРЫ В ГОСУДАРСТВЕННУЮ ДИМУ РОССИИ",
+                  "18 – 19 – 20 СЕНТЯБРЯ",
+                  "НАРОДНАЯ ПРОГРАММА",
+                  "СКАЗАНО — СДЕЛАНО!",
+                  "Единая Россия"
+                ]
+              }
+            ]
+          },
+          "banners": 2,
+          "matched": {
+            "crop_1": {
+              "category": false
+            },
+            "crop_2": {
+              "brand": true,
+              "category": true
+            }
+          },
+          "time_sec": 5.39,
+          "prompt_tokens": 2297,
+          "eval_count": 402
+        }
+      },
+      "second_banner_differs": true
+    },
+    {
+      "photo_id": "PH_6fcea930fd6f4b3dba77f129",
+      "crops": {
+        "crop_1": {
+          "reference": {
+            "client": null,
+            "brand": "Бронницкий ювелир",
+            "category": "Ювелирные изделия"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Реклама скидок до 50% на цепи и браслеты от бренда Bronnitsy.",
+                "address": null,
+                "client": null,
+                "brand": "Бронницкий ювелир",
+                "category": "Ювелирные изделия",
+                "tags": [
+                  "скидка",
+                  "ювелирные цепи",
+                  "браслеты",
+                  "до 50%",
+                  "акция",
+                  "Bronnitsy.com"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.77,
+              "prompt_tokens": 1235,
+              "eval_count": 121
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Реклама скидок до 50% на цепи и браслеты от бренда Bronnitsy.",
+                "address": null,
+                "client": null,
+                "brand": "Бронницкий Ювелир",
+                "category": "Ювелирные изделия",
+                "tags": [
+                  "скидка",
+                  "цепи",
+                  "браслеты",
+                  "ювелирный салон",
+                  "Московская область"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.4,
+              "prompt_tokens": 1235,
+              "eval_count": 113
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Реклама скидок до 50% на цепи и браслеты от бренда Bronnitsy.",
+                "address": null,
+                "client": null,
+                "brand": "Бронницкий ювелир",
+                "category": "Ювелирные изделия",
+                "tags": [
+                  "скидка",
+                  "ювелирные цепи",
+                  "браслеты",
+                  "до 50%",
+                  "акция",
+                  "Bronnitsy.com"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.45,
+              "prompt_tokens": 1235,
+              "eval_count": 121
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Реклама скидок до 50% на цепи и браслеты от бренда «Бронницкий Ювелир»",
+                "address": null,
+                "client": null,
+                "brand": "БРОННИЦКИЙ ЮВЕЛИР",
+                "category": "реклама ювелирных изделий",
+                "tags": [
+                  "скидка до 50%",
+                  "цепи и браслеты",
+                  "ювелирные изделия",
+                  "акция",
+                  "Бронницы",
+                  "Московская область"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.73,
+              "prompt_tokens": 1235,
+              "eval_count": 142
+            }
+          }
+        },
+        "crop_2": {
+          "reference": {
+            "client": null,
+            "brand": "Единая Россия",
+            "category": "Политическая реклама"
+          },
+          "variants": {
+            "2048q95": {
+              "fields": {
+                "description": "Реклама выборов в Государственную Думу России 2018 года от партии «Единая Россия» с лозунгом «Сказано — Сделано!»",
+                "address": null,
+                "client": null,
+                "brand": "Единая Россия",
+                "category": "Политическая реклама",
+                "tags": [
+                  "выборы",
+                  "Госдума",
+                  "18-20 сентября",
+                  "народная программа",
+                  "Единая Россия",
+                  "Сказано — Сделано"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.69,
+              "prompt_tokens": 1251,
+              "eval_count": 142
+            },
+            "2048q95_again": {
+              "fields": {
+                "description": "Реклама выборов в Государственную Думу России 2018 года от партии «Единая Россия» с лозунгом «Сказано — Сделано!»",
+                "address": null,
+                "client": null,
+                "brand": "Единая Россия",
+                "category": "Политическая реклама",
+                "tags": [
+                  "выборы",
+                  "Госдума",
+                  "18-20 сентября",
+                  "народная программа",
+                  "Единая Россия",
+                  "Сказано — Сделано"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.72,
+              "prompt_tokens": 1251,
+              "eval_count": 142
+            },
+            "2048q90": {
+              "fields": {
+                "description": "Реклама выборов в Государственную Думу России 2018 года от партии «Единая Россия» с лозунгом «Сказано — Сделано!»",
+                "address": null,
+                "client": null,
+                "brand": "Единая Россия",
+                "category": "Политическая реклама",
+                "tags": [
+                  "выборы",
+                  "Госдума",
+                  "18-20 сентября",
+                  "народная программа",
+                  "Сказано — Сделано!",
+                  "партия",
+                  "Единая Россия"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 2.78,
+              "prompt_tokens": 1251,
+              "eval_count": 148
+            },
+            "1280q90": {
+              "fields": {
+                "description": "Реклама выборов в Государственную Думу России 2018 года от партии «Единая Россия» с лозунгом «Сказано — Сделано!»",
+                "address": null,
+                "client": null,
+                "brand": "Единая Россия",
+                "category": "Политическая реклама",
+                "tags": [
+                  "выборы",
+                  "Госдума",
+                  "18-20 сентября",
+                  "народная программа",
+                  "Единая Россия",
+                  "Сказано — Сделано"
+                ]
+              },
+              "matched": {
+                "brand": true,
+                "category": true
+              },
+              "time_sec": 1.74,
+              "prompt_tokens": 1251,
+              "eval_count": 142
+            }
+          }
+        }
+      },
+      "modes": {
+        "combined_flat": {
+          "fields": {
+            "description": "Реклама ювелирного магазина с акцией до -50% на цепи и браслеты.",
+            "address": null,
+            "client": "Бронницкий Ювелир",
+            "brand": null,
+            "category": "ювелирные изделия",
+            "tags": [
+              "акция",
+              "ювелирный магазин",
+              "цепи",
+              "браслеты",
+              "до -50%",
+              "сроки акции"
+            ]
+          },
+          "banners": 1,
+          "matched": {
+            "crop_1": {
+              "brand": true,
+              "category": true
+            },
+            "crop_2": {
+              "brand": false,
+              "category": false
+            }
+          },
+          "time_sec": 2.6,
+          "prompt_tokens": 2303,
+          "eval_count": 121
+        },
+        "combined_banners": {
+          "fields": {
+            "banners": [
+              {
+                "description": "БРОННИЦКИЙ ЮВЕЛИР\nНА ЦЕПИ И БРАСЛЕТЫ\ndо -50%\nАКЦИЯ ДЕЙСТВУЕТ С 01.07.2026 ПО 31.07.2026: ПОДРОБНОСТИ НА САЙТЕ BRONNITSY.COM\nОГРН: 1035007922861 ООО «БРОННИЦКИЙ ЮВЕЛИРНЫЙ САЛОН» КОР. АДРЕС: 140170.\nМОСКОВСКАЯ ОБЛАСТЬ, Г. БРОННИЦЫ, ПЕР. КОМСОМОЛЬСКИЙ, Д. 53, ЭТАЖ 1, ПОМ. 2",
+                "client": null,
+                "brand": "БРОННИЦКИЙ ЮВЕЛИР",
+                "category": "ювелирные изделия",
+                "tags": [
+                  "до -50%",
+                  "акция",
+                  "цепи",
+                  "браслеты",
+                  "сайт bronnitsy.com",
+                  "московская область",
+                  "бронницы"
+                ]
+              },
+              {
+                "description": "ВЫБОРЫ В ГОСУДАРСТВЕННУЮ ДУМУ РОССИИ — 18 — 19 — 20 СЕНТЯБРЯ\nНАРОДНАЯ ПРОГРАММА\nСКАЗАНО —\nСДЕЛАНО!\nЕДИНАЯ РОССИЯ",
+                "client": null,
+                "brand": "ЕДИНАЯ РОССИЯ",
+                "category": "политическая кампания",
+                "tags": [
+                  "выборы в думу россии",
+                  "18-19-20 сентября",
+                  "народная программа",
+                  "сказано — сделано!",
+                  "единая россия"
+                ]
+              }
+            ]
+          },
+          "banners": 2,
+          "matched": {
+            "crop_1": {
+              "brand": true,
+              "category": true
+            },
+            "crop_2": {
+              "brand": true,
+              "category": false
+            }
+          },
+          "time_sec": 6.01,
+          "prompt_tokens": 2297,
+          "eval_count": 471
+        }
+      },
+      "second_banner_differs": true
+    }
+  ]
+}
