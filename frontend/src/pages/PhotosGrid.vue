@@ -1903,14 +1903,16 @@ async function downloadZip() {
   try {
     // Do not name this local `items`: it would shadow the loaded photo list
     // (`items.value`) used in the initializer and hit its temporal dead zone.
-    const archiveItems = [...store.selected].map((photoId) => ({
+    const archiveItems = [...store.selected].map((photoId, index) => ({
       photo_id: photoId,
-      // The same name the single-file download would use.
+      // The same name the single-file download would use; the position in
+      // the batch is the iteration for files whose name carries none.
       name: downloadFileName(
         items.value.find((photo) => photo.photo_id === photoId) || {
           photo_id: photoId,
         },
         display.downloadNameMode,
+        index + 1,
       ),
     }))
 
@@ -1937,14 +1939,18 @@ async function downloadSelected() {
   // пропускаем его, считаем и сообщаем в конце.
   const skipped = []
 
-  for (const photoId of [...store.selected]) {
+  for (const [index, photoId] of [...store.selected].entries()) {
     // Use the real file name, not the PH_… id (item 11 of the UI backlog);
-    // the address prefix follows the display settings (item 11b).
+    // the name follows the display settings (item 11b).
     const photo = items.value.find((item) => item.photo_id === photoId)
     try {
       await downloadAuthenticated(
         originalUrl(photoId),
-        downloadFileName(photo || { photo_id: photoId }, display.downloadNameMode),
+        downloadFileName(
+          photo || { photo_id: photoId },
+          display.downloadNameMode,
+          index + 1,
+        ),
       )
     } catch {
       skipped.push(photo?.filename || photoId)

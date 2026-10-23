@@ -167,6 +167,13 @@ describe('fieldText', () => {
 
 
 describe('download file names (item 11b)', () => {
+  // Этот блок верхнего уровня: без своего beforeEach он наследовал бы
+  // Pinia и localStorage предыдущего теста.
+  beforeEach(() => {
+    window.localStorage.clear()
+    setActivePinia(createPinia())
+  })
+
   const photo = {
     filename: 'Комарова13_11.JPG',
     address: '78_v33',
@@ -177,18 +184,15 @@ describe('download file names (item 11b)', () => {
   it('keeps the original name by default', () => {
     expect(downloadFileName(photo)).toBe('Комарова13_11.JPG')
     expect(downloadFileName(photo, 'filename')).toBe('Комарова13_11.JPG')
-    expect(DOWNLOAD_NAME_MODES.map((mode) => mode.value)).toContain('filename')
+    expect(DOWNLOAD_NAME_MODES.map((mode) => mode.value)).toEqual([
+      'filename',
+      'legal',
+    ])
   })
 
-  it('prefixes the simplified address so names stay unique', () => {
-    expect(downloadFileName(photo, 'simple')).toBe(
-      'Мира 1__Комарова13_11.JPG',
-    )
-  })
-
-  it('normalises the legal address and strips unsafe characters', () => {
+  it('names under the legal address, not the original name', () => {
     expect(downloadFileName(photo, 'legal')).toBe(
-      'ООО «Ромашка», ул. Мира, 1__Комарова13_11.JPG',
+      'ООО «Ромашка», ул. Мира, 1 (1).JPG',
     )
 
     // Unsafe file-name characters become underscores, whitespace collapses.
@@ -197,17 +201,58 @@ describe('download file names (item 11b)', () => {
         { filename: 'a.jpg', legal_address: 'ООО "Р/С" * тест' },
         'legal',
       ),
-    ).toBe('ООО _Р_С_ _ тест__a.jpg')
+    ).toBe('ООО _Р_С_ _ тест (1).jpg')
   })
 
-  it('falls back to the recognised id, then to the original name', () => {
+  it('takes the iteration from the original name', () => {
     expect(
-      downloadFileName({ filename: 'a.jpg', address: '83_v33' }, 'simple'),
-    ).toBe('83_v33__a.jpg')
+      downloadFileName(
+        {
+          filename: '40 лет Победы 154 А (10).JPG',
+          legal_address: '40 Лет Победы пр-кт 154, A',
+        },
+        'legal',
+      ),
+    ).toBe('40 Лет Победы пр-кт 154, A (10).JPG')
+  })
 
+  it('uses the batch position when the name has no iteration', () => {
+    expect(downloadFileName(photo, 'legal', 7)).toBe(
+      'ООО «Ромашка», ул. Мира, 1 (7).JPG',
+    )
+
+    // A number in the name wins over the batch position: it is the real
+    // shooting iteration, while the position is only a fallback.
+    expect(
+      downloadFileName({ ...photo, filename: 'снимок (3).jpg' }, 'legal', 7),
+    ).toBe('ООО «Ромашка», ул. Мира, 1 (3).jpg')
+  })
+
+  it('falls back to the alias and the recognised id', () => {
+    expect(downloadFileName({ ...photo, legal_address: '' }, 'legal')).toBe(
+      'Мира 1 (1).JPG',
+    )
+    expect(downloadFileName({ filename: 'a.jpg', address: '83_v33' }, 'legal'))
+      .toBe('83_v33 (1).jpg')
+  })
+
+  it('keeps the original name when there is no address at all', () => {
     expect(downloadFileName({ filename: 'a.jpg' }, 'legal')).toBe('a.jpg')
-    expect(downloadFileName({}, 'simple')).toBe('photo.jpg')
+    expect(downloadFileName({}, 'legal')).toBe('photo.jpg')
     expect(downloadFileName(null, 'legal')).toBe('photo.jpg')
+  })
+
+  it('reads the old "simple" mode as the legal one', () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ downloadNameMode: 'simple' }),
+    )
+
+    const display = useDisplayStore()
+    // Предыдущие тесты могли включить личный ключ пользователя.
+    display.setUserKey('')
+
+    expect(display.downloadNameMode).toBe('legal')
   })
 
   it('safeFilePart collapses whitespace and handles empty values', () => {
@@ -238,7 +283,10 @@ describe('download file names (item 11b)', () => {
       JSON.stringify({ downloadNameMode: 'nonsense' }),
     )
 
-    expect(useDisplayStore().downloadNameMode).toBe('filename')
+    const display = useDisplayStore()
+    display.setUserKey('')
+
+    expect(display.downloadNameMode).toBe('filename')
   })
 })
 
@@ -450,10 +498,10 @@ describe('draggable panel sizes', () => {
 
     const display = useDisplayStore()
 
-    display.adoptBase({ tileColumns: 3, downloadNameMode: 'simple' })
+    display.adoptBase({ tileColumns: 3, downloadNameMode: 'legal' })
 
     expect(display.tileColumns).toBe(3)
-    expect(display.downloadNameMode).toBe('simple')
+    expect(display.downloadNameMode).toBe('legal')
     expect(display.base.tileColumns).toBe(3)
 
     delete global.fetch

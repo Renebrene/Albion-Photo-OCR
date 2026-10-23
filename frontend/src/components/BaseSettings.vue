@@ -128,6 +128,26 @@ async function loadFile(file) {
             эксперименты с видом зашли не туда.
           </div>
 
+          <div class="q-mb-md">
+            <div class="text-subtitle2">Имена файлов при скачивании и в ZIP</div>
+            <q-select
+              v-model="display.downloadNameMode"
+              :options="DOWNLOAD_NAME_MODES"
+              dense
+              outlined
+              emit-value
+              map-options
+              option-label="label"
+              option-value="value"
+              class="q-mt-xs"
+              style="max-width: 340px"
+            />
+            <div class="text-caption text-grey-7">
+              «Юридическое имя (итерация)» даёт имена вида «адрес (10).JPG»;
+              облачные ссылки это правило не используют.
+            </div>
+          </div>
+
           <q-list dense>
             <q-item v-for="row in current" :key="row.what">
               <q-item-section>

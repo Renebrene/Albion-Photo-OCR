@@ -40,14 +40,31 @@ export const LIST_FIELDS = [
   { value: 'taken_at', label: 'Дата съёмки' },
 ]
 
-// How a downloaded file is named (item 11b): the original name, or the
-// address it belongs to (simplified alias / normalised legal name) prefixed
-// to the original name so two photos of one address cannot overwrite itself.
+// How a downloaded or zipped file is named (item 11b):
+//   filename — exactly as it came from the inspected folder;
+//   legal    — "<юридический адрес> (<итерация>).<ext>", never the original
+//              name. The iteration is the trailing "(N)" of the original
+//              name (photos arrive as "… (10).JPG") or the position in the
+//              current batch.
 export const DOWNLOAD_NAME_MODES = [
-  { value: 'filename', label: 'Имя файла (как сейчас)' },
-  { value: 'simple', label: 'Адрес (упрощённый / alias)' },
-  { value: 'legal', label: 'Адрес (юридический)' },
+  { value: 'filename', label: 'Имя файла — как в папке инспекции' },
+  { value: 'legal', label: 'Юридическое имя (итерация)' },
 ]
+
+/**
+ * A saved mode that still exists, or the default.
+ *
+ * The old "simple" mode (address alias prefixed to the original name) was
+ * replaced by the legal name; a saved "simple" is read as "legal" so the
+ * address does not silently disappear from the names.
+ */
+function normaliseDownloadNameMode(value) {
+  if (value === 'simple') return 'legal'
+
+  return DOWNLOAD_NAME_MODES.some((option) => option.value === value)
+    ? value
+    : DEFAULT_DOWNLOAD_NAME_MODE
+}
 
 // Как складываются адреса и клиенты: ○ объединение, △ приоритет адресов,
 // □ приоритет клиентов. Режим живёт в настройках пользователя.
@@ -152,11 +169,7 @@ export const useDisplayStore = defineStore('display', () => {
       listFields.value = [...DEFAULT_LIST_FIELDS]
     }
 
-    downloadNameMode.value = DOWNLOAD_NAME_MODES.some(
-      (option) => option.value === saved.downloadNameMode,
-    )
-      ? saved.downloadNameMode
-      : DEFAULT_DOWNLOAD_NAME_MODE
+    downloadNameMode.value = normaliseDownloadNameMode(saved.downloadNameMode)
 
     addressClientMode.value = ADDRESS_CLIENT_MODES.some(
       (option) => option.value === saved.addressClientMode,
@@ -532,27 +545,51 @@ export function safeFilePart(value) {
   return String(value).replace(UNSAFE_NAME_CHARS, '_').replace(/\s+/g, ' ').trim()
 }
 
+// Trailing copy index of a source file: "…154 А (10).JPG" -> 10.
+const ITERATION_RE = /\((\d{1,4})\)\s*$/
+
+function splitFileName(value) {
+  const name = String(value || '')
+  const dot = name.lastIndexOf('.')
+
+  return dot > 0
+    ? { stem: name.slice(0, dot), ext: name.slice(dot) }
+    : { stem: name, ext: '' }
+}
+
 /**
- * File name for a download (item 11b).
+ * File name for a download or a ZIP entry (item 11b).
  *
- * With mode 'filename' the original name is returned untouched. Otherwise the
- * address name is prefixed ("<address>__<original name>") so photos of the
- * same address stay unique instead of overwriting each other; a photo whose
- * address is not mapped yet keeps its original name.
+ * 'filename' returns the name as it came from the inspected folder.
+ *
+ * 'legal' returns "<юридический адрес> (<итерация>)<ext>" and never the
+ * original name. The iteration is the trailing "(N)" of the original name
+ * (photos arrive as "… (10).JPG"); when there is none, `iteration` (the
+ * position in the current batch, 1-based) is used, and a lone file gets 1.
+ * A photo without a mapped address keeps its original name — an invented
+ * address would be worse than the honest file name.
  */
-export function downloadFileName(photo, mode = DEFAULT_DOWNLOAD_NAME_MODE) {
+export function downloadFileName(
+  photo,
+  mode = DEFAULT_DOWNLOAD_NAME_MODE,
+  iteration,
+) {
   const original = (photo && photo.filename) || 'photo.jpg'
 
-  if (mode === 'filename') return original
+  if (mode !== 'legal') return original
 
-  const address =
-    mode === 'simple'
-      ? safeFilePart(photo && photo.simple_address)
-      : safeFilePart(photo && photo.legal_address)
+  const address = safeFilePart(
+    (photo && (photo.legal_address || photo.simple_address)) ||
+      (photo && photo.address),
+  )
 
-  const prefix = address || safeFilePart(photo && photo.address)
+  if (!address) return original
 
-  return prefix ? `${prefix}__${original}` : original
+  const { stem, ext } = splitFileName(original)
+  const found = ITERATION_RE.exec(stem)
+  const number = (found && Number(found[1])) || Number(iteration) || 1
+
+  return `${address} (${number})${ext}`
 }
 
 /** Human-readable value of one list field for a photo row. */
