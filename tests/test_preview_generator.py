@@ -112,12 +112,12 @@ def test_failed_regenerate_keeps_existing_file(tmp_path):
         middle_size=64,
     )
 
-    small_path = build_preview_paths(
-        preview_root=root, photo_id=record.photo_id
-    ).small
-    small_path.write_bytes(b"corrupted-not-a-jpeg")
+    paths = build_preview_paths(preview_root=root, photo_id=record.photo_id)
+    paths.small.write_bytes(b"corrupted-not-a-jpeg")
+    paths.middle.write_bytes(b"corrupted-not-a-jpeg")
 
-    # Make regeneration impossible so the create step fails.
+    # Both previews are damaged and the original is gone: nothing can be
+    # rebuilt, so the existing files must stay exactly as they were.
     source.unlink()
 
     result = generate_previews(
@@ -128,9 +128,74 @@ def test_failed_regenerate_keeps_existing_file(tmp_path):
     )
 
     assert result.small.action == "ERROR"
-    assert small_path.exists()
-    assert small_path.read_bytes() == b"corrupted-not-a-jpeg"
+    assert result.middle.action == "ERROR"
+    assert paths.small.read_bytes() == b"corrupted-not-a-jpeg"
+    assert paths.middle.read_bytes() == b"corrupted-not-a-jpeg"
     assert _temp_files(root / "small") == []
+    assert _temp_files(root / "middle") == []
+
+
+def test_original_is_decoded_once_for_both_sizes(tmp_path, monkeypatch):
+    source = _make_source(tmp_path)
+    record = _record(source, "PH_" + "4" * 24)
+    calls: list[str] = []
+
+    import app.preview.generator as generator
+
+    original = generator._load_visual_source
+
+    def counted(record):
+        calls.append(record.photo_id)
+        return original(record)
+
+    monkeypatch.setattr(generator, "_load_visual_source", counted)
+
+    result = generate_previews(
+        record=record,
+        preview_root=tmp_path / "preview",
+        small_size=32,
+        middle_size=64,
+        image_format="webp",
+    )
+
+    assert result.ready is True
+    # Previously SMALL and MIDDLE each opened and decoded the original.
+    assert calls == [record.photo_id]
+
+
+def test_small_is_rebuilt_from_middle_when_source_is_gone(tmp_path):
+    source = _make_source(tmp_path)
+    record = _record(source, "PH_" + "5" * 24)
+    root = tmp_path / "preview"
+
+    generate_previews(
+        record=record,
+        preview_root=root,
+        small_size=32,
+        middle_size=64,
+        image_format="webp",
+    )
+
+    paths = build_preview_paths(
+        preview_root=root,
+        photo_id=record.photo_id,
+        image_format="webp",
+    )
+    paths.small.unlink()
+    source.unlink()
+
+    result = generate_previews(
+        record=record,
+        preview_root=root,
+        small_size=32,
+        middle_size=64,
+        image_format="webp",
+    )
+
+    assert result.middle.action == "SKIP"
+    assert result.small.action == "CREATE"
+    assert result.small.valid is True
+    assert paths.small.exists()
 
 
 def test_preview_quality_is_validated(tmp_path):

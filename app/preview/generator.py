@@ -107,22 +107,22 @@ def _load_visual_source(record: PhotoRecord) -> Image.Image:
     return image.convert("RGB")
 
 
-def _create_one(
+def _save_preview(
     *,
-    record: PhotoRecord,
+    preview: Image.Image,
     output_path: Path,
     kind: str,
-    max_size: int,
     action: str,
     quality: int | None = None,
     image_format: str | None = None,
+    error_paths: tuple[object, ...] = (),
 ) -> PreviewFileResult:
     """
-    Create one preview in a temporary file, validate it, then publish.
+    Encode one already-resized image in a temporary file, validate, publish.
 
     The preview is written next to its final path and moved into place with
     os.replace only after it passes validation, so a failure never leaves a
-    partial preview behind.
+    partial preview behind. The caller keeps ownership of *preview*.
     """
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -135,24 +135,13 @@ def _create_one(
 
     temp_path = Path(temp_name)
 
-    source = None
-    preview = None
-
     try:
-        source = _load_visual_source(record)
-
-        preview = _resize_preserving_aspect(
-            source,
-            max_size=max_size,
-        )
-
         formats.save_preview(
             preview,
             temp_path,
             image_format=image_format,
             quality=quality,
         )
-
     except Exception as exc:
         temp_path.unlink(missing_ok=True)
 
@@ -163,19 +152,8 @@ def _create_one(
             valid=False,
             width=None,
             height=None,
-            error=redact_paths(
-                str(exc),
-                record.source_path,
-                temp_path,
-            ),
+            error=redact_paths(str(exc), *error_paths, temp_path),
         )
-
-    finally:
-        if preview is not None:
-            preview.close()
-
-        if source is not None:
-            source.close()
 
     validation = validate_preview(temp_path)
 
@@ -193,6 +171,7 @@ def _create_one(
                 validation.error,
                 temp_path,
                 output_path,
+                *error_paths,
             ),
         )
 
@@ -209,47 +188,56 @@ def _create_one(
     )
 
 
-def _process_one(
+def _create_one(
     *,
     record: PhotoRecord,
     output_path: Path,
     kind: str,
     max_size: int,
+    action: str,
     quality: int | None = None,
     image_format: str | None = None,
 ) -> PreviewFileResult:
-    """
-    Check an existing preview and create it only when necessary.
+    """Load the original, resize and publish one preview."""
 
-    Existing valid file -> SKIP
-    Existing invalid file -> REGENERATE
-    Missing file -> CREATE
-    """
+    source = None
+    preview = None
 
-    validation = validate_preview(output_path)
+    try:
+        source = _load_visual_source(record)
 
-    if validation.valid:
+        preview = _resize_preserving_aspect(
+            source,
+            max_size=max_size,
+        )
+
+        return _save_preview(
+            preview=preview,
+            output_path=output_path,
+            kind=kind,
+            action=action,
+            quality=quality,
+            image_format=image_format,
+            error_paths=(record.source_path,),
+        )
+
+    except Exception as exc:
         return PreviewFileResult(
             kind=kind,
             path=str(output_path),
-            action="SKIP",
-            valid=True,
-            width=validation.width,
-            height=validation.height,
-            error=None,
+            action="ERROR",
+            valid=False,
+            width=None,
+            height=None,
+            error=redact_paths(str(exc), record.source_path, output_path),
         )
 
-    action = "REGENERATE" if validation.exists else "CREATE"
+    finally:
+        if preview is not None:
+            preview.close()
 
-    return _create_one(
-        record=record,
-        output_path=output_path,
-        kind=kind,
-        max_size=max_size,
-        action=action,
-        quality=quality,
-        image_format=image_format,
-    )
+        if source is not None:
+            source.close()
 
 
 def generate_previews(
@@ -287,28 +275,165 @@ def generate_previews(
         image_format=image_format,
     )
 
-    # MIDDLE first: DINO reads it as its input and may start before SMALL is
-    # ready. Both use the same source file, so the order changes nothing else.
-    middle = _process_one(
-        record=record,
-        output_path=paths.middle,
-        kind="MIDDLE",
-        max_size=middle_size,
-        quality=resolved_quality,
-        image_format=image_format,
-    )
+    # MIDDLE first, SMALL derived from it: DINO reads MIDDLE and may start
+    # before SMALL is ready, and the original is decoded once instead of
+    # twice. If MIDDLE already exists, only its 1280 px file is opened.
+    middle_validation = validate_preview(paths.middle)
+    small_validation = validate_preview(paths.small)
 
-    small = _process_one(
-        record=record,
-        output_path=paths.small,
-        kind="SMALL",
-        max_size=small_size,
-        quality=resolved_quality,
-        image_format=image_format,
-    )
+    if middle_validation.valid:
+        middle = PreviewFileResult(
+            kind="MIDDLE",
+            path=str(paths.middle),
+            action="SKIP",
+            valid=True,
+            width=middle_validation.width,
+            height=middle_validation.height,
+        )
+
+        if small_validation.valid:
+            small = PreviewFileResult(
+                kind="SMALL",
+                path=str(paths.small),
+                action="SKIP",
+                valid=True,
+                width=small_validation.width,
+                height=small_validation.height,
+            )
+        else:
+            small = _small_from_middle(
+                record=record,
+                middle_path=paths.middle,
+                output_path=paths.small,
+                max_size=small_size,
+                action="REGENERATE" if small_validation.exists else "CREATE",
+                quality=resolved_quality,
+                image_format=image_format,
+            )
+
+        return PreviewResult(
+            photo_id=record.photo_id,
+            small=small,
+            middle=middle,
+        )
+
+    middle_action = "REGENERATE" if middle_validation.exists else "CREATE"
+    small_action = "REGENERATE" if small_validation.exists else "CREATE"
+
+    source = None
+    middle_image = None
+    small_image = None
+
+    try:
+        source = _load_visual_source(record)
+        middle_image = _resize_preserving_aspect(source, max_size=middle_size)
+
+        middle = _save_preview(
+            preview=middle_image,
+            output_path=paths.middle,
+            kind="MIDDLE",
+            action=middle_action,
+            quality=resolved_quality,
+            image_format=image_format,
+            error_paths=(record.source_path,),
+        )
+
+        # SMALL is cut from the already-resized MIDDLE; if MIDDLE could not
+        # be written, fall back to the decoded original (no second read).
+        base = middle_image if middle.valid else source
+        small_image = _resize_preserving_aspect(base, max_size=small_size)
+
+        small = _save_preview(
+            preview=small_image,
+            output_path=paths.small,
+            kind="SMALL",
+            action=small_action,
+            quality=resolved_quality,
+            image_format=image_format,
+            error_paths=(record.source_path,),
+        )
+
+    except Exception as exc:
+        message = redact_paths(str(exc), record.source_path)
+
+        middle = PreviewFileResult(
+            kind="MIDDLE",
+            path=str(paths.middle),
+            action="ERROR",
+            valid=False,
+            error=message,
+        )
+        small = PreviewFileResult(
+            kind="SMALL",
+            path=str(paths.small),
+            action="ERROR",
+            valid=False,
+            error=message,
+        )
+
+    finally:
+        for image in (small_image, middle_image, source):
+            if image is not None:
+                image.close()
 
     return PreviewResult(
         photo_id=record.photo_id,
         small=small,
         middle=middle,
     )
+
+
+def _small_from_middle(
+    *,
+    record: PhotoRecord,
+    middle_path: Path,
+    output_path: Path,
+    max_size: int,
+    action: str,
+    quality: int | None,
+    image_format: str | None,
+) -> PreviewFileResult:
+    """
+    Build SMALL from an existing MIDDLE preview.
+
+    Falls back to the original when the MIDDLE file cannot be decoded, so a
+    damaged preview never blocks the small one.
+    """
+
+    source = None
+    preview = None
+
+    try:
+        with Image.open(middle_path) as image:
+            image.load()
+            source = image.convert("RGB")
+
+        preview = _resize_preserving_aspect(source, max_size=max_size)
+
+        return _save_preview(
+            preview=preview,
+            output_path=output_path,
+            kind="SMALL",
+            action=action,
+            quality=quality,
+            image_format=image_format,
+            error_paths=(record.source_path, middle_path),
+        )
+
+    except Exception:
+        return _create_one(
+            record=record,
+            output_path=output_path,
+            kind="SMALL",
+            max_size=max_size,
+            action=action,
+            quality=quality,
+            image_format=image_format,
+        )
+
+    finally:
+        if preview is not None:
+            preview.close()
+
+        if source is not None:
+            source.close()
