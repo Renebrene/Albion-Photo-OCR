@@ -1,0 +1,4157 @@
+{
+  "model": "facebook/dinov2-base",
+  "fingerprints": 24,
+  "summary": {
+    "photos": 100,
+    "same_best": 99,
+    "same_best_rate": 0.99,
+    "top5_overlap_avg": 4.75,
+    "score_delta": {
+      "mean": 0.003078,
+      "median": 0.002513,
+      "max": 0.018154
+    },
+    "margin_delta": {
+      "mean": 0.002846,
+      "median": 0.00208,
+      "max": 0.012858
+    },
+    "cosine_global": {
+      "mean": 0.994455,
+      "median": 0.995399,
+      "max": 0.998875
+    },
+    "cosine_environment": {
+      "mean": 0.999391,
+      "median": 0.999807,
+      "max": 0.999969
+    },
+    "cosine_color": {
+      "mean": 0.997545,
+      "median": 0.998355,
+      "max": 0.999949
+    },
+    "cosine_spatial": {
+      "mean": 1.0,
+      "median": 1.0,
+      "max": 1.0
+    },
+    "time_original_avg": 0.358,
+    "time_preview_avg": 0.166,
+    "address_flips": 1,
+    "address_flip_samples": [
+      {
+        "photo_id": "PH_7cf8c949b8cfcdbfc934ec37",
+        "filename": "Ленина125_05.JPG",
+        "original_fingerprint": "84_v33",
+        "preview_fingerprint": "73_v33",
+        "original_address": 186,
+        "preview_address": 156,
+        "original_name": "Ленина 125-127",
+        "preview_name": "339 дивизии"
+      }
+    ]
+  },
+  "details": [
+    {
+      "photo_id": "PH_d242ee29f2e4f8d8bf5f184c",
+      "filename": "Зорге 339 стрелковой дивизии, А (8).JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_d242ee29f2e4f8d8bf5f184c.webp",
+      "original": {
+        "best_id": "73_v33",
+        "score": 0.953216,
+        "margin": 0.087818,
+        "status": "CONFIDENT",
+        "time_sec": 0.568,
+        "top": [
+          0.953216,
+          0.865399,
+          0.856561,
+          0.840918,
+          0.840058
+        ]
+      },
+      "preview_result": {
+        "best_id": "73_v33",
+        "score": 0.953588,
+        "margin": 0.087431,
+        "status": "CONFIDENT",
+        "time_sec": 0.154,
+        "top": [
+          0.953588,
+          0.866158,
+          0.857757,
+          0.835138,
+          0.834933
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.992473,
+        "environment": 0.998335,
+        "color": 0.998179,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_de7851c1da10d9b721fce336",
+      "filename": "84_026.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_de7851c1da10d9b721fce336.webp",
+      "original": {
+        "best_id": "73_v33",
+        "score": 0.886072,
+        "margin": 0.000121,
+        "status": "AMBIGUOUS",
+        "time_sec": 0.359,
+        "top": [
+          0.886072,
+          0.885952,
+          0.865231,
+          0.862659,
+          0.858414
+        ]
+      },
+      "preview_result": {
+        "best_id": "73_v33",
+        "score": 0.88692,
+        "margin": 0.003159,
+        "status": "AMBIGUOUS",
+        "time_sec": 0.172,
+        "top": [
+          0.88692,
+          0.883762,
+          0.861499,
+          0.860568,
+          0.858453
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.998567,
+        "environment": 0.999847,
+        "color": 0.996225,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_83070ab2e800fe5fc08456e4",
+      "filename": "81_015.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_83070ab2e800fe5fc08456e4.webp",
+      "original": {
+        "best_id": "81_v33",
+        "score": 0.862425,
+        "margin": 0.064881,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.353,
+        "top": [
+          0.862425,
+          0.797545,
+          0.785591,
+          0.763174,
+          0.758557
+        ]
+      },
+      "preview_result": {
+        "best_id": "81_v33",
+        "score": 0.861412,
+        "margin": 0.063606,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.236,
+        "top": [
+          0.861412,
+          0.797807,
+          0.782028,
+          0.760073,
+          0.755757
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.996831,
+        "environment": 0.999915,
+        "color": 0.999191,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_7c9609257a2a3e21a965a5b6",
+      "filename": "83_010.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_7c9609257a2a3e21a965a5b6.webp",
+      "original": {
+        "best_id": "83_v33",
+        "score": 0.957723,
+        "margin": 0.058029,
+        "status": "CONFIDENT",
+        "time_sec": 0.371,
+        "top": [
+          0.957723,
+          0.899695,
+          0.887695,
+          0.884483,
+          0.883562
+        ]
+      },
+      "preview_result": {
+        "best_id": "83_v33",
+        "score": 0.958005,
+        "margin": 0.058663,
+        "status": "CONFIDENT",
+        "time_sec": 0.183,
+        "top": [
+          0.958005,
+          0.899342,
+          0.888265,
+          0.885275,
+          0.88502
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.995351,
+        "environment": 0.999937,
+        "color": 0.999498,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_804716f1ada6f8f4700e3c59",
+      "filename": "Комарова28_07.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_804716f1ada6f8f4700e3c59.webp",
+      "original": {
+        "best_id": "80_v33",
+        "score": 0.920134,
+        "margin": 0.074146,
+        "status": "CONFIDENT",
+        "time_sec": 0.331,
+        "top": [
+          0.920134,
+          0.845988,
+          0.817801,
+          0.810431,
+          0.809015
+        ]
+      },
+      "preview_result": {
+        "best_id": "80_v33",
+        "score": 0.92153,
+        "margin": 0.074353,
+        "status": "CONFIDENT",
+        "time_sec": 0.152,
+        "top": [
+          0.92153,
+          0.847177,
+          0.815718,
+          0.806554,
+          0.804866
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.976672,
+        "environment": 0.999694,
+        "color": 0.997047,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_0643eef9548b1f1406403303",
+      "filename": "88_010.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_0643eef9548b1f1406403303.webp",
+      "original": {
+        "best_id": "88_v33",
+        "score": 0.962663,
+        "margin": 0.173991,
+        "status": "CONFIDENT",
+        "time_sec": 0.324,
+        "top": [
+          0.962663,
+          0.788672,
+          0.785109,
+          0.778099,
+          0.77571
+        ]
+      },
+      "preview_result": {
+        "best_id": "88_v33",
+        "score": 0.960677,
+        "margin": 0.172615,
+        "status": "CONFIDENT",
+        "time_sec": 0.182,
+        "top": [
+          0.960677,
+          0.788062,
+          0.783085,
+          0.775617,
+          0.774169
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.997511,
+        "environment": 0.999467,
+        "color": 0.995373,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_5892b8deebea388ec2bea7de",
+      "filename": "Комарова_Добровольского_08.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_5892b8deebea388ec2bea7de.webp",
+      "original": {
+        "best_id": "79_v33",
+        "score": 0.945225,
+        "margin": 0.066208,
+        "status": "CONFIDENT",
+        "time_sec": 0.358,
+        "top": [
+          0.945225,
+          0.879017,
+          0.867502,
+          0.856756,
+          0.851259
+        ]
+      },
+      "preview_result": {
+        "best_id": "79_v33",
+        "score": 0.944582,
+        "margin": 0.062311,
+        "status": "CONFIDENT",
+        "time_sec": 0.177,
+        "top": [
+          0.944582,
+          0.882271,
+          0.871301,
+          0.860013,
+          0.854845
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.997116,
+        "environment": 0.999723,
+        "color": 0.999208,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_e20d1ee8073905639e3b064c",
+      "filename": "Ленина125_06.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_e20d1ee8073905639e3b064c.webp",
+      "original": {
+        "best_id": "84_v33",
+        "score": 0.88822,
+        "margin": 0.010624,
+        "status": "AMBIGUOUS",
+        "time_sec": 0.337,
+        "top": [
+          0.88822,
+          0.877595,
+          0.876215,
+          0.867753,
+          0.867328
+        ]
+      },
+      "preview_result": {
+        "best_id": "84_v33",
+        "score": 0.883749,
+        "margin": 0.009869,
+        "status": "AMBIGUOUS",
+        "time_sec": 0.175,
+        "top": [
+          0.883749,
+          0.873881,
+          0.872736,
+          0.863508,
+          0.862011
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.997243,
+        "environment": 0.999695,
+        "color": 0.993553,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_2de50337301f6651ea643b26",
+      "filename": "81_058.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_2de50337301f6651ea643b26.webp",
+      "original": {
+        "best_id": "81_v33",
+        "score": 0.923291,
+        "margin": 0.092373,
+        "status": "CONFIDENT",
+        "time_sec": 0.343,
+        "top": [
+          0.923291,
+          0.830918,
+          0.820405,
+          0.809768,
+          0.805663
+        ]
+      },
+      "preview_result": {
+        "best_id": "81_v33",
+        "score": 0.919774,
+        "margin": 0.090497,
+        "status": "CONFIDENT",
+        "time_sec": 0.167,
+        "top": [
+          0.919774,
+          0.829277,
+          0.816392,
+          0.806709,
+          0.806012
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.996135,
+        "environment": 0.999923,
+        "color": 0.996388,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_448bb522974775f6e164586d",
+      "filename": "80_004.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_448bb522974775f6e164586d.webp",
+      "original": {
+        "best_id": "80_v33",
+        "score": 0.969811,
+        "margin": 0.117777,
+        "status": "CONFIDENT",
+        "time_sec": 0.328,
+        "top": [
+          0.969811,
+          0.852035,
+          0.848038,
+          0.822201,
+          0.811197
+        ]
+      },
+      "preview_result": {
+        "best_id": "80_v33",
+        "score": 0.967773,
+        "margin": 0.126657,
+        "status": "CONFIDENT",
+        "time_sec": 0.169,
+        "top": [
+          0.967773,
+          0.841117,
+          0.840231,
+          0.810821,
+          0.805005
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.99284,
+        "environment": 0.999922,
+        "color": 0.999648,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_726e24bb065a1de3f4c50dc0",
+      "filename": "89_28.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_726e24bb065a1de3f4c50dc0.webp",
+      "original": {
+        "best_id": "89_v33",
+        "score": 0.944301,
+        "margin": 0.120142,
+        "status": "CONFIDENT",
+        "time_sec": 0.337,
+        "top": [
+          0.944301,
+          0.824159,
+          0.822859,
+          0.81454,
+          0.808125
+        ]
+      },
+      "preview_result": {
+        "best_id": "89_v33",
+        "score": 0.943034,
+        "margin": 0.114667,
+        "status": "CONFIDENT",
+        "time_sec": 0.169,
+        "top": [
+          0.943034,
+          0.828367,
+          0.821547,
+          0.813605,
+          0.807113
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.995774,
+        "environment": 0.997121,
+        "color": 0.996352,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_eb7c3131cf6dfb967ec37b46",
+      "filename": "82_006.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_eb7c3131cf6dfb967ec37b46.webp",
+      "original": {
+        "best_id": "82_v33",
+        "score": 0.94424,
+        "margin": 0.070059,
+        "status": "CONFIDENT",
+        "time_sec": 0.331,
+        "top": [
+          0.94424,
+          0.87418,
+          0.855585,
+          0.832951,
+          0.830312
+        ]
+      },
+      "preview_result": {
+        "best_id": "82_v33",
+        "score": 0.942205,
+        "margin": 0.074341,
+        "status": "CONFIDENT",
+        "time_sec": 0.155,
+        "top": [
+          0.942205,
+          0.867864,
+          0.849272,
+          0.828803,
+          0.827406
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.994885,
+        "environment": 0.999591,
+        "color": 0.996017,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_cb0fd0b7c390826bd1ed0c85",
+      "filename": "буденновский (31).JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_cb0fd0b7c390826bd1ed0c85.webp",
+      "original": {
+        "best_id": "77_v33",
+        "score": 0.73296,
+        "margin": 0.116265,
+        "status": "NO_MATCH",
+        "time_sec": 0.328,
+        "top": [
+          0.73296,
+          0.616696,
+          0.599845,
+          0.595667,
+          0.587991
+        ]
+      },
+      "preview_result": {
+        "best_id": "77_v33",
+        "score": 0.736728,
+        "margin": 0.115634,
+        "status": "NO_MATCH",
+        "time_sec": 0.16,
+        "top": [
+          0.736728,
+          0.621094,
+          0.601853,
+          0.598108,
+          0.590363
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.997133,
+        "environment": 0.99897,
+        "color": 0.997585,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_20b8ee11ce5b5312f9349dda",
+      "filename": "91_041.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_20b8ee11ce5b5312f9349dda.webp",
+      "original": {
+        "best_id": "91_v33",
+        "score": 0.921642,
+        "margin": 0.085747,
+        "status": "CONFIDENT",
+        "time_sec": 0.321,
+        "top": [
+          0.921642,
+          0.835895,
+          0.828208,
+          0.825141,
+          0.81504
+        ]
+      },
+      "preview_result": {
+        "best_id": "91_v33",
+        "score": 0.921697,
+        "margin": 0.091003,
+        "status": "CONFIDENT",
+        "time_sec": 0.152,
+        "top": [
+          0.921697,
+          0.830694,
+          0.826915,
+          0.819774,
+          0.812652
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.988691,
+        "environment": 0.99995,
+        "color": 0.999239,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_9ea0d69f4dcaccd5bf46733e",
+      "filename": "80_021.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_9ea0d69f4dcaccd5bf46733e.webp",
+      "original": {
+        "best_id": "80_v33",
+        "score": 0.966408,
+        "margin": 0.118568,
+        "status": "CONFIDENT",
+        "time_sec": 0.309,
+        "top": [
+          0.966408,
+          0.84784,
+          0.847673,
+          0.828078,
+          0.82177
+        ]
+      },
+      "preview_result": {
+        "best_id": "80_v33",
+        "score": 0.963773,
+        "margin": 0.119062,
+        "status": "CONFIDENT",
+        "time_sec": 0.159,
+        "top": [
+          0.963773,
+          0.844711,
+          0.841281,
+          0.818073,
+          0.814481
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.993427,
+        "environment": 0.999939,
+        "color": 0.998446,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_090fab19c7b908cf25f429cf",
+      "filename": "Зорге46_39.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_090fab19c7b908cf25f429cf.webp",
+      "original": {
+        "best_id": "74_v33",
+        "score": 0.959007,
+        "margin": 0.053414,
+        "status": "CONFIDENT",
+        "time_sec": 0.333,
+        "top": [
+          0.959007,
+          0.905594,
+          0.892303,
+          0.888024,
+          0.887871
+        ]
+      },
+      "preview_result": {
+        "best_id": "74_v33",
+        "score": 0.963044,
+        "margin": 0.057039,
+        "status": "CONFIDENT",
+        "time_sec": 0.169,
+        "top": [
+          0.963044,
+          0.906005,
+          0.898179,
+          0.891654,
+          0.888382
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.996119,
+        "environment": 0.9995,
+        "color": 0.996312,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_dd233f59313708271993d3cf",
+      "filename": "80_026.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_dd233f59313708271993d3cf.webp",
+      "original": {
+        "best_id": "80_v33",
+        "score": 0.941565,
+        "margin": 0.089142,
+        "status": "CONFIDENT",
+        "time_sec": 0.32,
+        "top": [
+          0.941565,
+          0.852423,
+          0.821702,
+          0.813463,
+          0.807832
+        ]
+      },
+      "preview_result": {
+        "best_id": "80_v33",
+        "score": 0.946556,
+        "margin": 0.085321,
+        "status": "CONFIDENT",
+        "time_sec": 0.157,
+        "top": [
+          0.946556,
+          0.861235,
+          0.823658,
+          0.816853,
+          0.811592
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.993833,
+        "environment": 0.999839,
+        "color": 0.998834,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_1d0dfb014bf6519eaf1fed98",
+      "filename": "78_068.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_1d0dfb014bf6519eaf1fed98.webp",
+      "original": {
+        "best_id": "78_v33",
+        "score": 0.929651,
+        "margin": 0.099889,
+        "status": "CONFIDENT",
+        "time_sec": 0.308,
+        "top": [
+          0.929651,
+          0.829762,
+          0.821924,
+          0.814419,
+          0.814134
+        ]
+      },
+      "preview_result": {
+        "best_id": "78_v33",
+        "score": 0.92782,
+        "margin": 0.100393,
+        "status": "CONFIDENT",
+        "time_sec": 0.15,
+        "top": [
+          0.92782,
+          0.827427,
+          0.825717,
+          0.814907,
+          0.813026
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.992787,
+        "environment": 0.999658,
+        "color": 0.999601,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_fa12be8c8ad4e5e17633639f",
+      "filename": "85_013.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_fa12be8c8ad4e5e17633639f.webp",
+      "original": {
+        "best_id": "85_v33",
+        "score": 0.962733,
+        "margin": 0.082621,
+        "status": "CONFIDENT",
+        "time_sec": 0.34,
+        "top": [
+          0.962733,
+          0.880113,
+          0.867197,
+          0.860443,
+          0.858137
+        ]
+      },
+      "preview_result": {
+        "best_id": "85_v33",
+        "score": 0.961803,
+        "margin": 0.083159,
+        "status": "CONFIDENT",
+        "time_sec": 0.184,
+        "top": [
+          0.961803,
+          0.878645,
+          0.865588,
+          0.862367,
+          0.858004
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.998017,
+        "environment": 0.999791,
+        "color": 0.998898,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_7cf8c949b8cfcdbfc934ec37",
+      "filename": "Ленина125_05.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_7cf8c949b8cfcdbfc934ec37.webp",
+      "original": {
+        "best_id": "84_v33",
+        "score": 0.899441,
+        "margin": 0.00144,
+        "status": "AMBIGUOUS",
+        "time_sec": 0.329,
+        "top": [
+          0.899441,
+          0.898001,
+          0.892621,
+          0.880784,
+          0.878862
+        ]
+      },
+      "preview_result": {
+        "best_id": "73_v33",
+        "score": 0.896463,
+        "margin": 0.00092,
+        "status": "AMBIGUOUS",
+        "time_sec": 0.162,
+        "top": [
+          0.896463,
+          0.895542,
+          0.888822,
+          0.874791,
+          0.874257
+        ]
+      },
+      "same_best": false,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.997736,
+        "environment": 0.999879,
+        "color": 0.99702,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_f142cfcc5e3b0a069c6081aa",
+      "filename": "87_003.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_f142cfcc5e3b0a069c6081aa.webp",
+      "original": {
+        "best_id": "87_v33",
+        "score": 0.930143,
+        "margin": 0.034398,
+        "status": "CONFIDENT",
+        "time_sec": 0.323,
+        "top": [
+          0.930143,
+          0.895745,
+          0.887709,
+          0.886566,
+          0.88135
+        ]
+      },
+      "preview_result": {
+        "best_id": "87_v33",
+        "score": 0.929799,
+        "margin": 0.033386,
+        "status": "CONFIDENT",
+        "time_sec": 0.167,
+        "top": [
+          0.929799,
+          0.896413,
+          0.889074,
+          0.888152,
+          0.880942
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.998387,
+        "environment": 0.999967,
+        "color": 0.999795,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_2b548a03bbbf44e9948fe574",
+      "filename": "Зорге_06.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_2b548a03bbbf44e9948fe574.webp",
+      "original": {
+        "best_id": "89_v33",
+        "score": 0.850254,
+        "margin": 0.015478,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.421,
+        "top": [
+          0.850254,
+          0.834775,
+          0.828117,
+          0.827362,
+          0.812003
+        ]
+      },
+      "preview_result": {
+        "best_id": "89_v33",
+        "score": 0.84635,
+        "margin": 0.013674,
+        "status": "AMBIGUOUS",
+        "time_sec": 0.158,
+        "top": [
+          0.84635,
+          0.832676,
+          0.831952,
+          0.82696,
+          0.813631
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.992145,
+        "environment": 0.999593,
+        "color": 0.992491,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_96bba9ef3712677d71373902",
+      "filename": "буденновский (2).JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_96bba9ef3712677d71373902.webp",
+      "original": {
+        "best_id": "77_v33",
+        "score": 0.942619,
+        "margin": 0.119528,
+        "status": "CONFIDENT",
+        "time_sec": 0.314,
+        "top": [
+          0.942619,
+          0.823091,
+          0.803908,
+          0.798813,
+          0.796903
+        ]
+      },
+      "preview_result": {
+        "best_id": "77_v33",
+        "score": 0.945444,
+        "margin": 0.11516,
+        "status": "CONFIDENT",
+        "time_sec": 0.159,
+        "top": [
+          0.945444,
+          0.830284,
+          0.810101,
+          0.804155,
+          0.803701
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.996485,
+        "environment": 0.999478,
+        "color": 0.999326,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_be382132cadde0718b3a50d1",
+      "filename": "95_021.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_be382132cadde0718b3a50d1.webp",
+      "original": {
+        "best_id": "95_v33",
+        "score": 0.918756,
+        "margin": 0.084017,
+        "status": "CONFIDENT",
+        "time_sec": 0.34,
+        "top": [
+          0.918756,
+          0.834739,
+          0.807597,
+          0.806515,
+          0.803565
+        ]
+      },
+      "preview_result": {
+        "best_id": "95_v33",
+        "score": 0.924412,
+        "margin": 0.079582,
+        "status": "CONFIDENT",
+        "time_sec": 0.161,
+        "top": [
+          0.924412,
+          0.84483,
+          0.814656,
+          0.81285,
+          0.812337
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 3,
+      "cosine": {
+        "global": 0.991973,
+        "environment": 0.999908,
+        "color": 0.999879,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_168bcfcf8e7b7cff321d4c6a",
+      "filename": "83_044.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_168bcfcf8e7b7cff321d4c6a.webp",
+      "original": {
+        "best_id": "83_v33",
+        "score": 0.967487,
+        "margin": 0.082321,
+        "status": "CONFIDENT",
+        "time_sec": 0.343,
+        "top": [
+          0.967487,
+          0.885166,
+          0.882702,
+          0.882573,
+          0.879795
+        ]
+      },
+      "preview_result": {
+        "best_id": "83_v33",
+        "score": 0.968765,
+        "margin": 0.081432,
+        "status": "CONFIDENT",
+        "time_sec": 0.161,
+        "top": [
+          0.968765,
+          0.887332,
+          0.884376,
+          0.883926,
+          0.879364
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.995513,
+        "environment": 0.999839,
+        "color": 0.998556,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_6ecfe0322c6a2e656b11feea",
+      "filename": "Комарова13_12.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_6ecfe0322c6a2e656b11feea.webp",
+      "original": {
+        "best_id": "78_v33",
+        "score": 0.935684,
+        "margin": 0.045887,
+        "status": "CONFIDENT",
+        "time_sec": 0.332,
+        "top": [
+          0.935684,
+          0.889797,
+          0.88503,
+          0.87802,
+          0.876092
+        ]
+      },
+      "preview_result": {
+        "best_id": "78_v33",
+        "score": 0.935096,
+        "margin": 0.047991,
+        "status": "CONFIDENT",
+        "time_sec": 0.179,
+        "top": [
+          0.935096,
+          0.887105,
+          0.88545,
+          0.877912,
+          0.874837
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.998306,
+        "environment": 0.999002,
+        "color": 0.997577,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_d6a29dcb31b4b3d89eebf955",
+      "filename": "40 лет Победы 154, А (10).JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_d6a29dcb31b4b3d89eebf955.webp",
+      "original": {
+        "best_id": "75_v33",
+        "score": 0.903456,
+        "margin": 0.083866,
+        "status": "CONFIDENT",
+        "time_sec": 0.345,
+        "top": [
+          0.903456,
+          0.81959,
+          0.818697,
+          0.816808,
+          0.802961
+        ]
+      },
+      "preview_result": {
+        "best_id": "75_v33",
+        "score": 0.899215,
+        "margin": 0.071008,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.15,
+        "top": [
+          0.899215,
+          0.828206,
+          0.824578,
+          0.81438,
+          0.813452
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.989818,
+        "environment": 0.995917,
+        "color": 0.990177,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_da38f3dde3c75b0317568773",
+      "filename": "коммунистический (41).JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_da38f3dde3c75b0317568773.webp",
+      "original": {
+        "best_id": "76_v33",
+        "score": 0.927861,
+        "margin": 0.076941,
+        "status": "CONFIDENT",
+        "time_sec": 0.314,
+        "top": [
+          0.927861,
+          0.85092,
+          0.839795,
+          0.833957,
+          0.832523
+        ]
+      },
+      "preview_result": {
+        "best_id": "76_v33",
+        "score": 0.923701,
+        "margin": 0.073573,
+        "status": "CONFIDENT",
+        "time_sec": 0.151,
+        "top": [
+          0.923701,
+          0.850127,
+          0.841315,
+          0.831777,
+          0.829961
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.992074,
+        "environment": 0.997468,
+        "color": 0.994106,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_05261f1bcd16279b60cad1df",
+      "filename": "94_054.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_05261f1bcd16279b60cad1df.webp",
+      "original": {
+        "best_id": "94_v33",
+        "score": 0.822448,
+        "margin": 0.063548,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.667,
+        "top": [
+          0.822448,
+          0.7589,
+          0.750516,
+          0.744872,
+          0.738439
+        ]
+      },
+      "preview_result": {
+        "best_id": "94_v33",
+        "score": 0.814183,
+        "margin": 0.065099,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.2,
+        "top": [
+          0.814183,
+          0.749083,
+          0.740423,
+          0.733634,
+          0.732875
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.994592,
+        "environment": 0.999941,
+        "color": 0.999552,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_ee66d224fd4251aadcb7cb72",
+      "filename": "88_018.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_ee66d224fd4251aadcb7cb72.webp",
+      "original": {
+        "best_id": "88_v33",
+        "score": 0.92213,
+        "margin": 0.131915,
+        "status": "CONFIDENT",
+        "time_sec": 0.317,
+        "top": [
+          0.92213,
+          0.790216,
+          0.780728,
+          0.77731,
+          0.775831
+        ]
+      },
+      "preview_result": {
+        "best_id": "88_v33",
+        "score": 0.911541,
+        "margin": 0.130979,
+        "status": "CONFIDENT",
+        "time_sec": 0.156,
+        "top": [
+          0.911541,
+          0.780562,
+          0.771858,
+          0.769815,
+          0.768167
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.992635,
+        "environment": 0.992477,
+        "color": 0.995588,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_11af3bfa6ef842190d5006fd",
+      "filename": "40 Лет Победы 154 А (41).JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_11af3bfa6ef842190d5006fd.webp",
+      "original": {
+        "best_id": "75_v33",
+        "score": 0.919549,
+        "margin": 0.122633,
+        "status": "CONFIDENT",
+        "time_sec": 0.314,
+        "top": [
+          0.919549,
+          0.796917,
+          0.741966,
+          0.734073,
+          0.731213
+        ]
+      },
+      "preview_result": {
+        "best_id": "75_v33",
+        "score": 0.914334,
+        "margin": 0.115982,
+        "status": "CONFIDENT",
+        "time_sec": 0.152,
+        "top": [
+          0.914334,
+          0.798352,
+          0.75207,
+          0.740468,
+          0.739585
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.98922,
+        "environment": 0.999728,
+        "color": 0.996997,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_c989b105392b72bc6e32fa49",
+      "filename": "93_021.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_c989b105392b72bc6e32fa49.webp",
+      "original": {
+        "best_id": "93_v33",
+        "score": 0.773511,
+        "margin": 0.013611,
+        "status": "NO_MATCH",
+        "time_sec": 0.325,
+        "top": [
+          0.773511,
+          0.7599,
+          0.745638,
+          0.733385,
+          0.730368
+        ]
+      },
+      "preview_result": {
+        "best_id": "93_v33",
+        "score": 0.769545,
+        "margin": 0.014789,
+        "status": "NO_MATCH",
+        "time_sec": 0.15,
+        "top": [
+          0.769545,
+          0.754756,
+          0.741253,
+          0.728734,
+          0.728154
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.993728,
+        "environment": 0.999909,
+        "color": 0.999175,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_75f810061780b1f64f59f5d3",
+      "filename": "Зорге46_12.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_75f810061780b1f64f59f5d3.webp",
+      "original": {
+        "best_id": "74_v33",
+        "score": 0.93445,
+        "margin": 0.06522,
+        "status": "CONFIDENT",
+        "time_sec": 0.536,
+        "top": [
+          0.93445,
+          0.86923,
+          0.866186,
+          0.855375,
+          0.851154
+        ]
+      },
+      "preview_result": {
+        "best_id": "74_v33",
+        "score": 0.938038,
+        "margin": 0.063547,
+        "status": "CONFIDENT",
+        "time_sec": 0.181,
+        "top": [
+          0.938038,
+          0.874491,
+          0.869677,
+          0.853004,
+          0.852908
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.993178,
+        "environment": 0.999921,
+        "color": 0.997947,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_60e6f2309640ce87c0b8d2f0",
+      "filename": "95_002.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_60e6f2309640ce87c0b8d2f0.webp",
+      "original": {
+        "best_id": "95_v33",
+        "score": 0.889489,
+        "margin": 0.095896,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.33,
+        "top": [
+          0.889489,
+          0.793593,
+          0.784942,
+          0.78405,
+          0.77584
+        ]
+      },
+      "preview_result": {
+        "best_id": "95_v33",
+        "score": 0.901621,
+        "margin": 0.091225,
+        "status": "CONFIDENT",
+        "time_sec": 0.158,
+        "top": [
+          0.901621,
+          0.810396,
+          0.801747,
+          0.799903,
+          0.790358
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.993452,
+        "environment": 0.999914,
+        "color": 0.999155,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_7067af5d6501be922036068f",
+      "filename": "78_007.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_7067af5d6501be922036068f.webp",
+      "original": {
+        "best_id": "78_v33",
+        "score": 0.950606,
+        "margin": 0.078956,
+        "status": "CONFIDENT",
+        "time_sec": 0.329,
+        "top": [
+          0.950606,
+          0.87165,
+          0.869312,
+          0.865438,
+          0.863948
+        ]
+      },
+      "preview_result": {
+        "best_id": "78_v33",
+        "score": 0.949394,
+        "margin": 0.079566,
+        "status": "CONFIDENT",
+        "time_sec": 0.159,
+        "top": [
+          0.949394,
+          0.869828,
+          0.866326,
+          0.86632,
+          0.862107
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.998395,
+        "environment": 0.999462,
+        "color": 0.998061,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_7ff3989b53323e7b6893744e",
+      "filename": "82_005.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_7ff3989b53323e7b6893744e.webp",
+      "original": {
+        "best_id": "82_v33",
+        "score": 0.936292,
+        "margin": 0.070091,
+        "status": "CONFIDENT",
+        "time_sec": 0.334,
+        "top": [
+          0.936292,
+          0.866201,
+          0.85401,
+          0.829498,
+          0.823263
+        ]
+      },
+      "preview_result": {
+        "best_id": "82_v33",
+        "score": 0.933784,
+        "margin": 0.073574,
+        "status": "CONFIDENT",
+        "time_sec": 0.159,
+        "top": [
+          0.933784,
+          0.86021,
+          0.847156,
+          0.823369,
+          0.818614
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.995846,
+        "environment": 0.999788,
+        "color": 0.996004,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_5a25746b171f1f551aa56fa0",
+      "filename": "92_016.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_5a25746b171f1f551aa56fa0.webp",
+      "original": {
+        "best_id": "92_v33",
+        "score": 0.949499,
+        "margin": 0.055396,
+        "status": "CONFIDENT",
+        "time_sec": 0.362,
+        "top": [
+          0.949499,
+          0.894103,
+          0.891211,
+          0.886243,
+          0.883605
+        ]
+      },
+      "preview_result": {
+        "best_id": "92_v33",
+        "score": 0.947779,
+        "margin": 0.056093,
+        "status": "CONFIDENT",
+        "time_sec": 0.22,
+        "top": [
+          0.947779,
+          0.891686,
+          0.890952,
+          0.88608,
+          0.884707
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.993257,
+        "environment": 0.999548,
+        "color": 0.998798,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_385a09dfc97451324d59d6e7",
+      "filename": "81_008.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_385a09dfc97451324d59d6e7.webp",
+      "original": {
+        "best_id": "81_v33",
+        "score": 0.907041,
+        "margin": 0.060846,
+        "status": "CONFIDENT",
+        "time_sec": 0.345,
+        "top": [
+          0.907041,
+          0.846195,
+          0.841518,
+          0.835369,
+          0.83319
+        ]
+      },
+      "preview_result": {
+        "best_id": "81_v33",
+        "score": 0.903686,
+        "margin": 0.059127,
+        "status": "CONFIDENT",
+        "time_sec": 0.167,
+        "top": [
+          0.903686,
+          0.84456,
+          0.839577,
+          0.838443,
+          0.830693
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.991143,
+        "environment": 0.999283,
+        "color": 0.998224,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_ed34f62c1c6e275768409e96",
+      "filename": "79_038.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_ed34f62c1c6e275768409e96.webp",
+      "original": {
+        "best_id": "79_v33",
+        "score": 0.955252,
+        "margin": 0.086502,
+        "status": "CONFIDENT",
+        "time_sec": 0.565,
+        "top": [
+          0.955252,
+          0.86875,
+          0.862548,
+          0.857132,
+          0.852963
+        ]
+      },
+      "preview_result": {
+        "best_id": "79_v33",
+        "score": 0.953596,
+        "margin": 0.083637,
+        "status": "CONFIDENT",
+        "time_sec": 0.234,
+        "top": [
+          0.953596,
+          0.869959,
+          0.869077,
+          0.861371,
+          0.854352
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.99605,
+        "environment": 0.999063,
+        "color": 0.999031,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_205602a33f6e679c79b2b0d4",
+      "filename": "89_31.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_205602a33f6e679c79b2b0d4.webp",
+      "original": {
+        "best_id": "89_v33",
+        "score": 0.920649,
+        "margin": 0.11129,
+        "status": "CONFIDENT",
+        "time_sec": 0.35,
+        "top": [
+          0.920649,
+          0.809358,
+          0.788373,
+          0.783269,
+          0.772274
+        ]
+      },
+      "preview_result": {
+        "best_id": "89_v33",
+        "score": 0.919953,
+        "margin": 0.110155,
+        "status": "CONFIDENT",
+        "time_sec": 0.166,
+        "top": [
+          0.919953,
+          0.809798,
+          0.791001,
+          0.783897,
+          0.774897
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.994357,
+        "environment": 0.995857,
+        "color": 0.995311,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_b1ef8fb16b372480ade03c5e",
+      "filename": "89_61.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_b1ef8fb16b372480ade03c5e.webp",
+      "original": {
+        "best_id": "89_v33",
+        "score": 0.899455,
+        "margin": 0.07508,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.336,
+        "top": [
+          0.899455,
+          0.824375,
+          0.820793,
+          0.818081,
+          0.813335
+        ]
+      },
+      "preview_result": {
+        "best_id": "89_v33",
+        "score": 0.895796,
+        "margin": 0.067509,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.171,
+        "top": [
+          0.895796,
+          0.828287,
+          0.821903,
+          0.815819,
+          0.815683
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.995712,
+        "environment": 0.99966,
+        "color": 0.999597,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_b12a04a8c3ccd7d210640fbc",
+      "filename": "89_29.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_b12a04a8c3ccd7d210640fbc.webp",
+      "original": {
+        "best_id": "89_v33",
+        "score": 0.936825,
+        "margin": 0.128135,
+        "status": "CONFIDENT",
+        "time_sec": 0.332,
+        "top": [
+          0.936825,
+          0.80869,
+          0.803066,
+          0.802742,
+          0.800709
+        ]
+      },
+      "preview_result": {
+        "best_id": "89_v33",
+        "score": 0.932071,
+        "margin": 0.125768,
+        "status": "CONFIDENT",
+        "time_sec": 0.164,
+        "top": [
+          0.932071,
+          0.806304,
+          0.801499,
+          0.80097,
+          0.798653
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.995737,
+        "environment": 0.996601,
+        "color": 0.99691,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_269cefcaf020e297577eb0d1",
+      "filename": "83_025.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_269cefcaf020e297577eb0d1.webp",
+      "original": {
+        "best_id": "83_v33",
+        "score": 0.963507,
+        "margin": 0.073356,
+        "status": "CONFIDENT",
+        "time_sec": 0.338,
+        "top": [
+          0.963507,
+          0.890151,
+          0.888767,
+          0.883193,
+          0.879033
+        ]
+      },
+      "preview_result": {
+        "best_id": "83_v33",
+        "score": 0.955436,
+        "margin": 0.070413,
+        "status": "CONFIDENT",
+        "time_sec": 0.184,
+        "top": [
+          0.955436,
+          0.885023,
+          0.881172,
+          0.874181,
+          0.870097
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.993358,
+        "environment": 0.999947,
+        "color": 0.99981,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_9fe54f8603bfaddbdf94b2ad",
+      "filename": "Ашхабадский_09.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_9fe54f8603bfaddbdf94b2ad.webp",
+      "original": {
+        "best_id": "85_v33",
+        "score": 0.906731,
+        "margin": 0.034372,
+        "status": "CONFIDENT",
+        "time_sec": 0.367,
+        "top": [
+          0.906731,
+          0.87236,
+          0.869065,
+          0.850666,
+          0.850282
+        ]
+      },
+      "preview_result": {
+        "best_id": "85_v33",
+        "score": 0.907152,
+        "margin": 0.033404,
+        "status": "CONFIDENT",
+        "time_sec": 0.172,
+        "top": [
+          0.907152,
+          0.873749,
+          0.868825,
+          0.850303,
+          0.849393
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.997419,
+        "environment": 0.999929,
+        "color": 0.99967,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_583bfb25cf4b5ba2d18f581b",
+      "filename": "93_041.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_583bfb25cf4b5ba2d18f581b.webp",
+      "original": {
+        "best_id": "93_v33",
+        "score": 0.9377,
+        "margin": 0.060891,
+        "status": "CONFIDENT",
+        "time_sec": 0.336,
+        "top": [
+          0.9377,
+          0.876809,
+          0.867131,
+          0.859619,
+          0.853446
+        ]
+      },
+      "preview_result": {
+        "best_id": "93_v33",
+        "score": 0.936431,
+        "margin": 0.058859,
+        "status": "CONFIDENT",
+        "time_sec": 0.169,
+        "top": [
+          0.936431,
+          0.877572,
+          0.868328,
+          0.863549,
+          0.855369
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.993471,
+        "environment": 0.998757,
+        "color": 0.998381,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_5debd92602ed377fda9947c9",
+      "filename": "Малиновского Еременко А (5) (2).JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_5debd92602ed377fda9947c9.webp",
+      "original": {
+        "best_id": "72_v33",
+        "score": 0.9339,
+        "margin": 0.075148,
+        "status": "CONFIDENT",
+        "time_sec": 0.631,
+        "top": [
+          0.9339,
+          0.858752,
+          0.805086,
+          0.80449,
+          0.801401
+        ]
+      },
+      "preview_result": {
+        "best_id": "72_v33",
+        "score": 0.930165,
+        "margin": 0.072756,
+        "status": "CONFIDENT",
+        "time_sec": 0.172,
+        "top": [
+          0.930165,
+          0.857409,
+          0.804155,
+          0.794699,
+          0.793834
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.988525,
+        "environment": 0.999827,
+        "color": 0.999567,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_b0111589b4ebf19e517d7b31",
+      "filename": "Вавилова52_01.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_b0111589b4ebf19e517d7b31.webp",
+      "original": {
+        "best_id": "95_v33",
+        "score": 0.93137,
+        "margin": 0.056516,
+        "status": "CONFIDENT",
+        "time_sec": 0.338,
+        "top": [
+          0.93137,
+          0.874854,
+          0.87139,
+          0.87049,
+          0.868445
+        ]
+      },
+      "preview_result": {
+        "best_id": "95_v33",
+        "score": 0.931675,
+        "margin": 0.055437,
+        "status": "CONFIDENT",
+        "time_sec": 0.16,
+        "top": [
+          0.931675,
+          0.876239,
+          0.872475,
+          0.871206,
+          0.870988
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.99552,
+        "environment": 0.999921,
+        "color": 0.99935,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_335d4269d272a286848ab1b7",
+      "filename": "85_043.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_335d4269d272a286848ab1b7.webp",
+      "original": {
+        "best_id": "85_v33",
+        "score": 0.942677,
+        "margin": 0.053895,
+        "status": "CONFIDENT",
+        "time_sec": 0.327,
+        "top": [
+          0.942677,
+          0.888782,
+          0.879858,
+          0.879434,
+          0.875306
+        ]
+      },
+      "preview_result": {
+        "best_id": "85_v33",
+        "score": 0.945285,
+        "margin": 0.052407,
+        "status": "CONFIDENT",
+        "time_sec": 0.167,
+        "top": [
+          0.945285,
+          0.892878,
+          0.879408,
+          0.877491,
+          0.876509
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.997156,
+        "environment": 0.99981,
+        "color": 0.996492,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_fc0044c96daee55549e94f71",
+      "filename": "Нагибина24_13.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_fc0044c96daee55549e94f71.webp",
+      "original": {
+        "best_id": "83_v33",
+        "score": 0.922476,
+        "margin": 0.038545,
+        "status": "CONFIDENT",
+        "time_sec": 0.327,
+        "top": [
+          0.922476,
+          0.883931,
+          0.878459,
+          0.877622,
+          0.873314
+        ]
+      },
+      "preview_result": {
+        "best_id": "83_v33",
+        "score": 0.917731,
+        "margin": 0.039755,
+        "status": "CONFIDENT",
+        "time_sec": 0.161,
+        "top": [
+          0.917731,
+          0.877976,
+          0.872306,
+          0.8721,
+          0.871459
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.995446,
+        "environment": 0.9971,
+        "color": 0.989487,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_f4a7bbd0fb2807c4061cee8c",
+      "filename": "91_019.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_f4a7bbd0fb2807c4061cee8c.webp",
+      "original": {
+        "best_id": "91_v33",
+        "score": 0.944036,
+        "margin": 0.067643,
+        "status": "CONFIDENT",
+        "time_sec": 0.355,
+        "top": [
+          0.944036,
+          0.876393,
+          0.869644,
+          0.867978,
+          0.864063
+        ]
+      },
+      "preview_result": {
+        "best_id": "91_v33",
+        "score": 0.945211,
+        "margin": 0.069264,
+        "status": "CONFIDENT",
+        "time_sec": 0.169,
+        "top": [
+          0.945211,
+          0.875947,
+          0.870682,
+          0.867627,
+          0.862799
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.993028,
+        "environment": 0.999896,
+        "color": 0.999654,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_7a5296f5035e8a0289b12158",
+      "filename": "91_012.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_7a5296f5035e8a0289b12158.webp",
+      "original": {
+        "best_id": "73_v33",
+        "score": 0.824778,
+        "margin": 0.001148,
+        "status": "AMBIGUOUS",
+        "time_sec": 0.361,
+        "top": [
+          0.824778,
+          0.82363,
+          0.822395,
+          0.821319,
+          0.799577
+        ]
+      },
+      "preview_result": {
+        "best_id": "73_v33",
+        "score": 0.8306,
+        "margin": 0.002629,
+        "status": "AMBIGUOUS",
+        "time_sec": 0.185,
+        "top": [
+          0.8306,
+          0.827971,
+          0.821781,
+          0.821296,
+          0.804903
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.998483,
+        "environment": 0.99991,
+        "color": 0.999435,
+        "spatial": 0.999999
+      }
+    },
+    {
+      "photo_id": "PH_dd2403c9feaf92b06e940cd8",
+      "filename": "Добровольского17_03.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_dd2403c9feaf92b06e940cd8.webp",
+      "original": {
+        "best_id": "82_v33",
+        "score": 0.950614,
+        "margin": 0.12317,
+        "status": "CONFIDENT",
+        "time_sec": 0.341,
+        "top": [
+          0.950614,
+          0.827444,
+          0.824699,
+          0.804665,
+          0.798103
+        ]
+      },
+      "preview_result": {
+        "best_id": "82_v33",
+        "score": 0.949712,
+        "margin": 0.120013,
+        "status": "CONFIDENT",
+        "time_sec": 0.16,
+        "top": [
+          0.949712,
+          0.829698,
+          0.828696,
+          0.806312,
+          0.798185
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.995184,
+        "environment": 0.999946,
+        "color": 0.999183,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_941eb61681f223b2d1b3d155",
+      "filename": "буденновский (30).JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_941eb61681f223b2d1b3d155.webp",
+      "original": {
+        "best_id": "77_v33",
+        "score": 0.923714,
+        "margin": 0.0817,
+        "status": "CONFIDENT",
+        "time_sec": 0.437,
+        "top": [
+          0.923714,
+          0.842015,
+          0.829783,
+          0.820346,
+          0.818515
+        ]
+      },
+      "preview_result": {
+        "best_id": "77_v33",
+        "score": 0.924522,
+        "margin": 0.0798,
+        "status": "CONFIDENT",
+        "time_sec": 0.191,
+        "top": [
+          0.924522,
+          0.844723,
+          0.831842,
+          0.822459,
+          0.819077
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.998875,
+        "environment": 0.997387,
+        "color": 0.997335,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_0d0b8eca69061d27840a86f6",
+      "filename": "81_016.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_0d0b8eca69061d27840a86f6.webp",
+      "original": {
+        "best_id": "81_v33",
+        "score": 0.846618,
+        "margin": 0.073664,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.384,
+        "top": [
+          0.846618,
+          0.772953,
+          0.761964,
+          0.744352,
+          0.744199
+        ]
+      },
+      "preview_result": {
+        "best_id": "81_v33",
+        "score": 0.852319,
+        "margin": 0.071221,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.181,
+        "top": [
+          0.852319,
+          0.781098,
+          0.768713,
+          0.750435,
+          0.750089
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.996918,
+        "environment": 0.999717,
+        "color": 0.998748,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_52cbed44b58dad9f3357d33d",
+      "filename": "79_023.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_52cbed44b58dad9f3357d33d.webp",
+      "original": {
+        "best_id": "79_v33",
+        "score": 0.871704,
+        "margin": 0.06498,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.336,
+        "top": [
+          0.871704,
+          0.806724,
+          0.806029,
+          0.795216,
+          0.791152
+        ]
+      },
+      "preview_result": {
+        "best_id": "79_v33",
+        "score": 0.866449,
+        "margin": 0.060674,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.163,
+        "top": [
+          0.866449,
+          0.805775,
+          0.80252,
+          0.790265,
+          0.789052
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.997865,
+        "environment": 0.999895,
+        "color": 0.995796,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_160bdac6b9232c0cb1f5f6fb",
+      "filename": "89_48.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_160bdac6b9232c0cb1f5f6fb.webp",
+      "original": {
+        "best_id": "89_v33",
+        "score": 0.940047,
+        "margin": 0.045521,
+        "status": "CONFIDENT",
+        "time_sec": 0.406,
+        "top": [
+          0.940047,
+          0.894526,
+          0.874709,
+          0.868183,
+          0.861528
+        ]
+      },
+      "preview_result": {
+        "best_id": "89_v33",
+        "score": 0.938579,
+        "margin": 0.048828,
+        "status": "CONFIDENT",
+        "time_sec": 0.157,
+        "top": [
+          0.938579,
+          0.889751,
+          0.871777,
+          0.868598,
+          0.856045
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.995662,
+        "environment": 0.999831,
+        "color": 0.997687,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_b208bf8dd6b0e102fd6d038c",
+      "filename": "93_012.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_b208bf8dd6b0e102fd6d038c.webp",
+      "original": {
+        "best_id": "93_v33",
+        "score": 0.901834,
+        "margin": 0.036048,
+        "status": "CONFIDENT",
+        "time_sec": 0.338,
+        "top": [
+          0.901834,
+          0.865786,
+          0.854355,
+          0.839775,
+          0.837752
+        ]
+      },
+      "preview_result": {
+        "best_id": "93_v33",
+        "score": 0.903549,
+        "margin": 0.035845,
+        "status": "CONFIDENT",
+        "time_sec": 0.163,
+        "top": [
+          0.903549,
+          0.867704,
+          0.852199,
+          0.840973,
+          0.840905
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.995141,
+        "environment": 0.999841,
+        "color": 0.999302,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_f9e12efccaecca33279b1189",
+      "filename": "85_057.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_f9e12efccaecca33279b1189.webp",
+      "original": {
+        "best_id": "85_v33",
+        "score": 0.926095,
+        "margin": 0.073916,
+        "status": "CONFIDENT",
+        "time_sec": 0.334,
+        "top": [
+          0.926095,
+          0.852179,
+          0.845386,
+          0.8404,
+          0.83843
+        ]
+      },
+      "preview_result": {
+        "best_id": "85_v33",
+        "score": 0.926891,
+        "margin": 0.074296,
+        "status": "CONFIDENT",
+        "time_sec": 0.169,
+        "top": [
+          0.926891,
+          0.852594,
+          0.842269,
+          0.839138,
+          0.83808
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.998019,
+        "environment": 0.998504,
+        "color": 0.996743,
+        "spatial": 0.999999
+      }
+    },
+    {
+      "photo_id": "PH_dc2e9ab556a7e705e413a0fe",
+      "filename": "Зорге46_17.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_dc2e9ab556a7e705e413a0fe.webp",
+      "original": {
+        "best_id": "74_v33",
+        "score": 0.973533,
+        "margin": 0.070776,
+        "status": "CONFIDENT",
+        "time_sec": 0.333,
+        "top": [
+          0.973533,
+          0.902757,
+          0.897309,
+          0.896293,
+          0.88777
+        ]
+      },
+      "preview_result": {
+        "best_id": "74_v33",
+        "score": 0.971383,
+        "margin": 0.070397,
+        "status": "CONFIDENT",
+        "time_sec": 0.159,
+        "top": [
+          0.971383,
+          0.900986,
+          0.8961,
+          0.89266,
+          0.883881
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.995545,
+        "environment": 0.99952,
+        "color": 0.99816,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_df8a89e26cbed9c52b388da9",
+      "filename": "Зорге46_45.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_df8a89e26cbed9c52b388da9.webp",
+      "original": {
+        "best_id": "74_v33",
+        "score": 0.954402,
+        "margin": 0.052954,
+        "status": "CONFIDENT",
+        "time_sec": 0.329,
+        "top": [
+          0.954402,
+          0.901448,
+          0.899724,
+          0.892987,
+          0.885454
+        ]
+      },
+      "preview_result": {
+        "best_id": "74_v33",
+        "score": 0.954374,
+        "margin": 0.052474,
+        "status": "CONFIDENT",
+        "time_sec": 0.162,
+        "top": [
+          0.954374,
+          0.9019,
+          0.896635,
+          0.895893,
+          0.883989
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.997392,
+        "environment": 0.999815,
+        "color": 0.997266,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_644c33de878a2fd30f7fd03d",
+      "filename": "80_019.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_644c33de878a2fd30f7fd03d.webp",
+      "original": {
+        "best_id": "80_v33",
+        "score": 0.936626,
+        "margin": 0.102026,
+        "status": "CONFIDENT",
+        "time_sec": 0.327,
+        "top": [
+          0.936626,
+          0.834599,
+          0.829131,
+          0.809425,
+          0.798301
+        ]
+      },
+      "preview_result": {
+        "best_id": "80_v33",
+        "score": 0.936033,
+        "margin": 0.102115,
+        "status": "CONFIDENT",
+        "time_sec": 0.159,
+        "top": [
+          0.936033,
+          0.833918,
+          0.825036,
+          0.802218,
+          0.796334
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.993197,
+        "environment": 0.999479,
+        "color": 0.995875,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_66a7611301fd3132ac58544b",
+      "filename": "82_037.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_66a7611301fd3132ac58544b.webp",
+      "original": {
+        "best_id": "82_v33",
+        "score": 0.964892,
+        "margin": 0.123767,
+        "status": "CONFIDENT",
+        "time_sec": 0.345,
+        "top": [
+          0.964892,
+          0.841124,
+          0.832132,
+          0.830703,
+          0.82744
+        ]
+      },
+      "preview_result": {
+        "best_id": "82_v33",
+        "score": 0.96321,
+        "margin": 0.126505,
+        "status": "CONFIDENT",
+        "time_sec": 0.177,
+        "top": [
+          0.96321,
+          0.836705,
+          0.82709,
+          0.826644,
+          0.822212
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.996887,
+        "environment": 0.999884,
+        "color": 0.999215,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_5268d42d69a332e804e3e130",
+      "filename": "89_21.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_5268d42d69a332e804e3e130.webp",
+      "original": {
+        "best_id": "89_v33",
+        "score": 0.772077,
+        "margin": 0.054571,
+        "status": "NO_MATCH",
+        "time_sec": 0.35,
+        "top": [
+          0.772077,
+          0.717506,
+          0.713601,
+          0.712024,
+          0.710294
+        ]
+      },
+      "preview_result": {
+        "best_id": "89_v33",
+        "score": 0.753923,
+        "margin": 0.046581,
+        "status": "NO_MATCH",
+        "time_sec": 0.229,
+        "top": [
+          0.753923,
+          0.707342,
+          0.705186,
+          0.702783,
+          0.701278
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.992626,
+        "environment": 0.999562,
+        "color": 0.997854,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_772f1fdf6ca48cf5aacbf726",
+      "filename": "коммунистический (33).JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_772f1fdf6ca48cf5aacbf726.webp",
+      "original": {
+        "best_id": "76_v33",
+        "score": 0.931807,
+        "margin": 0.06924,
+        "status": "CONFIDENT",
+        "time_sec": 0.374,
+        "top": [
+          0.931807,
+          0.862567,
+          0.826102,
+          0.821676,
+          0.803439
+        ]
+      },
+      "preview_result": {
+        "best_id": "76_v33",
+        "score": 0.931739,
+        "margin": 0.069854,
+        "status": "CONFIDENT",
+        "time_sec": 0.166,
+        "top": [
+          0.931739,
+          0.861885,
+          0.82904,
+          0.821959,
+          0.806609
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.997102,
+        "environment": 0.999862,
+        "color": 0.998627,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_8a7304ac9366dc517c7f0eb2",
+      "filename": "82_007.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_8a7304ac9366dc517c7f0eb2.webp",
+      "original": {
+        "best_id": "82_v33",
+        "score": 0.941958,
+        "margin": 0.070987,
+        "status": "CONFIDENT",
+        "time_sec": 0.327,
+        "top": [
+          0.941958,
+          0.87097,
+          0.86223,
+          0.836183,
+          0.8311
+        ]
+      },
+      "preview_result": {
+        "best_id": "82_v33",
+        "score": 0.940808,
+        "margin": 0.077142,
+        "status": "CONFIDENT",
+        "time_sec": 0.171,
+        "top": [
+          0.940808,
+          0.863666,
+          0.858535,
+          0.832006,
+          0.828831
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.9948,
+        "environment": 0.999544,
+        "color": 0.996425,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_57d260748e43b800ec31df5f",
+      "filename": "Шеболдаева8_15.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_57d260748e43b800ec31df5f.webp",
+      "original": {
+        "best_id": "87_v33",
+        "score": 0.88382,
+        "margin": 0.035283,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.605,
+        "top": [
+          0.88382,
+          0.848537,
+          0.847649,
+          0.847066,
+          0.83392
+        ]
+      },
+      "preview_result": {
+        "best_id": "87_v33",
+        "score": 0.88049,
+        "margin": 0.04063,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.16,
+        "top": [
+          0.88049,
+          0.839859,
+          0.839296,
+          0.838401,
+          0.825012
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.993881,
+        "environment": 0.998206,
+        "color": 0.997574,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_2066bcc7be24f3c016a66c7c",
+      "filename": "Зорге46_43.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_2066bcc7be24f3c016a66c7c.webp",
+      "original": {
+        "best_id": "74_v33",
+        "score": 0.956312,
+        "margin": 0.06531,
+        "status": "CONFIDENT",
+        "time_sec": 0.332,
+        "top": [
+          0.956312,
+          0.891002,
+          0.885505,
+          0.875757,
+          0.874956
+        ]
+      },
+      "preview_result": {
+        "best_id": "74_v33",
+        "score": 0.958754,
+        "margin": 0.066251,
+        "status": "CONFIDENT",
+        "time_sec": 0.166,
+        "top": [
+          0.958754,
+          0.892503,
+          0.889669,
+          0.881651,
+          0.877702
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.996709,
+        "environment": 0.999827,
+        "color": 0.995373,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_568b913f7f08d378de807e18",
+      "filename": "94_056.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_568b913f7f08d378de807e18.webp",
+      "original": {
+        "best_id": "94_v33",
+        "score": 0.905962,
+        "margin": 0.068643,
+        "status": "CONFIDENT",
+        "time_sec": 0.347,
+        "top": [
+          0.905962,
+          0.837319,
+          0.835083,
+          0.829147,
+          0.819603
+        ]
+      },
+      "preview_result": {
+        "best_id": "94_v33",
+        "score": 0.910918,
+        "margin": 0.066588,
+        "status": "CONFIDENT",
+        "time_sec": 0.176,
+        "top": [
+          0.910918,
+          0.84433,
+          0.841956,
+          0.828298,
+          0.821522
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.99438,
+        "environment": 0.999969,
+        "color": 0.999808,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_4e3e89b77f14c09e67667389",
+      "filename": "Радиаторный_11.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_4e3e89b77f14c09e67667389.webp",
+      "original": {
+        "best_id": "94_v33",
+        "score": 0.934347,
+        "margin": 0.061246,
+        "status": "CONFIDENT",
+        "time_sec": 0.35,
+        "top": [
+          0.934347,
+          0.873101,
+          0.857523,
+          0.857172,
+          0.844384
+        ]
+      },
+      "preview_result": {
+        "best_id": "94_v33",
+        "score": 0.932755,
+        "margin": 0.059529,
+        "status": "CONFIDENT",
+        "time_sec": 0.163,
+        "top": [
+          0.932755,
+          0.873226,
+          0.856582,
+          0.852512,
+          0.840657
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.995739,
+        "environment": 0.99993,
+        "color": 0.99905,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_4f56aeb482d47ec121e35e33",
+      "filename": "95_038.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_4f56aeb482d47ec121e35e33.webp",
+      "original": {
+        "best_id": "95_v33",
+        "score": 0.934535,
+        "margin": 0.057994,
+        "status": "CONFIDENT",
+        "time_sec": 0.332,
+        "top": [
+          0.934535,
+          0.876541,
+          0.876227,
+          0.86188,
+          0.850361
+        ]
+      },
+      "preview_result": {
+        "best_id": "95_v33",
+        "score": 0.932018,
+        "margin": 0.055578,
+        "status": "CONFIDENT",
+        "time_sec": 0.157,
+        "top": [
+          0.932018,
+          0.87644,
+          0.875399,
+          0.859724,
+          0.847068
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.996093,
+        "environment": 0.999938,
+        "color": 0.999881,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_830947852056f43016c660f4",
+      "filename": "79_017.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_830947852056f43016c660f4.webp",
+      "original": {
+        "best_id": "79_v33",
+        "score": 0.859434,
+        "margin": 0.066075,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.372,
+        "top": [
+          0.859434,
+          0.793359,
+          0.788099,
+          0.783737,
+          0.780526
+        ]
+      },
+      "preview_result": {
+        "best_id": "79_v33",
+        "score": 0.852323,
+        "margin": 0.05959,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.177,
+        "top": [
+          0.852323,
+          0.792733,
+          0.7866,
+          0.78189,
+          0.773653
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.996365,
+        "environment": 0.998387,
+        "color": 0.997063,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_760dfdde5e04707ebf24650f",
+      "filename": "буденновский (25).JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_760dfdde5e04707ebf24650f.webp",
+      "original": {
+        "best_id": "77_v33",
+        "score": 0.94867,
+        "margin": 0.110213,
+        "status": "CONFIDENT",
+        "time_sec": 0.585,
+        "top": [
+          0.94867,
+          0.838457,
+          0.815121,
+          0.798401,
+          0.795567
+        ]
+      },
+      "preview_result": {
+        "best_id": "77_v33",
+        "score": 0.94401,
+        "margin": 0.108752,
+        "status": "CONFIDENT",
+        "time_sec": 0.15,
+        "top": [
+          0.94401,
+          0.835258,
+          0.813237,
+          0.793453,
+          0.792655
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.991018,
+        "environment": 0.999849,
+        "color": 0.998887,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_afb1718267963290ca4380c7",
+      "filename": "95_062.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_afb1718267963290ca4380c7.webp",
+      "original": {
+        "best_id": "95_v33",
+        "score": 0.933171,
+        "margin": 0.051003,
+        "status": "CONFIDENT",
+        "time_sec": 0.319,
+        "top": [
+          0.933171,
+          0.882168,
+          0.878446,
+          0.875239,
+          0.87418
+        ]
+      },
+      "preview_result": {
+        "best_id": "95_v33",
+        "score": 0.9401,
+        "margin": 0.054406,
+        "status": "CONFIDENT",
+        "time_sec": 0.151,
+        "top": [
+          0.9401,
+          0.885694,
+          0.883377,
+          0.882289,
+          0.88062
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.995212,
+        "environment": 0.99994,
+        "color": 0.998328,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_b7a709a334211ef747f979a8",
+      "filename": "95_003.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_b7a709a334211ef747f979a8.webp",
+      "original": {
+        "best_id": "95_v33",
+        "score": 0.90626,
+        "margin": 0.095746,
+        "status": "CONFIDENT",
+        "time_sec": 0.32,
+        "top": [
+          0.90626,
+          0.810514,
+          0.807349,
+          0.800406,
+          0.79484
+        ]
+      },
+      "preview_result": {
+        "best_id": "95_v33",
+        "score": 0.905768,
+        "margin": 0.092204,
+        "status": "CONFIDENT",
+        "time_sec": 0.157,
+        "top": [
+          0.905768,
+          0.813564,
+          0.805439,
+          0.799759,
+          0.795903
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.996419,
+        "environment": 0.999876,
+        "color": 0.999458,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_b93816ea87d4790a5ac18431",
+      "filename": "89_17.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_b93816ea87d4790a5ac18431.webp",
+      "original": {
+        "best_id": "89_v33",
+        "score": 0.92731,
+        "margin": 0.120114,
+        "status": "CONFIDENT",
+        "time_sec": 0.337,
+        "top": [
+          0.92731,
+          0.807197,
+          0.795232,
+          0.794761,
+          0.791059
+        ]
+      },
+      "preview_result": {
+        "best_id": "89_v33",
+        "score": 0.924198,
+        "margin": 0.111219,
+        "status": "CONFIDENT",
+        "time_sec": 0.16,
+        "top": [
+          0.924198,
+          0.812979,
+          0.795967,
+          0.795708,
+          0.794831
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.994154,
+        "environment": 0.999579,
+        "color": 0.997276,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_8aa85729d5cf12a3e2bcf7d6",
+      "filename": "85_037.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_8aa85729d5cf12a3e2bcf7d6.webp",
+      "original": {
+        "best_id": "85_v33",
+        "score": 0.934312,
+        "margin": 0.079395,
+        "status": "CONFIDENT",
+        "time_sec": 0.339,
+        "top": [
+          0.934312,
+          0.854917,
+          0.852024,
+          0.850612,
+          0.838659
+        ]
+      },
+      "preview_result": {
+        "best_id": "85_v33",
+        "score": 0.938121,
+        "margin": 0.080679,
+        "status": "CONFIDENT",
+        "time_sec": 0.162,
+        "top": [
+          0.938121,
+          0.857442,
+          0.857204,
+          0.855704,
+          0.844469
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.995629,
+        "environment": 0.999581,
+        "color": 0.997887,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_1dc52367e175828d69b7ac98",
+      "filename": "40 лет Победы 154 в Александровку (27).JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_1dc52367e175828d69b7ac98.webp",
+      "original": {
+        "best_id": "75_v33",
+        "score": 0.910282,
+        "margin": 0.094414,
+        "status": "CONFIDENT",
+        "time_sec": 0.319,
+        "top": [
+          0.910282,
+          0.815868,
+          0.774793,
+          0.753446,
+          0.752942
+        ]
+      },
+      "preview_result": {
+        "best_id": "75_v33",
+        "score": 0.904132,
+        "margin": 0.085499,
+        "status": "CONFIDENT",
+        "time_sec": 0.144,
+        "top": [
+          0.904132,
+          0.818633,
+          0.774498,
+          0.765578,
+          0.763295
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.976353,
+        "environment": 0.999946,
+        "color": 0.999753,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_dbd0f8fbffeb7a5d53762d94",
+      "filename": "78_081.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_dbd0f8fbffeb7a5d53762d94.webp",
+      "original": {
+        "best_id": "78_v33",
+        "score": 0.942641,
+        "margin": 0.078563,
+        "status": "CONFIDENT",
+        "time_sec": 0.311,
+        "top": [
+          0.942641,
+          0.864078,
+          0.861703,
+          0.854628,
+          0.852723
+        ]
+      },
+      "preview_result": {
+        "best_id": "78_v33",
+        "score": 0.942137,
+        "margin": 0.083695,
+        "status": "CONFIDENT",
+        "time_sec": 0.158,
+        "top": [
+          0.942137,
+          0.858441,
+          0.8574,
+          0.852205,
+          0.850014
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.996256,
+        "environment": 0.999875,
+        "color": 0.998426,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_b4c91f2fa42f4c76936b6096",
+      "filename": "93_031.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_b4c91f2fa42f4c76936b6096.webp",
+      "original": {
+        "best_id": "93_v33",
+        "score": 0.906396,
+        "margin": 0.041426,
+        "status": "CONFIDENT",
+        "time_sec": 0.326,
+        "top": [
+          0.906396,
+          0.864969,
+          0.862134,
+          0.856507,
+          0.851876
+        ]
+      },
+      "preview_result": {
+        "best_id": "93_v33",
+        "score": 0.904885,
+        "margin": 0.035929,
+        "status": "CONFIDENT",
+        "time_sec": 0.166,
+        "top": [
+          0.904885,
+          0.868956,
+          0.861351,
+          0.855108,
+          0.846626
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.994723,
+        "environment": 0.999586,
+        "color": 0.995951,
+        "spatial": 0.999999
+      }
+    },
+    {
+      "photo_id": "PH_455b0dae474a195a3a258d5d",
+      "filename": "Стачки_41_10.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_455b0dae474a195a3a258d5d.webp",
+      "original": {
+        "best_id": "93_v33",
+        "score": 0.876946,
+        "margin": 0.019226,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.337,
+        "top": [
+          0.876946,
+          0.85772,
+          0.851612,
+          0.84223,
+          0.832834
+        ]
+      },
+      "preview_result": {
+        "best_id": "93_v33",
+        "score": 0.877753,
+        "margin": 0.016439,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.159,
+        "top": [
+          0.877753,
+          0.861314,
+          0.857522,
+          0.846779,
+          0.84231
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.995263,
+        "environment": 0.999941,
+        "color": 0.999874,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_2c16837e1a465e90316ce348",
+      "filename": "40 Лет Победы 154 А (7).JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_2c16837e1a465e90316ce348.webp",
+      "original": {
+        "best_id": "75_v33",
+        "score": 0.839857,
+        "margin": 0.128617,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.318,
+        "top": [
+          0.839857,
+          0.71124,
+          0.693766,
+          0.689242,
+          0.687
+        ]
+      },
+      "preview_result": {
+        "best_id": "75_v33",
+        "score": 0.843492,
+        "margin": 0.130748,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.145,
+        "top": [
+          0.843492,
+          0.712744,
+          0.697754,
+          0.68964,
+          0.689189
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.988743,
+        "environment": 0.999885,
+        "color": 0.999368,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_b0a024a378ff8cf69065085f",
+      "filename": "78_045.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_b0a024a378ff8cf69065085f.webp",
+      "original": {
+        "best_id": "78_v33",
+        "score": 0.927452,
+        "margin": 0.082522,
+        "status": "CONFIDENT",
+        "time_sec": 0.302,
+        "top": [
+          0.927452,
+          0.84493,
+          0.835198,
+          0.821599,
+          0.821428
+        ]
+      },
+      "preview_result": {
+        "best_id": "78_v33",
+        "score": 0.928367,
+        "margin": 0.085386,
+        "status": "CONFIDENT",
+        "time_sec": 0.143,
+        "top": [
+          0.928367,
+          0.842982,
+          0.826758,
+          0.81787,
+          0.81616
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.988644,
+        "environment": 0.999902,
+        "color": 0.997794,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_51ed781c21709b5121742e20",
+      "filename": "89_38.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_51ed781c21709b5121742e20.webp",
+      "original": {
+        "best_id": "89_v33",
+        "score": 0.816432,
+        "margin": 0.05797,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.316,
+        "top": [
+          0.816432,
+          0.758462,
+          0.745139,
+          0.739469,
+          0.716824
+        ]
+      },
+      "preview_result": {
+        "best_id": "89_v33",
+        "score": 0.814754,
+        "margin": 0.053564,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.162,
+        "top": [
+          0.814754,
+          0.761191,
+          0.750646,
+          0.740615,
+          0.724802
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.991519,
+        "environment": 0.999912,
+        "color": 0.998924,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_bc3304669b65cee45f92fbd7",
+      "filename": "82_028.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_bc3304669b65cee45f92fbd7.webp",
+      "original": {
+        "best_id": "82_v33",
+        "score": 0.949977,
+        "margin": 0.10918,
+        "status": "CONFIDENT",
+        "time_sec": 0.322,
+        "top": [
+          0.949977,
+          0.840797,
+          0.835152,
+          0.824229,
+          0.822987
+        ]
+      },
+      "preview_result": {
+        "best_id": "82_v33",
+        "score": 0.943415,
+        "margin": 0.105945,
+        "status": "CONFIDENT",
+        "time_sec": 0.156,
+        "top": [
+          0.943415,
+          0.83747,
+          0.827621,
+          0.816871,
+          0.816359
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.993848,
+        "environment": 0.99943,
+        "color": 0.995773,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_b949d1ad1b6127eb80fe0c4a",
+      "filename": "Зорге 339 Стрелковой Дивизии А (47).JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_b949d1ad1b6127eb80fe0c4a.webp",
+      "original": {
+        "best_id": "73_v33",
+        "score": 0.954787,
+        "margin": 0.066963,
+        "status": "CONFIDENT",
+        "time_sec": 0.329,
+        "top": [
+          0.954787,
+          0.887824,
+          0.872595,
+          0.870362,
+          0.866685
+        ]
+      },
+      "preview_result": {
+        "best_id": "73_v33",
+        "score": 0.954743,
+        "margin": 0.068382,
+        "status": "CONFIDENT",
+        "time_sec": 0.164,
+        "top": [
+          0.954743,
+          0.886361,
+          0.873583,
+          0.870492,
+          0.867436
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.998186,
+        "environment": 0.999754,
+        "color": 0.998958,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_7f14693f497e275fc2b9619d",
+      "filename": "Малиновского ул. 25 (на  разделительной справа по ходу движения в сторону пр. Стачки) А(9).JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_7f14693f497e275fc2b9619d.webp",
+      "original": {
+        "best_id": "90_v34",
+        "score": 0.889345,
+        "margin": 0.096609,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.538,
+        "top": [
+          0.889345,
+          0.792737,
+          0.75887,
+          0.756298,
+          0.754904
+        ]
+      },
+      "preview_result": {
+        "best_id": "90_v34",
+        "score": 0.885415,
+        "margin": 0.103723,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.169,
+        "top": [
+          0.885415,
+          0.781692,
+          0.756853,
+          0.756016,
+          0.75164
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.990557,
+        "environment": 0.999641,
+        "color": 0.997582,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_6e83ee4529605c3f3c57eaa5",
+      "filename": "79_004.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_6e83ee4529605c3f3c57eaa5.webp",
+      "original": {
+        "best_id": "79_v33",
+        "score": 0.914887,
+        "margin": 0.08027,
+        "status": "CONFIDENT",
+        "time_sec": 0.369,
+        "top": [
+          0.914887,
+          0.834617,
+          0.831181,
+          0.825426,
+          0.822981
+        ]
+      },
+      "preview_result": {
+        "best_id": "79_v33",
+        "score": 0.907958,
+        "margin": 0.081634,
+        "status": "CONFIDENT",
+        "time_sec": 0.142,
+        "top": [
+          0.907958,
+          0.826324,
+          0.825503,
+          0.822709,
+          0.813927
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.996089,
+        "environment": 0.997946,
+        "color": 0.998836,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_c48fcb519bae210ca5edb9fb",
+      "filename": "94_015.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_c48fcb519bae210ca5edb9fb.webp",
+      "original": {
+        "best_id": "94_v33",
+        "score": 0.959334,
+        "margin": 0.07396,
+        "status": "CONFIDENT",
+        "time_sec": 0.318,
+        "top": [
+          0.959334,
+          0.885374,
+          0.880867,
+          0.880043,
+          0.877612
+        ]
+      },
+      "preview_result": {
+        "best_id": "94_v33",
+        "score": 0.961181,
+        "margin": 0.077636,
+        "status": "CONFIDENT",
+        "time_sec": 0.155,
+        "top": [
+          0.961181,
+          0.883545,
+          0.882321,
+          0.881135,
+          0.872861
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.99323,
+        "environment": 0.9999,
+        "color": 0.997279,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_9860a37012486a107b53d38d",
+      "filename": "КА_12.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_9860a37012486a107b53d38d.webp",
+      "original": {
+        "best_id": "81_v33",
+        "score": 0.887558,
+        "margin": 0.009873,
+        "status": "AMBIGUOUS",
+        "time_sec": 0.338,
+        "top": [
+          0.887558,
+          0.877684,
+          0.858749,
+          0.857155,
+          0.855817
+        ]
+      },
+      "preview_result": {
+        "best_id": "81_v33",
+        "score": 0.890308,
+        "margin": 0.01092,
+        "status": "AMBIGUOUS",
+        "time_sec": 0.16,
+        "top": [
+          0.890308,
+          0.879388,
+          0.859129,
+          0.859012,
+          0.857114
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.996479,
+        "environment": 0.999763,
+        "color": 0.995035,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_a483a3fbde76dc697f628870",
+      "filename": "95_028.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_a483a3fbde76dc697f628870.webp",
+      "original": {
+        "best_id": "95_v33",
+        "score": 0.921094,
+        "margin": 0.077704,
+        "status": "CONFIDENT",
+        "time_sec": 0.335,
+        "top": [
+          0.921094,
+          0.84339,
+          0.811497,
+          0.809892,
+          0.803584
+        ]
+      },
+      "preview_result": {
+        "best_id": "95_v33",
+        "score": 0.931083,
+        "margin": 0.071027,
+        "status": "CONFIDENT",
+        "time_sec": 0.156,
+        "top": [
+          0.931083,
+          0.860056,
+          0.830199,
+          0.8268,
+          0.818942
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.990063,
+        "environment": 0.999966,
+        "color": 0.999949,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_b596432de6b48267e72c0bbc",
+      "filename": "95_049.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_b596432de6b48267e72c0bbc.webp",
+      "original": {
+        "best_id": "95_v33",
+        "score": 0.957732,
+        "margin": 0.062439,
+        "status": "CONFIDENT",
+        "time_sec": 0.326,
+        "top": [
+          0.957732,
+          0.895293,
+          0.887808,
+          0.880331,
+          0.879828
+        ]
+      },
+      "preview_result": {
+        "best_id": "95_v33",
+        "score": 0.957148,
+        "margin": 0.058384,
+        "status": "CONFIDENT",
+        "time_sec": 0.154,
+        "top": [
+          0.957148,
+          0.898764,
+          0.892679,
+          0.884556,
+          0.88309
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.994958,
+        "environment": 0.999815,
+        "color": 0.987626,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_ea192d2eaea9e0b1f1e7189b",
+      "filename": "Ашхабадский_11.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_ea192d2eaea9e0b1f1e7189b.webp",
+      "original": {
+        "best_id": "85_v33",
+        "score": 0.943632,
+        "margin": 0.0843,
+        "status": "CONFIDENT",
+        "time_sec": 0.345,
+        "top": [
+          0.943632,
+          0.859332,
+          0.857986,
+          0.857197,
+          0.853608
+        ]
+      },
+      "preview_result": {
+        "best_id": "85_v33",
+        "score": 0.942788,
+        "margin": 0.083126,
+        "status": "CONFIDENT",
+        "time_sec": 0.165,
+        "top": [
+          0.942788,
+          0.859662,
+          0.856695,
+          0.854822,
+          0.853419
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.998723,
+        "environment": 0.999805,
+        "color": 0.999353,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_8c126ffcbaa0286e6961893f",
+      "filename": "86_020.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_8c126ffcbaa0286e6961893f.webp",
+      "original": {
+        "best_id": "86_v33",
+        "score": 0.942353,
+        "margin": 0.093541,
+        "status": "CONFIDENT",
+        "time_sec": 0.332,
+        "top": [
+          0.942353,
+          0.848812,
+          0.839719,
+          0.83881,
+          0.834796
+        ]
+      },
+      "preview_result": {
+        "best_id": "86_v33",
+        "score": 0.939786,
+        "margin": 0.098308,
+        "status": "CONFIDENT",
+        "time_sec": 0.156,
+        "top": [
+          0.939786,
+          0.841479,
+          0.836837,
+          0.835184,
+          0.829833
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.995534,
+        "environment": 0.999781,
+        "color": 0.988921,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_ef0a23f48be6a58e084d4486",
+      "filename": "81_032.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_ef0a23f48be6a58e084d4486.webp",
+      "original": {
+        "best_id": "81_v33",
+        "score": 0.916157,
+        "margin": 0.079967,
+        "status": "CONFIDENT",
+        "time_sec": 0.363,
+        "top": [
+          0.916157,
+          0.83619,
+          0.81904,
+          0.812397,
+          0.81028
+        ]
+      },
+      "preview_result": {
+        "best_id": "81_v33",
+        "score": 0.915883,
+        "margin": 0.079776,
+        "status": "CONFIDENT",
+        "time_sec": 0.165,
+        "top": [
+          0.915883,
+          0.836107,
+          0.819129,
+          0.813611,
+          0.809002
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.997181,
+        "environment": 0.999819,
+        "color": 0.998921,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_821f10708e166673c730cea6",
+      "filename": "91_001.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_821f10708e166673c730cea6.webp",
+      "original": {
+        "best_id": "91_v33",
+        "score": 0.867728,
+        "margin": 0.016692,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.336,
+        "top": [
+          0.867728,
+          0.851037,
+          0.84624,
+          0.833799,
+          0.833721
+        ]
+      },
+      "preview_result": {
+        "best_id": "91_v33",
+        "score": 0.872269,
+        "margin": 0.018359,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.162,
+        "top": [
+          0.872269,
+          0.85391,
+          0.851118,
+          0.838059,
+          0.836214
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.997151,
+        "environment": 0.99985,
+        "color": 0.999221,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_1805145680c5ab93c83be630",
+      "filename": "78_046.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_1805145680c5ab93c83be630.webp",
+      "original": {
+        "best_id": "78_v33",
+        "score": 0.931441,
+        "margin": 0.085775,
+        "status": "CONFIDENT",
+        "time_sec": 0.325,
+        "top": [
+          0.931441,
+          0.845666,
+          0.825649,
+          0.817019,
+          0.814071
+        ]
+      },
+      "preview_result": {
+        "best_id": "78_v33",
+        "score": 0.927826,
+        "margin": 0.087662,
+        "status": "CONFIDENT",
+        "time_sec": 0.142,
+        "top": [
+          0.927826,
+          0.840164,
+          0.812217,
+          0.807232,
+          0.806903
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.989542,
+        "environment": 0.999864,
+        "color": 0.995269,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_16eb827cbe48714dc0e6fc80",
+      "filename": "85_020.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_16eb827cbe48714dc0e6fc80.webp",
+      "original": {
+        "best_id": "85_v33",
+        "score": 0.940052,
+        "margin": 0.064519,
+        "status": "CONFIDENT",
+        "time_sec": 0.324,
+        "top": [
+          0.940052,
+          0.875533,
+          0.866086,
+          0.858832,
+          0.854607
+        ]
+      },
+      "preview_result": {
+        "best_id": "85_v33",
+        "score": 0.943154,
+        "margin": 0.066905,
+        "status": "CONFIDENT",
+        "time_sec": 0.164,
+        "top": [
+          0.943154,
+          0.876249,
+          0.869514,
+          0.860749,
+          0.857441
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.998364,
+        "environment": 0.999346,
+        "color": 0.98947,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_9333d1a5576f316e2425631a",
+      "filename": "95_050.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_9333d1a5576f316e2425631a.webp",
+      "original": {
+        "best_id": "95_v33",
+        "score": 0.955592,
+        "margin": 0.057515,
+        "status": "CONFIDENT",
+        "time_sec": 0.32,
+        "top": [
+          0.955592,
+          0.898077,
+          0.891252,
+          0.879944,
+          0.878416
+        ]
+      },
+      "preview_result": {
+        "best_id": "95_v33",
+        "score": 0.956933,
+        "margin": 0.061356,
+        "status": "CONFIDENT",
+        "time_sec": 0.151,
+        "top": [
+          0.956933,
+          0.895577,
+          0.891574,
+          0.877489,
+          0.875596
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.991251,
+        "environment": 0.99979,
+        "color": 0.998831,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_c4ddfb2984b3f03233992f68",
+      "filename": "93_017.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_c4ddfb2984b3f03233992f68.webp",
+      "original": {
+        "best_id": "93_v33",
+        "score": 0.938513,
+        "margin": 0.047917,
+        "status": "CONFIDENT",
+        "time_sec": 0.34,
+        "top": [
+          0.938513,
+          0.890596,
+          0.878045,
+          0.876736,
+          0.875329
+        ]
+      },
+      "preview_result": {
+        "best_id": "93_v33",
+        "score": 0.935464,
+        "margin": 0.046793,
+        "status": "CONFIDENT",
+        "time_sec": 0.163,
+        "top": [
+          0.935464,
+          0.888671,
+          0.877023,
+          0.875015,
+          0.874321
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 5,
+      "cosine": {
+        "global": 0.996533,
+        "environment": 0.999775,
+        "color": 0.998741,
+        "spatial": 1.0
+      }
+    },
+    {
+      "photo_id": "PH_88f12f5d1f8a2ee92b654671",
+      "filename": "92_007.JPG",
+      "preview": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/preview/middle/PH_88f12f5d1f8a2ee92b654671.webp",
+      "original": {
+        "best_id": "92_v33",
+        "score": 0.876398,
+        "margin": 0.074847,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.325,
+        "top": [
+          0.876398,
+          0.801551,
+          0.798753,
+          0.794161,
+          0.789258
+        ]
+      },
+      "preview_result": {
+        "best_id": "92_v33",
+        "score": 0.872705,
+        "margin": 0.069898,
+        "status": "PROBABLE_MATCH",
+        "time_sec": 0.156,
+        "top": [
+          0.872705,
+          0.802807,
+          0.798776,
+          0.795465,
+          0.785741
+        ]
+      },
+      "same_best": true,
+      "top5_overlap": 4,
+      "cosine": {
+        "global": 0.991992,
+        "environment": 0.999819,
+        "color": 0.999177,
+        "spatial": 1.0
+      }
+    }
+  ]
+}
