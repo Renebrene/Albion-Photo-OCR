@@ -45,6 +45,10 @@ from app.ingest.database import get_connection  # noqa: E402
 from app.preview import formats as preview_formats  # noqa: E402
 from app.preview.generator import build_preview_paths  # noqa: E402
 
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from evaluate_sorting import expected_address, load_addresses  # noqa: E402
+
 
 def preview_root() -> Path:
     import os
@@ -171,7 +175,7 @@ def describe(runner: DinoRunner, path: Path, photo_id: str) -> dict:
     }
 
 
-def run_one(runner: DinoRunner, photo: dict) -> dict:
+def run_one(runner: DinoRunner, photo: dict, addresses=None, fps=None) -> dict:
     original = describe(runner, Path(photo["source_path"]), photo["photo_id"])
     preview = describe(runner, Path(photo["preview_path"]), photo["photo_id"])
 
@@ -181,10 +185,18 @@ def run_one(runner: DinoRunner, photo: dict) -> dict:
     top_original = [candidate["id"] for candidate in original_result["candidates"]]
     top_preview = [candidate["id"] for candidate in preview_result["candidates"]]
 
+    expected = (
+        expected_address(photo["filename"], addresses) if addresses else None
+    )
+    mapping = fps or {}
+
     return {
         "photo_id": photo["photo_id"],
         "filename": photo["filename"],
         "preview": photo["preview_path"],
+        "expected_address": expected,
+        "original_address": mapping.get(str(original_result["best_id"] or "")),
+        "preview_address": mapping.get(str(preview_result["best_id"] or "")),
         "original": {
             "best_id": original_result["best_id"],
             "score": round(float(original_result["score"]), 6),
@@ -250,6 +262,36 @@ def summarise(rows: list[dict], fps: dict[str, int]) -> dict:
             "max": round(float(max(values)), 6),
         }
 
+    def accuracy(column: str) -> dict:
+        labelled = [item for item in rows if item["expected_address"]]
+        correct = [
+            item
+            for item in labelled
+            if item[column] == item["expected_address"]
+        ]
+        wrong = [
+            item
+            for item in labelled
+            if item[column] and item[column] != item["expected_address"]
+        ]
+
+        return {
+            "labelled": len(labelled),
+            "correct": len(correct),
+            "wrong": len(wrong),
+            "no_address": len(labelled) - len(correct) - len(wrong),
+            "accuracy": round(len(correct) / len(labelled), 4) if labelled else None,
+            "wrong_samples": [
+                {
+                    "photo_id": item["photo_id"],
+                    "filename": item["filename"],
+                    "expected_address": item["expected_address"],
+                    "got_address": item[column],
+                }
+                for item in wrong[:10]
+            ],
+        }
+
     return {
         "photos": len(rows),
         "same_best": sum(1 for item in rows if item["same_best"]),
@@ -283,6 +325,8 @@ def summarise(rows: list[dict], fps: dict[str, int]) -> dict:
         else None,
         "address_flips": len(address_flips),
         "address_flip_samples": address_flips[:10],
+        "accuracy_original": accuracy("original_address"),
+        "accuracy_preview": accuracy("preview_address"),
     }
 
 
@@ -312,6 +356,14 @@ def write_report(report: dict, path_md: Path, path_json: Path) -> None:
         f"| Время на фото: оригинал | {summary['time_original_avg']} с |",
         f"| Время на фото: превью | {summary['time_preview_avg']} с |",
         f"| Смена адреса | {summary['address_flips']} |",
+        f"| Точность по имени файла: оригинал | "
+        f"{summary['accuracy_original']['correct']} / "
+        f"{summary['accuracy_original']['labelled']} "
+        f"({summary['accuracy_original']['accuracy']}) |",
+        f"| Точность по имени файла: превью | "
+        f"{summary['accuracy_preview']['correct']} / "
+        f"{summary['accuracy_preview']['labelled']} "
+        f"({summary['accuracy_preview']['accuracy']}) |",
         "",
         "## Фото с расхождением лучшего слепка",
         "",
@@ -355,6 +407,7 @@ def main(argv: list[str] | None = None) -> int:
     runner = DinoRunner(workers=1)
     fps = address_map()
     names = address_names()
+    addresses = load_addresses()
 
     rows = []
 
@@ -364,7 +417,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for index, photo in enumerate(photos, start=1):
         print(f"[{index}/{len(photos)}] {photo['photo_id']}", flush=True)
-        rows.append(run_one(runner, photo))
+        rows.append(run_one(runner, photo, addresses, fps))
 
     summary = summarise(rows, fps)
 
