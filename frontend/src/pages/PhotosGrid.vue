@@ -3856,6 +3856,12 @@ function tagList(meta) {
           Редактирование описания
         </q-card-section>
         <q-card-section class="q-gutter-sm">
+          <div class="text-caption text-grey-7">
+            Файл: {{ info?.filename || '—' }}
+          </div>
+          <div class="text-caption text-grey-7 ellipsis" :title="info?.source_path">
+            Путь: {{ info?.source_path || '—' }}
+          </div>
           <q-input
             v-model="qwenEditFields.description"
             type="textarea"
@@ -3930,6 +3936,13 @@ function tagList(meta) {
           Юридический адрес
         </q-card-section>
         <q-card-section class="q-gutter-sm">
+          <!-- К какому именно файлу относится правка: имя и полный путь. -->
+          <div class="text-caption text-grey-7">
+            Файл: {{ info?.filename || '—' }}
+          </div>
+          <div class="text-caption text-grey-7 ellipsis" :title="info?.source_path">
+            Путь: {{ info?.source_path || '—' }}
+          </div>
           <q-select
             v-model="addressChoice"
             :options="addressOptions"
