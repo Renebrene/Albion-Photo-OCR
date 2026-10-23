@@ -1094,6 +1094,14 @@ def run_photo(
         discard_crops = None
 
     if crop_paths:
+        # Most photos need only the largest billboard. The second crop is kept
+        # for addresses where two different banners stand side by side
+        # (SCENE_QWEN_MULTI_CROP_ADDRESSES); empty list = old behaviour.
+        from app.qwen.crop_policy import select_crops
+
+        crop_paths = select_crops(photo_id, crop_paths)
+
+    if crop_paths:
         image_path = crop_paths[0]
         config = qwen_crop_config(config)
 
