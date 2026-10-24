@@ -592,8 +592,9 @@ def _stage_dino(run: dict, stage: dict) -> dict:
             status="RUNNING", started_at_sql=True,
             ref={"batch_id": batch.batch_id, "job_id": job_id, "attempt": 1},
             total_count=batch.total_count,
+            message=_dino_message(None, 0, skipped),
         )
-        return {"outcome": "WAIT", "message": _dino_message(None, 0, skipped)}
+        return {"outcome": "WAIT", "total_count": batch.total_count}
 
     batch_id = ref.get("batch_id")
 
@@ -651,6 +652,7 @@ def _stage_dino(run: dict, stage: dict) -> dict:
         "total_count": batch.total_count,
         "done_count": counts["done"],
         "failed_count": counts["failed"],
+        "message": _dino_message(None, counts["failed"], skipped),
     }
 
 
@@ -868,6 +870,8 @@ def _apply_progress(run_id: int, stage: str, outcome: dict) -> None:
     for key in ("total_count", "done_count", "failed_count"):
         if outcome.get(key) is not None:
             fields[key] = int(outcome[key])
+    if outcome.get("message") is not None:
+        fields["message"] = outcome["message"]
     if fields:
         _set_stage(run_id, stage, **fields)
 
