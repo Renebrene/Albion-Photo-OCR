@@ -116,6 +116,20 @@ afterEach(() => {
 })
 
 describe('отмена умного поиска', () => {
+  it('объясняет, почему текстовый поиск выключен при выбранном файле', async () => {
+    const wrapper = await mountGrid()
+
+    await chooseFile(wrapper)
+
+    // Поле заблокировано, пока выбран файл; раньше у него просто пропадал
+    // placeholder, и выглядело это как сломанный поиск (второй аудит, 2.1).
+    const search = wrapper.find('input[placeholder*="уберите файл"]')
+    expect(search.exists()).toBe(true)
+    expect(search.attributes('disabled')).toBeDefined()
+
+    wrapper.unmount()
+  })
+
   it('очистка файла отменяет job и не применяет поздний ids-фильтр', async () => {
     let resolveUpload
 

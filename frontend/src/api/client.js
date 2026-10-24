@@ -338,10 +338,6 @@ export function fetchStats(options = {}) {
   return getJson(`${BASE}/v1/stats${dateQuery(options)}`)
 }
 
-export function fetchFingerprints() {
-  return getJson(`${BASE}/v1/fingerprints`)
-}
-
 export function fetchLastRun() {
   return getJson(`${BASE}/v1/runs/last`)
 }
@@ -516,10 +512,6 @@ export function fetchVideos({ limit = 50, cursor = null, q = null, date_from = n
   return getJson(`${BASE}/v1/videos?${params.toString()}`)
 }
 
-export function fetchVideo(videoId) {
-  return getJson(`${BASE}/v1/videos/${encodeURIComponent(videoId)}`)
-}
-
 export function updateVideoTitle(videoId, display_title) {
   return putJson(`${BASE}/v1/videos/${encodeURIComponent(videoId)}/title`, { display_title })
 }
@@ -609,6 +601,9 @@ export function fetchMediaLinks({ all = false, limit = 100, includeUnready = fal
   return getJson(`${BASE}/v1/media-links?${params.toString()}`)
 }
 
+// Обёртка для загрузки фото в инбокс (`POST /v1/upload`). UI загрузки пока не
+// сделан (см. §4.3 второго аудита), но контракт multipart проверяется тестом —
+// поэтому обёртка остаётся, а не удаляется вместе с остальными неиспользуемыми.
 export async function uploadPhotos(files) {
   const form = new FormData()
   for (const file of files) form.append('files', file)
@@ -632,14 +627,6 @@ export async function uploadPhotos(files) {
   }
 
   return response.json()
-}
-
-export function enqueueNlSearch(query) {
-  return postJson(`${BASE}/v1/jobs/nl-search`, { query })
-}
-
-export function fetchNlSearchJob(jobId) {
-  return getJson(`${BASE}/v1/jobs/nl-search/${jobId}`)
 }
 
 // Smart search by one uploaded photo. The file is transient on the server:
@@ -1134,10 +1121,6 @@ async function patchJson(url, body) {
 
 async function deleteJson(url) {
   return requestJson(url, { method: 'DELETE' })
-}
-
-export function setQwenModel(model) {
-  return putJson(`${BASE}/v1/qwen/model`, { model })
 }
 
 export function fetchQwenSettings() {

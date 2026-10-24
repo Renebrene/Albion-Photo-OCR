@@ -2996,7 +2996,9 @@ function tagList(meta) {
               clearable
               :disable="!!mediaFile"
               :placeholder="
-                mediaFile ? '' : 'Название файла, клиент, бренд, адрес'
+                mediaFile
+                  ? 'Идёт поиск по этому фото — уберите файл, чтобы искать текстом'
+                  : 'Название файла, клиент, бренд, адрес'
               "
               @keyup.enter="apply()"
               @update:model-value="onSearchInput"
@@ -3702,7 +3704,7 @@ function tagList(meta) {
               </span>
               <q-icon name="help_outline" size="16px" class="client-help q-ml-xs">
                 <q-tooltip>
-                  Отображается не более 100 клиентов; выбранные показываются
+                  Отображается не более {{ store.clientsPageSize }} клиентов; выбранные показываются
                   всегда. Без выделения учитываются все клиенты и бренды базы.
                   Счётчик — за всё время. Полный список доступен в поиске
                 </q-tooltip>
