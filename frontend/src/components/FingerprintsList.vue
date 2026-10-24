@@ -4,10 +4,11 @@
 // The vectors live on disk; this table mirrors them from
 // data/fingerprints/*/metadata.json and adds the human layer: a name, a
 // description, the source folder, archiving and a version journal.
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { Notify } from 'quasar'
 
 import AuthImage from './AuthImage.vue'
+import { pollUntil, usePollToken } from '../composables/pollUntil'
 import {
   browseFolders,
   buildFingerprint,
@@ -36,6 +37,8 @@ const isAdmin = computed(() => session.user?.role === 'Администрато�
 // Сохранение правки шлёт два запроса и может запустить пересчёт базы —
 // повторный клик делал это дважды.
 const { busy: editBusy, run: editRun } = useAsyncAction()
+// Поколение опроса: закрытие диалога и уход со вкладки гасят цикл сбора.
+const poll = usePollToken()
 
 const items = ref([])
 const loading = ref(false)
@@ -137,6 +140,7 @@ function openBuild(item = null) {
     max_photos: 30,
     replace: true,
   }
+  poll.bump()
   buildJob.value = null
   buildOpen.value = true
 }
@@ -202,7 +206,9 @@ async function startBuild() {
       replace: form.replace,
     })
 
-    buildJob.value = { id: started.job_id, status: 'PENDING' }
+    buildJob.value = started.skipped
+      ? null
+      : { id: started.job_id, status: 'PENDING' }
 
     Notify.create({
       type: started.skipped ? 'warning' : 'positive',
@@ -384,16 +390,22 @@ async function startBatch() {
 }
 
 async function pollBatch(batchId) {
-  for (let attempt = 0; attempt < 600; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    batchState.value = await fetchFingerprintBatch(batchId)
+  const my = poll.bump()
+  const outcome = await pollUntil(
+    async () => {
+      batchState.value = await fetchFingerprintBatch(batchId)
+      return batchState.value
+    },
+    (state) =>
+      !(
+        (state.counts.PENDING || 0) +
+        (state.counts.RUNNING || 0) +
+        (state.counts.PAUSED || 0)
+      ),
+    { tries: 600, isCancelled: () => poll.isCancelled(my) },
+  )
 
-    const active = (batchState.value.counts.PENDING || 0) +
-      (batchState.value.counts.RUNNING || 0) +
-      (batchState.value.counts.PAUSED || 0)
-
-    if (!active) break
-  }
+  if (outcome.cancelled) return
 
   await load()
 }
@@ -415,34 +427,52 @@ async function cancelBatch() {
 }
 
 async function pollBuild(jobId) {
-  // DINO over 20-40 photos takes a while; poll a few minutes.
-  for (let attempt = 0; attempt < 120; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    const job = await fetchJob(jobId)
-    buildJob.value = { id: jobId, status: job.status }
+  // DINO по 20-40 фото идёт минутами: ждём до четырёх минут.
+  const my = poll.bump()
+  const outcome = await pollUntil(
+    async () => {
+      const job = await fetchJob(jobId)
 
-    if (job.status === 'DONE') {
-      buildJob.value.result = job.result
+      buildJob.value = {
+        id: jobId,
+        status: job.status,
+        progress: job.progress || 0,
+      }
 
-      const skipped = job.result?.skipped_images || []
+      if (job.status === 'DONE') buildJob.value.result = job.result
 
-      Notify.create({
-        type: skipped.length ? 'warning' : 'positive',
-        message: skipped.length
-          ? `Слепок собран: ${job.result?.images} фото, пропущено битых файлов: ${skipped.length}`
-          : `Слепок собран: ${job.result?.images} фото`,
-      })
+      return job
+    },
+    (job) => ['DONE', 'FAILED', 'CANCELLED'].includes(job.status),
+    { tries: 120, isCancelled: () => poll.isCancelled(my) },
+  )
 
-      await load()
-      return
-    }
+  if (outcome.cancelled) return
 
-    if (job.status === 'FAILED' || job.status === 'CANCELLED') {
-      buildJob.value.error = job.error_message || job.status
-      Notify.create({ type: 'negative', message: `Сборка: ${buildJob.value.error}` })
-      return
-    }
+  if (outcome.error || outcome.timeout) {
+    const reason = outcome.error ? outcome.error.message : 'дольше ожидаемого'
+    buildJob.value = { id: jobId, status: 'UNKNOWN', error: `Опрос прерван: ${reason}` }
+    return
   }
+
+  const job = outcome.data
+
+  if (job.status === 'DONE') {
+    const skipped = job.result?.skipped_images || []
+
+    Notify.create({
+      type: skipped.length ? 'warning' : 'positive',
+      message: skipped.length
+        ? `Слепок собран: ${job.result?.images} фото, пропущено битых файлов: ${skipped.length}`
+        : `Слепок собран: ${job.result?.images} фото`,
+    })
+
+    await load()
+    return
+  }
+
+  buildJob.value.error = job.error_message || job.status
+  Notify.create({ type: 'negative', message: `Сборка: ${buildJob.value.error}` })
 }
 
 onMounted(load)
