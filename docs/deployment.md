@@ -160,6 +160,41 @@ metadata-v1), а не к пути, поэтому слепки и результ
 прогонов (`runs`) остаются как есть — они отражают, откуда читали в тот
 момент.
 
+### 3.2. После правки env перезапустите юниты
+
+Переменные читаются один раз при старте процесса. Правка
+`~/.config/scene-fingerprint.env` сама по себе ничего не меняет: работающий
+воркер продолжает жить со старым окружением, и это выглядит как непонятная
+ошибка. Реальный случай: `/media/alexice/Win10` добавлен в
+`SCENE_ORIGINALS_ROOTS`, API перезапущен, а видео-воркер (запущенный раньше)
+отвечал «исходное видео недоступно в разрешённом корне» — правки путей для
+видео вступают в силу только после его перезапуска.
+
+```bash
+systemctl --user restart scene-api scene-worker scene-preview-worker \
+    scene-qwen-worker scene-video-worker scene-billboard-worker \
+    scene-pipeline-worker
+```
+
+Проверка, что воркер видит нужные корни (пример для видео):
+
+```bash
+set -a && . ~/.config/scene-fingerprint.env && set +a
+.venv/bin/python -c "
+from app.api.config import ORIGINALS_ROOTS
+from app.api.file_access import allowed_media_path
+print(ORIGINALS_ROOTS)
+print(allowed_media_path('/media/alexice/Win10/БАЗАФОТО/февраль/5,02/MVI_6762.MP4', ORIGINALS_ROOTS))
+"
+```
+
+Оригиналы фото и видео проверяются одним списком `SCENE_ORIGINALS_ROOTS`:
+отдельного «видео-списка» нет. Но корни постеров, сторибордов и производных
+видео (`SCENE_VIDEO_PREVIEW_ROOT`, `SCENE_VIDEO_STORYBOARD_ROOT`,
+`SCENE_VIDEO_DERIVATIVES_ROOT`) обязаны лежать ВНЕ исходных корней — иначе
+генерация останавливается с ошибкой «storyboard root must be separate from
+source roots».
+
 ## 4. Пропускная способность сети
 
 Гигабитная LAN даёт ~110 МБ/с в идеале, реально 70–90 МБ/с. Это влияет на
