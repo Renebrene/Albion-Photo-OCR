@@ -508,6 +508,55 @@ def _record_history_result(run_history_id, job, status, *, result=None, error=No
         print(f"[worker] could not update run history: {type(exc).__name__}", flush=True)
 
 
+# Как часто возвращать зависшие задания в очередь во время работы. Раньше это
+# делалось один раз при старте, поэтому задание, повисшее уже после старта
+# (процесс умер на середине, воркер перезапустили), оставалось в RUNNING
+# навсегда. Цена ошибки не косметическая: постановщик «Уточнения» видит
+# активное задание QWEN и не запускает этап — так и вышло 2026-10-24, когда
+# одно задание провисело двенадцать часов.
+STALE_REQUEUE_EVERY_SECONDS = 300
+
+
+def _stale_requeuer(
+    minutes: int | None,
+    *,
+    video_only: bool,
+    preview_only: bool = False,
+):
+    """
+    Уборка зависших заданий для цикла `--watch`: сразу и далее раз в пять минут.
+
+    Возвращает функцию без аргументов или None, если уборка не запрошена.
+    Ошибку уборки не показываем наверх: она фоновая и повторится на следующем
+    круге — задания важнее не уронить.
+    """
+
+    if minutes is None:
+        return None
+
+    state: dict[str, float | None] = {"at": None}
+
+    def tick() -> None:
+        now = time.monotonic()
+        last = state["at"]
+
+        if last is not None and now - last < STALE_REQUEUE_EVERY_SECONDS:
+            return
+
+        state["at"] = now
+
+        try:
+            _requeue_stale_jobs(
+                minutes,
+                video_only=video_only,
+                preview_only=preview_only,
+            )
+        except Exception:  # noqa: BLE001 - фоновая уборка
+            pass
+
+    return tick
+
+
 def _builder_worker(
     types: list[str],
     interval: float,
@@ -515,6 +564,7 @@ def _builder_worker(
     parallel: int,
     label: str,
     exclude_types: list[str] | None = None,
+    stale_minutes: int | None = None,
 ) -> None:
     """One worker process in --parallel mode: claims its own jobs."""
 
@@ -532,8 +582,12 @@ def _builder_worker(
         pass
 
     print(f"[worker {label}] watching {types}", flush=True)
+    stale_tick = _stale_requeuer(stale_minutes, video_only=False)
 
     while True:
+        if stale_tick is not None:
+            stale_tick()
+
         job_type = run_once(types, exclude_types=exclude_types)
 
         if job_type is None:
@@ -546,6 +600,7 @@ def _video_worker(
     threads: int,
     label: str,
     exclude_types: list[str] | None = None,
+    stale_minutes: int | None = None,
 ) -> None:
     """Video transcodes use their own CPU budget and never import torch."""
 
@@ -553,7 +608,11 @@ def _video_worker(
     os.environ.setdefault("OMP_NUM_THREADS", str(threads))
     os.environ.setdefault("MKL_NUM_THREADS", str(threads))
     print(f"[video-worker {label}] watching {types}; ffmpeg threads={threads}", flush=True)
+    stale_tick = _stale_requeuer(stale_minutes, video_only=True)
     while True:
+        if stale_tick is not None:
+            stale_tick()
+
         job_type = run_once(types, exclude_types=exclude_types)
         if job_type is None:
             time.sleep(interval)
@@ -564,12 +623,17 @@ def _preview_worker(
     interval: float,
     label: str,
     exclude_types: list[str] | None = None,
+    stale_minutes: int | None = None,
 ) -> None:
     """One PHOTO_PREVIEW worker in --parallel mode; no torch/model imports."""
 
     print(f"[preview-worker {label}] watching {types}", flush=True)
+    stale_tick = _stale_requeuer(stale_minutes, video_only=False, preview_only=True)
 
     while True:
+        if stale_tick is not None:
+            stale_tick()
+
         job_type = run_once(types, exclude_types=exclude_types)
 
         if job_type is None:
@@ -766,19 +830,27 @@ def main() -> None:
     if video_only:
         os.environ["SCENE_VIDEO_TRANSCODE_THREADS"] = str(video_threads)
 
-    if preview_only and args.watch and args.requeue_stale is not None:
-        _requeue_stale_jobs(args.requeue_stale, video_only=False, preview_only=True)
+    # Уборка зависших заданий: сразу при старте и далее периодически — задание
+    # может «повиснуть» и после старта, а не только до него.
+    stale_tick = _stale_requeuer(
+        args.requeue_stale,
+        video_only=video_only,
+        preview_only=preview_only,
+    )
+
+    if args.watch and stale_tick is not None:
+        stale_tick()
 
     if preview_only and args.watch and parallel == 1:
         print(f"[preview-worker] watching {types} (single process)", flush=True)
         while True:
+            if stale_tick is not None:
+                stale_tick()
+
             job_type = run_once(types, exclude_types=excluded_types)
             if job_type is None:
                 time.sleep(args.interval)
         return
-
-    if video_only and args.watch and args.requeue_stale is not None:
-        _requeue_stale_jobs(args.requeue_stale, video_only=True)
 
     if video_only and args.watch and parallel == 1:
         _video_worker(
@@ -787,6 +859,7 @@ def main() -> None:
             video_threads,
             "1/1",
             excluded_types,
+            args.requeue_stale,
         )
         return
 
@@ -799,7 +872,13 @@ def main() -> None:
             )
             target = _preview_worker
             process_args = [
-                (types, args.interval, f"{index + 1}/{parallel}", excluded_types)
+                (
+                    types,
+                    args.interval,
+                    f"{index + 1}/{parallel}",
+                    excluded_types,
+                    args.requeue_stale,
+                )
                 for index in range(parallel)
             ]
         elif video_only:
@@ -810,7 +889,14 @@ def main() -> None:
             )
             target = _video_worker
             process_args = [
-                (types, args.interval, threads, f"{index + 1}/{parallel}")
+                (
+                    types,
+                    args.interval,
+                    threads,
+                    f"{index + 1}/{parallel}",
+                    None,
+                    args.requeue_stale,
+                )
                 for index in range(parallel)
             ]
         else:
@@ -821,7 +907,15 @@ def main() -> None:
             )
             target = _builder_worker
             process_args = [
-                (types, args.interval, threads, parallel, f"{index + 1}/{parallel}", excluded_types)
+                (
+                    types,
+                    args.interval,
+                    threads,
+                    parallel,
+                    f"{index + 1}/{parallel}",
+                    excluded_types,
+                    args.requeue_stale,
+                )
                 for index in range(parallel)
             ]
 
@@ -883,6 +977,9 @@ def main() -> None:
     model_used = False
 
     while True:
+        if stale_tick is not None:
+            stale_tick()
+
         if args.automation:
             try:
                 summary = automation.run_tick()

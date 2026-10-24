@@ -331,3 +331,61 @@ def test_hybrid_save_success_is_idempotent():
         assert hybrid_db.completed_photo_ids(hybrid_run_id) == {PROBE_PHOTO}
     finally:
         _cleanup()
+
+
+# ---- периодическая уборка зависших заданий (без базы) ---------------------
+
+
+def test_stale_requeuer_is_off_without_the_flag(monkeypatch):
+    from app.jobs import worker
+
+    assert worker._stale_requeuer(None, video_only=False) is None
+
+
+def test_stale_requeuer_runs_at_start_and_then_on_interval(monkeypatch):
+    """
+    Уборка идёт и во время работы, а не только при старте.
+
+    Регрессия: `--requeue-stale` вызывался один раз в начале, поэтому задание,
+    повисшее уже после старта, оставалось в RUNNING навсегда — а постановщик
+    «Уточнения» ждёт, пока очередь QWEN опустеет.
+    """
+
+    from app.jobs import worker
+
+    calls = []
+    clock = {"now": 1000.0}
+
+    monkeypatch.setattr(worker.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(
+        worker,
+        "_requeue_stale_jobs",
+        lambda minutes, *, video_only, preview_only=False: calls.append(minutes),
+    )
+
+    tick = worker._stale_requeuer(10, video_only=False, preview_only=False)
+
+    tick()
+    assert calls == [10]
+
+    # Внутри интервала второй раз не дёргаем: уборка — это UPDATE по очереди.
+    tick()
+    assert calls == [10]
+
+    clock["now"] += worker.STALE_REQUEUE_EVERY_SECONDS
+    tick()
+    assert calls == [10, 10]
+
+
+def test_stale_requeuer_swallows_cleanup_errors(monkeypatch):
+    from app.jobs import worker
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("база недоступна")
+
+    monkeypatch.setattr(worker, "_requeue_stale_jobs", boom)
+
+    tick = worker._stale_requeuer(10, video_only=False)
+
+    # Задание важнее уборки: ошибка не должна ронять цикл воркера.
+    tick()
