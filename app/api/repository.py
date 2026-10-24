@@ -925,7 +925,8 @@ def review_count(
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT count(*) FROM public.photos AS p "
-                f"WHERE NOT {_recognized_sql('p', low_score, min_margin)}"
+                f"WHERE NOT {_recognized_sql('p', low_score, min_margin)} "
+                f"AND {_PREVIEW_READY_SQL}"
             )
             row = cur.fetchone()
 
