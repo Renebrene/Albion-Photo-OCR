@@ -128,6 +128,25 @@ describe('Обновление базы', () => {
     wrapper.unmount()
   })
 
+  it('не пишет «База обновлена», пока идёт распознавание', async () => {
+    const finished = {
+      run: {
+        run_id: 1, status: 'DONE', stage: 'QWEN', finished_at: '2026-10-24 11:19',
+        manifest: {}, stages: [],
+      },
+    }
+
+    setPipeline(finished)
+    let wrapper = await mountButton({ busy: true })
+    expect(wrapper.text()).not.toContain('База обновлена')
+    wrapper.unmount()
+
+    setPipeline(finished)
+    wrapper = await mountButton({ busy: false })
+    expect(wrapper.text()).toContain('База обновлена 2026-10-24 11:19')
+    wrapper.unmount()
+  })
+
   it('во время прогона открывает окно с остановкой и шлёт stop', async () => {
     setPipeline({
       run: { run_id: 42, status: 'RUNNING', stage: 'DINO', manifest: {}, stages: [{ stage: 'DINO', done_count: 3, total_count: 10 }] },

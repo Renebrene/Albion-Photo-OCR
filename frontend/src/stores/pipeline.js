@@ -43,9 +43,8 @@ export const usePipelineStore = defineStore('pipeline', {
   }),
 
   getters: {
-    // «12375 / 16597» — обработано / всего в текущей выборке распознавания
-    // (обычно это дозаполнение за период). Владелец просил только числа:
-    // слова и период — в подсказке.
+    // «Распознавание 12375 / 16597» — обработано / всего в текущей выборке
+    // (обычно это дозаполнение за период). Период — в подсказке.
     qwenText(state) {
       const qwen = state.qwen
 
@@ -54,12 +53,12 @@ export const usePipelineStore = defineStore('pipeline', {
       const total = qwen.batchTotal
 
       if (total) {
-        return `${qwen.batchDone ?? 0} / ${total}`
+        return `Распознавание ${qwen.batchDone ?? 0} / ${total}`
       }
 
       if (!qwen.described) return ''
 
-      return String(qwen.described)
+      return `Распознавание ${qwen.described}`
     },
 
     // Период выборки — в подсказке к строке.

@@ -19,6 +19,9 @@ import {
 const props = defineProps({
   // Whether the signed-in user may change the run (needs jobs:write).
   canRun: { type: Boolean, default: false },
+  // Идёт другой процесс (очередь распознавания): «База обновлена» показывать
+  // рано, хотя прогон и завершён.
+  busy: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['finished'])
@@ -59,7 +62,11 @@ const statusText = computed(() => {
 
   if (!current) return ''
 
-  if (current.status === 'DONE') return `База обновлена ${fmt(current.finished_at)}`
+  if (current.status === 'DONE') {
+    if (props.busy) return ''
+
+    return `База обновлена ${fmt(current.finished_at)}`
+  }
 
   if (current.status === 'FAILED') {
     return `Ошибка обновления${current.message ? `: ${current.message}` : ''}`

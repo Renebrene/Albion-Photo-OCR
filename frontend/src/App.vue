@@ -317,15 +317,16 @@ function toggleDark() {
         <PipelineUpdateButton
           v-if="canRunPipeline"
           :can-run="canRunPipeline"
+          :busy="pipeline.qwenBusy"
           @finished="loadStats"
         />
 
         <!-- Распознавание (QWEN): своя очередь, идёт и вне прогона базы. -->
         <div
           v-if="pipeline.qwenText"
-          class="row items-center no-wrap text-caption q-mr-sm header-qwen-live"
+          class="row items-center no-wrap text-caption q-ml-md q-mr-sm header-qwen-live"
         >
-          <q-spinner-dots v-if="pipeline.qwenBusy" size="14px" class="q-mr-xs" />
+          <span v-if="pipeline.qwenBusy" class="blink-dot q-mr-xs" />
           <span>
             {{ pipeline.qwenText }}
             <q-tooltip>
@@ -630,6 +631,18 @@ function toggleDark() {
 <style scoped>
 
 /* Живая строка о ходе прогона в шапке: не должна растягивать панель. */
+/* Мигающая точка «процесс идёт» — та же, что у стадий прогона. */
+.blink-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffd166;
+  animation: pipeline-pulse 1.2s ease-in-out infinite;
+}
+@keyframes pipeline-pulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
 .header-pipeline-live {
   max-width: 42vw;
   overflow: hidden;
