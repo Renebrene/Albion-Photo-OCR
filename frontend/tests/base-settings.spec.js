@@ -7,6 +7,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { Quasar } from 'quasar'
 import { createPinia, setActivePinia } from 'pinia'
 
+import { QUASAR_PLUGINS } from '../src/quasar-plugins'
+import { useDisplayStore } from '../src/stores/display'
 import { useSessionStore } from '../src/stores/session'
 
 import BaseSettings from '../src/components/BaseSettings.vue'
@@ -51,7 +53,7 @@ describe('вкладка «Настройки»', () => {
     setActivePinia(pinia)
     useSessionStore().authEnabled = false
     const wrapper = mount(BaseSettings, {
-      global: { plugins: [Quasar, pinia] },
+      global: { plugins: [[Quasar, { plugins: QUASAR_PLUGINS }], pinia] },
     })
     await flushPromises()
 
@@ -70,5 +72,49 @@ describe('вкладка «Настройки»', () => {
 
     expect(wrapper.text()).not.toContain('Ссылки Albion')
     wrapper.unmount()
+  })
+})
+
+describe('сброс настроек отображения', () => {
+  it('спрашивает подтверждение и возвращает значения по умолчанию', async () => {
+    installFetch()
+
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    // Плагины — те же, что в приложении: подтверждение живёт на Dialog.create.
+    const wrapper = mount(DisplaySettings, {
+      global: { plugins: [Quasar, pinia] },
+      attachTo: document.body,
+    })
+    await flushPromises()
+
+    const display = useDisplayStore()
+    display.tileColumns = 6
+    await flushPromises()
+
+    const button = Array.from(document.body.querySelectorAll('button')).find(
+      (node) => node.textContent.includes('Сбросить настройки отображения'),
+    )
+
+    expect(button).toBeTruthy()
+    button.click()
+    await flushPromises()
+
+    // Диалог подтверждения открыт (раньше здесь падало: confirmDialog не был
+    // импортирован, кнопка молча бросала ReferenceError).
+    expect(document.body.textContent).toContain('Сбросить настройки отображения?')
+
+    const confirm = Array.from(document.body.querySelectorAll('button')).find(
+      (node) => node.textContent.trim() === 'Сбросить',
+    )
+
+    expect(confirm).toBeTruthy()
+    confirm.click()
+    await flushPromises()
+
+    expect(display.tileColumns).toBe('auto')
+
+    wrapper.unmount()
+    document.body.innerHTML = ''
   })
 })

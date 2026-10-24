@@ -4,6 +4,7 @@
 //
 // Rendered both in the gear dialog next to the tiles/list toggle and in the
 // technical section, so the same controls live in exactly one place.
+import { confirmDialog } from '../composables/confirmDialog'
 import {
   DOWNLOAD_NAME_MODES,
   LIST_FIELDS,
