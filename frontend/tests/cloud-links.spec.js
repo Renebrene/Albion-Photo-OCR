@@ -111,4 +111,39 @@ describe('панель ссылок', () => {
     expect(wrapper.text()).toContain('https://files.example.ru/a.jpg')
     wrapper.unmount()
   })
+
+  it('после трёх сбоев опроса показывает «статус неизвестен» и повтор', async () => {
+    const pending = { ...ready, status: 'PENDING', url: null }
+    let polls = 0
+
+    global.fetch = vi.fn(async (url, options = {}) => {
+      const method = (options.method || 'GET').toUpperCase()
+
+      if (method === 'POST') {
+        return json({ items: [pending], job_ids: [12], configured: true }, 202)
+      }
+
+      polls += 1
+      // Опрос падает: раньше это навсегда останавливало отслеживание.
+      throw new Error(`network ${polls}`)
+    })
+
+    vi.useFakeTimers()
+    const wrapper = mountCloud()
+
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+
+    for (let i = 0; i < 3; i += 1) {
+      await vi.advanceTimersByTimeAsync(2100)
+      await flushPromises()
+    }
+
+    expect(polls).toBeGreaterThanOrEqual(3)
+    expect(document.body.textContent).toContain('Проверить ещё раз')
+    expect(document.body.textContent).toContain('Статус неизвестен')
+
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
 })

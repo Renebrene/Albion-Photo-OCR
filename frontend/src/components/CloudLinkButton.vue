@@ -1,9 +1,10 @@
 <script setup>
 // «Сохранить → Облако»: queue an Albion upload and show the expiring link.
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { Notify } from 'quasar'
 
 import { createMediaLinks, fetchMediaLinks } from '../api/client'
+import { usePoller } from '../composables/usePoller'
 
 const props = defineProps({
   photoIds: { type: Array, default: () => [] },
@@ -15,18 +16,14 @@ const busy = ref(false)
 const dialog = ref(false)
 const items = ref([])
 const error = ref('')
-let timer = null
-let attempts = 0
+// Опрос сдался после нескольких сбоев подряд: состояние ссылок неизвестно,
+// но пользователь может проверить ещё раз, не отправляя файлы заново.
+const unknown = ref(false)
+const POLL_MAX_FAILURES = 3
+let failures = 0
 
 const total = computed(() => props.photoIds.length + props.videoIds.length)
 const hasPending = computed(() => items.value.some((item) => item.status === 'PENDING'))
-
-function stopPolling() {
-  if (timer !== null) {
-    clearInterval(timer)
-    timer = null
-  }
-}
 
 function mergeLinks(rows) {
   const byId = new Map(rows.map((row) => [row.link_id, row]))
@@ -34,15 +31,36 @@ function mergeLinks(rows) {
 }
 
 async function poll() {
-  attempts += 1
   try {
     const data = await fetchMediaLinks({ limit: 200, includeUnready: true })
+
+    failures = 0
+    unknown.value = false
+    error.value = ''
     mergeLinks(data.items || [])
-    if (!hasPending.value || attempts >= 150) stopPolling()
+
+    if (!hasPending.value) poller.stop()
   } catch (err) {
-    error.value = err.message || 'Не удалось проверить статус загрузки'
-    stopPolling()
+    // Один сбой не должен навсегда останавливать отслеживание.
+    failures += 1
+
+    if (failures >= POLL_MAX_FAILURES) {
+      poller.stop()
+      unknown.value = true
+      error.value = err.message || 'Не удалось проверить статус загрузки'
+    }
   }
+}
+
+// Общий поллер: тики не накладываются, скрытая вкладка молчит, при уходе со
+// страницы опрос останавливается сам.
+const poller = usePoller(poll, { intervalMs: 2000, immediate: true })
+
+function retry() {
+  failures = 0
+  unknown.value = false
+  error.value = ''
+  poller.start()
 }
 
 async function start() {
@@ -51,8 +69,9 @@ async function start() {
   busy.value = true
   error.value = ''
   items.value = []
-  stopPolling()
-  attempts = 0
+  unknown.value = false
+  failures = 0
+  poller.stop()
 
   try {
     const data = await createMediaLinks({
@@ -62,10 +81,7 @@ async function start() {
     items.value = data.items || []
     dialog.value = true
 
-    if (hasPending.value) {
-      timer = setInterval(poll, 2000)
-      await poll()
-    }
+    if (hasPending.value) poller.start()
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message || 'Не удалось отправить в облако' })
   } finally {
@@ -86,7 +102,6 @@ function fmtDate(value) {
   return value ? String(value).replace('T', ' ').slice(0, 16) : '—'
 }
 
-onBeforeUnmount(stopPolling)
 </script>
 
 <template>
@@ -111,7 +126,19 @@ onBeforeUnmount(stopPolling)
       </q-card-section>
       <q-separator />
       <q-card-section class="q-gutter-sm">
-        <q-banner v-if="error" dense class="bg-red-1 text-negative">{{ error }}</q-banner>
+        <q-banner v-if="error" dense class="bg-red-1 text-negative">
+          {{ error }}
+          <template #action>
+            <q-btn
+              v-if="unknown"
+              flat
+              dense
+              no-caps
+              label="Проверить ещё раз"
+              @click="retry"
+            />
+          </template>
+        </q-banner>
         <div class="text-caption text-grey-8">
           Ссылка действует 90 дней. Просроченные и удалённые ссылки исчезают из
           списка «Мои ссылки».
@@ -135,6 +162,9 @@ onBeforeUnmount(stopPolling)
           </div>
           <div v-else-if="item.status === 'FAILED'" class="text-negative text-caption q-mt-xs">
             {{ item.error_message || 'Загрузка не удалась' }}
+          </div>
+          <div v-else-if="unknown" class="text-caption text-grey-8 q-mt-xs">
+            Статус неизвестен — проверьте ещё раз
           </div>
           <div v-else class="row items-center q-gutter-sm text-caption text-grey-8 q-mt-xs">
             <q-spinner-dots size="18px" /> загрузка…
