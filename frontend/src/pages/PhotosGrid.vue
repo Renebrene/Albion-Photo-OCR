@@ -3097,7 +3097,7 @@ function tagList(meta) {
                        дата съёмки и вес — жирным курсивом, клиент и бренд —
                        курсивом (результат распознавания QWEN). -->
                   <div
-                    v-if="photo.address"
+                    v-if="display.tileShowAddressName && photo.address"
                     class="ellipsis text-caption text-weight-bold"
                   >
                     {{ photo.simple_address || photo.address }}
@@ -3129,8 +3129,11 @@ function tagList(meta) {
                       Назначьте адрес вручную в карточке фото.
                     </q-tooltip>
                   </div>
+                  <!-- Имя файла: показывается по настройке, а также всегда,
+                       когда короткое имя адреса скрыто (иначе плитку не по
+                       чему опознать). -->
                   <div
-                    v-if="display.tileShowFilename"
+                    v-if="display.tileShowFilename || !display.tileShowAddressName"
                     class="ellipsis text-caption"
                   >
                     {{ photo.filename }}

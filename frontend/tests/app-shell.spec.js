@@ -763,6 +763,25 @@ describe('оболочка приложения', () => {
     wrapper.unmount()
   })
 
+  it('прячет короткое имя адреса в плитке по настройке', async () => {
+    installFetch()
+    const wrapper = await mountShell()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Комарова 13')
+
+    const display = useDisplayStore()
+    display.tileShowAddressName = false
+    await flushPromises()
+
+    // Вместо короткого адреса — реальное имя файла.
+    expect(wrapper.text()).not.toContain('Комарова 13')
+    expect(wrapper.text()).toContain('photo.jpg')
+
+    display.tileShowAddressName = true
+    wrapper.unmount()
+  })
+
   it('показывает прогресс распознавания как «обработано / всего»', async () => {
     installFetch()
     const baseFetch = global.fetch

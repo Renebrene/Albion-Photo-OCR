@@ -82,6 +82,7 @@ const DEFAULT_PANEL_WIDTH = 340
 const DEFAULT_SIDE_LIST_HEIGHT = 300
 const DEFAULT_LIST_FIELDS = ['filename', 'address', 'client']
 // Плитка грида: исходное имя файла можно скрыть, оставив адрес и метаданные.
+const DEFAULT_TILE_SHOW_ADDRESS_NAME = true
 const DEFAULT_TILE_SHOW_FILENAME = true
 const DEFAULT_DOWNLOAD_NAME_MODE = 'filename'
 // The side panels of the photo page (addresses/collections on the left,
@@ -134,6 +135,9 @@ export const useDisplayStore = defineStore('display', () => {
   const listFields = ref([...DEFAULT_LIST_FIELDS])
   const downloadNameMode = ref(DEFAULT_DOWNLOAD_NAME_MODE)
   const tileShowFilename = ref(DEFAULT_TILE_SHOW_FILENAME)
+  // Короткое имя адреса в плитке. Выключено — видно реальное имя файла:
+  // иногда нужно смотреть подборку именно по именам.
+  const tileShowAddressName = ref(DEFAULT_TILE_SHOW_ADDRESS_NAME)
   // Источник даты для фильтра периода: дата съёмки (по умолчанию) или загрузки.
   const dateFilterMode = ref('capture')
   const addressClientMode = ref('union')
@@ -216,6 +220,11 @@ export const useDisplayStore = defineStore('display', () => {
         ? saved.tileShowFilename
         : DEFAULT_TILE_SHOW_FILENAME
 
+    tileShowAddressName.value =
+      typeof saved.tileShowAddressName === 'boolean'
+        ? saved.tileShowAddressName
+        : DEFAULT_TILE_SHOW_ADDRESS_NAME
+
     dateFilterMode.value =
       saved.dateFilterMode === 'upload' ? 'upload' : 'capture'
   }
@@ -270,6 +279,7 @@ export const useDisplayStore = defineStore('display', () => {
       listFields: [...listFields.value],
       downloadNameMode: downloadNameMode.value,
       tileShowFilename: tileShowFilename.value,
+      tileShowAddressName: tileShowAddressName.value,
       dateFilterMode: dateFilterMode.value,
       addressClientMode: addressClientMode.value,
       leftPanelOpen: leftPanelOpen.value,
@@ -448,6 +458,7 @@ export const useDisplayStore = defineStore('display', () => {
       listFields,
       downloadNameMode,
       tileShowFilename,
+      tileShowAddressName,
       dateFilterMode,
       addressClientMode,
       leftPanelOpen,
@@ -465,6 +476,7 @@ export const useDisplayStore = defineStore('display', () => {
     listFields.value = [...DEFAULT_LIST_FIELDS]
     downloadNameMode.value = DEFAULT_DOWNLOAD_NAME_MODE
     tileShowFilename.value = DEFAULT_TILE_SHOW_FILENAME
+    tileShowAddressName.value = DEFAULT_TILE_SHOW_ADDRESS_NAME
     dateFilterMode.value = 'capture'
     addressClientMode.value = 'union'
     leftPanelOpen.value = DEFAULT_SIDE_PANELS_OPEN
@@ -500,6 +512,7 @@ export const useDisplayStore = defineStore('display', () => {
     listFields,
     downloadNameMode,
     tileShowFilename,
+    tileShowAddressName,
     dateFilterMode,
     addressClientMode,
     leftPanelOpen,

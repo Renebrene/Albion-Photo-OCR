@@ -47,6 +47,14 @@ async function resetDisplay() {
 
     <div>
       <q-toggle
+        v-model="display.tileShowAddressName"
+        label="Показывать короткое имя адреса в плитке"
+      />
+      <div class="text-caption text-grey-7 q-ml-lg q-mb-sm">
+        Выключите, чтобы разбирать подборку по реальным именам файлов:
+        в плитке вместо короткого адреса будет видно имя файла.
+      </div>
+      <q-toggle
         v-model="display.tileShowFilename"
         dense
         label="Показывать исходное имя файла в плитке"
