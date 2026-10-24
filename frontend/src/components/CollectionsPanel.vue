@@ -7,6 +7,8 @@ import { computed } from 'vue'
 import { Notify } from 'quasar'
 
 import { usePhotosStore } from '../stores/photos'
+import { useAsyncAction } from '../composables/useAsyncAction'
+import { confirmDialog } from '../composables/confirmDialog'
 import { useSessionStore } from '../stores/session'
 
 const props = defineProps({
@@ -56,14 +58,28 @@ async function pick(collection) {
   }
 }
 
+const { busy: removeBusy, run: removeRun } = useAsyncAction()
+
 async function remove(collection) {
-  try {
-    await store.deleteCollectionById(collection.collection_id)
-    Notify.create({ type: 'positive', message: 'Подборка удалена' })
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  }
+  const name = collection.name || 'без названия'
+  const confirmed = await confirmDialog({
+    title: 'Удалить подборку?',
+    message: `«${name}» · участников: ${collection.members}. Подборка удалится вместе с составом.`,
+  })
+
+  if (!confirmed) return
+
+  await removeRun(async () => {
+    try {
+      await store.deleteCollectionById(collection.collection_id)
+      Notify.create({ type: 'positive', message: 'Подборка удалена' })
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
+  })
 }
+
+
 </script>
 
 <template>
@@ -109,6 +125,7 @@ async function remove(collection) {
               flat
               size="sm"
               icon="delete"
+              :loading="removeBusy"
               @click.stop="remove(collection)"
             >
               <q-tooltip>Удалить подборку</q-tooltip>

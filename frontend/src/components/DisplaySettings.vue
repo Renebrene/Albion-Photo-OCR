@@ -12,6 +12,16 @@ import {
 } from '../stores/display'
 
 const display = useDisplayStore()
+
+async function resetDisplay() {
+  const confirmed = await confirmDialog({
+    title: 'Сбросить настройки отображения?',
+    message: 'Колонки, поля списка, ширины панелей и режим адресов вернутся к значениям по умолчанию.',
+    okLabel: 'Сбросить',
+  })
+
+  if (confirmed) display.reset()
+}
 </script>
 
 <template>
@@ -112,7 +122,7 @@ const display = useDisplayStore()
         no-caps
         icon="restart_alt"
         label="Сбросить настройки отображения"
-        @click="display.reset()"
+        @click="resetDisplay"
       />
     </div>
   </div>

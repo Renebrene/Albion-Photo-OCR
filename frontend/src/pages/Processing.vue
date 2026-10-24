@@ -17,6 +17,7 @@ import {
   fetchRunLog,
   fetchSortStatus,
 } from '../api/client'
+import { useAsyncAction } from '../composables/useAsyncAction'
 
 const tab = ref('dino')
 
@@ -320,7 +321,10 @@ async function startNormalBatch() {
   }
 }
 
+const { busy: hybridBusy, run: hybridRun } = useAsyncAction()
+
 async function startHybrid(batch) {
+  await hybridRun(async () => {
   try {
     const result = await createHybridRun(batch.batch_id)
 
@@ -335,8 +339,8 @@ async function startHybrid(batch) {
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   }
+  })
 }
-
 async function openBatch(batch) {
   currentBatch.value = batch
   runs.value = []
@@ -559,7 +563,7 @@ onBeforeUnmount(() => {
                 dense
                 color="primary"
                 label="HYBRID"
-                @click="startHybrid(props.row)"
+                :loading="hybridBusy" @click="startHybrid(props.row)"
               />
             </q-td>
           </template>

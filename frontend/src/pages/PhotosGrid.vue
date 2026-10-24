@@ -43,6 +43,8 @@ import {
   useDisplayStore,
 } from '../stores/display'
 import { usePhotosStore } from '../stores/photos'
+import { useAsyncAction } from '../composables/useAsyncAction'
+import { confirmDialog } from '../composables/confirmDialog'
 import { usePipelineStore } from '../stores/pipeline'
 import { useSessionStore } from '../stores/session'
 import { addressEntryForPhoto as findAddressEntry } from '../utils/addressForPhoto'
@@ -63,6 +65,13 @@ const canUseCollective = computed(() => {
 
 // Поиск по загруженному фото/видео требует searches:write — у Гостя его нет.
 const canSearchMedia = canUseCollective
+
+// Действия, которые нельзя запускать дважды: выгрузка, сохранение подборки
+// и поиска, удаление поиска.
+const { busy: downloadBusy, run: downloadRun } = useAsyncAction()
+const { busy: bucketBusy, run: bucketRun } = useAsyncAction()
+const { busy: searchBusy, run: searchRun } = useAsyncAction()
+const { busy: searchRemoveBusy, run: searchRemoveRun } = useAsyncAction()
 
 const { items, error, loading, addresses, clients, savedSearches } =
   storeToRefs(store)
@@ -1720,13 +1729,14 @@ async function saveSearch() {
     Notify.create({ type: 'warning', message: 'Введите название поиска' })
     return
   }
-  try {
-    await store.saveCurrentSearch(name)
-    Notify.create({ type: 'positive', message: 'Поиск сохранён' })
-    saveSearchOpen.value = false
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  }
+  await searchRun(async () => {
+    try {
+      await store.saveCurrentSearch(name)
+      Notify.create({ type: 'positive', message: 'Поиск сохранён' })
+      saveSearchOpen.value = false
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }  })
 }
 
 async function applySavedSearch(search) {
@@ -1776,12 +1786,21 @@ async function applySavedSearch(search) {
 }
 
 async function removeSavedSearch(search) {
-  try {
-    await store.deleteSavedSearchById(search.search_id)
-    Notify.create({ type: 'positive', message: 'Поиск удалён' })
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  }
+  const confirmed = await confirmDialog({
+    title: 'Удалить сохранённый поиск?',
+    message: `«${search.name}» — набор фильтров удалится из «Избранного».`,
+  })
+
+  if (!confirmed) return
+
+  await searchRemoveRun(async () => {
+    try {
+      await store.deleteSavedSearchById(search.search_id)
+      Notify.create({ type: 'positive', message: 'Поиск удалён' })
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
+  })
 }
 
 async function openBucketDialog(scope = 'addresses') {
@@ -1814,18 +1833,19 @@ async function saveToBucket() {
     return
   }
 
-  try {
-    await store.saveSelectionAsCollection({
-      name,
-      scope: bucketScope.value,
-      collectionId: bucketId.value || null,
-    })
+  await bucketRun(async () => {
+    try {
+      await store.saveSelectionAsCollection({
+        name,
+        scope: bucketScope.value,
+        collectionId: bucketId.value || null,
+      })
 
-    Notify.create({ type: 'positive', message: 'Подборка сохранена' })
-    bucketOpen.value = false
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  }
+      Notify.create({ type: 'positive', message: 'Подборка сохранена' })
+      bucketOpen.value = false
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }  })
 }
 
 // ---- подпись плитки ----
@@ -1954,37 +1974,38 @@ async function downloadSelected() {
     return
   }
 
-  // Одно недоступное фото не должно останавливать выгрузку остальных:
-  // пропускаем его, считаем и сообщаем в конце.
-  const skipped = []
+  await downloadRun(async () => {
+    // Одно недоступное фото не должно останавливать выгрузку остальных:
+    // пропускаем его, считаем и сообщаем в конце.
+    const skipped = []
 
-  for (const [index, photoId] of [...store.selected].entries()) {
-    // Use the real file name, not the PH_… id (item 11 of the UI backlog);
-    // the name follows the display settings (item 11b).
-    const photo = items.value.find((item) => item.photo_id === photoId)
-    try {
-      await downloadAuthenticated(
-        originalUrl(photoId),
-        downloadFileName(
-          photo || { photo_id: photoId },
-          display.downloadNameMode,
-          index + 1,
-        ),
-      )
-    } catch {
-      skipped.push(photo?.filename || photoId)
+    for (const [index, photoId] of [...store.selected].entries()) {
+      // Use the real file name, not the PH_… id (item 11 of the UI backlog);
+      // the name follows the display settings (item 11b).
+      const photo = items.value.find((item) => item.photo_id === photoId)
+      try {
+        await downloadAuthenticated(
+          originalUrl(photoId),
+          downloadFileName(
+            photo || { photo_id: photoId },
+            display.downloadNameMode,
+            index + 1,
+          ),
+        )
+      } catch {
+        skipped.push(photo?.filename || photoId)
+      }
     }
-  }
 
-  if (skipped.length) {
-    Notify.create({
-      type: 'warning',
-      message:
-        `Пропущено фото без доступного оригинала: ${skipped.length} ` +
-        `(${skipped.slice(0, 3).join(', ')}${skipped.length > 3 ? '…' : ''}). ` +
-        'Их записи и превью сохранены.',
-    })
-  }
+    if (skipped.length) {
+      Notify.create({
+        type: 'warning',
+        message:
+          `Пропущено фото без доступного оригинала: ${skipped.length} ` +
+          `(${skipped.slice(0, 3).join(', ')}${skipped.length > 3 ? '…' : ''}). ` +
+          'Их записи и превью сохранены.',
+      })
+    }  })
 }
 
 // Постепенная подгрузка: следующий лист запрашивается при прокрутке, а если
@@ -2873,6 +2894,7 @@ function tagList(meta) {
             icon="download"
             label="Скачать"
             :disable="!store.selectedCount"
+            :loading="downloadBusy"
             @click="downloadSelected"
           >
             <q-tooltip>Скачать выбранные фото по одному</q-tooltip>
@@ -3004,6 +3026,7 @@ function tagList(meta) {
                       flat
                       size="sm"
                       icon="delete"
+                      :loading="searchRemoveBusy"
                       @click.stop="removeSavedSearch(search)"
                     />
                   </q-item-section>
@@ -4025,7 +4048,7 @@ function tagList(meta) {
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Отмена" v-close-popup />
-          <q-btn color="primary" label="Сохранить" @click="saveToBucket" />
+          <q-btn color="primary" label="Сохранить" :loading="bucketBusy" @click="saveToBucket" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -4050,7 +4073,7 @@ function tagList(meta) {
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Отмена" v-close-popup />
-          <q-btn color="primary" label="Сохранить" @click="saveSearch" />
+          <q-btn color="primary" label="Сохранить" :loading="searchBusy" @click="saveSearch" />
         </q-card-actions>
       </q-card>
     </q-dialog>

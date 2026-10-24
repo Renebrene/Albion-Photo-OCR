@@ -27,10 +27,15 @@ import {
   syncFingerprints,
   updateFingerprint,
 } from '../api/client'
+import { useAsyncAction } from '../composables/useAsyncAction'
 import { useSessionStore } from '../stores/session'
 
 const session = useSessionStore()
 const isAdmin = computed(() => session.user?.role === 'Администратор')
+
+// Сохранение правки шлёт два запроса и может запустить пересчёт базы —
+// повторный клик делал это дважды.
+const { busy: editBusy, run: editRun } = useAsyncAction()
 
 const items = ref([])
 const loading = ref(false)
@@ -489,37 +494,39 @@ async function openEdit(item) {
 }
 
 async function saveEdit() {
-  const target = editTarget.value
+  await editRun(async () => {
+    const target = editTarget.value
 
-  try {
-    const updated = await updateFingerprint(target.fingerprint_id, {
-      display_name: target.display_name,
-      description: target.description,
-      source_folder: target.source_folder,
-      active: target.active,
-    })
-
-    // Привязка к юридическому адресу из справочника (можно и снять).
-    const current = target.address?.address_id ?? null
-
-    if (editAddressId.value !== current) {
-      await setFingerprintAddress(target.fingerprint_id, editAddressId.value ?? null)
-    }
-
-    editOpen.value = false
-    Notify.create({ type: 'positive', message: 'Слепок сохранён' })
-
-    if (updated?.recalc?.job_id) {
-      Notify.create({
-        type: 'info',
-        message: `Запущен пересчёт базы (задание ${updated.recalc.job_id})`,
+    try {
+      const updated = await updateFingerprint(target.fingerprint_id, {
+        display_name: target.display_name,
+        description: target.description,
+        source_folder: target.source_folder,
+        active: target.active,
       })
-    }
 
-    await load()
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  }
+      // Привязка к юридическому адресу из справочника (можно и снять).
+      const current = target.address?.address_id ?? null
+
+      if (editAddressId.value !== current) {
+        await setFingerprintAddress(target.fingerprint_id, editAddressId.value ?? null)
+      }
+
+      editOpen.value = false
+      Notify.create({ type: 'positive', message: 'Слепок сохранён' })
+
+      if (updated?.recalc?.job_id) {
+        Notify.create({
+          type: 'info',
+          message: `Запущен пересчёт базы (задание ${updated.recalc.job_id})`,
+        })
+      }
+
+      await load()
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
+  })
 }
 
 async function toggleActive(item, value) {
@@ -836,7 +843,7 @@ function day(value) {
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Отмена" v-close-popup />
-          <q-btn color="primary" label="Сохранить" @click="saveEdit" />
+          <q-btn color="primary" label="Сохранить" :loading="editBusy" @click="saveEdit" />
         </q-card-actions>
       </q-card>
     </q-dialog>
