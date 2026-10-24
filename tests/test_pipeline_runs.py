@@ -462,6 +462,24 @@ def test_preview_stage_gives_up_on_unreadable_files(monkeypatch):
     assert "нечитаемые" in result["message"]
 
 
+def test_preview_refill_does_not_reset_the_stall_counter(monkeypatch):
+    """Битые исходники: долив очереди не должен крутить стадию вечно."""
+
+    queued = _preview_env(monkeypatch, total=56_870, done=56_868, active=0)
+
+    result = pipeline_runs._stage_preview(  # noqa: SLF001
+        {"run_id": 1},
+        {
+            "status": "RUNNING",
+            "ref": {"last_done": 56_868, "stall": pipeline_runs.PREVIEW_STALL_TICKS - 1},
+        },
+    )
+
+    assert queued, "очередь всё равно доливается"
+    assert result["outcome"] == "DONE"
+    assert result["failed_count"] == 2
+
+
 def test_preview_stage_resets_the_stall_counter_on_progress(monkeypatch):
     _preview_env(monkeypatch, total=100, done=96, active=1)
 

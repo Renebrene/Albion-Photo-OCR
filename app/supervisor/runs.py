@@ -601,12 +601,14 @@ def _stage_preview(run: dict, stage: dict) -> dict:
     if not missing:
         return {"outcome": "DONE", "total_count": total, "done_count": done}
 
+    # Сторож считает именно простой: долив очереди его не сбрасывает. Иначе
+    # битые исходники, которые воркер ставит и снова роняет, крутили бы
+    # стадию бесконечно (2 фото из 56 870 в пуле).
+    stall = 0 if done > last_done else stall + 1
+
     if active == 0:
         # Очередь опустела, а превью ещё не хватает: доливаем.
         enqueue_missing_previews(limit=PREVIEW_ENQUEUE_PAGE)
-        stall = 0
-    else:
-        stall = 0 if done > last_done else stall + 1
 
     ref.update({"last_done": done, "stall": stall})
     message = _preview_message(done, total, missing)
