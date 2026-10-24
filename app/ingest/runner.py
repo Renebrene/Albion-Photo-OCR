@@ -230,17 +230,22 @@ def ingest_directory(
         date_mode=date_mode,
     )
 
-    result = run(
-        directory,
-        workers,
-        recursive=recursive,
-        skip_known=known_source_files if skip_known else None,
-        only_files=subset,
-        progress=progress,
-        since=since,
-        until=until,
-        date_mode=date_mode,
-    )
+    try:
+        result = run(
+            directory,
+            workers,
+            recursive=recursive,
+            skip_known=known_source_files if skip_known else None,
+            only_files=subset,
+            progress=progress,
+            since=since,
+            until=until,
+            date_mode=date_mode,
+        )
+    except BaseException:
+        # Do not leave the video thread behind when the photo pass fails.
+        video_pool.shutdown(wait=True)
+        raise
 
     records = [
         item.record
