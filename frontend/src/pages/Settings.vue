@@ -16,6 +16,7 @@ import {
   updateQwenSettings,
 } from '../api/client'
 import { useSessionStore } from '../stores/session'
+import { useAsyncAction } from '../composables/useAsyncAction'
 
 const session = useSessionStore()
 const canConfigure = computed(
@@ -25,6 +26,16 @@ const canConfigure = computed(
 const loading = ref(false)
 const saving = ref(false)
 const error = ref(null)
+
+// Кнопки с асинхронным действием: защита от двойного клика и индикатор.
+// Разбираем на верхнеуровневые ref'ы: вложенные в объект не разворачиваются
+// в шаблоне, и `:loading` получил бы объект вместо boolean.
+const { busy: runAllBusy, run: runAllRun } = useAsyncAction()
+const { busy: retryBusy, run: retryRun } = useAsyncAction()
+const { busy: stopQueueBusy, run: stopQueueRun } = useAsyncAction()
+const { busy: clearQueueBusy, run: clearQueueRun } = useAsyncAction()
+const { busy: unloadBusy, run: unloadRun } = useAsyncAction()
+const { busy: clearKeyBusy, run: clearKeyRun } = useAsyncAction()
 
 // provider settings
 const provider = ref('ollama')
@@ -350,58 +361,62 @@ function startStatsPolling() {
 }
 
 async function retryFailed() {
-  try {
-    const result = await enqueueQwen(null, true)
-    Notify.create({
-      type: 'positive',
-      message: `В очередь: ${result.jobs} фото`,
-    })
-    await loadStats()
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  }
+  await retryRun(async () => {
+    try {
+      const result = await enqueueQwen(null, true)
+      Notify.create({
+        type: 'positive',
+        message: `В очередь: ${result.jobs} фото`,
+      })
+      await loadStats()
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
+  })
 }
-
 async function runAll() {
-  try {
-    const result = await enqueueQwen(null, false)
-    Notify.create({ type: 'positive', message: `QWEN заданий: ${result.jobs}` })
-    await loadStats()
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  }
+  await runAllRun(async () => {
+    try {
+      const result = await enqueueQwen(null, false)
+      Notify.create({ type: 'positive', message: `QWEN заданий: ${result.jobs}` })
+      await loadStats()
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
+  })
 }
-
 async function stopQueue() {
-  try {
-    const result = await stopQwenJobs()
-    Notify.create({
-      type: 'info',
-      message: result.cancelled
-        ? `Остановлено заданий: ${result.cancelled}`
-        : 'Активных заданий нет',
-    })
-    await loadStats()
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  }
+  await stopQueueRun(async () => {
+    try {
+      const result = await stopQwenJobs()
+      Notify.create({
+        type: 'info',
+        message: result.cancelled
+          ? `Остановлено заданий: ${result.cancelled}`
+          : 'Активных заданий нет',
+      })
+      await loadStats()
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
+  })
 }
-
 async function clearQueue() {
-  try {
-    const result = await clearQwenJobs()
-    Notify.create({
-      type: 'positive',
-      message: result.deleted
-        ? `Убрано записей: ${result.deleted}`
-        : 'Список уже пуст',
-    })
-    await loadStats()
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  }
+  await clearQueueRun(async () => {
+    try {
+      const result = await clearQwenJobs()
+      Notify.create({
+        type: 'positive',
+        message: result.deleted
+          ? `Убрано записей: ${result.deleted}`
+          : 'Список уже пуст',
+      })
+      await loadStats()
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
+  })
 }
-
 // Неизменённый встроенный промпт не сохраняем как override: пустая строка
 // означает «использовать встроенный».
 function promptPayload() {
@@ -462,30 +477,33 @@ async function save() {
 }
 
 async function clearKey() {
-  try {
-    await updateQwenSettings({ api_key: '' })
-    await loadSettings()
-    Notify.create({ type: 'info', message: 'API-ключ очищен' })
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  }
+  await clearKeyRun(async () => {
+    try {
+      await updateQwenSettings({ api_key: '' })
+      await loadSettings()
+      Notify.create({ type: 'info', message: 'API-ключ очищен' })
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
+  })
 }
-
 async function unload() {
-  try {
-    const result = await unloadQwen()
-    Notify.create({
-      type: 'positive',
-      message:
-        result.status === 'unloaded'
-          ? 'Модель выгружена из памяти'
-          : 'Для облачного провайдера выгрузка не требуется',
-    })
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  }
-}
+  await unloadRun(async () => {
+    try {
+      const result = await unloadQwen()
 
+      Notify.create({
+        type: 'positive',
+        message:
+          result.status === 'unloaded'
+            ? 'Модель выгружена из памяти'
+            : 'Для облачного провайдера выгрузка не требуется',
+      })
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
+  })
+}
 onMounted(async () => {
   await loadSettings()
   await loadModels()
@@ -599,6 +617,7 @@ onBeforeUnmount(stopStatsPolling)
             color="negative"
             label="Очистить ключ"
             class="q-mb-md"
+            :loading="clearKeyBusy"
             @click="clearKey"
           />
         </template>
@@ -670,7 +689,14 @@ onBeforeUnmount(stopStatsPolling)
         <div class="q-gutter-sm">
           <q-btn v-if="canConfigure" color="primary" label="Сохранить" :loading="saving" @click="save" />
           <q-btn flat icon="refresh" label="Обновить список" :loading="loading" @click="loadModels" />
-          <q-btn flat color="orange" icon="memory" label="Выгрузить из памяти" @click="unload" />
+          <q-btn
+            flat
+            color="orange"
+            icon="memory"
+            label="Выгрузить из памяти"
+            :loading="unloadBusy"
+            @click="unload"
+          />
         </div>
       </q-card-section>
     </q-card>
@@ -747,6 +773,7 @@ onBeforeUnmount(stopStatsPolling)
             color="secondary"
             icon="auto_awesome"
             label="Запустить QWEN (все фото)"
+            :loading="runAllBusy"
             @click="runAll"
           />
           <q-btn
@@ -755,6 +782,7 @@ onBeforeUnmount(stopStatsPolling)
             icon="replay"
             :label="`Повторить для упавших (${stats.failed_photo_ids.length})`"
             :disable="!stats.failed_photo_ids.length"
+            :loading="retryBusy"
             @click="retryFailed"
           />
           <q-btn
@@ -763,6 +791,7 @@ onBeforeUnmount(stopStatsPolling)
             icon="stop"
             label="Остановить распознавание"
             :disable="!qwenQueue"
+            :loading="stopQueueBusy"
             @click="stopQueue"
           />
           <q-btn
@@ -770,6 +799,7 @@ onBeforeUnmount(stopStatsPolling)
             color="grey-8"
             icon="clear_all"
             label="Очистить список заданий"
+            :loading="clearQueueBusy"
             @click="clearQueue"
           />
         </div>
