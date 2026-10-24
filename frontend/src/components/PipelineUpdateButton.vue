@@ -5,11 +5,12 @@
 // heavy work happens in the workers. Until schema/031 is applied the endpoint
 // answers 404, so the whole control hides itself instead of showing a broken
 // button.
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Notify } from 'quasar'
 
 import {
   fetchCurrentPipeline,
+  fetchQwenSettings,
   resumePipeline,
   startPipeline,
   stopPipeline,
@@ -40,6 +41,9 @@ const isIdle = computed(() => !isActive.value && !isStopped.value)
 // Skip the QWEN stage and run it later for a chosen period
 // (Техраздел → Распознавание → «Дозаполнить за период»).
 const skipQwen = ref(false)
+// QWEN может быть выключен не на этот раз, а в настройках распознавания:
+// тогда и галочка, и сам прогон идут без описаний.
+const qwenOffInSettings = ref(false)
 
 function stageRow(stage) {
   return (run.value?.stages || []).find((item) => item.stage === stage) || null
@@ -115,6 +119,19 @@ async function poll() {
     run.value = null
   }
 }
+
+watch(dialogOpen, async (open) => {
+  if (!open) return
+
+  try {
+    const data = await fetchQwenSettings()
+    qwenOffInSettings.value = data?.in_pipeline === false
+    if (qwenOffInSettings.value) skipQwen.value = true
+  } catch {
+    // Настройки недоступны — решает сервер, галочка остаётся свободной.
+    qwenOffInSettings.value = false
+  }
+})
 
 async function onClick() {
   if (busy.value) return
@@ -255,11 +272,19 @@ onBeforeUnmount(() => {
             v-model="skipQwen"
             label="Пропустить QWEN — запущу отдельно за период"
             dense
+            :disable="qwenOffInSettings"
           />
           <div v-if="!isActive" class="text-caption text-grey-7">
-            Без QWEN прогон завершится быстрее. Затем в Техническом разделе →
-            «Распознавание» → «Дозаполнить за период» можно поставить в очередь
-            только выбранные даты.
+            <template v-if="qwenOffInSettings">
+              QWEN выключен в настройках «Распознавание»: прогон пойдёт без
+              описаний и без «Уточнения». Включается там же одним
+              переключателем.
+            </template>
+            <template v-else>
+              Без QWEN прогон завершится быстрее. Затем в Техническом разделе →
+              «Распознавание» → «Дозаполнить за период» можно поставить в
+              очередь только выбранные даты.
+            </template>
           </div>
         </q-card-section>
 

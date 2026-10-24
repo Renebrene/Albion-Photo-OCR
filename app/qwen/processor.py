@@ -80,6 +80,11 @@ QWEN_CROP_RATIO_KEY = "qwen_crop_ratio"
 QWEN_API_KEY_KEY = "qwen_api_key"
 QWEN_KEEP_ALIVE_KEY = "qwen_keep_alive"
 QWEN_UNLOAD_IDLE_KEY = "qwen_unload_on_idle"
+# Запускать QWEN внутри «Обновления базы» (по умолчанию да). Выключение
+# убирает описания из прогона целиком: кнопка на главной пройдёт
+# инспектор → превью → DINO/HYBRID и не тронет видео-карту и «Уточнение».
+# Описания тогда дозаполняются отдельно за период (/v1/jobs/qwen/scan).
+QWEN_IN_PIPELINE_KEY = "qwen_in_pipeline"
 BILLBOARD_CROP_ENABLED_KEY = "billboard_detect"
 # Prompt overrides: empty string = use the built-in default. Both are edited
 # in «Распознавание» without a restart.
@@ -129,6 +134,20 @@ def _migrate_legacy_model() -> None:
         settings_store.set_value(QWEN_MODEL_KEY, "")
     except Exception:  # noqa: BLE001 - без БД работаем на значениях из env
         return
+
+
+def in_pipeline() -> bool:
+    """
+    Участвует ли QWEN в «Обновлении базы» (по умолчанию да).
+
+    Выключенный QWEN не запускается ни стадией прогона, ни ранним стартом
+    после инспектора. Уже сохранённые описания остаются на месте, а сами
+    описания дозаполняются отдельно за период.
+    """
+
+    stored = _stored(QWEN_IN_PIPELINE_KEY)
+
+    return bool(stored) if stored is not None else True
 
 
 def billboard_crop_available() -> bool:
@@ -245,6 +264,7 @@ def resolve_settings() -> dict:
             else QWEN_UNLOAD_ON_IDLE
         ),
         "billboard_crop_enabled": billboard_crop_enabled(),
+        "in_pipeline": in_pipeline(),
         "timeout": QWEN_TIMEOUT,
         "ollama_url": OLLAMA_URL,
         "crop": crop_settings(),
@@ -291,6 +311,8 @@ def public_settings() -> dict:
         "unload_on_idle": config["unload_on_idle"],
         "billboard_crop_enabled": config["billboard_crop_enabled"],
         "billboard_crop_available": billboard_crop_available(),
+        # Участвует ли QWEN в «Обновлении базы» (главный переключатель).
+        "in_pipeline": config["in_pipeline"],
         # Промпты: действующий и встроенный (для кнопки «Сбросить»).
         "prompt": config["prompt"],
         "default_prompt": PROMPT,
@@ -308,6 +330,7 @@ def update_settings(
     keep_alive: str | None = None,
     unload_on_idle: bool | None = None,
     billboard_crop_enabled: bool | None = None,
+    in_pipeline: bool | None = None,
     prompt: str | None = None,
     crop_prompt: str | None = None,
 ) -> dict:
@@ -342,6 +365,9 @@ def update_settings(
 
     if unload_on_idle is not None:
         settings_store.set_value(QWEN_UNLOAD_IDLE_KEY, bool(unload_on_idle))
+
+    if in_pipeline is not None:
+        settings_store.set_value(QWEN_IN_PIPELINE_KEY, bool(in_pipeline))
 
     if billboard_crop_enabled is not None:
         try:

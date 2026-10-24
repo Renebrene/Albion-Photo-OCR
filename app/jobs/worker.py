@@ -103,13 +103,15 @@ def _maybe_enqueue_refine() -> None:
 
     Этап выключен по умолчанию; ошибка постановки не должна ломать QWEN —
     описание уже сохранено, а этап можно запустить и на следующем прогоне.
+    Без QWEN (выключен в прогоне и ни одного описания в базе) этап не
+    ставится вовсе: сравнивать нечего.
     """
 
     try:
         from app.jobs import database as jobs_db
         from app.refine import config as refine_config
 
-        if not refine_config.enabled():
+        if not refine_config.enabled() or not refine_config.available():
             return
 
         if jobs_db.active_count("QWEN_PHOTO"):

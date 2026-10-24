@@ -397,6 +397,17 @@ def _advance(run_id: int) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _qwen_in_pipeline() -> bool:
+    """Настройка «Запускать QWEN в обновлении базы» (по умолчанию включена)."""
+
+    try:
+        from app.qwen import processor as qwen_processor
+
+        return bool(qwen_processor.in_pipeline())
+    except Exception:  # noqa: BLE001 - без настроек считаем QWEN включённым
+        return True
+
+
 def _auto_qwen_enabled() -> bool:
     """Planner setting «Запускать QWEN автоматически» (off by default)."""
 
@@ -419,6 +430,7 @@ def _enqueue_early_qwen(run: dict, manifest: dict) -> None:
     if (
         manifest.get("skip_qwen")
         or manifest.get("qwen_early")
+        or not _qwen_in_pipeline()
         or not _auto_qwen_enabled()
     ):
         return
@@ -701,7 +713,11 @@ def _stage_hybrid(run: dict, stage: dict) -> dict:
 
 
 def _stage_qwen(run: dict, stage: dict) -> dict:
-    if (run.get("manifest") or {}).get("skip_qwen"):
+    # QWEN выключается двумя способами: разово галочкой в окне запуска
+    # (`skip_qwen` в манифесте) или постоянно в настройках распознавания
+    # (`qwen_in_pipeline`). В обоих случаях прогон идёт без описаний, а
+    # «Уточнение» не запускается — сравнивать нечего.
+    if (run.get("manifest") or {}).get("skip_qwen") or not _qwen_in_pipeline():
         return {
             "outcome": "SKIPPED",
             "total_count": 0,

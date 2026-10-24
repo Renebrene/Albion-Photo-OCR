@@ -37,6 +37,9 @@ const unloadOnIdle = ref(true)
 const billboardCropEnabled = ref(false)
 const billboardCropAvailable = ref(false)
 const billboardCropSaving = ref(false)
+// Участие QWEN в «Обновлении базы» (главный переключатель распознавания).
+const qwenInPipeline = ref(true)
+const qwenInPipelineSaving = ref(false)
 // Промпты: действующий (его можно править) и встроенный (для сброса).
 const promptText = ref('')
 const cropPromptText = ref('')
@@ -85,6 +88,7 @@ async function loadSettings() {
     unloadOnIdle.value = data.unload_on_idle !== false
     billboardCropAvailable.value = data.billboard_crop_available === true
     billboardCropEnabled.value = data.billboard_crop_enabled === true
+    qwenInPipeline.value = data.in_pipeline !== false
     promptText.value = data.prompt || ''
     cropPromptText.value = data.crop_prompt || ''
     defaultPrompt.value = data.default_prompt || ''
@@ -143,6 +147,29 @@ async function setBillboardCropEnabled(value) {
     Notify.create({ type: 'negative', message: err.message || 'Не удалось сохранить настройку crop' })
   } finally {
     billboardCropSaving.value = false
+  }
+}
+
+async function setQwenInPipeline(value) {
+  if (!canConfigure.value || qwenInPipelineSaving.value) return
+
+  const previous = qwenInPipeline.value
+  qwenInPipeline.value = Boolean(value)
+  qwenInPipelineSaving.value = true
+  try {
+    const data = await updateQwenSettings({ in_pipeline: qwenInPipeline.value })
+    qwenInPipeline.value = data?.in_pipeline !== false
+    Notify.create({
+      type: 'positive',
+      message: qwenInPipeline.value
+        ? 'QWEN участвует в «Обновлении базы»'
+        : 'QWEN выключен из прогона; «Уточнение» тоже остановлено',
+    })
+  } catch (err) {
+    qwenInPipeline.value = previous
+    Notify.create({ type: 'negative', message: err.message || 'Не удалось сохранить настройку QWEN' })
+  } finally {
+    qwenInPipelineSaving.value = false
   }
 }
 
@@ -471,6 +498,33 @@ onBeforeUnmount(stopStatsPolling)
 
 <template>
   <div style="max-width: 1560px">
+    <!-- Главный выключатель распознавания: снимает QWEN из «Обновления базы»
+         целиком. Пока он выключен, прогон идёт инспектор → превью →
+         DINO/HYBRID, а «Уточнение» не запускается — сравнивать нечего. -->
+    <q-card flat bordered class="q-mb-md">
+      <q-card-section>
+        <div class="row items-center no-wrap">
+          <q-toggle
+            :model-value="qwenInPipeline"
+            label="Запускать QWEN в «Обновлении базы»"
+            color="primary"
+            :disable="!canConfigure || qwenInPipelineSaving"
+            @update:model-value="setQwenInPipeline"
+          />
+          <q-badge
+            class="q-ml-md"
+            :color="qwenInPipeline ? 'green-7' : 'grey-7'"
+            :label="qwenInPipeline ? 'включено' : 'выключено'"
+          />
+        </div>
+        <div class="text-caption text-grey-8 q-mt-xs">
+          Выключено — кнопка «Обновление базы» идёт без описаний и без
+          «Уточнения»: инспектор, превью, DINO и HYBRID отработают как обычно.
+          Описания можно дозаполнить позже за нужный период («Дозаполнить за
+          период»).
+        </div>
+      </q-card-section>
+    </q-card>
     <div class="row q-col-gutter-md">
       <div class="col-12 col-sm-6 col-lg">
         <div class="text-h6 q-mb-md">Модель QWEN</div>

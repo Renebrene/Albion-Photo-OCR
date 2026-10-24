@@ -168,3 +168,50 @@ def test_disabled_stage_reports_and_does_nothing(monkeypatch):
 
     assert report["status"] == "disabled"
     assert report["photos_changed"] == 0
+
+
+def test_refine_is_available_while_qwen_takes_part(monkeypatch):
+    """Пока QWEN включён в прогон, «Уточнение» доступно."""
+    from app.qwen import processor as qwen_processor
+    from app.refine import config as refine_config
+
+    monkeypatch.setattr(qwen_processor, "in_pipeline", lambda: True)
+    monkeypatch.setattr(refine_config, "qwen_has_results", lambda: False)
+
+    assert refine_config.available() is True
+
+
+def test_refine_needs_qwen_results_when_qwen_is_off(monkeypatch):
+    """Без QWEN этап доступен только при сохранённых описаниях."""
+    from app.qwen import processor as qwen_processor
+    from app.refine import config as refine_config
+
+    monkeypatch.setattr(qwen_processor, "in_pipeline", lambda: False)
+
+    monkeypatch.setattr(refine_config, "qwen_has_results", lambda: False)
+    assert refine_config.available() is False
+
+    monkeypatch.setattr(refine_config, "qwen_has_results", lambda: True)
+    assert refine_config.available() is True
+
+
+def test_refine_is_not_enqueued_without_qwen(monkeypatch):
+    """Воркер не ставит «Уточнение», если сравнивать нечего."""
+    from app.jobs import database as jobs_db
+    from app.jobs import worker
+    from app.refine import config as refine_config
+
+    calls: list[str] = []
+
+    monkeypatch.setattr(refine_config, "enabled", lambda: True)
+    monkeypatch.setattr(refine_config, "available", lambda: False)
+    monkeypatch.setattr(
+        jobs_db, "active_count", lambda job_type: calls.append("active") or 0
+    )
+    monkeypatch.setattr(
+        jobs_db, "enqueue_refine", lambda: calls.append("refine")
+    )
+
+    worker._maybe_enqueue_refine()  # noqa: SLF001
+
+    assert calls == []

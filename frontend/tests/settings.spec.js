@@ -112,6 +112,7 @@ beforeEach(() => {
     unload_on_idle: true,
     billboard_crop_enabled: true,
     billboard_crop_available: true,
+    in_pipeline: true,
     prompt: 'Промпт полного кадра',
     default_prompt: 'Промпт полного кадра',
     crop_prompt: 'Промпт кропа',
@@ -125,6 +126,25 @@ afterEach(() => {
 })
 
 describe('Settings.vue', () => {
+  it('переключает участие QWEN в «Обновлении базы»', async () => {
+    const wrapper = mountSettings({ role: 'Администратор' })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Запускать QWEN в «Обновлении базы»')
+
+    const toggle = wrapper
+      .findAllComponents(QToggle)
+      .find((item) => String(item.props('label')).includes('Запускать QWEN'))
+    expect(toggle).toBeTruthy()
+    expect(toggle.props('modelValue')).toBe(true)
+
+    await toggle.vm.$emit('update:modelValue', false)
+    await flushPromises()
+
+    expect(updated).toContainEqual({ in_pipeline: false })
+    expect(wrapper.text()).toContain('выключено')
+  })
+
   it('loads and immediately persists the optional billboard crop setting', async () => {
     const wrapper = mountSettings({ role: 'Администратор' })
     await flushPromises()

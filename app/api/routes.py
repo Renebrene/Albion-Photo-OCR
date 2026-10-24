@@ -2390,6 +2390,7 @@ def update_qwen_settings(request: QwenSettingsUpdate):
             keep_alive=request.keep_alive,
             unload_on_idle=request.unload_on_idle,
             billboard_crop_enabled=request.billboard_crop_enabled,
+            in_pipeline=request.in_pipeline,
             prompt=request.prompt,
             crop_prompt=request.crop_prompt,
         )

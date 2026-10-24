@@ -11,6 +11,7 @@ const loading = ref(false)
 const saving = ref(false)
 const settings = ref({
   enabled: false,
+  available: true,
   gap_seconds: 30,
   crop_retention_days: 7,
   photos_ready: 0,
@@ -63,6 +64,7 @@ onMounted(load)
           v-model="settings.enabled"
           label="Включить этап"
           color="primary"
+          :disable="settings.available === false"
         />
         <q-badge color="grey-7" :label="`готово кадров: ${settings.photos_ready ?? 0}`" />
       </div>
@@ -105,6 +107,15 @@ onMounted(load)
           :loading="saving"
           @click="save"
         />
+      </div>
+
+      <div
+        v-if="settings.available === false"
+        class="text-caption text-orange-9 q-mt-md"
+      >
+        Этап недоступен: QWEN выключен из «Обновления базы» и в базе нет его
+        описаний. Включите «Запускать QWEN в «Обновлении базы»» или дозаполните
+        описания за период — тогда «Уточнение» станет доступным.
       </div>
 
       <div class="text-caption text-grey-7 q-mt-md">

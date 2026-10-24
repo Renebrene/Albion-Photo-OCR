@@ -69,6 +69,41 @@ def retention_days() -> int:
     return max(1, min(MAX_RETENTION_DAYS, value))
 
 
+def qwen_has_results() -> bool:
+    """Есть ли в базе хоть одно описание QWEN."""
+
+    try:
+        from app.ingest.database import get_connection
+
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT EXISTS (SELECT 1 FROM public.photo_qwen)")
+                row = cur.fetchone()
+        return bool(row and row[0])
+    except Exception:  # noqa: BLE001 - без базы этап просто недоступен
+        return False
+
+
+def available() -> bool:
+    """
+    Есть ли что уточнять.
+
+    Этап сравнивает описания QWEN между кадрами одной серии, поэтому без
+    QWEN он бессмысленен: либо QWEN участвует в прогоне, либо в базе уже
+    лежат его результаты (например, после дозаполнения за период).
+    """
+
+    try:
+        from app.qwen import processor as qwen_processor
+
+        if qwen_processor.in_pipeline():
+            return True
+    except Exception:  # noqa: BLE001 - настройка недоступна, смотрим данные
+        pass
+
+    return qwen_has_results()
+
+
 def set_enabled(value: object) -> bool:
     parsed = bool(value)
     settings_store.set_value(ENABLED_KEY, parsed)
@@ -107,6 +142,8 @@ def set_retention_days(value: object) -> int:
 def resolve_settings() -> dict:
     return {
         "enabled": enabled(),
+        # Можно ли включать этап сейчас (QWEN в прогоне или его результаты).
+        "available": available(),
         "gap_seconds": gap_seconds(),
         "crop_retention_days": retention_days(),
         "default_gap_seconds": DEFAULT_GAP_SECONDS,
