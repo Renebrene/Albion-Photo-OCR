@@ -202,7 +202,7 @@ describe('Обновление базы', () => {
     vi.useRealTimers()
   })
 
-  it('во время прогона открывает окно с остановкой и шлёт stop', async () => {
+  it('во время прогона кнопка сразу приостанавливает процесс', async () => {
     setPipeline({
       run: { run_id: 42, status: 'RUNNING', stage: 'DINO', manifest: {}, stages: [{ stage: 'DINO', done_count: 3, total_count: 10 }] },
     })
@@ -211,15 +211,18 @@ describe('Обновление базы', () => {
     await bodyButton('Обновление базы').click()
     await flushPromises()
 
-    expect(document.body.textContent).toContain('Остановить')
-    await bodyButton('Остановить').click()
-    await flushPromises()
-
+    // Пауза — само действие, а не окно: окно открывается кнопкой с галкой.
     expect(calls.some((c) => c.url.endsWith('/v1/pipeline/42/stop'))).toBe(true)
+    expect(
+      Notify.create.mock.calls.some((call) =>
+        String(call[0]?.message || '').includes('продолжит с того же места'),
+      ),
+    ).toBe(true)
+
     wrapper.unmount()
   })
 
-  it('остановленный прогон предлагает Продолжить / Начать заново', async () => {
+  it('повторный клик по остановленному прогону продолжает с того же места', async () => {
     setPipeline({
       run: { run_id: 7, status: 'STOPPED', stage: 'DINO', finished_at: '2026-10-16 12:00:00', manifest: {}, stages: [] },
     })
@@ -230,13 +233,32 @@ describe('Обновление базы', () => {
     await bodyButton('Обновление базы').click()
     await flushPromises()
 
-    expect(document.body.textContent).toContain('Продолжить')
-    expect(document.body.textContent).toContain('Начать заново')
+    expect(calls.some((c) => c.url.endsWith('/v1/pipeline/7/resume'))).toBe(true)
+    wrapper.unmount()
+  })
 
-    await bodyButton('Продолжить').click()
+  it('«Начать заново» и выключатели этапов живут в отдельном окне', async () => {
+    setPipeline({
+      run: { run_id: 7, status: 'STOPPED', stage: 'DINO', manifest: {}, stages: [] },
+    })
+    const wrapper = await mountButton()
+
+    // Кнопка с галкой рядом с основной открывает окно с настройками запуска.
+    const more = wrapper
+      .findAll('button')
+      .find((item) => item.html().includes('expand_more'))
+
+    expect(more).toBeTruthy()
+    await more.trigger('click')
     await flushPromises()
 
-    expect(calls.some((c) => c.url.endsWith('/v1/pipeline/7/resume'))).toBe(true)
+    expect(document.body.textContent).toContain('Начать заново')
+    expect(document.body.textContent).toContain('Пропустить уточнение')
+
+    await bodyButton('Начать заново').click()
+    await flushPromises()
+
+    expect(calls.some((c) => c.url.endsWith('/v1/pipeline/start'))).toBe(true)
     wrapper.unmount()
   })
 

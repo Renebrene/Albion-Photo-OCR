@@ -253,18 +253,30 @@ def create_run(
     return result
 
 
-def request_stop(run_id: int) -> bool:
-    """Ask the supervisor to stop the run at the next tick (cooperative)."""
+def request_stop(run_id: int, *, stopped_by: str | None = None) -> bool:
+    """
+    Ask the supervisor to stop (pause) the run at the next tick (cooperative).
+
+    `stopped_by` попадает в сообщение прогона, а оно — в журнал запусков: по
+    нему видно, кто и когда приостановил процесс. Перезапуск с главной
+    страницы продолжает с того же места (`resume_run`), ничего не пересчитывая.
+    """
+
+    message = "приостановлено пользователем"
+    if stopped_by:
+        message = f"{message} {stopped_by}"
 
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE public.pipeline_runs
-                SET stop_requested = TRUE, updated_at = CURRENT_TIMESTAMP
+                SET stop_requested = TRUE,
+                    message = %s,
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE run_id = %s AND status IN ('PENDING', 'RUNNING')
                 """,
-                (int(run_id),),
+                (message, int(run_id)),
             )
             changed = cur.rowcount == 1
 
@@ -275,7 +287,7 @@ def request_stop(run_id: int) -> bool:
         run = get_run(run_id)
         raw = _raw_stage(run_id, run["stage"]) if run is not None else None
         if raw is not None and _stage_row(raw)["status"] in ("PENDING", "DONE", "SKIPPED"):
-            _finish_run(run_id, "STOPPED", message="остановлено пользователем")
+            _finish_run(run_id, "STOPPED", message=message)
         _sync_history(run_id)
 
     return changed
@@ -361,10 +373,16 @@ def _advance(run_id: int) -> dict:
             run_id,
             run.get("started_at") or run.get("created_at"),
         )
+        # Сообщение о приостановке уже написано в request_stop (с именем
+        # пользователя) — дополняем его числом приостановленных заданий, а не
+        # затираем.
         _finish_run(
             run_id,
             "STOPPED",
-            message=f"остановлено пользователем; заданий приостановлено: {paused}",
+            message=(
+                f"{run.get('message') or 'приостановлено пользователем'}; "
+                f"заданий приостановлено: {paused}"
+            ),
         )
         return {"outcome": "STOPPED"}
 

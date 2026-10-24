@@ -156,7 +156,10 @@ def test_current_returns_null_when_no_runs(monkeypatch):
 
 
 def test_stop_unknown_run_is_409(monkeypatch):
-    monkeypatch.setattr(pipeline_runs, "request_stop", lambda _run_id: False)
+    # Маршрут передаёт ещё и имя пользователя для журнала.
+    monkeypatch.setattr(
+        pipeline_runs, "request_stop", lambda _run_id, **_kwargs: False
+    )
     response = client.post("/api/v1/pipeline/999999/stop")
     assert response.status_code == 409
 
@@ -232,9 +235,13 @@ def test_run_lifecycle_stop_and_resume(tmp_path):
         with pytest.raises(pipeline_runs.PipelineBusy):
             pipeline_runs.create_run(mode="manual", folder=str(tmp_path))
 
-        # Stop before any work started flips it to STOPPED immediately.
-        assert pipeline_runs.request_stop(run_id) is True
-        assert pipeline_runs.get_run(run_id)["status"] == "STOPPED"
+        # Stop before any work started flips it to STOPPED immediately, and the
+        # log says who paused the run.
+        assert pipeline_runs.request_stop(run_id, stopped_by="Тестер") is True
+        stopped = pipeline_runs.get_run(run_id)
+        assert stopped["status"] == "STOPPED"
+        assert "Тестер" in (stopped["message"] or "")
+
 
         # Resume continues from the same stage and manifest.
         assert pipeline_runs.resume_run(run_id) is True

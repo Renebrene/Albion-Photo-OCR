@@ -151,12 +151,54 @@ watch(dialogOpen, async (open) => {
 async function onClick() {
   if (busy.value) return
 
+  // Первый клик — пауза, повторный — продолжение с того же места. Окно
+  // открывается отдельной кнопкой: там «Начать заново» и выключатели этапов.
   if (isActive.value) {
-    dialogOpen.value = true
+    await pauseRun()
+    return
+  }
+
+  if (isStopped.value) {
+    await continueRun()
     return
   }
 
   dialogOpen.value = true
+}
+
+async function pauseRun() {
+  if (busy.value || !run.value) return
+
+  busy.value = true
+  try {
+    await stopPipeline(run.value.run_id)
+    await poll()
+    Notify.create({
+      type: 'info',
+      icon: 'pause',
+      message: 'Процесс приостановлен. Запуск с главной страницы продолжит с того же места.',
+      timeout: 8000,
+    })
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message || 'Не удалось приостановить' })
+  } finally {
+    busy.value = false
+  }
+}
+
+async function continueRun() {
+  if (busy.value || !run.value) return
+
+  busy.value = true
+  try {
+    await resumePipeline(run.value.run_id)
+    await poll()
+    Notify.create({ type: 'info', message: 'Продолжаю с того же места' })
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message || 'Не удалось продолжить' })
+  } finally {
+    busy.value = false
+  }
 }
 
 async function startNew() {
@@ -245,10 +287,25 @@ onBeforeUnmount(() => {
       <q-tooltip>
         {{
           isActive
-            ? 'Прогон идёт: нажмите, чтобы остановить (или продолжить позже). Этапы со счётчиками — рядом.'
-            : 'Инспекция → превью → сортировка (Дино, Гибрид) → описание → уточнение. Запускает или продолжает прогон.'
+            ? 'Нажмите, чтобы приостановить. Повторный запуск продолжит с того же места.'
+            : isStopped
+              ? 'Нажмите, чтобы продолжить с того же места. «Начать заново» — в кнопке с галкой справа.'
+              : 'Инспекция → превью → сортировка (Дино, Гибрид) → описание → уточнение.'
         }}
       </q-tooltip>
+    </q-btn>
+
+    <q-btn
+      v-if="canRun"
+      flat
+      dense
+      round
+      size="sm"
+      icon="expand_more"
+      class="q-ml-xs"
+      @click="dialogOpen = true"
+    >
+      <q-tooltip>Начать заново, выключить описание или уточнение</q-tooltip>
     </q-btn>
 
     <span v-if="isActive" class="blink-dot q-mx-xs" />

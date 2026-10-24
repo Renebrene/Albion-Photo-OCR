@@ -2641,10 +2641,14 @@ def start_pipeline_run(request: PipelineStartRequest):
     "/v1/pipeline/{run_id}/stop",
     dependencies=[Depends(require_scope("jobs:write"))],
 )
-def stop_pipeline_run(run_id: int):
+def stop_pipeline_run(run_id: int, principal=Depends(require_scope("jobs:write"))):
     from app.supervisor import runs as pipeline_runs
 
-    if not pipeline_runs.request_stop(run_id):
+    # Имя в журнале: видно, кто приостановил процесс.
+    user = principal.get("user") if principal else None
+    stopped_by = (user or {}).get("name")
+
+    if not pipeline_runs.request_stop(run_id, stopped_by=stopped_by):
         raise HTTPException(status_code=409, detail="run is not active")
 
     return pipeline_runs.get_run_with_stages(run_id)
