@@ -2627,6 +2627,7 @@ def start_pipeline_run(request: PipelineStartRequest):
                 mode=request.mode,
                 folder=folder,
                 skip_qwen=request.skip_qwen,
+                skip_refine=request.skip_refine,
             )
     except coordination.OperationBusy as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

@@ -229,3 +229,27 @@ def test_qwen_stage_waits_for_refine_before_finishing(monkeypatch):
 
     assert result["outcome"] == "WAIT"
     assert "уточнение" in result["message"]
+
+
+def test_refine_stage_is_skipped_by_manifest_flag():
+    """«Уточнение» выключается галкой в окне запуска, не только настройкой."""
+
+    result = runs._refine_after_qwen(  # noqa: SLF001
+        {"run_id": 1, "manifest": {"skip_refine": True}},
+        {"ref": {}},
+    )
+
+    assert result is None
+
+
+def test_run_request_carries_both_switches():
+    from app.api.schemas import PipelineStartRequest
+
+    default = PipelineStartRequest()
+
+    assert default.skip_qwen is False
+    assert default.skip_refine is False
+
+    both = PipelineStartRequest(skip_qwen=True, skip_refine=True)
+
+    assert both.skip_qwen is True and both.skip_refine is True

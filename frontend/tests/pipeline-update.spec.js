@@ -134,7 +134,7 @@ describe('Обновление базы', () => {
     wrapper.unmount()
   })
 
-  it('показывает «База обновлена» после завершения', async () => {
+  it('пишет «База обновлена» с датой и временем', async () => {
     setPipeline({
       run: {
         run_id: 1, status: 'DONE', stage: 'QWEN', finished_at: '2026-10-16 12:30:00',
@@ -142,11 +142,13 @@ describe('Обновление базы', () => {
       },
     })
     const wrapper = await mountButton()
-    expect(wrapper.text()).toContain('База обновлена 2026-10-16 12:30')
+
+    // Дата-время по-человечески: «16.10.2026 12:30».
+    expect(wrapper.text()).toContain('База обновлена 16.10.2026 12:30')
     wrapper.unmount()
   })
 
-  it('не пишет «База обновлена», пока идёт распознавание', async () => {
+  it('после прогона сообщение остаётся и говорит, что очереди ещё идут', async () => {
     const finished = {
       run: {
         run_id: 1, status: 'DONE', stage: 'QWEN', finished_at: '2026-10-24 11:19',
@@ -156,13 +158,48 @@ describe('Обновление базы', () => {
 
     setPipeline(finished)
     let wrapper = await mountButton({ busy: true })
-    expect(wrapper.text()).not.toContain('База обновлена')
+    expect(wrapper.text()).toContain('База обновлена 24.10.2026 11:19')
+    expect(wrapper.text()).toContain('описание и уточнение идут')
     wrapper.unmount()
 
     setPipeline(finished)
     wrapper = await mountButton({ busy: false })
-    expect(wrapper.text()).toContain('База обновлена 2026-10-24 11:19')
+    expect(wrapper.text()).toContain('База обновлена 24.10.2026 11:19')
+    expect(wrapper.text()).not.toContain('описание и уточнение идут')
     wrapper.unmount()
+  })
+
+  it('сообщение о завершении приходит уведомлением', async () => {
+    vi.useFakeTimers()
+
+    // Первый опрос видит прогон идущим, следующий (через интервал) — завершённым.
+    let call = 0
+    global.fetch = vi.fn(async () => {
+      call += 1
+
+      return json({
+        run: call === 1
+          ? { run_id: 1, status: 'RUNNING', stage: 'QWEN', manifest: {}, stages: [] }
+          : {
+              run_id: 1, status: 'DONE', stage: 'QWEN',
+              finished_at: '2026-10-24 11:19:00', manifest: {}, stages: [],
+            },
+      })
+    })
+
+    const wrapper = await mountButton({ busy: false })
+
+    vi.advanceTimersByTime(3100)
+    await flushPromises()
+
+    expect(
+      Notify.create.mock.calls.some((call) =>
+        String(call[0]?.message || '').includes('База обновлена 24.10.2026 11:19'),
+      ),
+    ).toBe(true)
+
+    wrapper.unmount()
+    vi.useRealTimers()
   })
 
   it('во время прогона открывает окно с остановкой и шлёт stop', async () => {

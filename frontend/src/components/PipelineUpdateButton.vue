@@ -48,6 +48,10 @@ const skipQwen = ref(false)
 // тогда и галочка, и сам прогон идут без описаний.
 const qwenOffInSettings = ref(false)
 
+// «Уточнение» — хвост этапа описаний. Выключается на конкретный прогон;
+// постоянный выключатель живёт в настройках этапа (техраздел → Описание).
+const skipRefine = ref(false)
+
 function stageRow(stage) {
   return (run.value?.stages || []).find((item) => item.stage === stage) || null
 }
@@ -57,15 +61,30 @@ function fmt(value) {
   return String(value).replace('T', ' ').slice(0, 16)
 }
 
+// «24.10.2026 18:22» — так дата-время читается без разглядывания.
+function fmtHuman(value) {
+  if (!value) return ''
+
+  const [date, time = ''] = String(value).replace('T', ' ').split(' ')
+  const [year, month, day] = date.split('-')
+
+  if (!year || !month || !day) return fmt(value)
+
+  return `${day}.${month}.${year} ${time.slice(0, 5)}`.trim()
+}
+
 const statusText = computed(() => {
   const current = run.value
 
   if (!current) return ''
 
   if (current.status === 'DONE') {
-    if (props.busy) return ''
-
-    return `База обновлена ${fmt(current.finished_at)}`
+    // Прогон закончился — сообщение показываем всегда, с датой и временем.
+    // Если очереди описаний и уточнения ещё идут, это сказано прямо: прогон
+    // завершён, но работа продолжается.
+    return props.busy
+      ? `База обновлена ${fmtHuman(current.finished_at)} · описание и уточнение идут`
+      : `База обновлена ${fmtHuman(current.finished_at)}`
   }
 
   if (current.status === 'FAILED') {
@@ -94,9 +113,17 @@ async function poll() {
 
     const next = data?.run || null
 
-    // Refresh the footer once a run reaches a terminal state.
+    // Прогон закончился: сообщение с датой и временем. Подвал обновляем там же.
     if (next && next.status === 'DONE' && lastStatus && lastStatus !== 'DONE') {
       emit('finished')
+      Notify.create({
+        type: 'positive',
+        icon: 'check_circle',
+        message: props.busy
+          ? `База обновлена ${fmtHuman(next.finished_at)} · описание и уточнение продолжаются`
+          : `База обновлена ${fmtHuman(next.finished_at)}`,
+        timeout: 8000,
+      })
     }
     lastStatus = next?.status || null
 
@@ -140,7 +167,7 @@ async function startNew() {
 
   busy.value = true
   try {
-    await startPipeline({ skip_qwen: skipQwen.value })
+    await startPipeline({ skip_qwen: skipQwen.value, skip_refine: skipRefine.value })
     dialogOpen.value = false
     Notify.create({ type: 'info', message: 'Обновление базы запущено' })
     await poll()
@@ -169,7 +196,7 @@ async function doRestart() {
   if (busy.value) return
   busy.value = true
   try {
-    await startPipeline({ skip_qwen: skipQwen.value })
+    await startPipeline({ skip_qwen: skipQwen.value, skip_refine: skipRefine.value })
     dialogOpen.value = false
     await poll()
   } catch (err) {
@@ -266,6 +293,19 @@ onBeforeUnmount(() => {
             dense
             :disable="qwenOffInSettings"
           />
+          <!-- Второй выключатель этапа: «Уточнение» можно не запускать в этом
+               прогоне, не меняя постоянную настройку этапа. -->
+          <q-toggle
+            v-if="!isActive"
+            v-model="skipRefine"
+            label="Пропустить уточнение"
+            dense
+          />
+          <div v-if="!isActive && skipRefine" class="text-caption text-grey-7">
+            «Уточнение» связывает кадры одной серии и приводит чтения к одному
+            виду. Постоянный выключатель этапа — в техразделе, вкладка
+            «Описание».
+          </div>
           <div v-if="!isActive" class="text-caption text-grey-7">
             <template v-if="qwenOffInSettings">
               Описание выключено в настройках: прогон пойдёт без описаний и

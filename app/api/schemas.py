@@ -477,6 +477,8 @@ class PipelineStartRequest(BaseModel):
     # Skip the QWEN stage: run it later for a chosen period
     # (POST /v1/jobs/qwen/scan). INGEST/PREVIEW/DINO/HYBRID still run.
     skip_qwen: bool = False
+    # Skip «Уточнение» (the tail of the description stage) for this run only.
+    skip_refine: bool = False
 
 
 class SearchQueryRequest(BaseModel):

@@ -182,6 +182,7 @@ def create_run(
     folder: str | None = None,
     created_by: str | None = None,
     skip_qwen: bool = False,
+    skip_refine: bool = False,
 ) -> dict:
     """
     Start a new run, superseding any stopped run.
@@ -221,7 +222,12 @@ def create_run(
                         mode,
                         folder,
                         created_by,
-                        Json({"skip_qwen": True}) if skip_qwen else Json({}),
+                        Json(
+                            {
+                                **({"skip_qwen": True} if skip_qwen else {}),
+                                **({"skip_refine": True} if skip_refine else {}),
+                            }
+                        ),
                     ),
                 )
                 run_id = int(cur.fetchone()[0])
@@ -835,11 +841,15 @@ def _refine_after_qwen(run: dict, stage: dict) -> dict | None:
     """
     Шаг «Уточнения» внутри стадии QWEN. Возвращает WAIT/DONE или None.
 
-    None означает «этап не нужен»: он выключен в настройках или сравнивать
-    нечего. Задание ставит сам супервизор (постановка идемпотентна: второе
+    None означает «этап не нужен»: он выключен в настройках или галкой в
+    окне запуска, либо сравнивать нечего. Задание ставит сам супервизор (постановка идемпотентна: второе
     «Уточнение» не создаётся, пока первое в очереди). Ошибка «Уточнения» не
     валит прогон — описания QWEN уже сохранены.
     """
+
+    # Выключатели: галка в окне запуска (манифест) и настройка этапа.
+    if (run.get("manifest") or {}).get("skip_refine"):
+        return None
 
     try:
         from app.refine import config as refine_config
