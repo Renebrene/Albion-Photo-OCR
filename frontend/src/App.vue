@@ -328,8 +328,9 @@ function toggleDark() {
           <q-spinner-dots v-if="pipeline.qwenBusy" size="14px" class="q-mr-xs" />
           <span>
             {{ pipeline.qwenText }}
-            <q-tooltip v-if="pipeline.qwenTitle">
-              {{ pipeline.qwenTitle }}
+            <q-tooltip>
+              Обработано / всего в текущей выборке распознавания
+              <template v-if="pipeline.qwenTitle"> · {{ pipeline.qwenTitle }}</template>
             </q-tooltip>
           </span>
         </div>

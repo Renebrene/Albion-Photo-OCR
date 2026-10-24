@@ -789,7 +789,8 @@ describe('оболочка приложения', () => {
     await flushPromises()
 
     const header = wrapper.find('header').text()
-    expect(header).toContain('Распознавание: 12383 / 16597')
+    // Владелец просил только числа: обработано / всего.
+    expect(header).toContain('12383 / 16597')
     wrapper.unmount()
   })
 
@@ -812,7 +813,7 @@ describe('оболочка приложения', () => {
     const wrapper = await mountShell()
     await flushPromises()
 
-    expect(wrapper.find('header').text()).toContain('Распознавание: 12050')
+    expect(wrapper.find('header').text()).toContain('12050')
     wrapper.unmount()
   })
 

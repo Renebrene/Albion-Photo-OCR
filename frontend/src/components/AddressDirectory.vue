@@ -14,6 +14,8 @@ import {
   setAddressFingerprints,
   updateAddress,
 } from '../api/client'
+import { useAsyncAction } from '../composables/useAsyncAction'
+import { confirmDialog } from '../composables/confirmDialog'
 
 const items = ref([])
 const unassigned = ref([])
@@ -84,6 +86,12 @@ async function load() {
   }
 }
 
+// Удаление адреса необратимо (на него ссылаются слепки, он даёт юридическое
+// имя при скачивании), поэтому спрашиваем подтверждение и блокируем кнопку.
+const { busy: editBusy, run: editRun } = useAsyncAction()
+const { busy: mapBusy, run: mapRun } = useAsyncAction()
+const { busy: removeBusy, run: removeRun } = useAsyncAction()
+
 onMounted(load)
 
 async function addAddress() {
@@ -120,6 +128,7 @@ function openEdit(item) {
 async function saveEdit() {
   const target = editTarget.value
 
+  await editRun(async () => {
   try {
     await updateAddress(target.address_id, {
       legal_address: target.legal_address,
@@ -132,8 +141,8 @@ async function saveEdit() {
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   }
+  })
 }
-
 async function toggleActive(item, value) {
   try {
     await updateAddress(item.address_id, { active: value })
@@ -145,6 +154,15 @@ async function toggleActive(item, value) {
 }
 
 async function removeAddress(item) {
+  const confirmed = await confirmDialog({
+    title: 'Удалить адрес?',
+    message: `«${item.simple_address || item.legal_address}» · привязано слепков: ${(item.fingerprints || []).length}`
+      + ' — привязка будет снята, а имена файлов вернутся к исходным.',
+  })
+
+  if (!confirmed) return
+
+  await removeRun(async () => {
   try {
     await deleteAddress(item.address_id)
     Notify.create({ type: 'positive', message: 'Адрес удалён' })
@@ -152,8 +170,8 @@ async function removeAddress(item) {
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   }
+  })
 }
-
 function openMap(item) {
   mapTarget.value = item
   mapSelected.value = [...item.fingerprints]
@@ -167,7 +185,8 @@ const mapOptions = computed(() => {
 })
 
 async function saveMap() {
-  try {
+  await mapRun(async () => {
+    try {
     // Сохраняем НАМЕРЕНИЕ пользователя, а не снимок списка: пока окно было
     // открыто, к адресу могли привязать ещё слепки (вкладка «Слепки»,
     // другой пользователь). Отвязываем только те, что сняли здесь, а
@@ -203,8 +222,8 @@ async function saveMap() {
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   }
-}
-</script>
+  })
+}</script>
 
 <template>
   <div class="column q-gutter-md" style="max-width: 900px">
@@ -327,7 +346,13 @@ async function saveMap() {
             <q-btn dense flat icon="edit" @click="openEdit(props.row)">
               <q-tooltip>Изменить названия</q-tooltip>
             </q-btn>
-            <q-btn dense flat icon="delete" @click="removeAddress(props.row)">
+            <q-btn
+              dense
+              flat
+              icon="delete"
+              :loading="removeBusy"
+              @click="removeAddress(props.row)"
+            >
               <q-tooltip>Удалить адрес</q-tooltip>
             </q-btn>
           </q-td>
@@ -356,7 +381,7 @@ async function saveMap() {
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Отмена" v-close-popup />
-          <q-btn color="primary" label="Сохранить" @click="saveEdit" />
+          <q-btn color="primary" label="Сохранить" :loading="editBusy" @click="saveEdit" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -385,7 +410,7 @@ async function saveMap() {
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Отмена" v-close-popup />
-          <q-btn color="primary" label="Сохранить" @click="saveMap" />
+          <q-btn color="primary" label="Сохранить" :loading="mapBusy" @click="saveMap" />
         </q-card-actions>
       </q-card>
     </q-dialog>

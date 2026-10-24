@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { Notify } from 'quasar'
 
 import { createUser, fetchUsers, updateUser } from '../api/client'
+import { useAsyncAction } from '../composables/useAsyncAction'
 import { useSessionStore } from '../stores/session'
 
 const session = useSessionStore()
@@ -37,6 +38,12 @@ async function load() {
   }
 }
 
+// Формы без защиты от двойного клика создавали двух пользователей подряд.
+const { busy: saveBusy, run: saveRun } = useAsyncAction()
+const { busy: editBusy, run: editRun } = useAsyncAction()
+const { busy: passwordBusy, run: passwordRun } = useAsyncAction()
+const { busy: toggleBusy, run: toggleRun } = useAsyncAction()
+
 onMounted(load)
 
 function openAdd() {
@@ -45,30 +52,32 @@ function openAdd() {
 }
 
 async function save() {
-  try {
-    await createUser({
-      name: form.value.name.trim(),
-      role: form.value.role,
-      color: form.value.color || null,
-      password: form.value.password || null,
-    })
-    Notify.create({ type: 'positive', message: 'Пользователь создан' })
-    dialogOpen.value = false
-    await load()
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  }
+  await saveRun(async () => {
+    try {
+      await createUser({
+        name: form.value.name.trim(),
+        role: form.value.role,
+        color: form.value.color || null,
+        password: form.value.password || null,
+      })
+      Notify.create({ type: 'positive', message: 'Пользователь создан' })
+      dialogOpen.value = false
+      await load()
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
+  })
 }
-
 async function toggleActive(user) {
-  try {
-    await updateUser(user.user_id, { active: !user.active })
-    await load()
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  }
+  await toggleRun(async () => {
+    try {
+      await updateUser(user.user_id, { active: !user.active })
+      await load()
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
+  })
 }
-
 // The seeded accounts must stay usable, so they cannot be archived.
 const BUILTIN_NAMES = ['администратор', 'гость']
 
@@ -89,27 +98,28 @@ function openEdit(user) {
 async function saveEdit() {
   const target = editUser.value
 
-  try {
-    await updateUser(target.user_id, {
-      name: editForm.value.name.trim(),
-      role: editForm.value.role,
-      // An empty colour clears it; the API treats null as "leave as is".
-      color: editForm.value.color || '',
-    })
+  await editRun(async () => {
+    try {
+      await updateUser(target.user_id, {
+        name: editForm.value.name.trim(),
+        role: editForm.value.role,
+        // An empty colour clears it; the API treats null as "leave as is".
+        color: editForm.value.color || '',
+      })
 
-    Notify.create({ type: 'positive', message: 'Пользователь сохранён' })
-    editOpen.value = false
-    await load()
+      Notify.create({ type: 'positive', message: 'Пользователь сохранён' })
+      editOpen.value = false
+      await load()
 
-    // Own colour themes the app straight away.
-    if (session.user && session.user.user_id === target.user_id) {
-      await session.load()
+      // Own colour themes the app straight away.
+      if (session.user && session.user.user_id === target.user_id) {
+        await session.load()
+      }
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
     }
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  }
+  })
 }
-
 function openPassword(user) {
   passwordUser.value = user
   newPassword.value = ''
@@ -117,17 +127,18 @@ function openPassword(user) {
 }
 
 async function savePassword() {
-  try {
-    await updateUser(passwordUser.value.user_id, {
-      password: newPassword.value || null,
-    })
-    Notify.create({ type: 'positive', message: 'Пароль обновлён' })
-    passwordOpen.value = false
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-  }
-}
-</script>
+  await passwordRun(async () => {
+    try {
+      await updateUser(passwordUser.value.user_id, {
+        password: newPassword.value || null,
+      })
+      Notify.create({ type: 'positive', message: 'Пароль обновлён' })
+      passwordOpen.value = false
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
+  })
+}</script>
 
 <template>
   <div>
@@ -172,7 +183,7 @@ async function savePassword() {
             size="sm"
             :icon="props.row.active ? 'archive' : 'unarchive'"
             :disable="isBuiltin(props.row)"
-            @click="toggleActive(props.row)"
+            :loading="toggleBusy" @click="toggleActive(props.row)"
           >
             <q-tooltip>
               {{ isBuiltin(props.row)
@@ -218,7 +229,7 @@ async function savePassword() {
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Отмена" v-close-popup />
-          <q-btn color="primary" label="Создать" @click="save" />
+          <q-btn color="primary" label="Создать" :loading="saveBusy" @click="save" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -253,7 +264,7 @@ async function savePassword() {
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Отмена" v-close-popup />
-          <q-btn color="primary" label="Сохранить" @click="saveEdit" />
+          <q-btn color="primary" label="Сохранить" :loading="editBusy" @click="saveEdit" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -275,7 +286,7 @@ async function savePassword() {
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Отмена" v-close-popup />
-          <q-btn color="primary" label="Сохранить" @click="savePassword" />
+          <q-btn color="primary" label="Сохранить" :loading="passwordBusy" @click="savePassword" />
         </q-card-actions>
       </q-card>
     </q-dialog>
