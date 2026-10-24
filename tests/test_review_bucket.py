@@ -83,6 +83,72 @@ def test_review_filter_is_recognised():
     assert repository.REVIEW_ADDRESS_VALUE == "addr:review"
 
 
+def test_threshold_sql_handles_each_criterion(monkeypatch):
+    monkeypatch.setattr(hybrid_config, "low_score", lambda: 0.0)
+    monkeypatch.setattr(hybrid_config, "min_margin", lambda: 0.0)
+
+    assert repository._address_threshold_sql("conf", "margin") == "TRUE"
+
+    monkeypatch.setattr(hybrid_config, "min_margin", lambda: 0.02)
+
+    only_margin = repository._address_threshold_sql("conf", "margin")
+
+    assert "margin >= 0.02" in only_margin
+    assert "conf" not in only_margin
+
+
+def test_verdict_source_takes_the_verdict_once(monkeypatch):
+    """
+    Сходство, отрыв и адрес берутся одним LATERAL-соединением.
+
+    Регрессия: раньше это были три коррелированных подзапроса, и каждый заново
+    проходил цепочку `hybrid_results` → `dino_candidates` на каждое фото.
+    На корпусе это давало 2.72 с против 0.70 с на панели адресов.
+    """
+
+    monkeypatch.setattr(hybrid_config, "low_score", lambda: 0.9)
+    monkeypatch.setattr(hybrid_config, "min_margin", lambda: 0.0)
+
+    sql = repository._verdict_source_sql()
+
+    assert sql.count("LEFT JOIN LATERAL") == 1
+    # Ни одного прежнего подзапроса «сходство/отрыв/адрес».
+    assert "SELECT c.score FROM" not in sql
+    assert "SELECT h.hybrid_final_id FROM" not in sql
+    assert "v.confidence" in sql
+    assert "v.final_id" in sql
+    # Отрыв забирается тем же соединением и пригодится, когда порог включён.
+    assert "h.hybrid_margin AS margin" in sql
+    # Фото без вердикта обязано остаться в выборке: иначе оно пропадёт из
+    # счётчиков.
+    assert "LEFT JOIN LATERAL" in sql and "ON TRUE" in sql
+    assert "public.photo_previews" in sql
+
+
+def test_verdict_source_adds_the_client_only_when_asked():
+    without = repository._verdict_source_sql()
+    with_client = repository._verdict_source_sql(with_client=True)
+
+    assert "photo_qwen" not in without
+    assert "q.client AS client" in with_client
+    assert "LEFT JOIN public.photo_qwen AS q" in with_client
+
+
+def test_address_map_is_one_row_per_fingerprint():
+    """
+    Карта «слепок → адрес» строится один раз и не размножает фото.
+
+    Без группировки слепок с двумя привязками дал бы два фото вместо одного и
+    счётчик адреса вырос бы вдвое.
+    """
+
+    sql = repository._ADDRESS_MAP_SQL
+
+    assert "GROUP BY af.fingerprint_id" in sql
+    assert "min(af.address_id)" in sql
+    assert "reg.active" in sql
+
+
 # ---- поведение выборок (нужна одноразовая база) ---------------------------
 
 

@@ -305,6 +305,12 @@ def test_address_list_narrows_to_clients(monkeypatch):
     assert "HAVING count(e.photo_id) > 0" in sql
     assert "LOWER(ca.canonical) = LOWER(%s)" in sql
     assert params == ["Клиент", "Клиент", 10]
+    # Отбор по распознаванию обязан быть в скобках: без них `A OR B AND C`
+    # разбирается как `A OR (B AND C)`, и клиентский фильтр отсекает только
+    # фото с ручной заменой адреса — то есть не отсекает ничего.
+    assert "(s.addr_fp IS NOT NULL OR ov.address_id IS NOT NULL)" in sql
+    # Клиент берётся из QWEN и только для этого режима.
+    assert "q.client AS client" in sql
 
 
 def test_client_list_narrows_to_addresses(monkeypatch):

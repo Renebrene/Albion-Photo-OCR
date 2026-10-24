@@ -117,42 +117,185 @@ def _runner_up_sql(photo_ref: str, column: str) -> str:
     )
 
 
-def _address_sql(
-    photo_ref: str,
+def _address_threshold_sql(
+    confidence_sql: str,
+    margin_sql: str,
     low_score: float | None = None,
     min_margin: float | None = None,
 ) -> str:
     """
-    Адрес с учётом порога уверенности: слабое совпадение адреса не даёт.
+    Условие «совпадению можно верить» для произвольных выражений сходства и отрыва.
 
     Порог берётся из настроек (`app/hybrid/config.py`); 0 отключает проверку и
     возвращает прежнее поведение. Явное значение нужно предпросмотру: оператор
     подбирает порог и хочет видеть размер корзины **до** сохранения.
     Сравнение подставляется числом: значение провалидировано (0…1), поэтому
     текст SQL от него не зависит.
+
+    Выражения передаются снаружи, потому что те же условия нужны и для
+    коррелированных подзапросов (`_address_sql`), и для колонок одного
+    соединения LATERAL (`_verdict_source_sql`).
+
+    Оба критерия независимы: можно включить только отрыв, только сходство или
+    оба. NULL считается «не знаем» и фото не отбрасывает.
     """
 
-    final = _latest_hybrid_final_sql(photo_ref)
     low = hybrid_config.low_score() if low_score is None else float(low_score)
     min_margin = hybrid_config.min_margin() if min_margin is None else float(min_margin)
 
     conditions: list[str] = []
 
     if low > 0:
-        confidence = _latest_confidence_sql(photo_ref)
-        conditions.append(f"({confidence} IS NULL OR {confidence} >= {low})")
+        conditions.append(f"({confidence_sql} IS NULL OR {confidence_sql} >= {low})")
 
     if min_margin > 0:
-        margin = _latest_margin_sql(photo_ref)
-        conditions.append(f"({margin} IS NULL OR {margin} >= {float(min_margin)})")
+        conditions.append(
+            f"({margin_sql} IS NULL OR {margin_sql} >= {float(min_margin)})"
+        )
 
-    # Оба критерия независимы: можно включить только отрыв, только сходство
-    # или оба. NULL считается «не знаем» и фото не отбрасывает.
-    if not conditions:
+    return " AND ".join(conditions) or "TRUE"
+
+
+def _address_sql(
+    photo_ref: str,
+    low_score: float | None = None,
+    min_margin: float | None = None,
+) -> str:
+    """Адрес с учётом порога уверенности: слабое совпадение адреса не даёт."""
+
+    final = _latest_hybrid_final_sql(photo_ref)
+    threshold = _address_threshold_sql(
+        _latest_confidence_sql(photo_ref),
+        _latest_margin_sql(photo_ref),
+        low_score,
+        min_margin,
+    )
+
+    if threshold == "TRUE":
         return final
 
+    return f"(CASE WHEN {threshold} THEN {final} ELSE NULL END)"
+
+
+def _dino_fallback_address_sql(photo_ref: str) -> str:
+    """
+    Запасной адрес для фото, у которых нет ни одного вердикта HYBRID.
+
+    Пока вердикта нет, показывать нечего, кроме лучшего кандидата DINO: так
+    фото видно в корзине «Требуют проверки» с предложенным адресом. Как только
+    вердикт появился, запасной путь выключается — даже если порог уверенности
+    его не пропустил.
+    """
+
     return (
-        "(CASE WHEN " + " AND ".join(conditions) + f" THEN {final} ELSE NULL END)"
+        "(CASE WHEN NOT EXISTS ("
+        "     SELECT 1 FROM public.hybrid_results AS hx "
+        f"     WHERE hx.photo_id = {photo_ref}.photo_id AND hx.status = 'DONE'"
+        ") THEN ("
+        "     SELECT r.dino_best_id FROM public.dino_runs AS r "
+        f"     WHERE r.photo_id = {photo_ref}.photo_id AND r.status = 'DONE' "
+        "       AND r.dino_best_id IS NOT NULL "
+        "     ORDER BY r.finished_at DESC NULLS LAST, r.run_id DESC "
+        "     LIMIT 1"
+        ") END)"
+    )
+
+
+def _latest_verdict_lateral_sql(photo_ref: str = "p", alias: str = "v") -> str:
+    """
+    Последний вердикт HYBRID одним обращением: слепок, его сходство и отрыв.
+
+    Раньше эти три величины брались тремя отдельными коррелированными
+    подзапросами, и каждый заново проходил одну и ту же цепочку
+    `hybrid_results` → `dino_candidates` (rank = 1). Для страницы фото это
+    незаметно (LIMIT 50), но панель адресов и подвал считают по всему корпусу.
+
+    Замер на 56 870 фото (рабочая база, ответ сверен до последнего счётчика):
+    панель адресов 4.63 с → 1.29 с, подвал 3.45 с → 0.93 с.
+
+    `LEFT JOIN LATERAL`: у фото без вердикта строка должна остаться, иначе оно
+    пропадёт из счётчиков.
+    """
+
+    return (
+        "LEFT JOIN LATERAL ("
+        "    SELECT h.hybrid_final_id AS final_id, "
+        "           h.hybrid_margin AS margin, "
+        "           c.score AS confidence "
+        "    FROM public.hybrid_results AS h "
+        "    LEFT JOIN public.dino_candidates AS c "
+        "           ON c.run_id = h.dino_run_id AND c.rank = 1 "
+        f"    WHERE h.photo_id = {photo_ref}.photo_id AND h.status = 'DONE' "
+        "    ORDER BY h.finished_at DESC NULLS LAST, h.hybrid_run_id DESC "
+        "    LIMIT 1"
+        f") AS {alias} ON TRUE"
+    )
+
+
+# Карта «слепок → адрес» одним проходом по маленьким таблицам. Отдельная
+# MATERIALIZED-выборка нужна потому, что иначе PostgreSQL пересканирует эти
+# таблицы на каждое фото: в плане панели адресов было 36 542 последовательных
+# сканирования по 140 строк.
+#
+# Группировка — не украшение: слепок теоретически может быть привязан к
+# нескольким адресам, и без неё фото размножилось бы в счётчиках. Сейчас
+# привязка 1:1 (38 активных слепков — 38 привязок), но закладываться на это
+# в запросе нельзя.
+_ADDRESS_MAP_SQL = """
+    SELECT af.fingerprint_id, min(af.address_id) AS address_id
+    FROM public.address_fingerprints AS af
+    JOIN public.fingerprints AS reg
+      ON reg.fingerprint_id = af.fingerprint_id
+     AND reg.active
+    WHERE af.active
+    GROUP BY af.fingerprint_id
+"""
+
+
+def _verdict_source_sql(
+    *,
+    photo_ref: str = "p",
+    alias: str = "v",
+    with_client: bool = False,
+    low_score: float | None = None,
+    min_margin: float | None = None,
+) -> str:
+    """
+    Компактная выборка фото для счётчиков: адресный слепок, две даты, клиент.
+
+    Панель адресов и подвал берут из полной `_PHOTO_SELECT` только адрес и даты,
+    а она считает на каждое фото ещё подсказку, второй адрес и метаданные QWEN.
+    Здесь остаётся ровно нужное, и адрес берётся из одного LATERAL-соединения.
+
+    `with_client` добавляет клиента QWEN — он нужен только приоритету по
+    клиентам (левая панель, режим «от клиента»).
+    """
+
+    threshold = _address_threshold_sql(
+        f"{alias}.confidence",
+        f"{alias}.margin",
+        low_score,
+        min_margin,
+    )
+    client_column = ", q.client AS client" if with_client else ""
+    client_join = (
+        "LEFT JOIN public.photo_qwen AS q ON q.photo_id = p.photo_id"
+        if with_client
+        else ""
+    )
+
+    return (
+        f"SELECT {photo_ref}.photo_id, {photo_ref}.created_at, {photo_ref}.taken_at"
+        + client_column
+        + f", COALESCE((CASE WHEN {threshold} THEN {alias}.final_id END), "
+        + _dino_fallback_address_sql(photo_ref)
+        + ") AS addr_fp "
+        + f"FROM public.photos AS {photo_ref} "
+        + _latest_verdict_lateral_sql(photo_ref, alias)
+        + " "
+        + client_join
+        + " "
+        + "WHERE " + _PREVIEW_READY_SQL
     )
 
 
@@ -208,20 +351,7 @@ _PHOTO_BASE = """
         p.container_format AS container_format,
         COALESCE(
             """ + _address_sql("p") + """,
-            CASE WHEN NOT EXISTS (
-                SELECT 1 FROM public.hybrid_results AS hx
-                WHERE hx.photo_id = p.photo_id
-                  AND hx.status = 'DONE'
-            ) THEN (
-                SELECT r.dino_best_id
-                FROM public.dino_runs AS r
-                WHERE r.photo_id = p.photo_id
-                  AND r.status = 'DONE'
-                  AND r.dino_best_id IS NOT NULL
-                ORDER BY r.finished_at DESC NULLS LAST,
-                         r.run_id DESC
-                LIMIT 1
-            ) END
+            """ + _dino_fallback_address_sql("p") + """
         ) AS address,
         -- Что предложил бы DINO/HYBRID без порога: показывается в карточке
         -- фото из «Требуют проверки», чтобы человек видел автоматический
@@ -1181,7 +1311,15 @@ def list_addresses(
         client_where, client_params = _photo_where(clients=clients)
         client_sql = client_where.removeprefix(" WHERE ")
 
-    client_filter = f"AND ({client_sql})" if client_sql else ""
+    # Клиентский отбор написан для алиаса `t` (общий с гридом), а источник
+    # счётчиков называется `t` в одном запросе и `s` в другом.
+    client_filter_t = f"AND ({client_sql})" if client_sql else ""
+    client_filter_s = (
+        f"AND ({client_sql.replace('t.', 's.')})" if client_sql else ""
+    )
+    # Источник одинаков для обоих запросов: адресный слепок и две даты.
+    # Клиент QWEN добавляется только когда он действительно отбирается.
+    source_sql = _verdict_source_sql(with_client=bool(clients))
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -1190,27 +1328,17 @@ def list_addresses(
             # остаётся в списке с нулём. Архивные слепки не участвуют.
             cur.execute(
                 """
-                WITH t AS (""" + _PHOTO_SELECT + """),
+                WITH src AS (""" + source_sql + """),
+                amap AS MATERIALIZED (""" + _ADDRESS_MAP_SQL + """),
                 eff AS (
-                    SELECT t.photo_id, t.created_at, t.taken_at,
-                           COALESCE(
-                               ov.address_id,
-                               (
-                                   SELECT af.address_id
-                                   FROM public.address_fingerprints AS af
-                                   JOIN public.fingerprints AS reg
-                                     ON reg.fingerprint_id = af.fingerprint_id
-                                    AND reg.active
-                                   WHERE af.fingerprint_id = t.address
-                                     AND af.active
-                                   LIMIT 1
-                               )
-                           ) AS address_id
-                    FROM t
+                    SELECT s.photo_id, s.created_at, s.taken_at,
+                           COALESCE(ov.address_id, m.address_id) AS address_id
+                    FROM src AS s
                     LEFT JOIN public.photo_address_overrides AS ov
-                           ON ov.photo_id = t.photo_id
-                    WHERE """ + _recognized_sql("t") + """
-                    """ + client_filter + """
+                           ON ov.photo_id = s.photo_id
+                    LEFT JOIN amap AS m ON m.fingerprint_id = s.addr_fp
+                    WHERE (s.addr_fp IS NOT NULL OR ov.address_id IS NOT NULL)
+                    """ + client_filter_s + """
                 )
                 SELECT d.address_id, d.simple_address, d.legal_address,
                        count(e.photo_id) AS count,
@@ -1233,12 +1361,14 @@ def list_addresses(
             # же условием распознавания и тем же периодом, что и адреса выше.
             cur.execute(
                 """
-                WITH t AS (""" + _PHOTO_SELECT + """)
+                WITH src AS (""" + source_sql + """)
                 SELECT count(*) AS total,
                        count(*) FILTER (WHERE """ + period_sql_t + """) AS period_total
-                FROM t
-                WHERE NOT """ + _recognized_sql("t") + """
-                  """ + client_filter + """
+                FROM src AS t
+                LEFT JOIN public.photo_address_overrides AS ov
+                       ON ov.photo_id = t.photo_id
+                WHERE NOT (t.addr_fp IS NOT NULL OR ov.address_id IS NOT NULL)
+                  """ + client_filter_t + """
                 """,
                 period_params + client_params,
             )
@@ -1357,36 +1487,21 @@ def stats(
             # подзапросов на каждое фото (подсказка, уверенность, отрыв,
             # второй адрес). На 57 тысячах фото это выливалось в минуту работы
             # и держало соединение пула — интерфейс висел на загрузке.
+            #
+            # Адресный слепок берётся одним LATERAL-соединением: иначе сходство,
+            # отрыв и адрес считались тремя подзапросами по одной и той же
+            # цепочке (замер — в докстринге _latest_verdict_lateral_sql).
             cur.execute(
                 """
-                WITH base AS (
-                    SELECT p.photo_id,
-                           """ + _address_sql("p") + """ AS address,
-                           (
-                               SELECT ov.address_id
-                               FROM public.photo_address_overrides AS ov
-                               WHERE ov.photo_id = p.photo_id
-                           ) AS override_id
-                    FROM public.photos AS p
-                    WHERE """ + _PREVIEW_READY_SQL + """
-                ),
+                WITH src AS (""" + _verdict_source_sql() + """),
+                amap AS MATERIALIZED (""" + _ADDRESS_MAP_SQL + """),
                 mapped AS (
-                    SELECT COALESCE(
-                               base.override_id,
-                               (
-                                   SELECT af.address_id
-                                   FROM public.address_fingerprints AS af
-                                   JOIN public.fingerprints AS reg
-                                     ON reg.fingerprint_id = af.fingerprint_id
-                                    AND reg.active
-                                   WHERE af.fingerprint_id = base.address
-                                     AND af.active
-                                   LIMIT 1
-                               )
-                           ) AS address_id
-                    FROM base
-                    WHERE base.address IS NOT NULL
-                       OR base.override_id IS NOT NULL
+                    SELECT COALESCE(ov.address_id, m.address_id) AS address_id
+                    FROM src AS s
+                    LEFT JOIN public.photo_address_overrides AS ov
+                           ON ov.photo_id = s.photo_id
+                    LEFT JOIN amap AS m ON m.fingerprint_id = s.addr_fp
+                    WHERE s.addr_fp IS NOT NULL OR ov.address_id IS NOT NULL
                 )
                 SELECT count(DISTINCT m.address_id)
                 FROM mapped AS m
