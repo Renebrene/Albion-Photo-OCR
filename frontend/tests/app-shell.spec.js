@@ -494,7 +494,7 @@ describe('оболочка приложения', () => {
 
     expect(header.text()).toContain('Обновление базы')
     expect(header.text()).toContain('стадия HYBRID')
-    expect(header.text()).toContain('совпадений 697 из 935')
+    expect(header.text()).toContain('697 / 935')
 
     wrapper.unmount()
   })

@@ -16,6 +16,9 @@ import { usePipelineStore } from '../src/stores/pipeline'
 Notify.create = vi.fn()
 
 let photoTotal = 2
+// Счётчики /v1/sort/status: проверяем и строку шапки, и нулевой случай.
+let sortMatched = 3
+let sortTotal = 10
 
 function json(body, status = 200) {
   return { ok: status < 400, status, json: async () => body }
@@ -59,7 +62,7 @@ function installFetch() {
 
     if (path.endsWith('/v1/sort/status')) {
       return json({
-        current: { total: 10, done: 7, failed: 0, matched: 3 },
+        current: { total: sortTotal, done: 7, failed: 0, matched: sortMatched },
         last: null,
       })
     }
@@ -73,6 +76,8 @@ function installFetch() {
 beforeEach(() => {
   vi.useFakeTimers()
   photoTotal = 2
+  sortMatched = 3
+  sortTotal = 10
   Notify.create = vi.fn()
   setActivePinia(createPinia())
   installFetch()
@@ -156,10 +161,22 @@ describe('грид следит за HYBRID', () => {
 
     expect(pipeline.active).toBe(true)
     expect(pipeline.text).toContain('стадия HYBRID')
-    expect(pipeline.text).toContain('совпадений 3 из 10')
+    expect(pipeline.text).toContain('3 / 10')
 
     // В гриде этой строки больше нет: её место — шапка рядом с кнопкой.
-    expect(wrapper.text()).not.toContain('совпадений 3 из 10')
+    expect(wrapper.text()).not.toContain('3 / 10')
     wrapper.unmount()
+  })
+
+  it('нулевой счётчик совпадений в шапке не показывается', async () => {
+    const { tick, pipeline } = await mountGrid()
+
+    sortMatched = 0
+    sortTotal = 20904
+    await tick()
+
+    expect(pipeline.active).toBe(true)
+    expect(pipeline.text).toContain('стадия HYBRID')
+    expect(pipeline.text).not.toContain('0 / 20904')
   })
 })

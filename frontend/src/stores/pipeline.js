@@ -27,7 +27,7 @@ export const usePipelineStore = defineStore('pipeline', {
   }),
 
   getters: {
-    // «идёт «Обновление базы» (стадия DINO) · совпадений 697 из 935»
+    // «идёт «Обновление базы» (стадия DINO) · 697 / 935»
     text(state) {
       if (!state.active) return ''
 
@@ -35,8 +35,10 @@ export const usePipelineStore = defineStore('pipeline', {
 
       if (state.label) parts.push(state.label)
 
-      if (state.matched !== null && state.total !== null) {
-        parts.push(`совпадений ${state.matched} из ${state.total}`)
+      // Нулевой счётчик не показываем: до HYBRID совпадений ещё нет, и
+      // строка «0 / 935» только занимает место в шапке.
+      if (state.matched && state.total) {
+        parts.push(`${state.matched} / ${state.total}`)
       }
 
       return parts.join(' · ')

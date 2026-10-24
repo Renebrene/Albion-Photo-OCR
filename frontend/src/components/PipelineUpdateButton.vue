@@ -77,11 +77,17 @@ const statusText = computed(() => {
       return `Превью: ${row?.done_count ?? 0}/${row?.total_count ?? 0}`
     case 'DINO':
     case 'HYBRID': {
-      // Совпадения — итоговые вердикты HYBRID (пока он не начался, DINO).
+      // Прогресс показываем как «готово / всего». Нулевой счётчик не
+      // показываем вовсе: до старта стадии он всегда 0 и только рябит.
       const hybrid = stageRow('HYBRID')
-      const matched = hybrid?.done_count ?? row?.done_count ?? 0
+      const live = hybrid?.total_count ? hybrid : row
+      const done = live?.done_count ?? 0
+      const total = live?.total_count ?? 0
+      const parts = []
+
+      if (done || total) parts.push(`${done} / ${total}`)
+
       const qwen = stageRow('QWEN')
-      const parts = [`Совпадений: ${matched}`]
 
       if (qwen && (qwen.total_count || qwen.done_count)) {
         parts.push(`Описаний: ${qwen.done_count ?? 0}`)
