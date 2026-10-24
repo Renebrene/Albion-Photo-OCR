@@ -176,6 +176,13 @@ systemctl --user restart scene-api scene-worker scene-preview-worker \
     scene-pipeline-worker
 ```
 
+То же правило действует и для **правок кода**: API и воркеры держат модули
+в памяти с момента старта. Если изменился `app/api/*` — перезапускается
+`scene-api`; если `app/dino`, `app/hybrid`, `app/preview`, `app/qwen`,
+`app/refine` или `app/jobs` — соответствующий воркер. Реальный случай: поля
+`jobs` и `batch` добавлены в `/v1/qwen/stats`, а API не перезапустили — шапка
+показывала старое число, потому что процесс отвечал прежней версией кода.
+
 Проверка, что воркер видит нужные корни (пример для видео):
 
 ```bash
