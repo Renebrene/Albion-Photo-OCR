@@ -37,6 +37,17 @@ const canRunPipeline = computed(
     ['Администратор', 'Менеджер'].includes(session.user?.role),
 )
 
+// Счётчики подвала — только Администратору. Запрос считает по всему корпусу
+// (см. docs/roadmap_ui_audit_20261024.md), а Менеджеру и Гостю эти числа
+// ничего не решают. Поэтому остальным подвал не запрашивается вовсе, а не
+// просто не показывается. В открытом демо-режиме ограничений нет.
+//
+// Сам подвал при этом остаётся у всех: в нём переключатель ○△□, руководство
+// и метка сборки — по ним проверяют свежесть страницы после Ctrl+F5.
+const canSeeStats = computed(
+  () => !session.authEnabled || session.user?.role === 'Администратор',
+)
+
 onMounted(async () => {
   await session.load()
 
@@ -95,8 +106,11 @@ async function afterAuth() {
   // The display settings follow the user, not the browser. A Guest always
   // starts from the built-in defaults and never persists them.
   if (canPersist) await display.loadFromServer()
-  await loadStats()
-  if (statsTimer === null) statsTimer = window.setInterval(loadStats, 60_000)
+
+  if (canSeeStats.value) {
+    await loadStats()
+    if (statsTimer === null) statsTimer = window.setInterval(loadStats, 60_000)
+  }
   // Стадию прогона опрашивает шапка: она видна на любой странице. Гостю
   // число совпадений недоступно (нет jobs:read), но стадия показывается.
   pipeline.start(() => ({ withMatched: canRunPipeline.value }))
@@ -170,6 +184,9 @@ let statsTimer = null
 let statsRequest = 0
 
 async function loadStats() {
+  // Счётчики — только Администратору: см. canSeeStats.
+  if (!canSeeStats.value) return
+
   const request = ++statsRequest
 
   try {
@@ -191,7 +208,7 @@ async function loadStats() {
 watch(
   () => [photos.dateFrom, photos.dateTo, photos.dateMode],
   () => {
-    if (session.user) void loadStats()
+    if (session.user && canSeeStats.value) void loadStats()
   },
 )
 
@@ -515,52 +532,55 @@ function toggleDark() {
         </div>
         <span class="footer-dot">·</span>
 
-        <span class="footer-item">
-          Всего медиа:
-          <q-icon name="photo" size="16px" class="footer-icon" />
-          <b>{{ stats.photos === null ? '—' : stats.photos }}</b>
-          <span class="footer-sep">/</span>
-          <q-icon name="videocam" size="16px" class="footer-icon" />
-          <b>{{ stats.videos === null || stats.videos === undefined ? '—' : stats.videos }}</b>
-        </span>
-        <span class="footer-dot">·</span>
-        <span class="footer-item">
-          {{ periodLabel }}:
-          <q-tooltip>
-            Только по дате загрузки/съёмки; фильтры грида здесь не учитываются
-          </q-tooltip>
-          <q-icon name="photo" size="16px" class="footer-icon" />
-          <b>{{ stats.period_photos === null ? '—' : stats.period_photos }}</b>
-          <span class="footer-sep">/</span>
-          <q-icon name="videocam" size="16px" class="footer-icon" />
-          <b>{{ stats.period_videos === null || stats.period_videos === undefined ? '—' : stats.period_videos }}</b>
-        </span>
-        <span class="footer-dot">·</span>
-        <span class="footer-item">
-          Адресов: <b>{{ stats.addresses === null ? '—' : stats.addresses }}</b>
-        </span>
-        <span class="footer-dot">·</span>
-        <span class="footer-item">
-          Клиентов: <b>{{ stats.clients === null ? '—' : stats.clients }}</b>
-        </span>
-        <span class="footer-dot">·</span>
-        <span class="footer-item">
-          Последнее медиа:
-          <span class="footer-date">
+        <template v-if="canSeeStats">
+          <span class="footer-item">
+            Всего медиа:
             <q-icon name="photo" size="16px" class="footer-icon" />
-            <b class="footer-last">{{ lastPhoto }}</b>
-            <q-tooltip>{{ lastPhotoFull }}</q-tooltip>
-          </span>
-          <span class="footer-sep">/</span>
-          <span class="footer-date">
+            <b>{{ stats.photos === null ? '—' : stats.photos }}</b>
+            <span class="footer-sep">/</span>
             <q-icon name="videocam" size="16px" class="footer-icon" />
-            <b class="footer-last">{{ lastVideo }}</b>
-            <q-tooltip>{{ lastVideoFull }}</q-tooltip>
+            <b>{{ stats.videos === null || stats.videos === undefined ? '—' : stats.videos }}</b>
           </span>
-        </span>
-        <q-btn flat dense no-caps label="Статистика" class="q-ml-sm" @click="openStats" />
+          <span class="footer-dot">·</span>
+          <span class="footer-item">
+            {{ periodLabel }}:
+            <q-tooltip>
+              Только по дате загрузки/съёмки; фильтры грида здесь не учитываются
+            </q-tooltip>
+            <q-icon name="photo" size="16px" class="footer-icon" />
+            <b>{{ stats.period_photos === null ? '—' : stats.period_photos }}</b>
+            <span class="footer-sep">/</span>
+            <q-icon name="videocam" size="16px" class="footer-icon" />
+            <b>{{ stats.period_videos === null || stats.period_videos === undefined ? '—' : stats.period_videos }}</b>
+          </span>
+          <span class="footer-dot">·</span>
+          <span class="footer-item">
+            Адресов: <b>{{ stats.addresses === null ? '—' : stats.addresses }}</b>
+          </span>
+          <span class="footer-dot">·</span>
+          <span class="footer-item">
+            Клиентов: <b>{{ stats.clients === null ? '—' : stats.clients }}</b>
+          </span>
+          <span class="footer-dot">·</span>
+          <span class="footer-item">
+            Последнее медиа:
+            <span class="footer-date">
+              <q-icon name="photo" size="16px" class="footer-icon" />
+              <b class="footer-last">{{ lastPhoto }}</b>
+              <q-tooltip>{{ lastPhotoFull }}</q-tooltip>
+            </span>
+            <span class="footer-sep">/</span>
+            <span class="footer-date">
+              <q-icon name="videocam" size="16px" class="footer-icon" />
+              <b class="footer-last">{{ lastVideo }}</b>
+              <q-tooltip>{{ lastVideoFull }}</q-tooltip>
+            </span>
+          </span>
+          <q-btn flat dense no-caps label="Статистика" class="q-ml-sm" @click="openStats" />
 
-        <span class="footer-dot">·</span>
+          <span class="footer-dot">·</span>
+        </template>
+
         <span class="footer-item text-grey-6">
           сборка {{ build }}
           <q-tooltip>

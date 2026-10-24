@@ -553,6 +553,21 @@ describe('оболочка приложения', () => {
     wrapper.unmount()
   })
 
+  it('Менеджеру счётчики подвала не запрашиваются', async () => {
+    const wrapper = await mountShell({ role: 'Менеджер' })
+
+    // Подвал остаётся: переключатель режима, руководство, метка сборки.
+    expect(wrapper.find('footer').exists()).toBe(true)
+    expect(wrapper.find('footer').text()).toContain('Руководство пользователя')
+    expect(wrapper.find('footer').text()).toContain('сборка')
+
+    // А дорогой запрос счётчиков по всему корпусу не уходит вовсе.
+    expect(wrapper.find('footer').text()).not.toContain('Всего медиа')
+    expect(calls).not.toContain('/api/v1/stats')
+
+    wrapper.unmount()
+  })
+
   it('Гость видит грид, но без поиска по файлу, скачивания и техраздела', async () => {
     const wrapper = await mountShell({ role: 'Гость' })
     const html = wrapper.html()
