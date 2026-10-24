@@ -5,10 +5,10 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/alexice/albion-photobase
+WorkingDirectory=/home/alexice/projects/albion-photobase
 EnvironmentFile=/home/alexice/.config/scene-fingerprint.env
-Environment=SCENE_BACKUP_DIR=/home/alexice/albion-photobase-backups
-ExecStart=/home/alexice/albion-photobase/.venv/bin/python scripts/backup_db.py --json
-ExecStart=/home/alexice/albion-photobase/.venv/bin/python scripts/backup_data.py --json
+Environment=SCENE_BACKUP_DIR=/media/alexice/TEST/albion-photobase-backups
+ExecStart=/home/alexice/projects/albion-photobase/.venv/bin/python scripts/backup_db.py --json
+ExecStart=/home/alexice/projects/albion-photobase/.venv/bin/python scripts/backup_data.py --json
 Nice=10
 TimeoutStartSec=3600

@@ -281,10 +281,10 @@ API должен читать `SCENE_ORIGINALS_ROOTS` (только чтение
 
 | Что | Где |
 | --- | --- |
-| Код + venv + данные | `/home/alexice/albion-photobase` |
-| Данные (previews, crops, input, fingerprints, logs, models, reports) | `/home/alexice/albion-photobase/data` |
-| Симлинк для юнитов | `/home/alexice/scene-fingerprint` → `/home/alexice/albion-photobase` |
-| Бэкапы | `/home/alexice/albion-photobase-backups` (вне папки проекта) |
+| Код + venv + данные | `/home/alexice/projects/albion-photobase` |
+| Данные (previews, crops, input, fingerprints, logs, models, reports) | `/home/alexice/projects/albion-photobase/data` |
+| Симлинк для человека | `/home/alexice/scene-fingerprint` → `/home/alexice/projects/albion-photobase` |
+| Бэкапы | `/media/alexice/TEST/albion-photobase-backups` — отдельный диск `/dev/sda` |
 | env (пароли, токены) | `/home/alexice/.config/scene-fingerprint.env` |
 
 Юниты обращаются к коду **напрямую** по этому пути (пути с пробелами systemd
@@ -294,19 +294,22 @@ API должен читать `SCENE_ORIGINALS_ROOTS` (только чтение
 указывают на новую папку. Симлинк `/home/alexice/scene-fingerprint` остался
 только как удобный ярлык для человека: ни один юнит через него не ходит.
 
-Порядок переезда: остановить юниты → перенести `data/` (переименование внутри
-диска, без копирования) → поправить пути в юнитах (в `deploy/systemd/user/` и
-`~/.config/systemd/user/`, не забыть drop-in `scene-preview-worker.service.d/`,
-`scene-builder`, `scene-maintenance`) → `daemon-reload` → поправить env → запустить
-юниты → проверить `/v1/photos`, число слепков и кадров. Откат — вернуть пути и
-перенести `data/` обратно.
+Порядок переезда: остановить юниты → перенести каталог проекта (переименование
+внутри диска, без копирования) → поправить пути в юнитах (в `deploy/systemd/user/`
+и `~/.config/systemd/user/`, не забыть drop-in `scene-preview-worker.service.d/`),
+env и `SCENE_BACKUP_DIR` → `daemon-reload` → запустить юниты → проверить
+`/v1/photos`, число слепков и кадров. Откат — вернуть пути и перенести каталог
+обратно.
 
-24.10.2026 переезд сделан: старая папка
+24.10.2026, днём: старая папка
 `~/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)`
 удалена (вместе с ненужным корпусом `test/`), путь корпуса убран из
-`SCENE_ORIGINALS_ROOTS`. Проверено после переезда: все восемь юнитов активны и
-работают из `/home/alexice/albion-photobase`, `data_dir` разрешается туда же,
-слепков 38, кадров с кропом 14 074, фото в базе 56 870 — как до переезда.
+`SCENE_ORIGINALS_ROOTS`.
+
+24.10.2026, вечером: проект перенесён в `~/projects/albion-photobase`, каталог
+бэкапов — на `/dev/sda` (`/media/alexice/TEST/albion-photobase-backups`), история
+бэкапов переехала вместе с ним. Проверено: слепков 38, фото в базе 56 870 — как
+до переезда, все восемь юнитов активны и работают из нового пути.
 
 ## 7. Бэкап
 
@@ -321,26 +324,45 @@ API должен читать `SCENE_ORIGINALS_ROOTS` (только чтение
   показать все корни), хэшируется и только потом публикуется; права 600, потому
   что внутри env. Retention: последние 14 архивов и по одному за месяц.
 
-Обе части можно направить на сетевой том:
+Каталог бэкапов задаёт `SCENE_BACKUP_DIR` (в `scene-backup.service` —
+`/media/alexice/TEST/albion-photobase-backups`, диск `/dev/sda`). Бэкап
+намеренно лежит **на другом томе**, чем проект: бэкап внутри того, что он
+сохраняет, не спасает от смерти диска. Обе части можно направить и на сетевой
+том:
 
 ```bash
 SCENE_BACKUP_DIR=/mnt/photos/backups .venv/bin/python scripts/backup_data.py --json
-```
-
-Бэкап намеренно лежит вне папки проекта: бэкап внутри того, что он сохраняет,
-не спасает от смерти диска. Отдельная цель на NAS — по-прежнему хорошая идея
-(см. ниже).
-
-```bash
 SCENE_BACKUP_DIR=/mnt/photos/backups .venv/bin/python scripts/backup_db.py --json
 ```
 
-### 7.1. Две цели: локально и на NAS
+Скрипты создают каталог только тогда, когда это безопасно: отсутствующий
+каталог создаётся лишь под существующей точкой монтирования, а каталог на томе
+проекта отклоняется (осознанно — `--allow-same-filesystem`). Поэтому отключённый
+диск даёт **ошибку и упавший юнит** (`systemctl --failed`, журнал
+`scene-backup.service`), а не молчаливый бэкап на системный раздел.
+
+**Требуется действие владельца.** `/dev/sda` монтируется udisks при входе в
+графическую сессию, и в `/etc/fstab` его нет. Пока строки в fstab нет, после
+перезагрузки без входа в сессию таймер 02:30 диска не найдёт и юнит упадёт (это
+и есть ожидаемое «громко, а не молча»), но бэкапа не будет. Строка для
+`/etc/fstab` (перед `mount -a` проверить `sudo findmnt --verify`):
+
+```
+UUID=a6aa2b04-308b-4580-95b6-8ae5ac461b52  /media/alexice/TEST  ext4  defaults,nofail,x-systemd.device-timeout=10  0  2
+```
+
+После добавления: `sudo systemctl daemon-reload && sudo mount -a && findmnt /media/alexice/TEST`.
+`nofail` оставлен намеренно — из-за бэкап-диска машина не должна уходить в
+аварийную загрузку.
+
+### 7.1. Две цели: диск бэкапов и NAS
 
 Восстановление с сетевого тома медленнее, и пока он недоступен, бэкапа не
-будет. Поэтому практичная схема — **две цели**: локально (быстрый restore) и на
-NAS (переживает смерть сервера). Таймер `scene-backup.timer` запускается
-ежедневно; retention (GFS) описан в `docs/backup_restore.md`.
+будет. Поэтому практичная схема — **две цели**: диск `/dev/sda` (быстрый
+restore) и NAS (переживает смерть машины). Сейчас настроена первая: отдельный
+том уже спасает от смерти системного диска, но не от смерти сервера. Таймер
+`scene-backup.timer` запускается ежедневно; retention (GFS) описан в
+`docs/backup_restore.md`.
 
 Перед изменением схемы (миграции 043/044 и далее) — бэкап обязателен, см.
 `docs/maintenance.md`.
@@ -390,13 +412,16 @@ backup) включаются **по одному** и только после п
 worker'а (иначе два процесса начнут разбирать одну и ту же очередь).
 
 ```bash
-SRC="/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)"
-DST="/home/alexice/projects/albion-photobase"
+SRC="/home/alexice/projects/albion-photobase"          # рабочий каталог
+DST="/tmp/scene-check"                                  # одноразовая копия
 git clone --branch feature/video-ingest-editor-layout "$SRC" "$DST"
-ln -sfn "$SRC/.venv" "$DST/.venv"                     # или свой venv
+ln -sfn "$SRC/.venv" "$DST/.venv"                       # свой venv не нужен
 ln -sfn "$SRC/frontend/node_modules" "$DST/frontend/node_modules"
 cd "$DST" && .venv/bin/python -c "import app; print(app.__file__)"
 cd frontend && bun run build
+# копия одноразовая: БД берётся из общего env-файла (то есть рабочая),
+# а артефакты — из ./data самой копии; чтобы увидеть настоящие превью,
+# копию надо запускать с SCENE_DATA=<рабочий каталог>/data
 
 cd "$DST" && set -a && . ~/.config/scene-fingerprint.env && set +a
 SCENE_API_PORT=8020 nohup .venv/bin/python -m uvicorn app.api.main:app \
@@ -412,15 +437,16 @@ curl -s -X POST http://127.0.0.1:8020/api/v1/auth/login \
 kill %1     # проверить, что порт освободился: ss -ltn | grep 8020
 ```
 
-Результат такой проверки на 2026-10-22 (копия в
-`/home/alexice/projects/albion-photobase`): `/api/health` → `ok`, SPA отдаётся
+Результат такой проверки на 2026-10-22: `/api/health` → `ok`, SPA отдаётся
 (`assets/index-*.js`), вход выполнен, `/api/v1/photos` вернул 583 записи,
 `/api/v1/system` — карточка GPU и 0 алертов. Службы рабочего стенда не
-затрагивались, миграции не применялись.
+затрагивались, миграции не применялись. Копию после проверки удалять: она
+ссылается на рабочий venv и `node_modules` симлинками и сбивает с толку —
+её легко принять за второй стенд (так и вышло 24.10.2026).
 
-Ограничение метода: копия читает **ту же** рабочую БД и те же артефакты, потому
-что окружение берётся из общего env-файла. Это годится для проверки сборки и
-маршрутов, но не заменяет приёмочный прогон на отдельной БД (см. §10).
+Ограничение метода: копия читает **ту же** рабочую БД, потому что окружение
+берётся из общего env-файла. Это годится для проверки сборки и маршрутов, но не
+заменяет приёмочный прогон на отдельной БД (см. §10).
 
 ## 9.1. Модель доступа: локальная сеть и VPN/туннель
 

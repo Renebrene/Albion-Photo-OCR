@@ -5,11 +5,11 @@ Wants=network-online.target scene-api.service
 
 [Service]
 Type=simple
-WorkingDirectory=/home/alexice/albion-photobase
+WorkingDirectory=/home/alexice/projects/albion-photobase
 EnvironmentFile=/home/alexice/.config/scene-fingerprint.env
 # Billboard detection has its own parallel worker (scene-billboard-worker),
 # so the general queue is not blocked by detector jobs.
-ExecStart=/home/alexice/albion-photobase/.venv/bin/python -m app.jobs.worker --watch --requeue-stale 30 --exclude PHOTO_PREVIEW,VIDEO_TRANSCODE,VIDEO_TRIM,VIDEO_STORYBOARD,QWEN_PHOTO,BILLBOARD_DETECT --interval 5
+ExecStart=/home/alexice/projects/albion-photobase/.venv/bin/python -m app.jobs.worker --watch --requeue-stale 30 --exclude PHOTO_PREVIEW,VIDEO_TRANSCODE,VIDEO_TRIM,VIDEO_STORYBOARD,QWEN_PHOTO,BILLBOARD_DETECT --interval 5
 Restart=always
 RestartSec=10
 

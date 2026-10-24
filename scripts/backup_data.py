@@ -17,6 +17,11 @@ expected root must be inside; a truncated archive fails the check), hashed and
 only then published. Retention keeps the newest ``--keep-daily`` archives and
 every archive from the newest ``--keep-monthly`` months.
 
+The target directory is created only when it is safe: a missing directory is
+made only under an existing mount point (an unmounted backup disk must fail
+loudly, not quietly collect archives on the system disk), and a directory on the
+same filesystem as the project is refused unless ``--allow-same-filesystem``.
+
 Examples:
     .venv/bin/python scripts/backup_data.py --dry-run
     .venv/bin/python scripts/backup_data.py
@@ -37,10 +42,13 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+# Диск бэкапов — отдельный (/dev/sda смонтирован в /media/alexice/TEST):
+# архив внутри тома проекта не переживёт его смерть. Переопределяется
+# SCENE_BACKUP_DIR (юнит scene-backup.service задаёт своё значение).
 DEFAULT_DIR = Path(
     os.getenv(
         "SCENE_BACKUP_DIR",
-        str(Path.home() / "albion-photobase-backups"),
+        "/media/alexice/TEST/albion-photobase-backups",
     )
 )
 
@@ -51,6 +59,42 @@ DEFAULT_ENV_FILE = Path(
 
 def _data_dir() -> Path:
     return Path(os.getenv("SCENE_DATA", str(REPO / "data"))).expanduser()
+
+
+def _prepare_backup_dir(directory: Path, *, allow_same_filesystem: bool = False) -> Path:
+    """Готовит каталог бэкапа и отказывается писать «мимо диска».
+
+    Каталог создаётся, только если ближайший существующий родитель — точка
+    монтирования. Иначе несмонтированный (например, после перезагрузки без
+    графической сессии) диск превратился бы в пустую папку на системном
+    разделе, и бэкап молча лёг бы туда. Вторая проверка — каталог не должен
+    лежать на том же томе, что и проект: такой бэкап не переживёт смерть диска.
+    """
+
+    expanded = directory.expanduser()
+
+    if not expanded.exists():
+        ancestor = expanded
+        while not ancestor.exists() and ancestor != ancestor.parent:
+            ancestor = ancestor.parent
+
+        if not os.path.ismount(ancestor):
+            raise RuntimeError(
+                f"каталог {expanded} отсутствует, а {ancestor} — не точка монтирования: "
+                "похоже, диск с бэкапами не смонтирован"
+            )
+
+        expanded.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+    resolved = expanded.resolve()
+
+    if not allow_same_filesystem and resolved.stat().st_dev == REPO.stat().st_dev:
+        raise RuntimeError(
+            f"каталог {resolved} на том же томе, что и проект ({REPO}): такой бэкап "
+            "не переживёт смерть диска; если так и задумано — --allow-same-filesystem"
+        )
+
+    return resolved
 
 
 def _timestamp() -> str:
@@ -154,6 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--keep-monthly", type=int, default=6)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--allow-same-filesystem", action="store_true")
     args = parser.parse_args(argv)
 
     if args.keep_daily < 1 or args.keep_monthly < 0:
@@ -167,8 +212,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"fingerprints not found under {data_dir} — refusing to make an empty backup", file=sys.stderr)
         return 1
 
-    directory = args.out_dir.expanduser()
-    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        directory = _prepare_backup_dir(
+            args.out_dir, allow_same_filesystem=args.allow_same_filesystem
+        )
+    except RuntimeError as exc:
+        print(f"backup failed: {exc}", file=sys.stderr)
+        return 1
+
     target = directory / f"scene-data_{_timestamp()}.tar.gz"
 
     if args.dry_run:

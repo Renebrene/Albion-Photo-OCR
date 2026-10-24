@@ -35,7 +35,14 @@
    - 6 месяцев (`--keep-monthly`).
 
 Имя: `<db>_YYYYMMDD_HHMMSS.dump` в `SCENE_BACKUP_DIR`
-(по умолчанию `~/albion-photobase-backups`; systemd — `/var/backups/albion-photobase`).
+(по умолчанию `/media/alexice/TEST/albion-photobase-backups` — отдельный диск
+`/dev/sda`; в шаблонном `deploy/systemd/scene-backup.service` —
+`/var/backups/scene-fingerprint`).
+
+Каталог создаётся, только если это безопасно: отсутствующий — лишь под
+существующей точкой монтирования, а каталог на томе проекта отклоняется
+(`--allow-same-filesystem`, чтобы обойти осознанно). Отключённый диск должен
+падать с ошибкой, а не складывать дампы на системный раздел.
 
 Установка таймера:
 
@@ -60,7 +67,7 @@ PostgreSQL (у роли приложения может не быть `CREATEDB`
 sudo -u postgres createdb -O lora_ingest photobase_restore_test
 
 .venv/bin/python scripts/restore_db.py \
-  --backup ~/albion-photobase-backups/photobase_ingest_test_20261022_023000.dump \
+  --backup /media/alexice/TEST/albion-photobase-backups/photobase_ingest_test_20261022_023000.dump \
   --target-db photobase_restore_test --confirm --jobs 4
 ```
 
@@ -159,7 +166,7 @@ pg_ctl -D "$DRILL/data" -o "-p 55433 -k $DRILL/sock -c listen_addresses=127.0.0.
 psql -h 127.0.0.1 -p 55433 -U lora_ingest -d postgres \
      -c "CREATE DATABASE photobase_restore_drill OWNER lora_ingest"
 pg_restore -h 127.0.0.1 -p 55433 -U lora_ingest -d photobase_restore_drill \
-           --no-owner --exit-on-error ~/albion-photobase-backups/<дамп>
+           --no-owner --exit-on-error /media/alexice/TEST/albion-photobase-backups/<дамп>
 
 # Сверка содержимого с рабочей базой (фото, превью, вердикты, очередь, сессии)
 # и прогон интеграционных тестов:

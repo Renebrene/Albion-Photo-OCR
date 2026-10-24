@@ -5,12 +5,12 @@ Wants=network-online.target scene-api.service
 
 [Service]
 Type=simple
-WorkingDirectory=/home/alexice/albion-photobase
+WorkingDirectory=/home/alexice/projects/albion-photobase
 EnvironmentFile=/home/alexice/.config/scene-fingerprint.env
 # Encoder auto-probes FFmpeg/NVENC at startup. If NVENC passes a runtime smoke
 # encode, run at most two GPU jobs; otherwise use half logical CPU cores.
 # VIDEO_TRANSCODE jobs are isolated from DINO/HYBRID/QWEN work.
-ExecStart=/home/alexice/albion-photobase/.venv/bin/python -m app.jobs.worker --watch --only VIDEO_TRANSCODE,VIDEO_TRIM,VIDEO_STORYBOARD --parallel 0 --interval 2
+ExecStart=/home/alexice/projects/albion-photobase/.venv/bin/python -m app.jobs.worker --watch --only VIDEO_TRANSCODE,VIDEO_TRIM,VIDEO_STORYBOARD --parallel 0 --interval 2
 Restart=always
 RestartSec=10
 

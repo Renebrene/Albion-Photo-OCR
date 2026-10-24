@@ -5,12 +5,12 @@ Wants=network-online.target scene-api.service
 
 [Service]
 Type=simple
-WorkingDirectory=/home/alexice/albion-photobase
+WorkingDirectory=/home/alexice/projects/albion-photobase
 EnvironmentFile=/home/alexice/.config/scene-fingerprint.env
 # Detector jobs are short (measured ~0.17 s each) and independent; two
 # claiming processes keep the PREVIEW stage's crop branch off the general
 # queue. scene-worker excludes BILLBOARD_DETECT for the same reason.
-ExecStart=/home/alexice/albion-photobase/.venv/bin/python -m app.jobs.worker --watch --only BILLBOARD_DETECT --parallel 2 --interval 1
+ExecStart=/home/alexice/projects/albion-photobase/.venv/bin/python -m app.jobs.worker --watch --only BILLBOARD_DETECT --parallel 2 --interval 1
 Restart=always
 RestartSec=10
 
