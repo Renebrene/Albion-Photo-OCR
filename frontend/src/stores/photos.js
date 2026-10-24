@@ -557,13 +557,12 @@ export const usePhotosStore = defineStore('photos', {
       this.nlIds = ids
       this._dropStaleCollections()
       await this.refresh()
-      // Counters follow the same period as the grid.
-      await this.loadAddresses()
-      // Клиентская панель должна соответствовать текущему режиму и новому
-      // выбору. В приоритете по адресам список сужается выбранными адресами;
-      // в остальных режимах возвращается полный список, поэтому панель больше
-      // не остаётся пустой от предыдущего сужения.
-      await this.loadClients()
+
+      // Панели считаются параллельно: это независимые запросы, и раньше они
+      // ждали друг друга — выдача уже пришла, а счётчики ещё нет.
+      // Счётчики адресов идут за периодом грида; список клиентов — за текущим
+      // режимом (в приоритете по адресам он сужается ими, иначе полный).
+      await Promise.allSettled([this.loadAddresses(), this.loadClients()])
     },
 
     /**

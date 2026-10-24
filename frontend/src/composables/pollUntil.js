@@ -32,6 +32,19 @@ export async function pollUntil(
   for (let attempt = 0; attempt < tries; attempt += 1) {
     await sleep(stepMs)
 
+    // Скрытая вкладка не опрашивает API: задание всё равно идёт в воркере, а
+    // ответ понадобится, когда пользователь вернётся. Раньше скрытая страница
+    // продолжала стучать в API каждые две секунды.
+    // Ждём возвращения, не расходуя попытки: иначе длинный уход со страницы
+    // «съедал» все tries и опрос завершался таймаутом.
+    while (
+      typeof document !== 'undefined'
+      && document.hidden
+      && !isCancelled()
+    ) {
+      await sleep(stepMs)
+    }
+
     if (isCancelled()) return { cancelled: true }
 
     try {

@@ -206,7 +206,7 @@ async function pollTranscode() {
       stopTranscodePolling()
       if (transcodeInfo.value.status === 'DONE') {
         Notify.create({ type: 'positive', message: 'Копия добавлена в видеогалерею' })
-        await loadPage({ reset: true })
+        await store.refreshLoaded()
       } else if (transcodeInfo.value.status === 'FAILED') {
         transcodeError.value = transcodeInfo.value.error_message || 'Конвертация завершилась ошибкой'
       }
@@ -374,7 +374,9 @@ async function pollTrim() {
       trimTimer = null
       if (trimInfo.value.status === 'DONE') {
         Notify.create({ type: 'positive', message: 'Копия добавлена в видеогалерею' })
-        await loadPage({ reset: true })
+        // Не сбрасываем список к первой странице: иначе прокрутка прыгала
+        // в начало и место работы терялось.
+        await store.refreshLoaded()
       }
       if (trimInfo.value.status === 'FAILED') trimError.value = trimInfo.value.error_message || 'Обрезка завершилась ошибкой'
     }

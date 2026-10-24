@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 // pollUntil: ретраи на сетевых сбоях, отмена поколением, терминальное
 // состояние и таймаут.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -87,5 +89,39 @@ describe('pollUntil', () => {
     )
 
     expect(outcome.timeout).toBe(true)
+  })
+})
+
+describe('скрытая вкладка', () => {
+  it('не опрашивает API, пока страница не видна', async () => {
+    let hidden = true
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      get: () => hidden,
+    })
+
+    const calls = []
+    const pending = pollUntil(
+      async () => {
+        calls.push(1)
+        return { status: 'DONE' }
+      },
+      (data) => data.status === 'DONE',
+      { tries: 10, stepMs: 100 },
+    )
+
+    // Проходит время, но вкладка скрыта — запросов нет вовсе.
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(calls).toEqual([])
+
+    hidden = false
+
+    const outcome = await run(pending)
+
+    expect(outcome.data).toEqual({ status: 'DONE' })
+    // Скрытое время не «съело» попытки: опрос дождался возвращения.
+    expect(calls.length).toBe(1)
+
+    delete document.hidden
   })
 })

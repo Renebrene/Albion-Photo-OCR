@@ -1517,6 +1517,9 @@ async function refreshGrid() {
   // Обновление — это и есть явный сброс выделения в гриде.
   store.clearSelection()
   await store.refresh()
+  // Список мог остаться прокрученным глубоко вниз: после обновления он
+  // открывался «в середине», хотя данные уже другие.
+  scrollToTop()
 }
 
 // ---- smart search by an uploaded photo ----
@@ -3814,7 +3817,7 @@ function tagList(meta) {
             <!-- Ближайшая альтернатива: видно, куда ещё можно отнести фото и
                  насколько выбор был однозначным. -->
             <div
-              v-if="current?.runner_up_address || current?.margin !== null"
+              v-if="current?.runner_up_address || current?.margin != null"
               class="text-caption text-grey-7 ellipsis"
             >
               <template v-if="current?.runner_up_address">

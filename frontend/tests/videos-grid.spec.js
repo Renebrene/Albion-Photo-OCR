@@ -411,3 +411,43 @@ describe('смена фильтра во время загрузки', () => {
     expect(calls[1]).toContain(encodeURIComponent('Малиновского'))
   })
 })
+
+describe('обновление после конвертации', () => {
+  it('перечитывает открытые страницы, не сбрасывая список к первой', async () => {
+    const { useVideosStore } = await import('../src/stores/videos')
+    const { createPinia: makePinia, setActivePinia: activate } = await import('pinia')
+
+    activate(makePinia())
+
+    const rows = Array.from({ length: 120 }, (_, index) => ({
+      ...item,
+      video_id: `VI_${String(index).padStart(24, '0')}`,
+    }))
+
+    const pages = [
+      { items: rows.slice(0, 50), next_cursor: 'c2' },
+      { items: rows.slice(50, 100), next_cursor: 'c3' },
+      { items: rows.slice(100, 120), next_cursor: null },
+    ]
+
+    global.fetch = vi.fn(async (url) => {
+      const cursor = new URL(String(url), 'http://localhost').searchParams.get('cursor')
+
+      if (cursor === 'c2') return response(pages[1])
+      if (cursor === 'c3') return response(pages[2])
+
+      return response(pages[0])
+    })
+
+    const store = useVideosStore()
+    await store.loadPage({ reset: true })
+    await store.loadPage()
+
+    expect(store.items).toHaveLength(100)
+
+    await store.refreshLoaded()
+
+    // Обе страницы снова на месте: сброс к первой отбрасывал прокрутку.
+    expect(store.items.length).toBeGreaterThanOrEqual(100)
+  })
+})

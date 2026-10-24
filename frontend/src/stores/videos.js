@@ -74,6 +74,26 @@ export const useVideosStore = defineStore('videos', {
       }
     },
 
+    /**
+     * Перечитать уже загруженные страницы, не сбрасывая список к первой.
+     *
+     * Нужно после конвертации и обрезки: новый ролик появляется в галерее, но
+     * сброс к первой странице отбрасывал прокрутку в начало — пользователь
+     * терял место, где работал.
+     */
+    async refreshLoaded() {
+      const target = this.items.length
+      let guard = 0
+
+      await this.loadPage({ reset: true })
+
+      // Догружаем столько же страниц, сколько было открыто (с запасом сверху).
+      while (this.items.length < target && this.nextCursor && guard < 25) {
+        await this.loadPage()
+        guard += 1
+      }
+    },
+
     selectVideo(videoId) {
       this.selectedVideoId = this.selectedVideoId === videoId ? null : videoId
     },
