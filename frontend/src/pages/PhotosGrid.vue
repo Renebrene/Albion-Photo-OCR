@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Notify } from 'quasar'
+import { useRoute, useRouter } from 'vue-router'
 
 import {
   authImageUrl,
@@ -54,6 +55,95 @@ const store = usePhotosStore()
 const display = useDisplayStore()
 const session = useSessionStore()
 const pipeline = usePipelineStore()
+
+// Фильтры хранятся и в адресе страницы: обновление (F5) и чужая ссылка
+// сохраняют выбранное. Страница может рендериться и без роутера (изолированные
+// тесты) — тогда фильтры просто не попадают в адрес.
+let route = null
+let router = null
+
+try {
+  route = useRoute()
+  router = useRouter()
+} catch {
+  route = null
+  router = null
+}
+
+const FILTER_QUERY_KEYS = [
+  'q', 'address', 'client', 'brand', 'tag', 'category',
+  'period', 'from', 'to', 'dates', 'sort', 'order', 'mode',
+]
+
+/** Есть ли в адресе хоть один фильтр: от этого зависит, восстанавливать ли. */
+function queryHasFilters(query) {
+  return Boolean(query) && FILTER_QUERY_KEYS.some((key) => query[key] !== undefined)
+}
+
+function manyValues(value) {
+  return [].concat(value ?? []).map((item) => String(item)).filter(Boolean)
+}
+
+/**
+ * Фильтры из адреса страницы.
+ *
+ * Возвращает только те значения, которые восстановимы: неизвестный период или
+ * режим игнорируется, а не превращается в «ничего не найдено».
+ */
+function readFiltersFromQuery(query) {
+  const periodValue = String(query.period || '')
+  const dateModeValue = String(query.dates || '')
+  const combineValue = String(query.mode || '')
+  const sortValue = String(query.sort || '')
+  const orderValue = String(query.order || '')
+
+  return {
+    q: String(query.q || ''),
+    addresses: manyValues(query.address),
+    clients: manyValues(query.client),
+    brand: query.brand ? String(query.brand) : null,
+    tag: query.tag ? String(query.tag) : null,
+    category: query.category ? String(query.category) : null,
+    period: PERIODS.some((item) => item.value === periodValue) ? periodValue : null,
+    from: query.from ? String(query.from) : null,
+    to: query.to ? String(query.to) : null,
+    dateMode: ['capture', 'upload'].includes(dateModeValue) ? dateModeValue : null,
+    combine: ['union', 'address', 'client'].includes(combineValue) ? combineValue : null,
+    // Ключ сортировки проверяем по списку полей: неизвестный сервер отклонит
+    // (422), и страница открылась бы пустой.
+    sort: sortOptions.some((item) => item.value === sortValue) ? sortValue : null,
+    order: ['asc', 'desc'].includes(orderValue) ? orderValue : null,
+  }
+}
+
+/** Записать текущие фильтры в адрес (без записи в историю браузера). */
+function writeFiltersToQuery() {
+  if (!router) return
+
+  const query = {}
+
+  if (q.value) query.q = q.value
+  if (store.selectedAddresses.length) query.address = [...store.selectedAddresses]
+  if (store.selectedClients.length) query.client = [...store.selectedClients]
+  if (selectedBrand.value) query.brand = selectedBrand.value
+  if (selectedTag.value) query.tag = selectedTag.value
+  if (selectedCategory.value) query.category = selectedCategory.value
+  if (period.value && period.value !== 'week') query.period = period.value
+  if (customFrom.value) query.from = customFrom.value
+  if (customTo.value) query.to = customTo.value
+  if (dateMode.value && dateMode.value !== 'capture') query.dates = dateMode.value
+  if (store.sortKey !== 'date') query.sort = store.sortKey
+  if (store.sortDirection !== 'desc') query.order = store.sortDirection
+  if (combineMode.value !== 'union') query.mode = combineMode.value
+
+  const current = route?.query || {}
+
+  if (JSON.stringify(current) === JSON.stringify(query)) return
+
+  router.replace({ query }).catch(() => {
+    // Навигация в никуда (например, дубль) — не повод ломать фильтры.
+  })
+}
 
 // Гость (read-only) не работает с подборками и «Избранным»: это писательские
 // функции (scopes searches:write / collections:write). В открытом локальном
@@ -177,6 +267,7 @@ const sortKey = computed({
 
     store.sortKey = value
     store.refresh()
+    writeFiltersToQuery()
   },
 })
 
@@ -890,8 +981,9 @@ onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('resize', onWindowResize)
 
-  // Вход на главную всегда начинает с текущего месяца: старые выделения
-  // адресов/клиентов, строка поиска и период не восстанавливаются.
+  // Обычный вход на главную начинает с текущего месяца. Но если в адресе
+  // страницы есть фильтры (обновление F5, ссылка коллеге) — восстанавливаем
+  // именно их, иначе ссылка открывала бы не то, что в ней записано.
   store.selectedAddresses = []
   store.selectedClients = []
   store.collectionId = null
@@ -912,6 +1004,26 @@ onMounted(async () => {
   clearStructuredFilters()
   addressSearch.value = ''
   clientSearch.value = ''
+
+  if (queryHasFilters(route?.query)) {
+    const filters = readFiltersFromQuery(route.query)
+
+    q.value = filters.q
+    hadSearchTerm = Boolean(filters.q)
+    store.selectedAddresses = filters.addresses
+    store.selectedClients = filters.clients
+    selectedBrand.value = filters.brand
+    selectedTag.value = filters.tag
+    selectedCategory.value = filters.category
+    period.value = filters.period || 'all'
+    customFrom.value = filters.from
+    customTo.value = filters.to
+    dateMode.value = filters.dateMode || 'capture'
+
+    if (filters.combine) display.addressClientMode = filters.combine
+    if (filters.sort) store.sortKey = filters.sort
+    if (filters.order) store.sortDirection = filters.order
+  }
 
   await store.loadFacets()
   display.fitPanels()
@@ -1017,6 +1129,9 @@ async function apply(overrideQuery = undefined) {
     combine: combineMode.value,
     collectionId: store.collectionId,
   })
+
+  // Адрес страницы повторяет фильтры: F5 и ссылка коллеге дают то же самое.
+  writeFiltersToQuery()
 }
 
 // ---- очистка строки поиска ------------------------------------------------
