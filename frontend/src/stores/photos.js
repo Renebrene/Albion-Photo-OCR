@@ -134,7 +134,9 @@ export const usePhotosStore = defineStore('photos', {
     loading: false,
     error: null,
     // Ошибка панелей: показывается в панели, не в галерее.
-    facetsError: '',
+    // Ошибка каждой панели отдельно: источник важен, потому что панель
+    // показывает именно свою (см. getters ниже).
+    facetsErrors: { addresses: '', clients: '', collections: '', searches: '' },
     // Когда строки последний раз сверялись с базой (для отладки и тестов).
     syncedAt: null,
 
@@ -194,6 +196,17 @@ export const usePhotosStore = defineStore('photos', {
 
   getters: {
     hasMore: (state) => state.nextCursor !== null,
+    // Ошибки панелей — по источникам. Раньше одна строка показывалась в обеих
+    // панелях: падение /v1/searches рисовало одинаковый текст и одинаковую
+    // кнопку «Повторить» и над адресами, и над клиентами (второй аудит, п. 5).
+    // Слева — адреса и сохранённые поиски, справа — клиенты и бренды;
+    // справочник подборок один запрос на всех, поэтому его сбой видно в обеих.
+    addressesPanelError: (state) =>
+      state.facetsErrors.addresses
+      || state.facetsErrors.searches
+      || state.facetsErrors.collections,
+    clientsPanelError: (state) =>
+      state.facetsErrors.clients || state.facetsErrors.collections,
     selectedCount: (state) => state.selected.length,
     // Плитка спрашивает выделение на каждой отрисовке, а `includes` по массиву
     // это O(n) на плитку — при тысячах выбранных фото получается O(n·m).
@@ -365,13 +378,17 @@ export const usePhotosStore = defineStore('photos', {
         ])
 
       if (request === facetsRequest) {
-        const failed = [addresses, clients, collections, searches].filter(
-          (item) => item.status === 'rejected',
-        )
+        // Ошибку сохраняем по источникам: панель показывает только свою.
+        const results = { addresses, clients, collections, searches }
+        const errors = {}
 
-        this.facetsError = failed.length
-          ? failed[0].reason?.message || 'Часть панелей не загрузилась'
-          : ''
+        for (const [source, result] of Object.entries(results)) {
+          errors[source] = result.status === 'rejected'
+            ? result.reason?.message || 'не загрузилось'
+            : ''
+        }
+
+        this.facetsErrors = errors
 
         if (addresses.status === 'fulfilled' && addressToken === addressesRequest) {
           this.addresses = addresses.value.items || []

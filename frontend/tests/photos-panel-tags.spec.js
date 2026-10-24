@@ -320,11 +320,13 @@ describe('строка тегов', () => {
     wrapper.unmount()
   })
 
-  it('у адресов и клиентов одинаковая кнопка «Очистить»', async () => {
+  it('кнопки снятия выделения названы по своей панели', async () => {
     const wrapper = await mountGrid()
 
-    expect(wrapper.find('.address-reset').text()).toBe('Очистить')
-    expect(wrapper.find('.client-reset').text()).toBe('Очистить')
+    // Раньше обе назывались «Очистить» — смысл был виден только по подсказке
+    // (второй аудит, п. 4).
+    expect(wrapper.find('.address-reset').text()).toBe('Снять адреса')
+    expect(wrapper.find('.client-reset').text()).toBe('Снять клиентов')
     expect(wrapper.find('.address-reset').attributes('disabled')).toBeDefined()
     expect(wrapper.find('.client-reset').attributes('disabled')).toBeDefined()
     wrapper.unmount()

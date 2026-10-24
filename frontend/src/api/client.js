@@ -192,7 +192,29 @@ async function apiError(response) {
   return error
 }
 
+// Сколько ждать ответа. Без таймаута зависший сервер оставлял кнопку в
+// состоянии «занято» навсегда: `useAsyncAction` снимает флаг в `finally`, а он
+// не наступает. Долгие выгрузки (архив, оригинал) идут мимо этой функции, так
+// что получаса запаса не требуется — хватает полминуты.
+const REQUEST_TIMEOUT_MS = 30_000
+
+function timeoutSignal(timeoutMs) {
+  // `AbortSignal.timeout` есть не во всех окружениях: без него запрос идёт
+  // как раньше, без таймаута — это лучше, чем падать на каждом запросе.
+  return typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? AbortSignal.timeout(timeoutMs)
+    : undefined
+}
+
 function networkError(err) {
+  // `AbortSignal.timeout` отклоняет запрос собственной ошибкой с именем
+  // TimeoutError: показывать её как «нет связи» — сбивать с толку.
+  if (err && err.name === 'TimeoutError') {
+    return new Error(
+      `Сервер не отвечает дольше ${Math.round(REQUEST_TIMEOUT_MS / 1000)} с — повторите`,
+    )
+  }
+
   if (err instanceof TypeError) {
     return new Error('Нет связи с сервером — проверьте подключение и повторите')
   }
@@ -201,8 +223,13 @@ function networkError(err) {
 }
 
 /** Один путь для всех JSON-запросов: единый разбор ошибок. */
-async function requestJson(url, { method = 'GET', body, keepalive = false } = {}) {
-  const options = { method, headers: authHeaders(), keepalive }
+async function requestJson(url, { method = 'GET', body, keepalive = false, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
+  const options = {
+    method,
+    headers: authHeaders(),
+    keepalive,
+    signal: timeoutSignal(timeoutMs),
+  }
 
   if (body !== undefined) {
     options.headers = authHeaders({ 'Content-Type': 'application/json' })

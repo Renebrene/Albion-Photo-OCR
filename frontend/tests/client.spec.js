@@ -149,6 +149,27 @@ describe('api client', () => {
     )
   })
 
+  it('запрос уходит с сигналом таймаута', async () => {
+    mockFetchOnce(okJson({ items: [] }))
+
+    await fetchPhotos({ limit: 5 })
+
+    const [, options] = global.fetch.mock.calls[0]
+    // Без сигнала зависший сервер оставлял кнопку «занято» навсегда:
+    // useAsyncAction снимает флаг в finally, а он не наступает.
+    expect(options.signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('таймаут объясняется иначе, чем обрыв связи', async () => {
+    global.fetch = vi.fn(async () => {
+      const error = new Error('The operation was aborted due to timeout')
+      error.name = 'TimeoutError'
+      throw error
+    })
+
+    await expect(fetchPhotos({ limit: 5 })).rejects.toThrow('Сервер не отвечает')
+  })
+
   it('fetches the active recognition operation', async () => {
     mockFetchOnce(okJson({ active: { kind: 'scheduler', run_id: 4 }, message: 'идёт тик планировщика' }))
     const result = await fetchRunActivity()

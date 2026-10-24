@@ -2875,7 +2875,7 @@ function tagList(meta) {
               flat
               no-caps
               size="sm"
-              label="Очистить"
+              label="Снять адреса"
               :disable="!store.selectedAddresses.length"
               @click="resetAddressSelection()"
             >
@@ -2941,10 +2941,10 @@ function tagList(meta) {
                   </div>
                 </q-item-section>
               </q-item>
-              <q-item v-if="store.facetsError">
+              <q-item v-if="store.addressesPanelError">
                 <q-item-section class="text-caption text-orange-9">
                   Панель не обновилась
-                  <q-tooltip>{{ store.facetsError }}</q-tooltip>
+                  <q-tooltip>{{ store.addressesPanelError }}</q-tooltip>
                   <q-btn
                     dense
                     flat
@@ -3716,7 +3716,7 @@ function tagList(meta) {
               flat
               no-caps
               size="sm"
-              label="Очистить"
+              label="Снять клиентов"
               :disable="!clientSelectionCount"
               @click="resetClientSelection()"
             >
@@ -3775,10 +3775,10 @@ function tagList(meta) {
                   {{ item.count === null ? '' : item.count }}
                 </q-item-section>
               </q-item>
-              <q-item v-if="store.facetsError">
+              <q-item v-if="store.clientsPanelError">
                 <q-item-section class="text-caption text-orange-9">
                   Панель не обновилась
-                  <q-tooltip>{{ store.facetsError }}</q-tooltip>
+                  <q-tooltip>{{ store.clientsPanelError }}</q-tooltip>
                   <q-btn
                     dense
                     flat

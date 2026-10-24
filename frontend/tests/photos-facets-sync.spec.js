@@ -31,7 +31,10 @@ describe('панели адресов, клиентов и подборок', ()
     await store.loadFacets()
 
     // Ошибка панели — в панели; выдача грида остаётся рабочей.
-    expect(store.facetsError).toBeTruthy()
+    // Сбой сохранённых поисков виден в левой панели, а не в обеих: раньше
+    // один и тот же текст рисовался и над адресами, и над клиентами.
+    expect(store.addressesPanelError).toBeTruthy()
+    expect(store.clientsPanelError).toBe('')
     expect(store.error).toBe(null)
   })
 
@@ -55,7 +58,8 @@ describe('панели адресов, клиентов и подборок', ()
 
     expect(store.addresses).toHaveLength(1)
     expect(store.savedSearches).toEqual([])
-    expect(store.facetsError).toBeTruthy()
+    expect(store.addressesPanelError).toBeTruthy()
+    expect(store.clientsPanelError).toBe('')
   })
 })
 
