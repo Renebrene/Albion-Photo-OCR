@@ -284,7 +284,7 @@ API должен читать `SCENE_ORIGINALS_ROOTS` (только чтение
 | Код + venv + данные | `/home/alexice/albion-photobase` |
 | Данные (previews, crops, input, fingerprints, logs, models, reports) | `/home/alexice/albion-photobase/data` |
 | Симлинк для юнитов | `/home/alexice/scene-fingerprint` → `/home/alexice/albion-photobase` |
-| Бэкапы | `/home/alexice/scene-fingerprint-backups` (вне папки проекта) |
+| Бэкапы | `/home/alexice/albion-photobase-backups` (вне папки проекта) |
 | env (пароли, токены) | `/home/alexice/.config/scene-fingerprint.env` |
 
 Юниты обращаются к коду **напрямую** по этому пути (пути с пробелами systemd

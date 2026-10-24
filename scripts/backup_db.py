@@ -34,7 +34,7 @@ sys.path.insert(0, str(REPO))
 DEFAULT_DIR = Path(
     os.getenv(
         "SCENE_BACKUP_DIR",
-        str(Path.home() / "scene-fingerprint-backups"),
+        str(Path.home() / "albion-photobase-backups"),
     )
 )
 
