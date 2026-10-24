@@ -127,10 +127,16 @@ async function save() {
 
 async function check() {
   busy.value = true
+  // Снимок пути: за время запроса пользователь может исправить строку, и тогда
+  // статистика относилась бы к проверенной папке, а подписывалась бы новым
+  // путём. Проверяем ровно то, что ушло на сервер.
+  const target = path.value.trim()
+  const period = requestPeriod.value
+
   try {
-    const stats = await scanIngestFolder(path.value.trim(), requestPeriod.value)
-    state.value = { ...state.value, ...stats, configured: path.value.trim(), exists: true }
-    checkedPath.value = path.value.trim()
+    const stats = await scanIngestFolder(target, period)
+    state.value = { ...state.value, ...stats, configured: target, exists: true }
+    checkedPath.value = target
     Notify.create({
       type: stats.problem_count ? 'warning' : 'positive',
       message:
@@ -148,8 +154,12 @@ async function check() {
 
 async function start() {
   busy.value = true
+  // Тот же снимок пути: инспекция должна обойти именно то, что показано в
+  // подтверждении, а не то, что успели дописать в поле.
+  const target = path.value.trim() || null
+
   try {
-    const result = await runIngest(path.value.trim() || null, requestPeriod.value)
+    const result = await runIngest(target, requestPeriod.value)
     jobId.value = result.job_id
     const depth = periodActive.value
       ? ` (${dateMode.value === 'capture' ? 'дата съёмки' : 'дата загрузки'}: ` +

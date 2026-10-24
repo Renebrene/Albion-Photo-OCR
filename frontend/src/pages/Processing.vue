@@ -81,11 +81,16 @@ async function loadReviewSettings() {
  * введённом значении. Запросы сглаживаются, чтобы не бить по базе на каждый
  * символ.
  */
+// Номер запроса предпросмотра: ответ на прошлое значение не должен переписать
+// счётчик для нового (пользователь печатает быстрее, чем отвечает сервер).
+let previewRequest = 0
+
 function schedulePreview() {
   if (previewTimer !== null) window.clearTimeout(previewTimer)
 
   previewTimer = window.setTimeout(async () => {
     const value = Number(lowScore.value)
+    const request = ++previewRequest
 
     if (!Number.isFinite(value) || value < 0 || value > 1) {
       previewCount.value = null
@@ -95,11 +100,14 @@ function schedulePreview() {
     previewBusy.value = true
     try {
       const data = await previewHybridSettings(value, Number(minMargin.value) || 0)
+
+      if (request !== previewRequest) return
+
       previewCount.value = data.review_count
     } catch {
-      previewCount.value = null
+      if (request === previewRequest) previewCount.value = null
     } finally {
-      previewBusy.value = false
+      if (request === previewRequest) previewBusy.value = false
     }
   }, 350)
 }
@@ -290,11 +298,17 @@ async function loadJobs() {
   }
 }
 
-function reload() {
-  loadReviewSettings()
+// Переключение вкладки перечитывает данные СВОЕЙ вкладки. Порог уверенности
+// (карточка «Требуют проверки») перечитывать нельзя: незасохранённое значение
+// стиралось бы при каждом переходе между вкладками.
+function reloadTab() {
   if (tab.value === 'dino') loadDino()
   else if (tab.value === 'hybrid') loadHybrid()
   else loadJobs()
+}
+
+function reload() {
+  reloadTab()
 }
 
 async function startNormalBatch() {
@@ -378,6 +392,13 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  // Таймер предпросмотра иначе срабатывал после ухода со страницы и трогал
+  // refs уже удалённого компонента.
+  if (previewTimer !== null) {
+    window.clearTimeout(previewTimer)
+    previewTimer = null
+  }
+
   if (activityTimer !== null) window.clearInterval(activityTimer)
 })
 </script>
@@ -526,7 +547,7 @@ onBeforeUnmount(() => {
       </q-card-section>
     </q-card>
 
-    <q-tabs v-model="tab" dense align="left" class="text-primary q-mb-sm" @update:model-value="reload">
+    <q-tabs v-model="tab" dense align="left" class="text-primary q-mb-sm" @update:model-value="reloadTab">
       <q-tab name="dino" label="DINO batches" />
       <q-tab name="hybrid" label="HYBRID runs" />
       <q-tab name="jobs" label="Задания" />

@@ -48,3 +48,40 @@ describe('сортировка: активный процесс', () => {
     wrapper.unmount()
   })
 })
+
+describe('переключение вкладок', () => {
+  it('не стирает несохранённый порог уверенности', async () => {
+    global.fetch = vi.fn(async (url) => {
+      const path = String(url)
+
+      if (path.includes('/v1/hybrid/settings')) {
+        // Сервер хранит 0.9: если бы вкладка перечитывала настройки, введённое
+        // значение вернулось бы к серверному.
+        return json({ low_score: 0.9, min_margin: 0, enabled: true })
+      }
+
+      return json({ items: [], next_cursor: null })
+    })
+
+    const wrapper = mount(Processing, {
+      attachTo: document.body,
+      global: { plugins: [Quasar] },
+    })
+    await flushPromises()
+
+    wrapper.vm.lowScore = 0.75
+    await flushPromises()
+
+    // Переключаем вкладку так же, как пользователь.
+    const hybridTab = wrapper
+      .findAll('.q-tab')
+      .find((item) => item.text().includes('HYBRID runs'))
+
+    expect(hybridTab).toBeTruthy()
+    await hybridTab.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.vm.lowScore).toBe(0.75)
+    wrapper.unmount()
+  })
+})

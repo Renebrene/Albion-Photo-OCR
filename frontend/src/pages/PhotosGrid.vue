@@ -1057,6 +1057,19 @@ onBeforeUnmount(() => {
   stopGridObserver()
   stopQwenElapsed()
 
+  // Опросы заданий (умный поиск по фото и ручное описание) иначе продолжали бы
+  // ходить в API и трогать состояние уже удалённого компонента: их ответы
+  // приходят через несколько секунд после ухода со страницы.
+  mediaRun += 1
+  manualRun += 1
+  mediaJobId.value = null
+
+  // Видео/картинка предпросмотра — blob: не отпустив его, держим память до
+  // перезагрузки страницы.
+  if (manualPreviewUrl.value) URL.revokeObjectURL(manualPreviewUrl.value)
+  manualPreviewUrl.value = null
+  manualFile.value = null
+
   if (suggestTimer !== null) window.clearTimeout(suggestTimer)
   if (clientSuggestTimer !== null) window.clearTimeout(clientSuggestTimer)
 })

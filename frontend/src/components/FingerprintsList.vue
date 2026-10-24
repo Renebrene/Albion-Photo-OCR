@@ -499,9 +499,10 @@ async function sync() {
 const addressOptions = ref([])
 const editAddressId = ref(null)
 
+// Справочник перечитывается при каждом открытии окна: раньше кэш был вечным,
+// и адрес, заведённый на вкладке «Адреса», не появлялся в списке до F5.
+// Справочник небольшой (десятки записей), лишний запрос дешевле путаницы.
 async function loadAddressOptions() {
-  if (addressOptions.value.length) return
-
   try {
     const items = (await fetchAddressDirectory()).items || []
     addressOptions.value = items
@@ -559,7 +560,19 @@ async function saveEdit() {
   })
 }
 
+// Пока запрос идёт, тумблер заблокирован: повторный клик отправлял бы
+// противоположное значение и пересчёт запускался бы дважды.
+const togglingIds = ref(new Set())
+
+function isToggling(item) {
+  return togglingIds.value.has(item.fingerprint_id)
+}
+
 async function toggleActive(item, value) {
+  if (isToggling(item)) return
+
+  togglingIds.value = new Set([...togglingIds.value, item.fingerprint_id])
+
   try {
     const updated = await updateFingerprint(item.fingerprint_id, { active: value })
     await load()
@@ -573,23 +586,37 @@ async function toggleActive(item, value) {
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
     await load()
+  } finally {
+    const next = new Set(togglingIds.value)
+    next.delete(item.fingerprint_id)
+    togglingIds.value = next
   }
 }
 
+// Номер запроса версий: ответ по слепку A не должен попасть в открытый диалог
+// слепка B (пользователь успевает переключиться, пока идёт запрос).
+let versionsRequest = 0
+
 async function openVersions(item) {
+  const request = ++versionsRequest
+
   versionsTarget.value = item
   versions.value = []
   versionsOpen.value = true
   versionsLoading.value = true
 
   try {
-    versions.value = (
-      await fetchFingerprintVersions(item.fingerprint_id)
-    ).items
+    const data = await fetchFingerprintVersions(item.fingerprint_id)
+
+    if (request !== versionsRequest) return
+
+    versions.value = data.items
   } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
+    if (request === versionsRequest) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
   } finally {
-    versionsLoading.value = false
+    if (request === versionsRequest) versionsLoading.value = false
   }
 }
 
@@ -719,7 +746,8 @@ function day(value) {
           <q-toggle
             :model-value="props.row.active"
             dense
-            :disable="!isAdmin"
+            :disable="!isAdmin || isToggling(props.row)"
+            :loading="isToggling(props.row)"
             @update:model-value="(value) => toggleActive(props.row, value)"
           />
         </q-td>

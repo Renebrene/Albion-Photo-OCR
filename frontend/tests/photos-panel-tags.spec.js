@@ -865,3 +865,23 @@ describe('период без дат', () => {
     wrapper.unmount()
   })
 })
+
+describe('уход со страницы', () => {
+  it('отпускает blob предпросмотра и не продолжает опрос заданий', async () => {
+    const revoke = vi.fn()
+    global.URL.revokeObjectURL = revoke
+
+    const wrapper = await mountGrid()
+
+    // Blob предпросмотра в окне ручного описания: раньше он висел до
+    // перезагрузки страницы. Ставим его самому гриду (mountGrid оборачивает
+    // его в Host).
+    const grid = wrapper.findComponent(PhotosGrid)
+    grid.vm.manualPreviewUrl = 'blob:preview'
+    grid.vm.manualFile = { name: 'фото.jpg' }
+
+    wrapper.unmount()
+
+    expect(revoke).toHaveBeenCalledWith('blob:preview')
+  })
+})

@@ -203,7 +203,9 @@ watch(provider, async (value, previous) => {
 
   try {
     await updateQwenSettings({ provider: value })
-    await loadSettings()
+    // Настройки целиком не перечитываем: это стёрло бы несохранённые правки
+    // (адрес, промпт, keep-alive). Обновляем только список моделей — он
+    // зависит от провайдера.
     await loadModels()
     Notify.create({
       type: 'info',

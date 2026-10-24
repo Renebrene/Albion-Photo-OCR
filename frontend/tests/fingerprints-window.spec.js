@@ -270,3 +270,71 @@ describe('FingerprintsList.vue', () => {
     expect(dialog).toContain('имена файлов (2)')
   })
 })
+
+describe('версии слепка', () => {
+  it('ответ по прошлому слепку не попадает в открытый диалог', async () => {
+    let resolveFirst
+    const seen = []
+
+    global.fetch = vi.fn(async (url, options = {}) => {
+      const method = (options.method || 'GET').toUpperCase()
+      const path = String(url).split('?')[0]
+
+      if (method === 'GET' && path.endsWith('/versions')) {
+        seen.push(path)
+
+        // Первый запрос «зависает»: пользователь успевает открыть другой слепок.
+        if (seen.length === 1) {
+          return new Promise((resolve) => {
+            resolveFirst = () => resolve(jsonResponse({ items: versions }))
+          })
+        }
+
+        return jsonResponse({
+          items: [
+            {
+              version_id: 9,
+              algorithm_version: '3.3',
+              images_count: 42,
+              image_names: ['другой.JPG'],
+              is_current: true,
+              created_at: '2026-10-24T10:00:00',
+              recreated_at: null,
+            },
+          ],
+        })
+      }
+
+      if (method === 'GET' && path.endsWith('/v1/fingerprints/registry')) {
+        return jsonResponse({ items: registry })
+      }
+
+      if (method === 'GET' && path.endsWith('/v1/fingerprints/browse')) {
+        return jsonResponse({ path: null, parent: null, photos: 0, dirs: [] })
+      }
+
+      return jsonResponse({ items: [] })
+    })
+
+    const wrapper = mountWindow()
+    await flushPromises()
+
+    const panel = wrapper.vm
+    const first = registry[0]
+    const second = { ...registry[0], fingerprint_id: '79_v33' }
+
+    panel.openVersions(first)
+    await flushPromises()
+
+    panel.openVersions(second)
+    await flushPromises()
+
+    // Приходит запоздалый ответ ПЕРВОГО слепка — он не должен перезаписать
+    // открытый диалог второго.
+    resolveFirst()
+    await flushPromises()
+
+    expect(panel.versions.map((item) => item.images_count)).toEqual([42])
+    wrapper.unmount()
+  })
+})
