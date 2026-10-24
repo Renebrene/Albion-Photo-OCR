@@ -261,3 +261,132 @@ def test_tick_on_empty_folder_skips_ingest(tmp_path, monkeypatch):
         assert first["outcome"] in {"ADVANCED", "DONE"}
     finally:
         _cleanup_pipeline_test_run(run_id)
+
+
+# ---------------------------------------------------------------------------
+# DINO stage: вход только у фото с превью, живые счётчики, сообщения
+# ---------------------------------------------------------------------------
+
+
+def test_dino_message_lists_files_and_skipped_photos():
+    assert pipeline_runs._dino_message("нет фото без DINO", 0, 0) == (
+        "нет фото без DINO"
+    )
+    assert pipeline_runs._dino_message(None, 0, 0) is None
+    assert pipeline_runs._dino_message(None, 2, 1) == (
+        "не удалось распознать файлов: 2; без превью (в DINO не ставим): 1"
+    )
+
+
+@requires_db
+def test_dino_selector_needs_a_middle_preview(tmp_path):
+    """Фото без превью в батч не попадает, но остаётся в счётчике пропуска."""
+
+    import hashlib
+
+    from PIL import Image as _Image
+
+    from app.dino import database as dino_db
+    from app.ingest import database as ingest_db
+    from app.ingest.register import PhotoRecord
+
+    ready_id = "PH_" + "1" * 24
+    broken_id = "PH_" + "2" * 24
+    ids = [ready_id, broken_id]
+
+    records = []
+    for photo_id in ids:
+        image_path = tmp_path / f"{photo_id}.JPG"
+        _Image.new("RGB", (16, 12), (5, 6, 7)).save(image_path, format="JPEG")
+        records.append(
+            PhotoRecord(
+                photo_id=photo_id,
+                source_path=str(image_path),
+                filename=image_path.name,
+                sha256=hashlib.sha256(image_path.read_bytes()).hexdigest(),
+                container_format="JPEG",
+                frame_count=1,
+                width=16,
+                height=12,
+            )
+        )
+
+    try:
+        for record in records:
+            ingest_db.insert_photo(record)
+
+        with ingest_db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO public.photo_previews (
+                        photo_id, small_path, middle_path,
+                        small_width, small_height, middle_width, middle_height
+                    )
+                    VALUES (%s, %s, %s, 32, 24, 128, 96)
+                    """,
+                    (ready_id, "/tmp/small.webp", "/tmp/middle.webp"),
+                )
+
+        selected = pipeline_runs._photos_without_dino(None)
+
+        assert ready_id in selected
+        assert broken_id not in selected
+        assert pipeline_runs._photos_without_preview(None) >= 1
+    finally:
+        with ingest_db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT batch_id FROM public.dino_runs "
+                    "WHERE photo_id = ANY(%s)",
+                    (ids,),
+                )
+                batch_ids = [row[0] for row in cur.fetchall()]
+                cur.execute(
+                    "DELETE FROM public.dino_runs WHERE photo_id = ANY(%s)", (ids,)
+                )
+                for batch_id in batch_ids:
+                    cur.execute(
+                        "DELETE FROM public.dino_batches WHERE batch_id = %s",
+                        (batch_id,),
+                    )
+                cur.execute(
+                    "DELETE FROM public.photo_previews WHERE photo_id = ANY(%s)",
+                    (ids,),
+                )
+                cur.execute(
+                    "DELETE FROM public.photos WHERE photo_id = ANY(%s)", (ids,)
+                )
+
+    # Батч из одного фото: счётчики читаются из dino_runs, а не из строки
+    # батча, поэтому прогресс виден во время работы.
+    batch = dino_db.create_batch("FORCE_RERUN", [ready_id])
+    try:
+        assert pipeline_runs._batch_run_counts(batch.batch_id) == {
+            "done": 0,
+            "failed": 0,
+        }
+
+        with ingest_db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE public.dino_runs SET status = 'DONE', "
+                    "finished_at = CURRENT_TIMESTAMP WHERE batch_id = %s",
+                    (batch.batch_id,),
+                )
+
+        assert pipeline_runs._batch_run_counts(batch.batch_id) == {
+            "done": 1,
+            "failed": 0,
+        }
+    finally:
+        with ingest_db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM public.dino_runs WHERE batch_id = %s",
+                    (batch.batch_id,),
+                )
+                cur.execute(
+                    "DELETE FROM public.dino_batches WHERE batch_id = %s",
+                    (batch.batch_id,),
+                )

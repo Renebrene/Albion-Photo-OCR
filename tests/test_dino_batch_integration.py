@@ -131,7 +131,9 @@ def test_finish_batch_done_when_all_runs_done(temp_photos):
     assert final.failed_count == 0
 
 
-def test_finish_batch_failed_when_any_run_failed(temp_photos):
+def test_finish_batch_done_when_some_runs_failed(temp_photos):
+    """Один нечитаемый файл не отменяет батч: результат остаётся пригодным."""
+
     batch = dino_db.create_batch(
         "FORCE_RERUN", [r.photo_id for r in temp_photos]
     )
@@ -139,9 +141,22 @@ def test_finish_batch_failed_when_any_run_failed(temp_photos):
 
     final = dino_db.finish_batch(batch.batch_id)
 
-    assert final.status == "FAILED"
+    assert final.status == "DONE"
     assert final.completed_count == 1
     assert final.failed_count == 1
+
+
+def test_finish_batch_failed_when_no_run_succeeded(temp_photos):
+    batch = dino_db.create_batch(
+        "FORCE_RERUN", [r.photo_id for r in temp_photos]
+    )
+    _set_run_status(batch.batch_id, ["FAILED", "FAILED"])
+
+    final = dino_db.finish_batch(batch.batch_id)
+
+    assert final.status == "FAILED"
+    assert final.completed_count == 0
+    assert final.failed_count == 2
 
 
 def test_finish_batch_running_while_work_pending(temp_photos):
@@ -227,6 +242,32 @@ def test_hybrid_accepts_done_batch(temp_photos):
     assert run.dino_batch_id == batch.batch_id
 
 
+def test_hybrid_sorts_the_rest_of_a_batch_with_unreadable_files(temp_photos):
+    """Битый файл остаётся без вердикта, остальные фото сортируются."""
+
+    batch = dino_db.create_batch(
+        "FORCE_RERUN", [r.photo_id for r in temp_photos]
+    )
+    _set_run_status(batch.batch_id, ["DONE", "FAILED"])
+    dino_db.finish_batch(batch.batch_id)
+
+    run = hybrid_db.create_run(batch.batch_id)
+
+    assert run.status == "PENDING"
+    assert run.total_count == 1
+
+
+def test_hybrid_rejects_a_batch_with_unfinished_runs(temp_photos):
+    batch = dino_db.create_batch(
+        "FORCE_RERUN", [r.photo_id for r in temp_photos]
+    )
+    _set_run_status(batch.batch_id, ["DONE", "RUNNING"])
+    dino_db.finish_batch(batch.batch_id)
+
+    with pytest.raises(ValueError):
+        hybrid_db.create_run(batch.batch_id)
+
+
 def test_finish_batch_is_idempotent(temp_photos):
     batch = dino_db.create_batch(
         "FORCE_RERUN", [r.photo_id for r in temp_photos]
@@ -257,13 +298,13 @@ def test_concurrent_finish_batch_is_consistent(temp_photos):
         ]
         results = [future.result() for future in futures]
 
-    assert all(result.status == "FAILED" for result in results)
+    assert all(result.status == "DONE" for result in results)
     assert all(
         result.completed_count == 1 and result.failed_count == 1
         for result in results
     )
 
     final = dino_db.get_batch(batch.batch_id)
-    assert final.status == "FAILED"
+    assert final.status == "DONE"
     assert final.completed_count == 1
     assert final.failed_count == 1

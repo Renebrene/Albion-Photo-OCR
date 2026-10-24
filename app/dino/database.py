@@ -563,9 +563,14 @@ def finish_batch(
     """
     Recalculate batch counters and final state from its runs.
 
-    A batch is DONE only when every run is DONE.
-    A batch is FAILED when all runs are finished and at least
-    one run is FAILED.
+    A batch is DONE when every run is finished and at least one
+    result was produced: separate unreadable files (битый исходник,
+    отсутствующий оригинал) must not block HYBRID for the whole corpus —
+    their runs stay FAILED and are visible per photo.
+    A batch is FAILED only when every run finished and nothing was
+    recognised at all, i.e. the input is unusable as a whole (model did
+    not load, filesystem is gone). ``abort_batch`` also marks FAILED
+    deliberately.
     Otherwise the batch remains RUNNING.
     """
     with get_connection() as conn:
@@ -624,9 +629,10 @@ def finish_batch(
             if active_count > 0:
                 batch_status = "RUNNING"
                 finished = None
-            elif failed_count > 0:
-                # Any failed run makes the batch terminal and unusable
-                # as HYBRID input, even when other runs succeeded.
+            elif completed_count == 0:
+                # Nothing usable came out of this batch: it is not HYBRID
+                # input. Single unreadable files do NOT land here — they
+                # leave completed_count > 0.
                 batch_status = "FAILED"
                 finished = "CURRENT_TIMESTAMP"
             else:

@@ -7,6 +7,9 @@ one full FORCE_RERUN batch is queued:
 
     photos -> DINO batch (active fingerprints only) -> HYBRID (auto_hybrid)
 
+Фото без MIDDLE-превью в пересчёт не включаются: DINO работает по превью, а
+нечитаемый исходник валил бы весь батч. Такие фото видны в отчёте о превью.
+
 The queue job is deduplicated while a recalculation is already PENDING/RUNNING.
 The check and the batch creation are serialized by a PostgreSQL advisory lock
 so parallel fingerprint builders cannot enqueue several full passes.
@@ -69,7 +72,20 @@ def enqueue_recalculation(
             if _active_recalc(cur) is not None:
                 return None
 
-            cur.execute("SELECT photo_id FROM public.photos ORDER BY photo_id")
+            # DINO reads MIDDLE previews: фото без превью (битый или нечитаемый
+            # исходник) в пересчёт не попадают, иначе весь батч заканчивался бы
+            # сбоем из-за одного файла.
+            cur.execute(
+                """
+                SELECT p.photo_id
+                FROM public.photos AS p
+                WHERE EXISTS (
+                    SELECT 1 FROM public.photo_previews AS v
+                    WHERE v.photo_id = p.photo_id
+                )
+                ORDER BY p.photo_id
+                """
+            )
             photo_ids = [str(row[0]) for row in cur.fetchall()]
 
         if not photo_ids:

@@ -569,12 +569,17 @@ def _stage_preview(run: dict, stage: dict) -> dict:
 
 def _stage_dino(run: dict, stage: dict) -> dict:
     cutoff = _cutoff(run)
+    ref = stage["ref"] or {}
 
     if stage["status"] == "PENDING":
         photo_ids = _photos_without_dino(cutoff)
+        skipped = _photos_without_preview(cutoff)
 
         if not photo_ids:
-            return {"outcome": "SKIPPED", "message": "нет фото без DINO"}
+            return {
+                "outcome": "SKIPPED",
+                "message": _dino_message("нет фото без DINO", 0, skipped),
+            }
 
         batch = dino_db.create_batch("NORMAL", photo_ids)
         job_id = (
@@ -585,33 +590,67 @@ def _stage_dino(run: dict, stage: dict) -> dict:
         _set_stage(
             run["run_id"], "DINO",
             status="RUNNING", started_at_sql=True,
-            ref={"batch_id": batch.batch_id, "job_id": job_id},
+            ref={"batch_id": batch.batch_id, "job_id": job_id, "attempt": 1},
             total_count=batch.total_count,
         )
-        return {"outcome": "WAIT"}
+        return {"outcome": "WAIT", "message": _dino_message(None, 0, skipped)}
 
-    batch_id = (stage["ref"] or {}).get("batch_id")
+    batch_id = ref.get("batch_id")
 
     if batch_id is None:
         return {"outcome": "SKIPPED", "message": "нет batch"}
 
     batch = dino_db.get_batch(int(batch_id))
     status = batch.status
+    skipped = _photos_without_preview(cutoff)
+    counts = _batch_run_counts(int(batch_id))
+
+    if status == "FAILED":
+        # A batch where nothing was recognised is not HYBRID input. Retry once
+        # over what is still missing: a transient model/host failure should not
+        # end the whole run, and unreadable files already failed individually.
+        attempt = int(ref.get("attempt") or 1)
+        retry_ids = _photos_without_dino(cutoff) if attempt < 2 else []
+
+        if not retry_ids:
+            return {
+                "outcome": "FAILED",
+                "message": _dino_message(
+                    "DINO batch failed", counts["failed"], skipped
+                ),
+            }
+
+        retry = dino_db.create_batch("NORMAL", retry_ids)
+        job_id = (
+            jobs_db.enqueue("DINO_BATCH", {"batch_id": retry.batch_id})
+            if retry.total_count
+            else None
+        )
+        _set_stage(
+            run["run_id"], "DINO",
+            ref={"batch_id": retry.batch_id, "job_id": job_id, "attempt": attempt + 1},
+            total_count=retry.total_count,
+        )
+        logger.warning(
+            "DINO batch %s failed; retrying as batch %s (%s фото)",
+            batch_id, retry.batch_id, retry.total_count,
+        )
+        return {"outcome": "WAIT"}
 
     if status == "DONE":
         return {
             "outcome": "DONE",
             "total_count": batch.total_count,
             "done_count": batch.completed_count,
+            "failed_count": batch.failed_count,
+            "message": _dino_message(None, batch.failed_count, skipped),
         }
-    if status == "FAILED":
-        return {"outcome": "FAILED", "message": "DINO batch failed"}
 
     return {
         "outcome": "WAIT",
         "total_count": batch.total_count,
-        "done_count": batch.completed_count,
-        "failed_count": batch.failed_count,
+        "done_count": counts["done"],
+        "failed_count": counts["failed"],
     }
 
 
@@ -955,6 +994,14 @@ def _preview_ready_count(cutoff: str | None) -> int:
 
 
 def _photos_without_dino(cutoff: str | None) -> list[str]:
+    """Фото для DINO: нет готового результата и есть превью-вход.
+
+    DINO работает по MIDDLE-превью. Фото без превью — это либо битый файл,
+    либо не удавшееся превью; в батч они не попадают (иначе батч всегда
+    заканчивается сбоем на одном нечитаемом файле). Их количество отдельно
+    показывается в сообщении стадии.
+    """
+
     clause, params = _cutoff_clause(cutoff)
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -962,14 +1009,71 @@ def _photos_without_dino(cutoff: str | None) -> list[str]:
                 """
                 SELECT p.photo_id
                 FROM public.photos AS p
-                WHERE NOT EXISTS (
+                WHERE EXISTS (
+                    SELECT 1 FROM public.photo_previews AS v
+                    WHERE v.photo_id = p.photo_id
+                )
+                  AND NOT EXISTS (
                     SELECT 1 FROM public.dino_runs AS r
                     WHERE r.photo_id = p.photo_id AND r.status = 'DONE'
-                )
+                  )
                 """ + clause + " ORDER BY p.photo_id",
                 params,
             )
             return [row[0] for row in cur.fetchall()]
+
+
+def _photos_without_preview(cutoff: str | None) -> int:
+    """Сколько фото прогона остались без превью — они вне DINO."""
+
+    clause, params = _cutoff_clause(cutoff)
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT count(*)
+                FROM public.photos AS p
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM public.photo_previews AS v
+                    WHERE v.photo_id = p.photo_id
+                )
+                """ + clause,
+                params,
+            )
+            return int(cur.fetchone()[0])
+
+
+def _batch_run_counts(batch_id: int) -> dict:
+    """Живые счётчики батча: dino_batches обновляется только на финише."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*) FILTER (WHERE status = 'DONE'),
+                       COUNT(*) FILTER (WHERE status = 'FAILED')
+                FROM public.dino_runs
+                WHERE batch_id = %s
+                """,
+                (int(batch_id),),
+            )
+            done, failed = map(int, cur.fetchone())
+
+    return {"done": done, "failed": failed}
+
+
+def _dino_message(prefix: str | None, failed: int, skipped: int) -> str | None:
+    """Сообщение стадии DINO: сбои по файлам и фото без превью."""
+
+    parts = []
+    if prefix:
+        parts.append(prefix)
+    if failed:
+        parts.append(f"не удалось распознать файлов: {failed}")
+    if skipped:
+        parts.append(f"без превью (в DINO не ставим): {skipped}")
+
+    return "; ".join(parts) or None
 
 
 def _photos_without_qwen(cutoff: str | None) -> list[str]:

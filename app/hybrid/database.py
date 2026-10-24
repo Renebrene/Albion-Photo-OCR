@@ -53,7 +53,7 @@ def _create_run_in_transaction(cur, dino_batch_id: int) -> HybridRun:
 
     cur.execute(
         """
-        SELECT status, total_count, completed_count, failed_count
+        SELECT status, total_count, failed_count
         FROM public.dino_batches
         WHERE batch_id = %s
         FOR UPDATE
@@ -67,21 +67,10 @@ def _create_run_in_transaction(cur, dino_batch_id: int) -> HybridRun:
 
     status = str(batch[0])
     total_count = int(batch[1])
-    completed_count = int(batch[2])
-    failed_count = int(batch[3])
+    failed_count = int(batch[2])
 
     if status != "DONE":
         raise ValueError(f"DINO batch {dino_batch_id} is not DONE: {status}")
-    if failed_count != 0:
-        raise ValueError(
-            f"DINO batch {dino_batch_id} has failed runs: "
-            f"FAILED={failed_count}, TOTAL={total_count}"
-        )
-    if completed_count != total_count:
-        raise ValueError(
-            f"DINO batch {dino_batch_id} is incomplete: "
-            f"DONE={completed_count}, FAILED={failed_count}, TOTAL={total_count}"
-        )
 
     cur.execute(
         """
@@ -94,10 +83,18 @@ def _create_run_in_transaction(cur, dino_batch_id: int) -> HybridRun:
     )
     done_runs, failed_runs = map(int, cur.fetchone())
 
-    if failed_runs != 0 or done_runs != total_count:
+    # Every run must be finished. Separate unreadable files may stay FAILED:
+    # they simply carry no verdict, and HYBRID sorts the rest of the corpus.
+    # A batch with no DONE run at all is not DONE itself (see finish_batch).
+    if done_runs + failed_runs != total_count:
         raise ValueError(
             f"DINO batch {dino_batch_id} has unfinished runs: "
             f"DONE={done_runs}, FAILED={failed_runs}, TOTAL={total_count}"
+        )
+    if done_runs == 0:
+        raise ValueError(
+            f"DINO batch {dino_batch_id} produced no results: "
+            f"FAILED={failed_count}, TOTAL={total_count}"
         )
 
     cur.execute(
