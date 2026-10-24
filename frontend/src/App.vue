@@ -50,14 +50,24 @@ onMounted(async () => {
   window.addEventListener('resize', measureChrome)
   // Не терять последние 800 мс изменений при закрытии вкладки.
   window.addEventListener('pagehide', flushDisplay)
+
+  await checkBuild()
+  buildTimer = window.setInterval(checkBuild, 5 * 60 * 1000)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', measureChrome)
   window.removeEventListener('pagehide', flushDisplay)
   if (statsTimer !== null) window.clearInterval(statsTimer)
+  if (buildTimer !== null) window.clearInterval(buildTimer)
   pipeline.stop()
 })
+
+function reloadPage() {
+  // Именно перезагрузка, а не reload(true): так браузер сам перепроверит
+  // index.html (он отдаётся с no-cache) и заберёт новые хешированные бандлы.
+  window.location.reload()
+}
 
 function flushDisplay() {
   display.flush()
@@ -119,6 +129,27 @@ function measureChrome() {
 // для красоты: если подстановка не сработала (сборка другим инструментом,
 // тесты), обычное обращение обрушило бы всё приложение, а не подпись в подвале.
 const build = typeof __APP_BUILD__ === 'string' ? __APP_BUILD__ : '—'
+
+// Метка сборки на сервере. Открытая вкладка живёт часами и молча показывает
+// старый интерфейс — тогда новую кнопку или настройку «не видно», хотя она уже
+// развёрнута. Сравниваем свою метку с /build.json (его пишет сборка) и
+// предлагаем обновиться.
+const serverBuild = ref(null)
+const buildStale = computed(
+  () => !!serverBuild.value && serverBuild.value !== build,
+)
+let buildTimer = null
+
+async function checkBuild() {
+  try {
+    const response = await fetch('/build.json', { cache: 'no-store' })
+    if (!response.ok) return
+    const data = await response.json()
+    serverBuild.value = typeof data?.build === 'string' ? data.build : null
+  } catch {
+    // Файла нет (старая сборка) — подсказка просто не появляется.
+  }
+}
 
 const stats = ref({
   photos: null,
@@ -493,6 +524,21 @@ function toggleDark() {
             Время сборки интерфейса. Если оно старше последнего обновления —
             страница в браузере старая, обновите её (Ctrl+F5).
           </q-tooltip>
+        </span>
+        <q-btn
+          v-if="buildStale"
+          dense
+          no-caps
+          color="warning"
+          text-color="black"
+          icon="system_update_alt"
+          :label="`Доступна новая сборка (${serverBuild}) — обновить`"
+          class="q-ml-sm"
+          @click="reloadPage"
+        />
+        <span v-else-if="serverBuild" class="footer-dot">·</span>
+        <span v-if="serverBuild && !buildStale" class="footer-item text-grey-6">
+          сборка на сервере: {{ serverBuild }}
         </span>
       </div>
     </q-footer>

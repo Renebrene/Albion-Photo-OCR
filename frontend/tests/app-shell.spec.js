@@ -762,4 +762,39 @@ describe('оболочка приложения', () => {
 
     wrapper.unmount()
   })
+
+  it('показывает кнопку, когда на сервере уже другая сборка', async () => {
+    installFetch()
+    const baseFetch = global.fetch
+    global.fetch = vi.fn(async (url, options) => {
+      if (String(url).endsWith('/build.json')) {
+        return { ok: true, status: 200, json: async () => ({ build: '01.01, 00:00' }) }
+      }
+      return baseFetch(url, options)
+    })
+
+    const wrapper = await mountShell()
+    await flushPromises()
+
+    expect(wrapper.find('footer').text()).toContain('Доступна новая сборка')
+    wrapper.unmount()
+  })
+
+  it('молчит, когда метка совпадает с серверной', async () => {
+    installFetch()
+    const baseFetch = global.fetch
+    global.fetch = vi.fn(async (url, options) => {
+      if (String(url).endsWith('/build.json')) {
+        // __APP_BUILD__ в тестовой сборке — '—'.
+        return { ok: true, status: 200, json: async () => ({ build: '—' }) }
+      }
+      return baseFetch(url, options)
+    })
+
+    const wrapper = await mountShell()
+    await flushPromises()
+
+    expect(wrapper.find('footer').text()).not.toContain('Доступна новая сборка')
+    wrapper.unmount()
+  })
 })
