@@ -43,7 +43,7 @@ const photos = [
     client: 'Клиент B',
     brand: 'Бренд B',
     source_directory: 'test',
-    taken_at: '2025-07-18 11:43:19',
+    taken_at: '2025-07-17 11:43:19',
     size_bytes: 1,
   },
 ]

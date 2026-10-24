@@ -104,6 +104,7 @@ describe('display store', () => {
       listFields: ['filename', 'brand'],
       downloadNameMode: 'filename',
       tileShowFilename: true,
+      dateFilterMode: 'capture',
       addressClientMode: 'union',
       leftPanelOpen: true,
       rightPanelOpen: true,

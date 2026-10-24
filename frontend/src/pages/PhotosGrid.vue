@@ -68,7 +68,14 @@ const { items, error, loading, addresses, clients, savedSearches } =
   storeToRefs(store)
 
 const q = ref('')
-const dateMode = ref('capture')
+// Источник даты живёт в настройках отображения (шестерёнка), а не в панели
+// фильтров: сюда его выносить не нужно, но запросы по-прежнему читают его.
+const dateMode = computed({
+  get: () => display.dateFilterMode,
+  set: (value) => {
+    display.dateFilterMode = value === 'upload' ? 'upload' : 'capture'
+  },
+})
 // Точные фильтры, выбранные из подсказок поиска.
 const selectedBrand = ref(null)
 const selectedTag = ref(null)
@@ -150,8 +157,8 @@ watch(
 
 // Grid presentation (mirrors the legacy list/tile toggle + sorting).
 const viewMode = ref('tiles')
-const sortKey = ref('address')
-const sortDirection = ref('asc')
+const sortKey = ref('date')
+const sortDirection = ref('desc')
 
 const sortOptions = [
   { label: 'По имени файла', value: 'filename' },
@@ -1845,8 +1852,19 @@ function tileSize(photo) {
 }
 
 /** «дата · вес» одной строкой; пусто, когда нет ни того, ни другого. */
+/** Время съёмки ЧЧ:ММ:СС для плитки. */
+function tileTime(photo) {
+  const value = photo && photo.taken_at
+
+  if (!value) return ''
+
+  const [, time = ''] = String(value).split(/[T ]/)
+
+  return time.slice(0, 8)
+}
+
 function tileMeta(photo) {
-  return [tileDate(photo), tileSize(photo)].filter(Boolean).join(' · ')
+  return [tileDate(photo), tileTime(photo)].filter(Boolean).join(' · ')
 }
 
 /** «клиент · бренд» для карточки; пусто, когда распознавания ещё нет. */
@@ -2101,13 +2119,12 @@ async function applyAddressChange(photoId) {
     if (data?.photo) store.updateLoadedPhoto(data.photo)
   }
 
+  // Утверждённое совпадение должно сразу изменить и панель адресов, и
+  // текущую выдачу: фото не остаётся в старой корзине/адресе до перезагрузки.
   await store.loadAddresses()
   await store.loadClients()
-
-  if (store.selectedAddresses.length) {
-    await store.refresh()
-    await store.loadAddresses()
-  }
+  await store.refresh()
+  await store.loadAddresses()
 }
 
 async function saveAddressOverride() {
@@ -2880,20 +2897,8 @@ function tagList(meta) {
 
           <q-space />
 
-          <!-- дата: источник фильтра и периода — выпадающим списком -->
-          <q-select
-            v-model="dateMode"
-            :options="dateModes"
-            dense
-            outlined
-            emit-value
-            map-options
-            option-label="label"
-            option-value="value"
-            label="Дата"
-            style="min-width: 140px"
-            @update:model-value="apply()"
-          />
+          <!-- Источник даты («съёмка / загрузка») перенесён в настройки
+               отображения — шестерёнка над гридом. -->
 
           <!-- период: компактно, свой период — двумя полями в этой же строке -->
           <q-select
@@ -3053,14 +3058,6 @@ function tagList(meta) {
                     v-if="photo.address"
                     class="ellipsis text-caption text-weight-bold"
                   >
-                    <q-icon
-                      name="auto_awesome"
-                      size="14px"
-                      :color="qwenColor(photo)"
-                      class="q-mr-xs"
-                    >
-                      <q-tooltip>{{ qwenHint(photo) }}</q-tooltip>
-                    </q-icon>
                     {{ photo.simple_address || photo.address }}
                     <q-tooltip v-if="photo.simple_address">
                       {{ photo.address }}
@@ -3072,14 +3069,6 @@ function tagList(meta) {
                     v-else
                     class="ellipsis text-caption text-orange-9"
                   >
-                    <q-icon
-                      name="auto_awesome"
-                      size="14px"
-                      :color="qwenColor(photo)"
-                      class="q-mr-xs"
-                    >
-                      <q-tooltip>{{ qwenHint(photo) }}</q-tooltip>
-                    </q-icon>
                     <q-icon name="help_outline" size="14px" />
                     требует проверки
                     <q-tooltip>
@@ -3110,11 +3099,19 @@ function tagList(meta) {
                   >
                     {{ tileMeta(photo) }}
                   </div>
-                  <div
-                    v-if="clientBrand(photo)"
-                    class="ellipsis text-caption font-italic"
-                  >
-                    {{ clientBrand(photo) }}
+                  <!-- Значок QWEN — внизу, перед строкой клиента/бренда/тегов. -->
+                  <div class="ellipsis text-caption font-italic row items-center no-wrap">
+                    <q-icon
+                      name="auto_awesome"
+                      size="14px"
+                      :color="qwenColor(photo)"
+                      class="q-mr-xs"
+                    >
+                      <q-tooltip>{{ qwenHint(photo) }}</q-tooltip>
+                    </q-icon>
+                    <span v-if="clientBrand(photo)" class="ellipsis">
+                      {{ clientBrand(photo) }}
+                    </span>
                     <q-tooltip v-if="clientBrandFromCategory(photo)">
                       Клиент или бренд не определены — показана категория.
                     </q-tooltip>

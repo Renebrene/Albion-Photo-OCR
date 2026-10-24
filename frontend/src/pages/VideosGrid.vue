@@ -507,20 +507,30 @@ onBeforeUnmount(() => {
       <div v-if="viewMode === 'tiles'" class="video-grid" :style="gridStyle">
         <q-card v-for="video in items" :key="video.video_id" flat bordered class="video-card" :class="{'video-card--selected': selectedVideoId === video.video_id}">
           <div class="video-poster" @click="openDetails(video)">
-            <AuthImage :url="videoPosterUrl(video.video_id)" :ratio="16 / 9" />
+            <!-- Постеры у всех видео одинакового соотношения: показываем
+                 картинку целиком по ширине карточки, без обрезки. -->
+            <AuthImage :url="videoPosterUrl(video.video_id)" :ratio="16 / 9" fit="contain" />
             <q-icon class="video-play-icon" name="play_circle" size="42px" color="white" />
           </div>
-          <q-card-section class="q-pa-sm">
-            <div class="video-filename ellipsis" :title="video.filename">{{ video.filename }}</div>
-            <div class="video-meta ellipsis" :title="video.source_directory">{{ video.source_directory || 'Каталог не указан' }}</div>
-            <div class="video-title ellipsis">{{ video.display_title || ' ' }}</div>
-            <div class="video-meta">{{ formatCapture(video.taken_at) }}</div>
-            <div class="video-meta">{{ formatDuration(video.duration_seconds) }} / {{ formatMegabytes(video.size_bytes) }}</div>
+          <q-card-section class="q-pa-xs">
+            <div class="video-filename ellipsis" :title="`${video.filename} — ${video.source_directory || ''}`">
+              {{ video.filename }}
+            </div>
+            <div v-if="video.display_title" class="video-title ellipsis">
+              {{ video.display_title }}
+            </div>
+            <!-- Дата, хроно, вес, выбор и меню — одной компактной строкой. -->
+            <div class="video-line row items-center no-wrap">
+              <span class="video-meta ellipsis">
+                {{ formatCapture(video.taken_at) }} · {{ formatDuration(video.duration_seconds) }} · {{ formatMegabytes(video.size_bytes) }}
+              </span>
+              <q-space />
+              <q-checkbox v-if="canDownloadVideos" :model-value="selectedVideoId === video.video_id" dense aria-label="Выбрать видео" @update:model-value="selectVideo(video)" />
+              <q-btn flat dense round icon="more_horiz" @click="openDetails(video)">
+                <q-tooltip>Просмотр и название</q-tooltip>
+              </q-btn>
+            </div>
           </q-card-section>
-          <q-card-actions align="right" class="q-pt-none">
-            <q-checkbox v-if="canDownloadVideos" :model-value="selectedVideoId === video.video_id" dense aria-label="Выбрать видео" @update:model-value="selectVideo(video)" />
-            <q-btn flat dense round icon="more_horiz" @click="openDetails(video)"><q-tooltip>Просмотр и название</q-tooltip></q-btn>
-          </q-card-actions>
         </q-card>
       </div>
 
@@ -671,6 +681,8 @@ onBeforeUnmount(() => {
 .video-filename { font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .video-title { font-weight: 700; min-height: 1.3em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .video-meta { font-style: italic; font-size: 0.82em; color: #666; white-space: nowrap; }
+.video-line { gap: 4px; min-height: 28px; }
+.video-line .q-checkbox, .video-line .q-btn { flex: 0 0 auto; }
 .video-list-item { min-height: 92px; }
 .video-list-poster { width: 138px; cursor: pointer; }
 .video-list-first { display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }

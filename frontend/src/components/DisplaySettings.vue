@@ -48,6 +48,27 @@ const display = useDisplayStore()
     </div>
 
     <div>
+      <div class="text-subtitle2">Дата для фильтра периода</div>
+      <q-select
+        v-model="display.dateFilterMode"
+        :options="[
+          { label: 'Дата съёмки', value: 'capture' },
+          { label: 'Дата загрузки', value: 'upload' },
+        ]"
+        dense
+        outlined
+        emit-value
+        map-options
+        class="q-mt-xs"
+        style="max-width: 260px"
+      />
+      <div class="text-caption text-grey">
+        По умолчанию фильтр и сортировка используют дату съёмки. Переключатель
+        убран из панели фильтров.
+      </div>
+    </div>
+
+    <div>
       <div class="text-subtitle2">Режим «Список»: отображаемые поля</div>
       <q-option-group
         v-model="display.listFields"

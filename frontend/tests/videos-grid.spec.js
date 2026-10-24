@@ -97,10 +97,14 @@ describe('видеогалерея', () => {
     await flushPromises()
     expect(calls.some((call) => call.path.endsWith('/v1/videos'))).toBe(true)
     expect(wrapper.text()).toContain('clip.MP4')
-    expect(wrapper.text()).toContain('проект/объект-1')
     expect(wrapper.text()).toContain('У входа')
+    // Каталог больше не занимает отдельную строку — он в подсказке имени.
+    expect(wrapper.find('.video-filename').attributes('title'))
+      .toContain('проект/объект-1')
+    // Дата, хроно и вес — одной компактной строкой.
     expect(wrapper.text()).toContain('14-10-26')
-    expect(wrapper.text()).toContain('12.5 с / 5.0 МБ')
+    expect(wrapper.text()).toContain('12.5 с')
+    expect(wrapper.text()).toContain('5.0 МБ')
     expect(wrapper.text()).not.toContain('Выбрать все')
 
     wrapper.unmount()

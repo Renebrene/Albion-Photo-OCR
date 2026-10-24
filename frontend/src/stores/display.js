@@ -40,6 +40,7 @@ export const LIST_FIELDS = [
   { value: 'size', label: 'Размер, px' },
   { value: 'created_at', label: 'Дата загрузки' },
   { value: 'taken_at', label: 'Дата съёмки' },
+  { value: 'taken_time', label: 'Время съёмки' },
 ]
 
 // How a downloaded or zipped file is named (item 11b):
@@ -133,6 +134,8 @@ export const useDisplayStore = defineStore('display', () => {
   const listFields = ref([...DEFAULT_LIST_FIELDS])
   const downloadNameMode = ref(DEFAULT_DOWNLOAD_NAME_MODE)
   const tileShowFilename = ref(DEFAULT_TILE_SHOW_FILENAME)
+  // Источник даты для фильтра периода: дата съёмки (по умолчанию) или загрузки.
+  const dateFilterMode = ref('capture')
   const addressClientMode = ref('union')
   // Desired (persisted) widths. The effective width shown in the grid is
   // clamped to the current window and is never written back to storage.
@@ -212,6 +215,9 @@ export const useDisplayStore = defineStore('display', () => {
       typeof saved.tileShowFilename === 'boolean'
         ? saved.tileShowFilename
         : DEFAULT_TILE_SHOW_FILENAME
+
+    dateFilterMode.value =
+      saved.dateFilterMode === 'upload' ? 'upload' : 'capture'
   }
 
   applyState(loadState())
@@ -264,6 +270,7 @@ export const useDisplayStore = defineStore('display', () => {
       listFields: [...listFields.value],
       downloadNameMode: downloadNameMode.value,
       tileShowFilename: tileShowFilename.value,
+      dateFilterMode: dateFilterMode.value,
       addressClientMode: addressClientMode.value,
       leftPanelOpen: leftPanelOpen.value,
       rightPanelOpen: rightPanelOpen.value,
@@ -441,6 +448,7 @@ export const useDisplayStore = defineStore('display', () => {
       listFields,
       downloadNameMode,
       tileShowFilename,
+      dateFilterMode,
       addressClientMode,
       leftPanelOpen,
       rightPanelOpen,
@@ -457,6 +465,7 @@ export const useDisplayStore = defineStore('display', () => {
     listFields.value = [...DEFAULT_LIST_FIELDS]
     downloadNameMode.value = DEFAULT_DOWNLOAD_NAME_MODE
     tileShowFilename.value = DEFAULT_TILE_SHOW_FILENAME
+    dateFilterMode.value = 'capture'
     addressClientMode.value = 'union'
     leftPanelOpen.value = DEFAULT_SIDE_PANELS_OPEN
     rightPanelOpen.value = DEFAULT_SIDE_PANELS_OPEN
@@ -491,6 +500,7 @@ export const useDisplayStore = defineStore('display', () => {
     listFields,
     downloadNameMode,
     tileShowFilename,
+    dateFilterMode,
     addressClientMode,
     leftPanelOpen,
     rightPanelOpen,
@@ -616,7 +626,14 @@ export function fieldText(photo, key) {
   }
   const value = photo[key]
   if (value === null || value === undefined || value === '') return '—'
-  // Dates are shown by day only: the time of an EXIF stamp is noise here.
+  // Dates are shown by day only; отдельное поле «Время съёмки» показывает
+  // ЧЧ:ММ:СС из того же taken_at.
+  if (key === 'taken_time') {
+    const moment = photo && photo.taken_at
+    const time = moment ? String(moment).split(/[T ]/)[1] || '' : ''
+    return time.slice(0, 8) || '—'
+  }
+
   if (key === 'taken_at' || key === 'created_at') {
     return String(value).slice(0, 10)
   }

@@ -246,7 +246,7 @@ describe('оболочка приложения', () => {
 
     expect(caption).toContain('Комарова 13')
     expect(caption).toContain('photo.jpg')
-    expect(caption).toContain('17.07.2025 · 4.0 МБ')
+    expect(caption).toContain('17.07.2025 · 11:43:19')
     expect(caption).toContain('Клиент А, Бренд Б')
     // В плитке путь к каталогу убран; он остаётся в списке и окне просмотра.
     expect(caption).not.toContain('Каталог: test')
