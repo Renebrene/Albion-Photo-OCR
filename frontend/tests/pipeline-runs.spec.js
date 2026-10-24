@@ -32,6 +32,16 @@ describe('История запусков', () => {
     expect(wrapper.text()).toBe('')
   })
 
+  it('при сбое загрузки показывает причину с повтором, а не исчезает', async () => {
+    const wrapper = await mountPanel({ detail: 'база недоступна' }, 500)
+
+    expect(wrapper.text()).toContain('Запуски обновления базы')
+    expect(wrapper.text()).toContain('база недоступна')
+    expect(wrapper.text()).toContain('Повторить')
+
+    wrapper.unmount()
+  })
+
   it('показывает статус, стадии и длительность', async () => {
     const wrapper = await mountPanel({
       items: [

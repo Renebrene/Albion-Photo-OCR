@@ -39,27 +39,35 @@ const namesForKind = computed(() =>
   qwenNames.value.filter((item) => item.kind === kind.value),
 )
 
+// Ошибки загрузок показываем отдельно: раньше все три «глотали» сбой, и пустой
+// список был неотличим от неудачного запроса — можно было заново заводить уже
+// существующие алиасы, не понимая, почему список пуст.
+const errors = ref({ aliases: '', names: '', audit: '' })
+
 async function loadAliases() {
   try {
     aliases.value = (await fetchClientAliases(kind.value)).items || []
-  } catch {
-    aliases.value = []
+    errors.value.aliases = ''
+  } catch (err) {
+    errors.value.aliases = err.message || 'Не удалось загрузить сопоставления'
   }
 }
 
 async function loadQwenNames() {
   try {
     qwenNames.value = (await fetchQwenClientNames()).items || []
-  } catch {
-    qwenNames.value = []
+    errors.value.names = ''
+  } catch (err) {
+    errors.value.names = err.message || 'Не удалось загрузить названия QWEN'
   }
 }
 
 async function loadAudit() {
   try {
     audit.value = (await fetchClientAliasAudit(100, kind.value)).items || []
-  } catch {
-    audit.value = []
+    errors.value.audit = ''
+  } catch (err) {
+    errors.value.audit = err.message || 'Не удалось загрузить историю изменений'
   }
 }
 
@@ -164,6 +172,11 @@ onMounted(() => {
     <div class="text-caption text-grey-8 q-mb-xs">
       Названия {{ titleWord }}, распознанные QWEN (клик — подставить в поля):
     </div>
+    <div v-if="errors.names" class="row items-center no-wrap q-gutter-sm q-mb-xs">
+      <q-icon name="error_outline" color="negative" size="16px" />
+      <div class="col text-caption text-negative">{{ errors.names }}</div>
+      <q-btn dense flat no-caps size="sm" label="Повторить" @click="loadQwenNames" />
+    </div>
     <q-scroll-area style="height: 180px" class="q-mb-md">
       <div class="row q-gutter-xs">
         <q-chip
@@ -176,7 +189,10 @@ onMounted(() => {
         >
           {{ item.name }} <span class="text-grey-6">({{ item.count }})</span>
         </q-chip>
-        <span v-if="!namesForKind.length" class="text-caption text-grey">
+        <span
+          v-if="!namesForKind.length && !errors.names"
+          class="text-caption text-grey"
+        >
           Пока нет распознанных названий
         </span>
       </div>
@@ -206,11 +222,32 @@ onMounted(() => {
         </tr>
       </tbody>
     </q-markup-table>
-    <div v-else class="text-caption text-grey">Алиасов нет</div>
+    <div v-if="errors.aliases" class="row items-center no-wrap q-gutter-sm">
+      <q-icon name="error_outline" color="negative" size="16px" />
+      <div class="col text-caption text-negative">{{ errors.aliases }}</div>
+      <q-btn dense flat no-caps size="sm" label="Повторить" @click="loadAliases" />
+    </div>
+    <div v-else-if="!aliases.length" class="text-caption text-grey">
+      Алиасов нет
+    </div>
 
     <!-- Журнал правок: кто, что и когда изменил (в компактном режиме скрыт). -->
-    <div v-if="audit.length && !compact" class="q-mt-lg">
-      <div class="text-caption text-grey-8 q-mb-xs">История изменений</div>
+    <div v-if="(audit.length || errors.audit) && !compact" class="q-mt-lg">
+      <div class="row items-center no-wrap q-gutter-sm q-mb-xs">
+        <div class="col text-caption text-grey-8">История изменений</div>
+        <q-btn
+          v-if="errors.audit"
+          dense
+          flat
+          no-caps
+          size="sm"
+          label="Повторить"
+          @click="loadAudit"
+        />
+      </div>
+      <div v-if="errors.audit" class="text-caption text-negative q-mb-xs">
+        {{ errors.audit }}
+      </div>
       <q-markup-table dense flat bordered>
         <thead>
           <tr>

@@ -57,6 +57,17 @@ describe('Обновление базы', () => {
     wrapper.unmount()
   })
 
+  it('при сбое опроса не прячет управление, а показывает причину', async () => {
+    // 500 — не «раздела нет»: кнопка остаётся, рядом видно, что опрос не прошёл.
+    setPipeline({ detail: 'сервер прилёг' }, 500)
+
+    const wrapper = await mountButton()
+
+    expect(wrapper.find('.pipeline-control').exists()).toBe(true)
+    expect(wrapper.text()).toContain('сервер прилёг')
+    wrapper.unmount()
+  })
+
   it('показывает кнопку, когда API доступен и прогона нет', async () => {
     setPipeline({ run: null })
     const wrapper = await mountButton()

@@ -51,6 +51,8 @@ function statusColor(status) {
 }
 
 const hasRuns = computed(() => runs.value.length > 0)
+// Ошибка загрузки: показывается баннером, история при этом не исчезает.
+const error = ref('')
 
 async function load() {
   loading.value = true
@@ -58,9 +60,21 @@ async function load() {
     const data = await fetchPipelineRuns(10)
     runs.value = data.items || []
     available.value = true
-  } catch {
-    available.value = false
-    runs.value = []
+    error.value = ''
+  } catch (err) {
+    // 404 — раздела нет, панель не нужна. Всё остальное — сбой: панель
+    // остаётся с прежними данными, а сверху видно баннер с повтором.
+    if (err?.status === 404) {
+      available.value = false
+      runs.value = []
+      error.value = ''
+      return
+    }
+
+    // Панель показываем: ответ пришёл, значит раздел есть — важно увидеть
+    // причину и повторить, а не пустое место.
+    available.value = true
+    error.value = err?.message || 'Не удалось загрузить историю запусков'
   } finally {
     loading.value = false
   }
@@ -76,6 +90,12 @@ onMounted(load)
       <q-btn flat round dense icon="refresh" :loading="loading" @click="load" />
     </q-card-section>
     <q-separator />
+
+    <q-card-section v-if="error" class="row items-center no-wrap q-gutter-sm">
+      <q-icon name="error_outline" color="negative" />
+      <div class="col text-caption text-negative">{{ error }}</div>
+      <q-btn dense flat no-caps size="sm" label="Повторить" :loading="loading" @click="load" />
+    </q-card-section>
 
     <q-card-section>
       <div v-if="!hasRuns" class="text-grey-7 text-caption">

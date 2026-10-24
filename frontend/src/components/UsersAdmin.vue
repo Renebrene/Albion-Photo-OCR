@@ -44,6 +44,12 @@ const { busy: editBusy, run: editRun } = useAsyncAction()
 const { busy: passwordBusy, run: passwordRun } = useAsyncAction()
 const { busy: toggleBusy, run: toggleRun } = useAsyncAction()
 
+// Имя обязательно: пустое раньше уходило на сервер, и вместо подсказки у поля
+// приходила ошибка валидации.
+function nameRule(value) {
+  return Boolean(String(value || '').trim()) || 'Укажите имя пользователя'
+}
+
 onMounted(load)
 
 function openAdd() {
@@ -52,6 +58,13 @@ function openAdd() {
 }
 
 async function save() {
+  // Пустое имя не отправляем: сервер ответит ошибкой валидации, а понятнее
+  // сказать об этом сразу — как и подсветкой поля.
+  if (!String(form.value.name || '').trim()) {
+    Notify.create({ type: 'warning', message: 'Укажите имя пользователя' })
+    return
+  }
+
   await saveRun(async () => {
     try {
       await createUser({
@@ -97,6 +110,11 @@ function openEdit(user) {
 
 async function saveEdit() {
   const target = editUser.value
+
+  if (!String(editForm.value.name || '').trim()) {
+    Notify.create({ type: 'warning', message: 'Укажите имя пользователя' })
+    return
+  }
 
   await editRun(async () => {
     try {
@@ -200,7 +218,14 @@ async function savePassword() {
         <q-card-section class="text-subtitle1">Новый пользователь</q-card-section>
         <q-separator />
         <q-card-section class="q-gutter-sm">
-          <q-input v-model="form.name" dense outlined label="Имя" />
+          <q-input
+            v-model="form.name"
+            dense
+            outlined
+            label="Имя"
+            :rules="[nameRule]"
+            lazy-rules
+          />
           <q-select v-model="form.role" :options="roles" dense outlined label="Роль" />
           <q-select
             v-model="form.color"
@@ -241,7 +266,14 @@ async function savePassword() {
         </q-card-section>
         <q-separator />
         <q-card-section class="q-gutter-sm">
-          <q-input v-model="editForm.name" dense outlined label="Имя" />
+          <q-input
+            v-model="editForm.name"
+            dense
+            outlined
+            label="Имя"
+            :rules="[nameRule]"
+            lazy-rules
+          />
           <q-select v-model="editForm.role" :options="roles" dense outlined label="Роль" />
           <q-select
             v-model="editForm.color"

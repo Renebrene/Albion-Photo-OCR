@@ -57,11 +57,29 @@ async function load() {
   }
 }
 
+// Срок ссылки: сервер принимает 1…3650 дней и так же ограничивает значение.
+// Раньше пустое или нулевое поле молча превращалось в 90, а отрицательное
+// уходило как есть — теперь показываем ошибку и не даём сохранить.
+const TTL_MIN = 1
+const TTL_MAX = 3650
+
+function ttlValid(value) {
+  const days = Number(value)
+
+  return Number.isFinite(days) && days >= TTL_MIN && days <= TTL_MAX
+}
+
+const ttlRules = [
+  (value) => ttlValid(value) || `От ${TTL_MIN} до ${TTL_MAX} дней`,
+]
+
+const ttlInvalid = computed(() => !ttlValid(ttlDays.value))
+
 function payload() {
   const body = {
     base_url: baseUrl.value.trim(),
     folder_id: folderId.value.trim(),
-    ttl_days: Number(ttlDays.value) || 90,
+    ttl_days: Math.max(TTL_MIN, Math.min(Math.round(Number(ttlDays.value)) || TTL_MIN, TTL_MAX)),
   }
 
   // Пустое поле = «не менять»: сервер отличает его от явной очистки.
@@ -166,6 +184,8 @@ onMounted(load)
             outlined
             label="Срок ссылки, дней"
             :disable="!canConfigure"
+            :rules="ttlRules"
+            lazy-rules
           />
         </div>
         <div class="col-12 col-sm-6">
@@ -190,7 +210,7 @@ onMounted(load)
           icon="save"
           label="Сохранить"
           :loading="saving"
-          :disable="!canConfigure"
+          :disable="!canConfigure || ttlInvalid"
           @click="save"
         />
         <q-btn

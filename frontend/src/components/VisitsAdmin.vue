@@ -1,12 +1,17 @@
 <script setup>
 // Журнал посещений (входов) — вкладка в техразделе только для Администратора.
-// Скрывается, пока таблица не развёрнута (миграция 033 не применена).
+//
+// Панель скрывается только тогда, когда таблицы действительно нет (404: не
+// применена миграция 033). Раньше пряталось при любой ошибке, и сетевой сбой
+// выглядел как «журнала нет» — теперь в этом случае видно баннер с повтором.
 import { onMounted, ref } from 'vue'
 
 import { fetchVisits } from '../api/client'
 
 const items = ref([])
-const available = ref(false)
+// Пока ответа не было, панель показываем: скрывать её заранее — мигание.
+const tableMissing = ref(false)
+const error = ref('')
 const loading = ref(false)
 
 function fmt(value) {
@@ -15,13 +20,22 @@ function fmt(value) {
 
 async function load() {
   loading.value = true
+  error.value = ''
+
   try {
     const data = await fetchVisits(200)
     items.value = data.items || []
-    available.value = true
-  } catch {
-    available.value = false
+    tableMissing.value = false
+  } catch (err) {
     items.value = []
+
+    if (err.status === 404) {
+      // Таблицы нет — панель просто не нужна.
+      tableMissing.value = true
+      return
+    }
+
+    error.value = err.message || 'Не удалось загрузить журнал посещений'
   } finally {
     loading.value = false
   }
@@ -31,12 +45,18 @@ onMounted(load)
 </script>
 
 <template>
-  <q-card v-if="available" flat bordered>
+  <q-card v-if="!tableMissing" flat bordered>
     <q-card-section class="row items-center">
       <div class="panel-title col">Посещения (входы)</div>
       <q-btn flat round dense icon="refresh" :loading="loading" @click="load" />
     </q-card-section>
     <q-separator />
+
+    <q-card-section v-if="error" class="row items-center no-wrap q-gutter-sm">
+      <q-icon name="error_outline" color="negative" />
+      <div class="col text-caption text-negative">{{ error }}</div>
+      <q-btn dense flat no-caps size="sm" label="Повторить" :loading="loading" @click="load" />
+    </q-card-section>
 
     <q-card-section>
       <q-markup-table dense flat bordered>

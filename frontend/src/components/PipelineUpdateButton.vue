@@ -28,6 +28,8 @@ const emit = defineEmits(['finished'])
 
 const available = ref(false)
 const run = ref(null)
+// Ошибка опроса: показываем строкой, а не прячем весь контроль.
+const pollError = ref('')
 const busy = ref(false)
 const dialogOpen = ref(false)
 
@@ -110,6 +112,7 @@ async function poll() {
   try {
     const data = await fetchCurrentPipeline()
     available.value = true
+    pollError.value = ''
 
     const next = data?.run || null
 
@@ -128,10 +131,21 @@ async function poll() {
     lastStatus = next?.status || null
 
     run.value = next
-  } catch {
-    // The endpoint is not deployed yet (404) or unreachable: hide the control.
-    available.value = false
-    run.value = null
+  } catch (err) {
+    // Скрываем управление только тогда, когда раздела действительно нет
+    // (404: супервизор не развёрнут). Одна сетевая заминка раньше прятала и
+    // кнопку, и состояние прогона — теперь видно ошибку, а опрос повторяется
+    // сам, прогон остаётся на месте.
+    if (err?.status === 404) {
+      available.value = false
+      run.value = null
+      return
+    }
+
+    // Показываем управление: раз ответ пришёл (пусть и с ошибкой), раздел
+    // есть, и пользователю важнее видеть причину, чем пустое место.
+    available.value = true
+    pollError.value = err?.message || 'Нет связи с сервером'
   }
 }
 
@@ -307,6 +321,14 @@ onBeforeUnmount(() => {
     >
       <q-tooltip>Начать заново, выключить описание или уточнение</q-tooltip>
     </q-btn>
+
+    <span
+      v-if="pollError"
+      class="row items-center no-wrap text-caption text-orange-9 q-mx-xs"
+    >
+      <q-icon name="cloud_off" size="16px" class="q-mr-xs" />
+      {{ pollError }}
+    </span>
 
     <span v-if="isActive" class="blink-dot q-mx-xs" />
 

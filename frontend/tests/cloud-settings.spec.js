@@ -142,3 +142,42 @@ describe('настройки Albion', () => {
     wrapper.unmount()
   })
 })
+
+describe('срок ссылки', () => {
+  it('проверяет диапазон и не даёт сохранить 0 или отрицательное', async () => {
+    installFetch()
+    const wrapper = mountSettings()
+    await flushPromises()
+
+    const ttl = wrapper.findAll('input')[2]
+
+    // 0 раньше молча превращался в 90, отрицательное уходило как есть.
+    // Проверяем гарантию: пока значение вне диапазона, сохранить нельзя, а
+    // правило поля объясняет причину (сообщение Quasar показывает по blur).
+    await ttl.setValue('0')
+    await flushPromises()
+
+    expect(button(wrapper, 'Сохранить').attributes('disabled')).toBeDefined()
+
+    await ttl.setValue('-5')
+    await flushPromises()
+    expect(button(wrapper, 'Сохранить').attributes('disabled')).toBeDefined()
+
+    await ttl.setValue('4000')
+    await flushPromises()
+    expect(button(wrapper, 'Сохранить').attributes('disabled')).toBeDefined()
+
+    await ttl.setValue('30')
+    await flushPromises()
+
+    expect(button(wrapper, 'Сохранить').attributes('disabled')).toBeUndefined()
+
+    await button(wrapper, 'Сохранить').trigger('click')
+    await flushPromises()
+
+    const put = calls.find((item) => item.method === 'PUT')
+
+    expect(put.body.ttl_days).toBe(30)
+    wrapper.unmount()
+  })
+})

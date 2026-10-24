@@ -721,7 +721,7 @@ onBeforeUnmount(stopStatsPolling)
           РАСПОЗНАНО: {{ stats.processed ?? 0 }}
           <template v-if="stats.remaining">(осталось {{ stats.remaining }})</template> ·
           В ОЧЕРЕДИ: {{ qwenQueue }} ·
-          С ОШИБКОЙ: {{ stats.counts.FAILED || 0 }}
+          С ОШИБКОЙ: {{ stats.counts?.FAILED || 0 }}
         </div>
 
         <div class="row items-center q-gutter-sm q-mb-md">
