@@ -3,6 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Dark, Notify } from 'quasar'
 import { useRouter } from 'vue-router'
 
+import { usePoller } from './composables/usePoller'
+
 import PipelineUpdateButton from './components/PipelineUpdateButton.vue'
 import { fetchMediaStatistics, fetchStats } from './api/client'
 import { ADDRESS_CLIENT_MODES, useDisplayStore } from './stores/display'
@@ -63,14 +65,13 @@ onMounted(async () => {
   window.addEventListener('pagehide', flushDisplay)
 
   await checkBuild()
-  buildTimer = window.setInterval(checkBuild, 5 * 60 * 1000)
+  buildPoller.start()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', measureChrome)
   window.removeEventListener('pagehide', flushDisplay)
-  if (statsTimer !== null) window.clearInterval(statsTimer)
-  if (buildTimer !== null) window.clearInterval(buildTimer)
+  // Таймеры сборки и счётчиков останавливает usePoller при размонтировании.
   pipeline.stop()
 })
 
@@ -111,7 +112,8 @@ async function afterAuth() {
 
   if (canSeeStats.value) {
     await loadStats()
-    if (statsTimer === null) statsTimer = window.setInterval(loadStats, 60_000)
+    // Счётчики подвала: раз в минуту, в скрытой вкладке молчит (usePoller).
+    statsPoller.start()
   }
   // Стадию прогона опрашивает шапка: она видна на любой странице. Гостю
   // число совпадений недоступно (нет jobs:read), но стадия показывается.
@@ -154,7 +156,9 @@ const serverBuild = ref(null)
 const buildStale = computed(
   () => !!serverBuild.value && serverBuild.value !== build,
 )
-let buildTimer = null
+// Проверка, не развёрнута ли на сервере другая сборка: раз в 5 минут, в
+// скрытой вкладке молчит (usePoller). Раньше был свой setInterval.
+const buildPoller = usePoller(checkBuild, { intervalMs: 5 * 60 * 1000 })
 
 async function checkBuild() {
   try {
@@ -180,7 +184,7 @@ const stats = ref({
 const statsDialogOpen = ref(false)
 const mediaStats = ref(null)
 const mediaStatsLoading = ref(false)
-let statsTimer = null
+const statsPoller = usePoller(loadStats, { intervalMs: 60_000 })
 
 // Счётчик запросов: быстрые смены периода не должны оставлять старые числа.
 let statsRequest = 0

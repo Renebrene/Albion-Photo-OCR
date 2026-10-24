@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Notify } from 'quasar'
 
+import { usePoller } from '../composables/usePoller'
+
 import AuthImage from '../components/AuthImage.vue'
 import CloudLinkButton from '../components/CloudLinkButton.vue'
 import {
@@ -72,9 +74,12 @@ const trimPlayer = ref(null)
 const scrollElement = ref(null)
 let scrollListener = null
 let searchTimer = null
-let transcodeTimer = null
-let trimTimer = null
-let storyboardTimer = null
+// Три опроса прогресса: конвертация, раскадровка, обрезка. usePoller даёт
+// паузу в скрытой вкладке, запрет наложения тиков и снятие таймера при уходе
+// со страницы — раньше это были свои setInterval (второй аудит, 2.6).
+const transcodePoller = usePoller(pollTranscode, { intervalMs: 1500 })
+const storyboardPoller = usePoller(pollStoryboard, { intervalMs: 1500 })
+const trimPoller = usePoller(pollTrim, { intervalMs: 1500 })
 
 const selectedVideo = computed(() => store.selectedVideo)
 // Задание конвертации: показывается независимо от текущего выделения. Раньше
@@ -192,10 +197,7 @@ async function downloadOriginal() {
 }
 
 function stopTranscodePolling() {
-  if (transcodeTimer !== null) {
-    clearInterval(transcodeTimer)
-    transcodeTimer = null
-  }
+  transcodePoller.stop()
 }
 
 async function pollTranscode() {
@@ -233,7 +235,7 @@ async function startTranscode(profile) {
       Notify.create({ type: 'positive', message: 'Сжатая копия уже готова' })
     } else {
       stopTranscodePolling()
-      transcodeTimer = setInterval(pollTranscode, 1500)
+      transcodePoller.start()
       await pollTranscode()
     }
   } catch (err) {
@@ -265,10 +267,8 @@ async function downloadTranscoded() {
 }
 
 function stopTrimTimers() {
-  if (trimTimer !== null) clearInterval(trimTimer)
-  if (storyboardTimer !== null) clearInterval(storyboardTimer)
-  trimTimer = null
-  storyboardTimer = null
+  trimPoller.stop()
+  storyboardPoller.stop()
 }
 
 async function enterTrimMode() {
@@ -288,7 +288,7 @@ async function enterTrimMode() {
     } else {
       await pollStoryboard()
       if (trimStoryboardStatus.value === 'PENDING' || trimStoryboardStatus.value === 'RUNNING') {
-        storyboardTimer = setInterval(pollStoryboard, 1500)
+        storyboardPoller.start()
       }
     }
   } catch (err) {
@@ -303,15 +303,13 @@ async function pollStoryboard() {
     const job = await fetchJob(trimStoryboardJobId.value)
     trimStoryboardStatus.value = job.status
     if (['DONE', 'FAILED', 'CANCELLED'].includes(job.status)) {
-      if (storyboardTimer !== null) clearInterval(storyboardTimer)
-      storyboardTimer = null
+      storyboardPoller.stop()
       if (job.status === 'FAILED') trimError.value = job.error_message || 'Не удалось построить ленту кадров'
     }
   } catch (err) {
     trimStoryboardStatus.value = 'FAILED'
     trimError.value = err.message || 'Не удалось проверить ленту кадров'
-    if (storyboardTimer !== null) clearInterval(storyboardTimer)
-    storyboardTimer = null
+    storyboardPoller.stop()
   }
 }
 
@@ -355,7 +353,7 @@ async function submitTrim() {
     const result = await enqueueVideoTrim(video.video_id, start, end)
     trimInfo.value = await fetchVideoTrim(video.video_id, start, end)
     if (result.status !== 'DONE' && trimInfo.value.status !== 'DONE') {
-      trimTimer = setInterval(pollTrim, 1500)
+      trimPoller.start()
       await pollTrim()
     }
   } catch (err) {
@@ -370,8 +368,7 @@ async function pollTrim() {
   try {
     trimInfo.value = await fetchVideoTrim(currentVideo.value.video_id, Number(trimStart.value), Number(trimEnd.value))
     if (['DONE', 'FAILED', 'CANCELLED'].includes(trimInfo.value.status)) {
-      if (trimTimer !== null) clearInterval(trimTimer)
-      trimTimer = null
+      trimPoller.stop()
       if (trimInfo.value.status === 'DONE') {
         Notify.create({ type: 'positive', message: 'Копия добавлена в видеогалерею' })
         // Не сбрасываем список к первой странице: иначе прокрутка прыгала
@@ -382,8 +379,7 @@ async function pollTrim() {
     }
   } catch (err) {
     trimError.value = err.message || 'Не удалось проверить обрезку'
-    if (trimTimer !== null) clearInterval(trimTimer)
-    trimTimer = null
+    trimPoller.stop()
   }
 }
 
@@ -453,9 +449,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  // Опросы прогресса останавливает сам usePoller при размонтировании.
   clearTimeout(searchTimer)
-  stopTranscodePolling()
-  stopTrimTimers()
   if (scrollElement.value && scrollListener) {
     scrollElement.value.removeEventListener('scroll', scrollListener)
   }

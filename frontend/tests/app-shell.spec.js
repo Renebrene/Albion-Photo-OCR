@@ -608,6 +608,38 @@ describe('оболочка приложения', () => {
     wrapper.unmount()
   })
 
+  it('в скрытой вкладке счётчики подвала не опрашиваются', async () => {
+    // happy-dom отдаёт document.hidden только для чтения.
+    const setHidden = (value) =>
+      Object.defineProperty(document, 'hidden', { value, configurable: true })
+
+    setHidden(true)
+    vi.useFakeTimers()
+
+    try {
+      const wrapper = await mountShell()
+      await flushPromises()
+
+      const statsCalls = () => urls.filter((url) => url.includes('/v1/stats')).length
+      const before = statsCalls()
+
+      // Минута прошла, но окно скрыто — в API не стучимся.
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(statsCalls()).toBe(before)
+
+      // Вернулись во вкладку: числа обновляются сразу, не ожидая следующей минуты.
+      setHidden(false)
+      document.dispatchEvent(new Event('visibilitychange'))
+      await flushPromises()
+
+      expect(statsCalls()).toBeGreaterThan(before)
+      wrapper.unmount()
+    } finally {
+      vi.useRealTimers()
+      setHidden(false)
+    }
+  })
+
 
   it('во время прогона строку о стадии показывает шапка, рядом с кнопкой', async () => {
     installFetch()

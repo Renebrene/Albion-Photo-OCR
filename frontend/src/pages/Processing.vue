@@ -2,6 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Notify } from 'quasar'
 
+import { usePoller } from '../composables/usePoller'
+
 import {
   createDinoBatch,
   fetchAddresses,
@@ -53,7 +55,13 @@ const operationText = computed(() => {
   if (current.kind === 'sort') return 'сортировка DINO/HYBRID'
   return 'другая операция'
 })
-let activityTimer = null
+// Опрос состояния сортировки (идёт прогон — показываем прогресс).
+const statusPoller = usePoller(
+  async () => {
+    await Promise.all([loadActivity(), loadSortStatus()])
+  },
+  { intervalMs: 3000, immediate: true },
+)
 
 async function loadReviewSettings() {
   try {
@@ -383,12 +391,10 @@ async function loadActivity() {
 onMounted(() => {
   loadDino()
   loadReviewSettings()
-  loadActivity()
-  loadSortStatus()
-  activityTimer = window.setInterval(() => {
-    loadActivity()
-    loadSortStatus()
-  }, 3000)
+  // Состояние сортировки: скрытая вкладка молчит, тики не накладываются,
+  // уход со страницы останавливает опрос (usePoller). Раньше был свой
+  // setInterval — он продолжал бить API в невидимой вкладке (второй аудит, 2.6).
+  statusPoller.start()
 })
 
 onBeforeUnmount(() => {
@@ -398,8 +404,6 @@ onBeforeUnmount(() => {
     window.clearTimeout(previewTimer)
     previewTimer = null
   }
-
-  if (activityTimer !== null) window.clearInterval(activityTimer)
 })
 </script>
 

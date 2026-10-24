@@ -2,6 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Notify } from 'quasar'
 
+import { usePoller } from '../composables/usePoller'
+
 import {
   clearQwenJobs,
   enqueueQwen,
@@ -345,22 +347,30 @@ const launchDates = computed(() => {
 })
 
 // ref, а не обычная переменная: окно показывает «обновляется автоматически».
-const statsTimer = ref(null)
+const statsPolling = ref(false)
+
+// Опрос очереди описаний: скрытая вкладка молчит, тики не накладываются,
+// уход со страницы останавливает опрос (usePoller). Первый тик — через
+// интервал, как было: вызывающий код сам обновляет счётчики сразу после
+// постановки задач.
+const statsPoller = usePoller(
+  async () => {
+    await loadStats()
+    if (!qwenQueue.value) stopStatsPolling()
+  },
+  { intervalMs: 5000 },
+)
 
 function stopStatsPolling() {
-  if (statsTimer.value !== null) {
-    window.clearInterval(statsTimer.value)
-    statsTimer.value = null
-  }
+  statsPolling.value = false
+  statsPoller.stop()
 }
 
 function startStatsPolling() {
-  if (statsTimer.value !== null) return
+  if (statsPolling.value) return
 
-  statsTimer.value = window.setInterval(async () => {
-    await loadStats()
-    if (!qwenQueue.value) stopStatsPolling()
-  }, 5000)
+  statsPolling.value = true
+  statsPoller.start()
 }
 
 async function retryFailed() {
@@ -736,7 +746,7 @@ onBeforeUnmount(stopStatsPolling)
           >
             {{ status }}: {{ count }}
           </q-chip>
-          <span v-if="statsTimer" class="text-caption text-grey-7">
+          <span v-if="statsPolling" class="text-caption text-grey-7">
             обновляется автоматически…
           </span>
         </div>

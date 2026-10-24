@@ -5,8 +5,10 @@
 // heavy work happens in the workers. Until schema/031 is applied the endpoint
 // answers 404, so the whole control hides itself instead of showing a broken
 // button.
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { Notify } from 'quasar'
+
+import { usePoller } from '../composables/usePoller'
 
 import {
   fetchCurrentPipeline,
@@ -33,7 +35,9 @@ const pollError = ref('')
 const busy = ref(false)
 const dialogOpen = ref(false)
 
-let timer = null
+// Опрос прогона раз в 3 с: первый запрос сразу (immediate), скрытая вкладка
+// молчит, уход со страницы останавливает опрос.
+const poller = usePoller(poll, { intervalMs: 3000, immediate: true })
 let lastStatus = null
 
 const ACTIVE = ['PENDING', 'RUNNING']
@@ -278,12 +282,10 @@ async function doStop() {
 }
 
 onMounted(() => {
-  poll()
-  timer = window.setInterval(poll, 3000)
-})
-
-onBeforeUnmount(() => {
-  if (timer !== null) window.clearInterval(timer)
+  // Опрос прогона: первый запрос сразу, далее раз в 3 с. Скрытая вкладка
+  // молчит, тики не накладываются, уход со страницы останавливает опрос —
+  // раньше это был свой setInterval (второй аудит, 2.6).
+  poller.start()
 })
 </script>
 
