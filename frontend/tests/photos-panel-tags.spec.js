@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { h, nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
-import { Notify, QLayout, QPageContainer, Quasar } from 'quasar'
+import { Notify, QLayout, QPageContainer, QSelect, Quasar } from 'quasar'
 import { createPinia, setActivePinia } from 'pinia'
 
 import { useSessionStore } from '../src/stores/session'
@@ -841,6 +841,27 @@ describe('строка тегов', () => {
     const tags = wrapper.find('.tags-row').text()
     expect(tags).toContain('Клиент: Клиент А')
     expect(tags).toContain('Бренд: СТС')
+    wrapper.unmount()
+  })
+})
+
+describe('период без дат', () => {
+  it('говорит «Укажите даты», а не «За период N фото»', async () => {
+    const wrapper = await mountGrid()
+
+    // Выбираем «Период…» так же, как это делает пользователь, — через поле.
+    const periodSelect = wrapper
+      .findAllComponents(QSelect)
+      .find((node) => node.props('label') === 'Период')
+
+    expect(periodSelect).toBeTruthy()
+    await periodSelect.setValue('custom')
+    await flushPromises()
+    await nextTick()
+
+    expect(wrapper.text()).toContain('Укажите даты')
+    expect(wrapper.text()).not.toContain('За период 1 фото')
+
     wrapper.unmount()
   })
 })

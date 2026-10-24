@@ -21,6 +21,7 @@ if (!globalThis.localStorage) {
 const photo = (id) => ({ photo_id: id, filename: `${id}.jpg` })
 
 let routes
+let savedSearchBodies
 
 function jsonResponse(body, status = 200) {
   return { ok: status < 400, status, json: async () => body }
@@ -42,6 +43,7 @@ function installFetch() {
 }
 
 beforeEach(() => {
+  savedSearchBodies = []
   setActivePinia(createPinia())
 
   routes = [
@@ -49,6 +51,14 @@ beforeEach(() => {
     { method: 'GET', match: (p) => p === '/api/v1/clients', respond: () => jsonResponse({ items: [] }) },
     { method: 'GET', match: (p) => p === '/api/v1/collections', respond: () => jsonResponse({ items: [] }) },
     { method: 'GET', match: (p) => p === '/api/v1/searches', respond: () => jsonResponse({ items: [] }) },
+    {
+      method: 'POST',
+      match: (p) => p === '/api/v1/searches',
+      respond: (_url, options) => {
+        savedSearchBodies.push(JSON.parse(options.body))
+        return jsonResponse({ search_id: 3, name: 'Поиск' })
+      },
+    },
     { method: 'GET', match: (p) => p === '/api/v1/photos', respond: (...args) => routes.photos(...args) },
     {
       method: 'POST',
@@ -771,17 +781,6 @@ describe('подборки и структурные фильтры', () => {
   })
 
   it('сохранённый поиск включает бренд, тег и категорию', async () => {
-    const posts = []
-
-    routes.push({
-      method: 'POST',
-      match: (p) => p === '/api/v1/searches',
-      respond: (_url, options) => {
-        posts.push(JSON.parse(options.body))
-        return jsonResponse({ search_id: 1 })
-      },
-    })
-
     const store = usePhotosStore()
     store.query = 'вывеска'
     store.brand = 'СТС'
@@ -790,7 +789,8 @@ describe('подборки и структурные фильтры', () => {
 
     await store.saveCurrentSearch('Мой поиск')
 
-    expect(posts[0].filters).toMatchObject({
+    // Тело запроса ловит общий маршрут POST /v1/searches (savedSearchBodies).
+    expect(savedSearchBodies[0].filters).toMatchObject({
       brand: 'СТС',
       tag: 'канал СТС',
       category: 'реклама',
@@ -858,5 +858,22 @@ describe('пустая подборка', () => {
 
     expect(store.selectedClients).toEqual([])
     expect(store.clientCollectionId).toBe(null)
+  })
+})
+
+describe('сохранённый поиск', () => {
+  it('хранит режим ○/△/□ вместе с фильтрами', async () => {
+    const store = usePhotosStore()
+
+    store.combine = 'client'
+    store.selectedClients = ['Клиент А']
+
+    await store.saveCurrentSearch('Мой поиск')
+
+    expect(savedSearchBodies).toHaveLength(1)
+    // Без режима тот же поиск давал другую выдачу: адреса и клиенты
+    // складываются по-разному.
+    expect(savedSearchBodies[0].filters.combine).toBe('client')
+    expect(savedSearchBodies[0].filters.clients).toEqual(['Клиент А'])
   })
 })

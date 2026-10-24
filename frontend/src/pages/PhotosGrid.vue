@@ -13,6 +13,7 @@ import {
   downloadAuthenticated,
   fetchMediaSearchJob,
   fetchPhotoDetails,
+  fetchPhotos,
   fetchSearchSuggestions,
   fetchRunActivity,
   fetchSortStatus,
@@ -427,6 +428,17 @@ const hasFilterSelection = computed(
 
 const periodLabel = computed(() => {
   const count = store.total
+
+  // «Период…» без дат не фильтрует ничего: так и говорим, иначе подпись
+  // «За период N фото» обещает фильтр, которого нет.
+  if (
+    period.value === 'custom'
+    && !customFrom.value
+    && !customTo.value
+    && !hasFilterSelection.value
+  ) {
+    return 'Укажите даты'
+  }
 
   if (hasFilterSelection.value) {
     return count === null || count === undefined
@@ -1808,6 +1820,15 @@ async function applySavedSearch(search) {
   period.value = from || to ? 'custom' : 'all'
   dateMode.value = filters.date_mode === 'capture' ? 'capture' : 'upload'
 
+  // Режим ○/△/□ хранится вместе с поиском: у старых записей его нет — тогда
+  // остаётся текущий переключатель. Ставим его в подвале, чтобы переключатель
+  // показывал то, что применилось.
+  const savedCombine = ['union', 'address', 'client'].includes(filters.combine)
+    ? filters.combine
+    : combineMode.value
+
+  if (savedCombine !== combineMode.value) display.addressClientMode = savedCombine
+
   await store.applyFilters({
     q: q.value,
     addresses: filters.addresses || [],
@@ -1818,7 +1839,7 @@ async function applySavedSearch(search) {
     dateFrom: from,
     dateTo: to,
     dateMode: dateMode.value,
-    combine: combineMode.value,
+    combine: savedCombine,
     collectionId: filters.collection_id || null,
   })
 }
@@ -1972,6 +1993,36 @@ function qwenHint(photo) {
 // ZIP: one server-built archive instead of a file per photo.
 const zipBusy = ref(false)
 
+// Сколько идентификаторов спрашивать за раз: сервер ограничивает запрос
+// двумя сотнями (Query(..., max_length=200) в /v1/photos).
+const IDS_CHUNK = 200
+
+/**
+ * Карточки выделенных фото, включая те, что не загружены в грид.
+ *
+ * Имя файла берётся из карточки, а у незагруженных её нет — получался
+ * `photo.jpg` для всех. Спрашиваем имена у сервера по идентификаторам.
+ * Ошибка не должна ломать скачивание: тогда имена будут прежними.
+ */
+async function photosForSelection(ids) {
+  const known = new Map(items.value.map((photo) => [photo.photo_id, photo]))
+  const missing = ids.filter((id) => !known.has(id))
+
+  for (let start = 0; start < missing.length; start += IDS_CHUNK) {
+    const chunk = missing.slice(start, start + IDS_CHUNK)
+
+    try {
+      const data = await fetchPhotos({ ids: chunk, limit: chunk.length })
+
+      for (const photo of data.items || []) known.set(photo.photo_id, photo)
+    } catch {
+      // Ничего: без имени архив всё равно соберётся.
+    }
+  }
+
+  return known
+}
+
 async function downloadZip() {
   if (!store.selectedCount) return
 
@@ -1980,14 +2031,15 @@ async function downloadZip() {
   try {
     // Do not name this local `items`: it would shadow the loaded photo list
     // (`items.value`) used in the initializer and hit its temporal dead zone.
-    const archiveItems = [...store.selected].map((photoId, index) => ({
+    const selectedIds = [...store.selected]
+    const known = await photosForSelection(selectedIds)
+
+    const archiveItems = selectedIds.map((photoId, index) => ({
       photo_id: photoId,
       // The same name the single-file download would use; the position in
       // the batch is the iteration for files whose name carries none.
       name: downloadFileName(
-        items.value.find((photo) => photo.photo_id === photoId) || {
-          photo_id: photoId,
-        },
+        known.get(photoId) || { photo_id: photoId },
         display.downloadNameMode,
         index + 1,
       ),
@@ -2996,6 +3048,7 @@ function tagList(meta) {
               outlined
               label="С"
               style="width: 130px"
+              @change="apply()"
               @blur="apply()"
             />
             <q-input
@@ -3005,6 +3058,7 @@ function tagList(meta) {
               outlined
               label="По"
               style="width: 130px"
+              @change="apply()"
               @blur="apply()"
             />
           </template>

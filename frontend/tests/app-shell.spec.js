@@ -19,6 +19,8 @@ import { useDisplayStore } from '../src/stores/display'
 
 const calls = []
 const urls = []
+// Тела запросов архива: по ним видно имена файлов, которые ушли на сервер.
+const archiveBodies = []
 
 // Уведомления в тестах не нужны, а их отсутствие прячет настоящую ошибку.
 Notify.create = vi.fn()
@@ -85,6 +87,7 @@ function installFetch({
     }
 
     if (path.endsWith('/v1/photos/archive') && method === 'POST') {
+      archiveBodies.push(JSON.parse(options.body))
       return {
         ok: true,
         status: 200,
@@ -307,6 +310,8 @@ describe('оболочка приложения', () => {
     global.URL.createObjectURL = vi.fn(() => 'blob:zip')
     global.URL.revokeObjectURL = vi.fn()
 
+    archiveBodies.length = 0
+
     const wrapper = await mountShell()
     const grid = wrapper.findComponent(PhotosGrid)
     const photoId = 'PH_' + 'a'.repeat(24)
@@ -323,6 +328,67 @@ describe('оболочка приложения', () => {
       type: 'positive',
       message: 'Архив собран: 1 фото',
     })
+
+    wrapper.unmount()
+  })
+
+  it('имя файла для незагруженного фото берётся с сервера', async () => {
+    Notify.create.mockClear()
+    global.URL.createObjectURL = vi.fn(() => 'blob:zip')
+    global.URL.revokeObjectURL = vi.fn()
+
+    const missingId = 'PH_' + 'z'.repeat(24)
+    const baseFetch = global.fetch
+
+    // Выделенное фото не загружено в грид: имя для архива приходит из ответа
+    // на запрос по идентификаторам.
+    global.fetch = vi.fn(async (url, options = {}) => {
+      const parsed = new URL(String(url), 'http://localhost')
+
+      if (
+        parsed.pathname.endsWith('/v1/photos')
+        && parsed.searchParams.getAll('ids').includes(missingId)
+      ) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            items: [
+              {
+                photo_id: missingId,
+                filename: 'ворота-восточные.jpg',
+                width: 100,
+                height: 100,
+                container_format: 'JPEG',
+                address: '78_v33',
+                simple_address: 'Комарова 13',
+                taken_at: '2025-07-17 11:43:19',
+                size_bytes: 1024,
+              },
+            ],
+            next_cursor: null,
+          }),
+        }
+      }
+
+      return baseFetch(url, options)
+    })
+
+    archiveBodies.length = 0
+
+    const wrapper = await mountShell()
+    const grid = wrapper.findComponent(PhotosGrid)
+
+    grid.vm.store.toggleSelected(missingId)
+    await flushPromises()
+
+    await grid.vm.downloadZip()
+    await flushPromises()
+
+    // Раньше было «photo.jpg»: имя брали только из загруженных карточек.
+    expect(archiveBodies.at(-1).items).toEqual([
+      { photo_id: missingId, name: 'ворота-восточные.jpg' },
+    ])
 
     wrapper.unmount()
   })

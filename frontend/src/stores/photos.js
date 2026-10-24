@@ -825,6 +825,9 @@ export const usePhotosStore = defineStore('photos', {
         date_to: this.dateTo,
         date_mode: this.dateMode,
         collection_id: this.collectionId,
+        // Режим ○/△/□ — часть набора: без него тот же поиск давал другую
+        // выдачу (адреса и клиенты складываются иначе).
+        combine: this.combine,
       }
       const created = await createSavedSearchApi({ name, filters })
       await this.loadSavedSearches()
@@ -851,10 +854,10 @@ export const usePhotosStore = defineStore('photos', {
       this.scheduleSelectionPersist()
     },
 
-    selectAllCurrent() {
-      this.selected = this.items.map((item) => item.photo_id)
-      this.scheduleSelectionPersist()
-    },
+    // selectAllCurrent() удалён: он выбирал только загруженные страницы (грид
+    // листается по 100), ниоткуда не вызывался, а «выбрать всё по фильтру»
+    // требует серверного шага — клиентский обход 57 тысяч фото это 570
+    // запросов. Подробности — в docs/roadmap_ui_audit_20261024.md.
 
     clearSelection() {
       this.selected = []
