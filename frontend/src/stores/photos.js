@@ -193,6 +193,11 @@ export const usePhotosStore = defineStore('photos', {
   getters: {
     hasMore: (state) => state.nextCursor !== null,
     selectedCount: (state) => state.selected.length,
+    // Плитка спрашивает выделение на каждой отрисовке, а `includes` по массиву
+    // это O(n) на плитку — при тысячах выбранных фото получается O(n·m).
+    // Набор считается один раз на новое значение списка (обновления ниже
+    // всегда заменяют массив, а не меняют его на месте).
+    selectedSet: (state) => new Set(state.selected),
     // Подборки одного вида: 'addresses' — в левой панели, 'clients' — в правой.
     collectionsFor: (state) => (scope) =>
       state.collections.filter((item) => item.scope === scope),
@@ -756,13 +761,15 @@ export const usePhotosStore = defineStore('photos', {
     // ---- selection ----
 
     isSelected(photoId) {
-      return this.selected.includes(photoId)
+      return this.selectedSet.has(photoId)
     },
 
     toggleSelected(photoId) {
-      const index = this.selected.indexOf(photoId)
-      if (index === -1) this.selected.push(photoId)
-      else this.selected.splice(index, 1)
+      // Новый массив, а не правка на месте: иначе `selectedSet` остаётся тем
+      // же самым набором, и плитка не узнаёт об изменении.
+      this.selected = this.selectedSet.has(photoId)
+        ? this.selected.filter((id) => id !== photoId)
+        : [...this.selected, photoId]
       this.scheduleSelectionPersist()
     },
 

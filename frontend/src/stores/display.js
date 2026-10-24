@@ -350,11 +350,58 @@ export const useDisplayStore = defineStore('display', () => {
   }
 
   let serverTimer = null
+  // Локальная запись откладывается так же, как серверная. При перетаскивании
+  // панели `persist` вызывается на каждое движение указателя, а `setItem`
+  // синхронный и сериализует весь набор настроек — на каждое движение это
+  // лишняя работа в главном потоке. 400 мс для настроек незаметны.
+  let localTimer = null
+  let pendingLocal = null
   // Гость видит грид, но настройки сайта за ним не сохраняются.
   let persistenceEnabled = true
 
   function setPersistence(enabled) {
     persistenceEnabled = Boolean(enabled)
+
+    if (!persistenceEnabled) dropPendingLocal()
+  }
+
+  function dropPendingLocal() {
+    if (localTimer !== null) {
+      clearTimeout(localTimer)
+      localTimer = null
+    }
+
+    pendingLocal = null
+  }
+
+  /** Отложенная запись в localStorage: только для того же пользователя. */
+  function writeLocalNow() {
+    if (!pendingLocal) return
+
+    const { key, data } = pendingLocal
+
+    pendingLocal = null
+
+    // Пока таймер ждал, мог войти другой пользователь: его ключ настроек
+    // нельзя затирать чужим снимком.
+    if (key !== storageKey()) return
+
+    try {
+      window.localStorage.setItem(key, JSON.stringify(data))
+    } catch {
+      // storage disabled (private mode): keep the value for this session only
+    }
+  }
+
+  function scheduleLocalWrite(key, data) {
+    pendingLocal = { key, data }
+
+    if (localTimer !== null) clearTimeout(localTimer)
+
+    localTimer = setTimeout(() => {
+      localTimer = null
+      writeLocalNow()
+    }, 400)
   }
 
   function persist() {
@@ -362,11 +409,7 @@ export const useDisplayStore = defineStore('display', () => {
 
     const data = snapshot()
 
-    try {
-      window.localStorage.setItem(storageKey(), JSON.stringify(data))
-    } catch {
-      // storage disabled (private mode): keep the value for this session only
-    }
+    scheduleLocalWrite(storageKey(), data)
 
     // The settings belong to the user, not to the browser: the same blob is
     // kept on the server (under the `display` key of the selection state) so a
@@ -402,7 +445,23 @@ export const useDisplayStore = defineStore('display', () => {
       serverTimer = null
     }
 
-    if (!persistenceEnabled) return
+    if (!persistenceEnabled) {
+      dropPendingLocal()
+      return
+    }
+
+    // Вкладку закрывают — ждать дебаунс некогда. Отложенной записи может ещё
+    // не быть: правка настроек и уход со страницы могут попасть в один тик,
+    // а наблюдатель за настройками срабатывает асинхронно. Тогда пишем
+    // текущий снимок — на закрытии вкладки это ровно то, что нужно.
+    if (localTimer !== null) {
+      clearTimeout(localTimer)
+      localTimer = null
+    }
+
+    if (!pendingLocal) pendingLocal = { key: storageKey(), data: snapshot() }
+
+    writeLocalNow()
 
     try {
       // keepalive lets the small settings blob survive page teardown; a plain
@@ -425,6 +484,9 @@ export const useDisplayStore = defineStore('display', () => {
       clearTimeout(serverTimer)
       serverTimer = null
     }
+
+    // То же для отложенной локальной записи.
+    dropPendingLocal()
 
     storageSuffix = key ? String(key) : ''
     applyState(loadState({ migrate }))

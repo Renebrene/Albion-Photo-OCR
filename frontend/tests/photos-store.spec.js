@@ -143,6 +143,28 @@ describe('photos store', () => {
     expect(store.selected).toEqual([])
   })
 
+  it('проверяет выделение по набору и обновляет его при каждом изменении', () => {
+    const store = usePhotosStore()
+
+    store.selected = Array.from({ length: 5000 }, (_, index) => `PH_${index}`)
+
+    // Плитка спрашивает isSelected на каждой отрисовке: поиск по набору.
+    expect(store.isSelected('PH_4999')).toBe(true)
+    expect(store.isSelected('PH_none')).toBe(false)
+
+    const before = store.selected
+    store.toggleSelected('PH_0')
+
+    expect(store.isSelected('PH_0')).toBe(false)
+    // Набор пересобирается только при новом списке: правка на месте оставила
+    // бы кэш getter'а устаревшим, и плитка не узнала бы об изменении.
+    expect(store.selected).not.toBe(before)
+
+    store.toggleSelected('PH_new')
+    expect(store.isSelected('PH_new')).toBe(true)
+    expect(store.selectedSet.has('PH_new')).toBe(true)
+  })
+
   it('applyNlResults filters by the returned ids', async () => {
     const store = usePhotosStore()
     await store.applyNlResults(['PH_x', 'PH_y'])

@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { nextTick } from 'vue'
 
 import {
   DOWNLOAD_NAME_MODES,
@@ -16,6 +18,14 @@ import {
 } from '../src/stores/display'
 
 const STORAGE_KEY = 'scene.display.v1'
+
+// Локальная запись настроек отложена дебаунсом: при перетаскивании панели
+// persist() вызывается на каждое движение указателя, а setItem синхронный.
+const LOCAL_WRITE_DELAY = 400
+
+function waitLocalWrite() {
+  return new Promise((resolve) => setTimeout(resolve, LOCAL_WRITE_DELAY + 100))
+}
 
 describe('display store', () => {
   beforeEach(() => {
@@ -92,12 +102,58 @@ describe('display store', () => {
     delete global.fetch
   })
 
+  it('пишет localStorage один раз на серию изменений', async () => {
+    const display = useDisplayStore()
+
+    // Наблюдатели и отложенные записи прошлых тестов доводятся до конца
+    // здесь, чтобы считать только свои.
+    await waitLocalWrite()
+    await display.flush()
+
+    const writes = []
+    const setItem = window.localStorage.setItem.bind(window.localStorage)
+
+    vi.spyOn(window.localStorage, 'setItem').mockImplementation((key, value) => {
+      writes.push(String(key))
+      setItem(key, value)
+    })
+
+    // Так ведёт себя перетаскивание панели: каждое движение указателя — своя
+    // задача, между ними наблюдатель успевает сработать.
+    display.resizePanel('left', 40)
+    await nextTick()
+    display.resizePanel('left', 45)
+    await nextTick()
+    display.resizePanel('left', 50)
+
+    expect(writes).toEqual([])
+
+    await waitLocalWrite()
+
+    expect(writes).toEqual([STORAGE_KEY])
+    // Записано итоговое состояние, а не первое из серии.
+    expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY)).leftPanelWidth)
+      .toBe(display.leftPanelWidth)
+  })
+
+  it('дописывает отложенную запись при закрытии вкладки', async () => {
+    const display = useDisplayStore()
+
+    display.tileColumns = 6
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull()
+
+    // Страница уходит (pagehide) — ждать дебаунс некогда.
+    await display.flush()
+
+    expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY)).tileColumns).toBe(6)
+  })
+
   it('persists changes and reset() restores the defaults', async () => {
     const display = useDisplayStore()
 
     display.tileColumns = 6
     display.listFields = ['filename', 'brand']
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await waitLocalWrite()
 
     expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY))).toEqual({
       tileColumns: 6,
@@ -270,7 +326,7 @@ describe('download file names (item 11b)', () => {
     expect(display.downloadNameMode).toBe('filename')
 
     display.downloadNameMode = 'legal'
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await waitLocalWrite()
 
     expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY)).downloadNameMode).toBe(
       'legal',
@@ -362,7 +418,7 @@ describe('side panels of the photo page', () => {
 
     display.leftPanelOpen = false
     display.rightPanelOpen = false
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await waitLocalWrite()
 
     const stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY))
     expect(stored.leftPanelOpen).toBe(false)
@@ -455,7 +511,7 @@ describe('draggable panel sizes', () => {
 
     display.resizePanel('left', 40)
     display.resizeSideList(40)
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await waitLocalWrite()
 
     const stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY))
     expect(stored.leftPanelWidth).toBe(380)
@@ -580,7 +636,7 @@ describe('настройки за пользователем и размеры �
 
     display.tileColumns = 4
     display.addressClientMode = 'client'
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await waitLocalWrite()
 
     display.setUserKey('u2')
     expect(display.tileColumns).toBe('auto')
