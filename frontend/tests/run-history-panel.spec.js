@@ -80,7 +80,8 @@ describe('общая история запусков', () => {
     global.fetch = vi.fn(async () => json({ detail: 'forbidden' }, 403))
     const wrapper = mount(RunHistoryPanel, { global: { plugins: [Quasar] } })
     await flushPromises()
-    expect(wrapper.text()).toContain('API error 403')
+    // Причина от сервера важнее кода состояния.
+    expect(wrapper.text()).toContain('forbidden')
   })
 
   it('открывает лог как текст и сообщает, если он уже удалён', async () => {

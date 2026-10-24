@@ -110,7 +110,43 @@ describe('api client', () => {
 
   it('throws a generic error on a failed GET', async () => {
     mockFetchOnce({ ok: false, status: 500, json: async () => ({}) })
-    await expect(fetchPhotos({ limit: 5 })).rejects.toThrow('API error 500')
+    await expect(fetchPhotos({ limit: 5 })).rejects.toThrow('Не удалось выполнить запрос (код 500)')
+  })
+
+  it('показывает причину от сервера, а не только код', async () => {
+    mockFetchOnce({
+      ok: false,
+      status: 422,
+      json: async () => ({ detail: 'limit must be <= 100' }),
+    })
+
+    await expect(fetchPhotos({ limit: 5 })).rejects.toThrow('limit must be <= 100')
+  })
+
+  it('несёт код состояния в ошибке', async () => {
+    mockFetchOnce({ ok: false, status: 404, json: async () => ({}) })
+
+    await expect(fetchPhotos({ limit: 5 })).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('разбирает массив ошибок валидации', async () => {
+    mockFetchOnce({
+      ok: false,
+      status: 422,
+      json: async () => ({ detail: [{ msg: 'bad limit' }, { msg: 'bad date' }] }),
+    })
+
+    await expect(fetchPhotos({ limit: 5 })).rejects.toThrow('bad limit; bad date')
+  })
+
+  it('обрыв сети объясняет по-русски', async () => {
+    global.fetch = vi.fn(async () => {
+      throw new TypeError('Failed to fetch')
+    })
+
+    await expect(fetchPhotos({ limit: 5 })).rejects.toThrow(
+      'Нет связи с сервером',
+    )
   })
 
   it('fetches the active recognition operation', async () => {
@@ -138,9 +174,9 @@ describe('api client', () => {
 
   it('surfaces run-log missing and authorization errors', async () => {
     mockFetchOnce({ ok: false, status: 404 })
-    await expect(fetchRunLog(2)).rejects.toThrow('API error 404')
+    await expect(fetchRunLog(2)).rejects.toThrow('Не удалось выполнить запрос (код 404)')
     mockFetchOnce({ ok: false, status: 403 })
-    await expect(fetchRunLog(2)).rejects.toThrow('API error 403')
+    await expect(fetchRunLog(2)).rejects.toThrow('Не удалось выполнить запрос (код 403)')
   })
 
   it('preserves the optional automatic HYBRID flag for DINO batches', async () => {

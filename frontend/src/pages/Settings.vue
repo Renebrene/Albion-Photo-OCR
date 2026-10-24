@@ -17,6 +17,7 @@ import {
 } from '../api/client'
 import { useSessionStore } from '../stores/session'
 import { useAsyncAction } from '../composables/useAsyncAction'
+import { confirmDialog } from '../composables/confirmDialog'
 
 const session = useSessionStore()
 const canConfigure = computed(
@@ -402,6 +403,14 @@ async function stopQueue() {
   })
 }
 async function clearQueue() {
+  const confirmed = await confirmDialog({
+    title: 'Очистить список заданий?',
+    message: 'Записи о выполненных заданиях распознавания будут удалены. Очередь и результаты описаний не трогаются.',
+    okLabel: 'Очистить',
+  })
+
+  if (!confirmed) return
+
   await clearQueueRun(async () => {
     try {
       const result = await clearQwenJobs()

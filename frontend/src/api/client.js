@@ -160,6 +160,68 @@ export function clearImageCache() {
   _imageInflight.clear()
 }
 
+/**
+ * Ошибка запроса с причиной от сервера.
+ *
+ * Сервер отвечает `{"detail": ...}`; раньше GET показывал только код
+ * («API error 422»), а обрыв сети уходил наверх английским «Failed to fetch».
+ */
+async function apiError(response) {
+  let detail = `Не удалось выполнить запрос (код ${response.status})`
+
+  try {
+    const body = await response.json()
+
+    if (body && typeof body.detail === 'string' && body.detail) {
+      detail = body.detail
+    } else if (body && Array.isArray(body.detail)) {
+      // Ошибки валидации FastAPI приходят массивом объектов.
+      const parts = body.detail
+        .map((item) => (item && (item.msg || item.detail)) || '')
+        .filter(Boolean)
+
+      if (parts.length) detail = parts.join('; ')
+    }
+  } catch {
+    // Тело не JSON — остаётся код состояния.
+  }
+
+  const error = new Error(detail)
+  // Код состояния нужен вызывающим: «лог удалён» — это 404, а не текст.
+  error.status = response.status
+  return error
+}
+
+function networkError(err) {
+  if (err instanceof TypeError) {
+    return new Error('Нет связи с сервером — проверьте подключение и повторите')
+  }
+
+  return err
+}
+
+/** Один путь для всех JSON-запросов: единый разбор ошибок. */
+async function requestJson(url, { method = 'GET', body, keepalive = false } = {}) {
+  const options = { method, headers: authHeaders(), keepalive }
+
+  if (body !== undefined) {
+    options.headers = authHeaders({ 'Content-Type': 'application/json' })
+    options.body = JSON.stringify(body)
+  }
+
+  let response
+
+  try {
+    response = await fetch(url, options)
+  } catch (err) {
+    throw networkError(err)
+  }
+
+  if (!response.ok) throw await apiError(response)
+
+  return response.json()
+}
+
 export async function downloadAuthenticated(url, filename) {
   const response = await fetch(url, { headers: authHeaders() })
 
@@ -211,13 +273,7 @@ export async function downloadArchive(items, filename = 'photobase.zip') {
 }
 
 async function getJson(url) {
-  const response = await fetch(url, { headers: authHeaders() })
-
-  if (!response.ok) {
-    throw new Error(`API error ${response.status}`)
-  }
-
-  return response.json()
+  return requestJson(url)
 }
 
 export function login(name, password) {
@@ -284,9 +340,7 @@ export async function fetchRunLog(runId) {
     { headers: authHeaders() },
   )
 
-  if (!response.ok) {
-    throw new Error(`API error ${response.status}`)
-  }
+  if (!response.ok) throw await apiError(response)
 
   return response.text()
 }
@@ -974,24 +1028,7 @@ export function backfillPreviews({ photoIds = null, limit = 500 } = {}) {
 }
 
 async function postJson(url, body) {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify(body),
-  })
-
-  if (!response.ok) {
-    let detail = `API error ${response.status}`
-    try {
-      const payload = await response.json()
-      if (payload && payload.detail) detail = payload.detail
-    } catch {
-      // ignore non-JSON error bodies
-    }
-    throw new Error(detail)
-  }
-
-  return response.json()
+  return requestJson(url, { method: 'POST', body })
 }
 
 export function createDinoBatch({
@@ -1028,25 +1065,7 @@ export function fetchQwenStats() {
 }
 
 async function putJson(url, body, { keepalive = false } = {}) {
-  const response = await fetch(url, {
-    method: 'PUT',
-    headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify(body),
-    keepalive,
-  })
-
-  if (!response.ok) {
-    let detail = `API error ${response.status}`
-    try {
-      const payload = await response.json()
-      if (payload && payload.detail) detail = payload.detail
-    } catch {
-      // ignore
-    }
-    throw new Error(detail)
-  }
-
-  return response.json()
+  return requestJson(url, { method: 'PUT', body, keepalive })
 }
 
 export function fetchQwenModels() {
@@ -1054,44 +1073,11 @@ export function fetchQwenModels() {
 }
 
 async function patchJson(url, body) {
-  const response = await fetch(url, {
-    method: 'PATCH',
-    headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify(body),
-  })
-
-  if (!response.ok) {
-    let detail = `API error ${response.status}`
-    try {
-      const payload = await response.json()
-      if (payload && payload.detail) detail = payload.detail
-    } catch {
-      // ignore
-    }
-    throw new Error(detail)
-  }
-
-  return response.json()
+  return requestJson(url, { method: 'PATCH', body })
 }
 
 async function deleteJson(url) {
-  const response = await fetch(url, {
-    method: 'DELETE',
-    headers: authHeaders(),
-  })
-
-  if (!response.ok) {
-    let detail = `API error ${response.status}`
-    try {
-      const payload = await response.json()
-      if (payload && payload.detail) detail = payload.detail
-    } catch {
-      // ignore
-    }
-    throw new Error(detail)
-  }
-
-  return response.json()
+  return requestJson(url, { method: 'DELETE' })
 }
 
 export function setQwenModel(model) {

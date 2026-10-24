@@ -5,6 +5,9 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { Notify, Quasar } from 'quasar'
+import { createPinia, setActivePinia } from 'pinia'
+
+import { useSessionStore } from '../src/stores/session'
 
 import Automation from '../src/components/Automation.vue'
 import LastRun from '../src/components/LastRun.vue'
@@ -22,9 +25,14 @@ afterEach(() => {
 })
 
 function mountComponent(component) {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  // Открытый режим: спека проверяет настройки планировщика без входа.
+  useSessionStore().authEnabled = false
+
   return mount(component, {
     attachTo: document.body,
-    global: { plugins: [Quasar] },
+    global: { plugins: [Quasar, pinia] },
   })
 }
 

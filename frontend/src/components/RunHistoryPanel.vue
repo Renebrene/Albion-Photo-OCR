@@ -89,9 +89,9 @@ async function openLog(run) {
   try {
     logText.value = await fetchRunLog(run.run_id)
   } catch (err) {
-    if (err?.message === 'API error 404') {
+    if (err?.status === 404) {
       logError.value = 'Лог для этого запуска отсутствует или уже удалён.'
-    } else if (err?.message === 'API error 403') {
+    } else if (err?.status === 403) {
       logError.value = 'Недостаточно прав для просмотра логов.'
     } else {
       logError.value = err?.message || 'Не удалось загрузить лог'

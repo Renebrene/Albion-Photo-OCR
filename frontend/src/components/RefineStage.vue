@@ -28,6 +28,28 @@ async function load() {
   }
 }
 
+// Тумблер сохраняется сразу: панель вкладки размонтируется при переключении,
+// и нажатие, не отправленное на сервер, молча терялось.
+const savingEnabled = ref(false)
+
+async function setEnabled(value) {
+  if (savingEnabled.value) return
+
+  const previous = settings.value.enabled
+  settings.value.enabled = Boolean(value)
+  savingEnabled.value = true
+
+  try {
+    const updated = await saveRefineSettings({ enabled: settings.value.enabled })
+    settings.value = { ...settings.value, ...updated }
+  } catch (err) {
+    settings.value.enabled = previous
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    savingEnabled.value = false
+  }
+}
+
 async function save() {
   saving.value = true
   try {
@@ -61,10 +83,11 @@ onMounted(load)
 
       <div class="row items-center q-gutter-md q-mb-md">
         <q-toggle
-          v-model="settings.enabled"
+          :model-value="settings.enabled"
           label="Включить этап"
           color="primary"
-          :disable="settings.available === false"
+          :disable="settings.available === false || savingEnabled"
+          @update:model-value="setEnabled"
         />
         <q-badge color="grey-7" :label="`готово кадров: ${settings.photos_ready ?? 0}`" />
       </div>

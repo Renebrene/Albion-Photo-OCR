@@ -84,7 +84,8 @@ it('показывает ошибку загрузки', async () => {
 
   await flushPromises()
 
-  expect(wrapper.text()).toContain('API error 503')
+  // Причина от сервера важнее кода состояния.
+  expect(wrapper.text()).toContain('stats unavailable')
 
   wrapper.unmount()
 })

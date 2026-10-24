@@ -8,8 +8,17 @@ import {
   runAutomation,
   updateAutomation,
 } from '../api/client'
+import { useSessionStore } from '../stores/session'
 
 const settings = ref(null)
+// Поля «Интервал» и «Время запуска» правятся локально и сохраняются по blur или
+// Enter: раньше каждое нажатие клавиши отправляло запрос, а поле на время
+// запроса само себя блокировало — ввод «120» превращался в сохранённое «1».
+const intervalDraft = ref(null)
+const timeDraft = ref(null)
+// Номер последнего сохранения: ответ на старый запрос не должен перетирать
+// значение, которое ввели позже.
+let saveToken = 0
 const error = ref(null)
 const busy = ref(false)
 
@@ -35,6 +44,12 @@ const STATUS_COLORS = {
   RUNNING: 'primary',
   PENDING: 'grey',
 }
+
+const session = useSessionStore()
+// Поля правит Администратор; на установке без аутентификации — любой.
+const canConfigure = computed(
+  () => !session.authEnabled || session.user?.role === 'Администратор',
+)
 
 const lastRun = computed(() => settings.value?.last_run || null)
 
@@ -75,15 +90,44 @@ async function load() {
 }
 
 async function save(patch) {
+  const my = ++saveToken
+
   busy.value = true
+
   try {
-    settings.value = await updateAutomation(patch)
+    const updated = await updateAutomation(patch)
+
+    // Устаревший ответ (пользователь успел изменить поле ещё раз) не
+    // перетирает более новый.
+    if (my === saveToken) settings.value = updated
+
     Notify.create({ type: 'positive', message: 'Настройки сохранены' })
   } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
+    if (my === saveToken) Notify.create({ type: 'negative', message: err.message })
   } finally {
-    busy.value = false
+    if (my === saveToken) busy.value = false
   }
+}
+
+function commitInterval() {
+  const value = Number(intervalDraft.value)
+
+  intervalDraft.value = null
+
+  if (!Number.isFinite(value) || value <= 0) return
+  if (Number(settings.value?.interval_minutes) === value) return
+
+  save({ interval_minutes: value })
+}
+
+function commitTime() {
+  const value = timeDraft.value
+
+  timeDraft.value = null
+
+  if (!value || value === settings.value?.daily_time) return
+
+  save({ daily_time: value })
 }
 
 async function runNow() {
@@ -169,26 +213,30 @@ onMounted(load)
 
           <q-input
             v-if="(settings.mode || 'interval') === 'interval'"
-            :model-value="settings.interval_minutes"
+            :model-value="intervalDraft ?? settings.interval_minutes"
             type="number"
             dense
             outlined
             label="Интервал, минут"
             style="max-width: 220px"
-            :disable="busy"
-            @update:model-value="(v) => save({ interval_minutes: Number(v) })"
+            :disable="!canConfigure"
+            @update:model-value="(v) => (intervalDraft = v)"
+            @blur="commitInterval"
+            @keyup.enter="commitInterval"
           />
 
           <q-input
             v-else
-            :model-value="settings.daily_time || '09:00'"
+            :model-value="(timeDraft ?? settings.daily_time) || '09:00'"
             type="time"
             dense
             outlined
             label="Время запуска"
             style="max-width: 220px"
-            :disable="busy"
-            @update:model-value="(v) => save({ daily_time: v })"
+            :disable="!canConfigure"
+            @update:model-value="(v) => (timeDraft = v)"
+            @blur="commitTime"
+            @keyup.enter="commitTime"
           />
 
           <q-toggle
