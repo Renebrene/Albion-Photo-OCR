@@ -187,12 +187,24 @@ describe('FingerprintsList.vue', () => {
       .trigger('click')
     await flushPromises()
 
+    // Обычный путь: браузер сам приложит сессионную куку.
+    const direct =
+      wrapper.find('img[src*="/preview"]').exists()
+        ? wrapper.find('img[src*="/preview"]').element
+        : document.body.querySelector('img[src*="/preview"]')
+
+    expect(direct).toBeTruthy()
+    // Именно поэтому картинка идёт через AuthImage: если куки нет, запрос
+    // должен уйти с заголовком, а не остаться неавторизованным.
+    expect(imageCalls.length).toBe(0)
+
+    direct.dispatchEvent(new Event('error', { bubbles: true }))
+    await flushPromises()
+
     const call = imageCalls.find((item) => item.url.includes('/preview'))
 
     expect(call).toBeTruthy()
     expect(call.url).toContain('/v1/fingerprints/registry/78_v33/preview')
-    // A plain <img> cannot carry the token, which is why this goes through
-    // AuthImage - the request must be authorised.
     expect(call.auth).toContain('Bearer')
   })
 

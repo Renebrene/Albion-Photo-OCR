@@ -62,22 +62,27 @@ describe('AuthImage object URL lifetime', () => {
     global.fetch = fetchMock
 
     const url = '/api/v1/photos/PH_test/previews/small'
-    const first = mount(AuthImage, {
-      props: { url },
-      global: { plugins: [Quasar] },
-    })
-    await flushPromises()
+
+    /** Прямой путь не сработал: только тогда грузим blob. */
+    async function mountWithBrokenDirectPath() {
+      const wrapper = mount(AuthImage, {
+        props: { url },
+        global: { plugins: [Quasar] },
+      })
+      await flushPromises()
+      await wrapper.find('img').trigger('error')
+      await flushPromises()
+      return wrapper
+    }
+
+    const first = await mountWithBrokenDirectPath()
     expect(create).toHaveBeenCalledTimes(1)
 
     first.unmount()
     // Сразу не освобождается: картинка ещё может понадобиться при прокрутке.
     expect(revoke).not.toHaveBeenCalled()
 
-    const second = mount(AuthImage, {
-      props: { url },
-      global: { plugins: [Quasar] },
-    })
-    await flushPromises()
+    const second = await mountWithBrokenDirectPath()
 
     // Повторного запроса нет — отдали удержанный blob.
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -86,5 +91,113 @@ describe('AuthImage object URL lifetime', () => {
     second.unmount()
     clearImageCache()
     expect(revoke).toHaveBeenCalledWith('blob:preview')
+  })
+
+  it('не качает blob, пока прямой путь работает', async () => {
+    // Каждая плитка скачивалась дважды: браузер тянул картинку по src, а
+    // компонент — ещё раз через fetch, причём результат нигде не показывался,
+    // пока прямой путь не падал.
+    clearImageCache()
+
+    const create = vi.fn(() => 'blob:preview')
+    global.URL.createObjectURL = create
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, blob: async () => new Blob() }))
+    global.fetch = fetchMock
+
+    const wrapper = mount(AuthImage, {
+      props: { url: '/api/v1/photos/PH_test/previews/small' },
+      global: { plugins: [Quasar] },
+    })
+    await flushPromises()
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+    // Картинку показывает сам браузер, по обычному src.
+    expect(wrapper.find('img').attributes('src')).toContain('/previews/small')
+
+    wrapper.unmount()
+    clearImageCache()
+  })
+})
+
+describe('AuthImage lazy', () => {
+  class FakeObserver {
+    static instances = []
+
+    constructor(callback) {
+      this.callback = callback
+      this.elements = []
+      FakeObserver.instances.push(this)
+    }
+
+    observe(element) {
+      this.elements.push(element)
+    }
+
+    disconnect() {
+      this.elements = []
+    }
+
+    /** Прокрутка: плитка вошла в окно или ушла из него. */
+    enter(visible) {
+      this.callback([{ isIntersecting: visible }])
+    }
+  }
+
+  let fetchMock
+  let create
+
+  beforeEach(() => {
+    clearImageCache()
+    FakeObserver.instances.length = 0
+    global.IntersectionObserver = FakeObserver
+    create = vi.fn(() => 'blob:preview')
+    global.URL.createObjectURL = create
+    fetchMock = vi.fn(async () => ({ ok: true, status: 200, blob: async () => new Blob() }))
+    global.fetch = fetchMock
+  })
+
+  async function mountLazy(url = '/api/v1/photos/PH_test/previews/small') {
+    const wrapper = mount(AuthImage, {
+      props: { url, lazy: true },
+      global: { plugins: [Quasar] },
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  it('наблюдает корень плитки, а не ветку blob', async () => {
+    const wrapper = await mountLazy()
+    const observer = FakeObserver.instances[0]
+    expect(observer).toBeTruthy()
+    // Раньше ref стоял на ветке blob: у обычной плитки наблюдать было нечего,
+    // и компонент уходил в аварийную ветку с лишней загрузкой.
+    expect(observer.elements[0].classList.contains('auth-image-root')).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('blob грузится по ошибке прямого пути и только для видимой плитки', async () => {
+    const wrapper = await mountLazy()
+    const observer = FakeObserver.instances[0]
+
+    await wrapper.find('img').trigger('error')
+    await flushPromises()
+
+    // Плитка ещё за краем экрана — запасную копию не качаем.
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    observer.enter(true)
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(wrapper.html()).toContain('blob:preview')
+
+    // Ушла из окна — удержанный blob отпускаем, вместо него заглушка.
+    observer.enter(false)
+    await flushPromises()
+    expect(wrapper.html()).not.toContain('blob:preview')
+
+    wrapper.unmount()
   })
 })
