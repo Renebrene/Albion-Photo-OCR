@@ -2144,20 +2144,25 @@ function qwenHint(photo) {
 // ZIP: one server-built archive instead of a file per photo.
 const zipBusy = ref(false)
 
-// Сколько идентификаторов спрашивать за раз: сервер ограничивает запрос
-// двумя сотнями (Query(..., max_length=200) в /v1/photos).
-const IDS_CHUNK = 200
+// Сколько идентификаторов спрашивать за раз. Сервер ограничивает `limit`
+// сотней (`Query(50, ge=1, le=100)` в /v1/photos), поэтому запрос с двумя
+// сотнями отвечал 422 — ошибка глушилась, и незагруженные выбранные фото
+// сохранялись как photo.jpg. `max_length=200` в том же обработчике относится
+// к числу идентификаторов, а не к странице, — отсюда и путаница.
+const IDS_CHUNK = 100
 
 /**
  * Карточки выделенных фото, включая те, что не загружены в грид.
  *
  * Имя файла берётся из карточки, а у незагруженных её нет — получался
  * `photo.jpg` для всех. Спрашиваем имена у сервера по идентификаторам.
- * Ошибка не должна ломать скачивание: тогда имена будут прежними.
+ * Неудача не ломает скачивание (архив всё равно соберётся), но и не молчит:
+ * молчание как раз и скрывало ответ 422.
  */
 async function photosForSelection(ids) {
   const known = new Map(items.value.map((photo) => [photo.photo_id, photo]))
   const missing = ids.filter((id) => !known.has(id))
+  let failed = 0
 
   for (let start = 0; start < missing.length; start += IDS_CHUNK) {
     const chunk = missing.slice(start, start + IDS_CHUNK)
@@ -2167,8 +2172,17 @@ async function photosForSelection(ids) {
 
       for (const photo of data.items || []) known.set(photo.photo_id, photo)
     } catch {
-      // Ничего: без имени архив всё равно соберётся.
+      failed += chunk.length
     }
+  }
+
+  if (failed) {
+    Notify.create({
+      type: 'warning',
+      message:
+        `Не удалось получить имена для ${failed} фото — они сохранятся как photo.jpg. ` +
+        'Обновите страницу и повторите.',
+    })
   }
 
   return known
@@ -2220,10 +2234,14 @@ async function downloadSelected() {
     // пропускаем его, считаем и сообщаем в конце.
     const skipped = []
 
+    // Имена берём у сервера одной пачкой: у карточек, не загруженных в грид,
+    // их иначе нет, и файл сохранялся как photo.jpg.
+    const known = await photosForSelection([...store.selected])
+
     for (const [index, photoId] of [...store.selected].entries()) {
       // Use the real file name, not the PH_… id (item 11 of the UI backlog);
       // the name follows the display settings (item 11b).
-      const photo = items.value.find((item) => item.photo_id === photoId)
+      const photo = known.get(photoId)
       try {
         await downloadAuthenticated(
           originalUrl(photoId),
