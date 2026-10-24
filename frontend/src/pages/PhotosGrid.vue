@@ -31,6 +31,7 @@ import {
   searchByQuery,
 } from '../api/client'
 import AuthImage from '../components/AuthImage.vue'
+import PhotoFieldsForm from '../components/PhotoFieldsForm.vue'
 import CloudLinkButton from '../components/CloudLinkButton.vue'
 import ClientNormalization from '../components/ClientNormalization.vue'
 import CollectionsPanel from '../components/CollectionsPanel.vue'
@@ -4213,48 +4214,7 @@ function tagList(meta) {
           <div class="text-caption text-grey-7 ellipsis" :title="info?.source_path">
             Путь: {{ info?.source_path || '—' }}
           </div>
-          <q-input
-            v-model="qwenEditFields.description"
-            type="textarea"
-            autogrow
-            dense
-            outlined
-            label="Описание"
-          />
-          <div class="row q-col-gutter-sm">
-            <div class="col-12 col-md-6">
-              <q-input
-                v-model="qwenEditFields.client"
-                dense
-                outlined
-                label="Клиент"
-              />
-            </div>
-            <div class="col-12 col-md-6">
-              <q-input
-                v-model="qwenEditFields.brand"
-                dense
-                outlined
-                label="Бренд"
-              />
-            </div>
-            <div class="col-12 col-md-6">
-              <q-input
-                v-model="qwenEditFields.category"
-                dense
-                outlined
-                label="Категория"
-              />
-            </div>
-            <div class="col-12 col-md-6">
-              <q-input
-                v-model="qwenEditFields.tags"
-                dense
-                outlined
-                label="Теги (через запятую)"
-              />
-            </div>
-          </div>
+          <PhotoFieldsForm :fields="qwenEditFields" columns />
           <div class="text-caption text-grey-7">
             Прежнее описание сохранится в истории; запись будет помечена как
             «изменено вручную».
@@ -4491,16 +4451,9 @@ function tagList(meta) {
               поправить перед поиском.
             </div>
             <template v-else>
-              <q-input v-model="manualFields.description" type="textarea" autogrow outlined dense label="Описание" class="q-mb-sm" />
-              <q-input v-model="manualFields.client" outlined dense label="Клиент" class="q-mb-sm" />
-              <q-input v-model="manualFields.brand" outlined dense label="Бренд" class="q-mb-sm" />
-              <q-input v-model="manualFields.category" outlined dense label="Категория" class="q-mb-sm" />
-              <q-input
-                v-model="manualFields.tags"
-                outlined
-                dense
-                label="Теги (через запятую)"
-                hint="Теги тоже участвуют в поиске"
+              <PhotoFieldsForm
+                :fields="manualFields"
+                tags-hint="Теги тоже участвуют в поиске"
               />
             </template>
           </div>

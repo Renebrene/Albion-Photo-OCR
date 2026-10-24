@@ -787,8 +787,10 @@ describe('оболочка приложения', () => {
 
     const labels = Array.from(document.body.querySelectorAll('.q-field__label'))
       .map((label) => label.textContent.trim())
-    expect(labels).toContain('Клиент')
-    expect(labels).toContain('Бренд')
+    // Поля приходят из общей формы PhotoFieldsForm (одна на правку и поиск).
+    expect(labels).toEqual(
+      expect.arrayContaining(['Описание', 'Клиент', 'Бренд', 'Категория', 'Теги (через запятую)']),
+    )
 
     wrapper.unmount()
   })
