@@ -558,11 +558,33 @@ def _stage_ingest(run: dict, stage: dict) -> dict:
     return {"outcome": "WAIT"}
 
 
+# Сколько тиков подряд без прироста готовых превью считаем остановкой.
+# Три секунды на тик, то есть минута: за это время батч превью успевает
+# продвинуться, а нечитаемые файлы уже не дадут ни одного нового превью.
+PREVIEW_STALL_TICKS = 20
+# Страница постановки в очередь за один тик (enqueue_missing_previews).
+PREVIEW_ENQUEUE_PAGE = 2000
+
+
 def _stage_preview(run: dict, stage: dict) -> dict:
+    """
+    Довести превью до готовности.
+
+    Инспектор ставит превью только для новых файлов, поэтому после очистки
+    превью (или при повторном прогоне по уже зарегистрированному корпусу)
+    стадия сама наполняет очередь — страницами, пока не останется фото без
+    превью. Раньше она ставила одну страницу и завершалась, как только та
+    опустеет: DINO уходил в бой по части корпуса.
+
+    Битые исходники превью не получат никогда, поэтому есть сторож: если
+    счётчик готовых не растёт PREVIEW_STALL_TICKS тиков, стадия завершается с
+    сообщением, сколько фото осталось без превью.
+    """
+
     cutoff = _cutoff(run)
+    ref = dict(stage["ref"] or {})
 
     if stage["status"] == "PENDING":
-        enqueue_missing_previews(limit=2000)
         total = _photos_total(cutoff)
         _set_stage(
             run["run_id"], "PREVIEW",
@@ -572,11 +594,45 @@ def _stage_preview(run: dict, stage: dict) -> dict:
     active = _active_type_count("PHOTO_PREVIEW")
     done = _preview_ready_count(cutoff)
     total = _photos_total(cutoff)
+    missing = max(0, total - done)
+    last_done = int(ref.get("last_done") or -1)
+    stall = int(ref.get("stall") or 0)
 
-    if active == 0:
+    if not missing:
         return {"outcome": "DONE", "total_count": total, "done_count": done}
 
+    if active == 0:
+        # Очередь опустела, а превью ещё не хватает: доливаем.
+        enqueue_missing_previews(limit=PREVIEW_ENQUEUE_PAGE)
+        stall = 0
+    else:
+        stall = 0 if done > last_done else stall + 1
+
+    ref.update({"last_done": done, "stall": stall})
+    message = _preview_message(done, total, missing)
+
+    if stall >= PREVIEW_STALL_TICKS:
+        return {
+            "outcome": "DONE",
+            "total_count": total,
+            "done_count": done,
+            "failed_count": missing,
+            "message": (
+                f"превью не создаётся: {missing} фото (нечитаемые исходники); "
+                f"готово {done} из {total}"
+            ),
+        }
+
+    _set_stage(run["run_id"], "PREVIEW", ref=ref, message=message)
+
     return {"outcome": "WAIT", "total_count": total, "done_count": done}
+
+
+def _preview_message(done: int, total: int, missing: int) -> str | None:
+    if not missing:
+        return None
+
+    return f"превью: {done} из {total} (осталось {missing})"
 
 
 def _stage_dino(run: dict, stage: dict) -> dict:

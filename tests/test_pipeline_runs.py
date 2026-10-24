@@ -390,3 +390,87 @@ def test_dino_selector_needs_a_middle_preview(tmp_path):
                     "DELETE FROM public.dino_batches WHERE batch_id = %s",
                     (batch.batch_id,),
                 )
+
+
+# ---------------------------------------------------------------------------
+# Стадия PREVIEW: очередь наполняется, пока превью не хватает
+# ---------------------------------------------------------------------------
+
+
+def _preview_env(monkeypatch, *, total, done, active, ref=None):
+    queued = []
+
+    monkeypatch.setattr(pipeline_runs, "_cutoff", lambda run: None)
+    monkeypatch.setattr(pipeline_runs, "_photos_total", lambda cutoff: total)
+    monkeypatch.setattr(
+        pipeline_runs, "_preview_ready_count", lambda cutoff: done
+    )
+    monkeypatch.setattr(
+        pipeline_runs, "_active_type_count", lambda job_type: active
+    )
+    monkeypatch.setattr(
+        pipeline_runs,
+        "enqueue_missing_previews",
+        lambda **kwargs: queued.append(kwargs) or {"queued": 0},
+    )
+    monkeypatch.setattr(pipeline_runs, "_set_stage", lambda *a, **k: None)
+
+    return queued
+
+
+def test_preview_stage_keeps_filling_the_queue(monkeypatch):
+    """Одна страница превью не закрывает стадию, пока корпус не покрыт."""
+
+    queued = _preview_env(monkeypatch, total=56_870, done=2_000, active=0)
+
+    result = pipeline_runs._stage_preview(  # noqa: SLF001
+        {"run_id": 1}, {"status": "RUNNING", "ref": {}}
+    )
+
+    assert result["outcome"] == "WAIT"
+    assert queued and queued[0]["limit"] == pipeline_runs.PREVIEW_ENQUEUE_PAGE
+    assert result["done_count"] == 2_000
+    assert result["total_count"] == 56_870
+
+
+def test_preview_stage_finishes_when_every_photo_has_a_preview(monkeypatch):
+    queued = _preview_env(monkeypatch, total=100, done=100, active=0)
+
+    result = pipeline_runs._stage_preview(  # noqa: SLF001
+        {"run_id": 1}, {"status": "RUNNING", "ref": {}}
+    )
+
+    assert result["outcome"] == "DONE"
+    assert queued == []
+
+
+def test_preview_stage_gives_up_on_unreadable_files(monkeypatch):
+    """Битые исходники превью не дадут: стадия завершается по сторожу."""
+
+    _preview_env(monkeypatch, total=100, done=95, active=1)
+
+    result = pipeline_runs._stage_preview(  # noqa: SLF001
+        {"run_id": 1},
+        {
+            "status": "RUNNING",
+            "ref": {"last_done": 95, "stall": pipeline_runs.PREVIEW_STALL_TICKS - 1},
+        },
+    )
+
+    assert result["outcome"] == "DONE"
+    assert result["failed_count"] == 5
+    assert "нечитаемые" in result["message"]
+
+
+def test_preview_stage_resets_the_stall_counter_on_progress(monkeypatch):
+    _preview_env(monkeypatch, total=100, done=96, active=1)
+
+    result = pipeline_runs._stage_preview(  # noqa: SLF001
+        {"run_id": 1},
+        {
+            "status": "RUNNING",
+            "ref": {"last_done": 95, "stall": pipeline_runs.PREVIEW_STALL_TICKS - 1},
+        },
+    )
+
+    assert result["outcome"] == "WAIT"
