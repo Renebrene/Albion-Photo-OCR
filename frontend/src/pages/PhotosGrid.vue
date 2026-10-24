@@ -503,14 +503,34 @@ watch(clientSearch, (value) => {
   }, 250)
 })
 
+// Правый список подгружается при прокрутке: сервер отдаёт страницу и курсор.
+// Порог срабатывания — заранее, чтобы следующая страница успела прийти до
+// того, как пользователь упрётся в конец.
+const CLIENTS_SCROLL_THRESHOLD = 0.75
+
+function onClientsScroll(info) {
+  if (!info || typeof info.verticalPercentage !== 'number') return
+  if (info.verticalPercentage < CLIENTS_SCROLL_THRESHOLD) return
+
+  void store.loadMoreClients()
+}
+
+function loadMoreClients() {
+  return store.loadMoreClients()
+}
+
+const clientsLoadingMore = computed(() => store.clientsLoadingMore)
+
 const filteredClients = computed(() => {
   const term = clientSearch.value.trim().toLowerCase()
 
   const local = clients.value
-    .filter((item) => !term || String(item.client).toLowerCase().includes(term))
+    .filter((item) => !term || String(item.name).toLowerCase().includes(term))
     .map((item) => ({
-      value: item.client,
-      kind: 'client',
+      value: item.name,
+      // Вид приходит с сервера: список листается страницами и содержит
+      // и клиентов, и бренды.
+      kind: item.kind || 'client',
       count: item.count,
     }))
 
@@ -3481,7 +3501,9 @@ function tagList(meta) {
             </div>
           </q-card-section>
           <q-separator />
-          <q-scroll-area class="col">
+          <!-- Список листается страницами: в корпусе больше двухсот клиентов
+               и брендов, первая страница — это ещё не весь список. -->
+          <q-scroll-area class="col" @scroll="onClientsScroll">
             <q-list dense>
               <q-item
                 v-for="item in filteredClients"
@@ -3523,6 +3545,20 @@ function tagList(meta) {
                     @click="store.loadFacets()"
                   />
                 </q-item-section>
+              </q-item>
+              <q-item
+                v-if="clientsLoadingMore"
+                class="text-caption text-grey-7"
+              >
+                <q-item-section>Загрузка…</q-item-section>
+              </q-item>
+              <q-item
+                v-else-if="store.clientsCursor && filteredClients.length"
+                clickable
+                class="text-caption text-grey-7"
+                @click="loadMoreClients"
+              >
+                <q-item-section>Показать ещё</q-item-section>
               </q-item>
               <q-item v-if="!filteredClients.length">
                 <q-item-section class="text-caption text-grey">

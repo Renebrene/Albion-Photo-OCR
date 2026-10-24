@@ -146,11 +146,12 @@ def test_counters_do_not_use_the_dino_fallback():
 
 def test_verdict_source_adds_the_client_only_when_asked():
     without = repository._verdict_source_sql()
-    with_client = repository._verdict_source_sql(with_client=True)
+    with_qwen = repository._verdict_source_sql(with_qwen=True)
 
     assert "photo_qwen" not in without
-    assert "q.client AS client" in with_client
-    assert "LEFT JOIN public.photo_qwen AS q" in with_client
+    assert "q.client AS client" in with_qwen
+    assert "q.brand AS brand" in with_qwen
+    assert "LEFT JOIN public.photo_qwen AS q" in with_qwen
 
 
 def test_address_map_is_one_row_per_fingerprint():

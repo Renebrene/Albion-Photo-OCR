@@ -36,7 +36,7 @@ const photo = {
   size_bytes: 4194304,
 }
 
-function installFetch() {
+function installFetch({ clientsNextCursor = null } = {}) {
   global.fetch = vi.fn(async (url) => {
     const parsed = new URL(String(url), 'http://localhost')
     const path = parsed.pathname
@@ -46,11 +46,20 @@ function installFetch() {
     }
 
     if (path.endsWith('/v1/clients')) {
+      // Продолжение списка: панель листает его при прокрутке.
+      if (parsed.searchParams.get('cursor') === 'page-2') {
+        return json({
+          items: [{ kind: 'brand', name: 'СТС Строй', count: 4 }],
+          next_cursor: null,
+        })
+      }
+
       return json({
         items: [
-          { client: 'Клиент А', count: 2 },
-          { client: 'Клиент Б', count: 1 },
+          { kind: 'client', name: 'Клиент А', count: 2 },
+          { kind: 'client', name: 'Клиент Б', count: 1 },
         ],
+        next_cursor: clientsNextCursor,
       })
     }
 
@@ -135,6 +144,31 @@ afterEach(() => {
   delete global.fetch
   vi.restoreAllMocks()
   document.body.innerHTML = ''
+})
+
+describe('список клиентов и брендов', () => {
+  it('подгружает продолжение по кнопке «Показать ещё»', async () => {
+    installFetch({ clientsNextCursor: 'page-2' })
+
+    const wrapper = await mountGrid()
+
+    expect(wrapper.text()).toContain('Клиент А')
+
+    const more = wrapper
+      .findAll('.q-item')
+      .find((node) => node.text().includes('Показать ещё'))
+
+    expect(more).toBeTruthy()
+
+    await more.trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    // Вторая страница дописана, кнопка исчезла: курсор исчерпан.
+    expect(wrapper.text()).toContain('СТС Строй')
+    expect(wrapper.text()).not.toContain('Показать ещё')
+    wrapper.unmount()
+  })
 })
 
 describe('строка тегов', () => {

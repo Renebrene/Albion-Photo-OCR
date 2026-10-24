@@ -43,6 +43,12 @@ const PAGE_SIZE = 100
 // Сколько страниц обходит фоновое обновление строк за один проход.
 const SYNC_MAX_PAGES = 25
 
+// Размер страницы правой панели (клиенты и бренды). Замер на корпусе: страница
+// любого размера считается одинаково (~0.7 с, стоимость — проход по корпусу),
+// поэтому выгоднее брать крупнее: 700 записей — это четыре запроса вместо
+// восьми, а прокрутка подгружает их по мере надобности.
+const CLIENTS_PAGE_SIZE = 200
+
 /**
  * Параметры /v1/photos для текущих фильтров.
  *
@@ -180,6 +186,10 @@ export const usePhotosStore = defineStore('photos', {
     // side panels (mirroring the legacy UI)
     addresses: [],
     clients: [],
+    // Правый список листается при прокрутке: без курсора панель была бы
+    // ограничена первыми ста именами, а их в корпусе больше двухсот.
+    clientsCursor: null,
+    clientsLoadingMore: false,
     collections: [],
     savedSearches: [],
     facetsLoading: false,
@@ -356,6 +366,7 @@ export const usePhotosStore = defineStore('photos', {
               this.combine === 'address' && this.selectedAddresses.length
                 ? this.selectedAddresses
                 : [],
+            limit: CLIENTS_PAGE_SIZE,
           }),
           fetchCollections(),
           fetchSavedSearches(),
@@ -376,6 +387,7 @@ export const usePhotosStore = defineStore('photos', {
 
         if (clients.status === 'fulfilled' && clientToken === clientsRequest) {
           this.clients = clients.value.items || []
+          this.clientsCursor = clients.value.next_cursor || null
         }
 
         if (
@@ -420,11 +432,11 @@ export const usePhotosStore = defineStore('photos', {
     },
 
     /**
-     * Пересчитать клиентов с учётом выбранных адресов.
+     * Пересчитать клиентов и брендов с учётом выбранных адресов.
      *
      * Нужен в режиме приоритета по адресам: панель показывает только тех
      * клиентов, которые встречаются на выбранных адресах. При снятии выбора
-     * возвращается полный список.
+     * возвращается полный список. Возвращает первую страницу и её курсор.
      */
     async loadClients() {
       const request = ++clientsRequest
@@ -435,11 +447,65 @@ export const usePhotosStore = defineStore('photos', {
             this.combine === 'address' && this.selectedAddresses.length
               ? this.selectedAddresses
               : [],
+          limit: CLIENTS_PAGE_SIZE,
         })
 
-        if (request === clientsRequest) this.clients = data.items || []
+        if (request === clientsRequest) {
+          this.clients = data.items || []
+          this.clientsCursor = data.next_cursor || null
+        }
       } catch {
         // Вспомогательная панель: грид продолжает работать.
+      }
+    },
+
+    /**
+     * Следующая страница списка клиентов — вызывается прокруткой.
+     *
+     * Ответ мог прийти после смены фильтра (или после входа другого
+     * пользователя): тогда список уже другой, и дописывать в него нельзя —
+     * сверяем поколение запроса `clientsRequest`.
+     */
+    async loadMoreClients() {
+      const cursor = this.clientsCursor
+
+      if (!cursor || this.clientsLoadingMore) return
+
+      const request = clientsRequest
+      this.clientsLoadingMore = true
+
+      try {
+        const data = await fetchClients({
+          addresses:
+            this.combine === 'address' && this.selectedAddresses.length
+              ? this.selectedAddresses
+              : [],
+          limit: CLIENTS_PAGE_SIZE,
+          cursor,
+        })
+
+        if (request !== clientsRequest) return
+
+        // Страницы могут пересечься, если список успел измениться между
+        // запросами: ключ — вид и имя в нижнем регистре.
+        const known = new Set(
+          this.clients.map((item) => `${item.kind}:${String(item.name).toLowerCase()}`),
+        )
+
+        for (const item of data.items || []) {
+          const key = `${item.kind}:${String(item.name).toLowerCase()}`
+
+          if (!known.has(key)) {
+            known.add(key)
+            this.clients.push(item)
+          }
+        }
+
+        this.clientsCursor = data.next_cursor || null
+      } catch {
+        // Панель остаётся с тем, что уже загружено; повтор — при прокрутке.
+      } finally {
+        this.clientsLoadingMore = false
       }
     },
 

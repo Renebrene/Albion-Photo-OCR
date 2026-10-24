@@ -65,6 +65,10 @@ afterEach(() => {
   delete global.fetch
 })
 
+function queryParam(url, name) {
+  return new URL(String(url), 'http://localhost').searchParams.get(name)
+}
+
 function lastPhotosUrl() {
   const call = global.fetch.mock.calls
     .filter(([url]) => String(url).includes('/v1/photos?'))
@@ -194,7 +198,8 @@ describe('photos store', () => {
             respond: () => {
               clientCalls += 1
               return jsonResponse({
-                items: [{ client: 'AAA Моторс-Запад', count: 22 }],
+                items: [{ kind: 'client', name: 'AAA Моторс-Запад', count: 22 }],
+                next_cursor: null,
               })
             },
           }
@@ -210,8 +215,62 @@ describe('photos store', () => {
 
     expect(clientCalls).toBeGreaterThan(0)
     expect(store.clients).toEqual([
-      { client: 'AAA Моторс-Запад', count: 22 },
+      { kind: 'client', name: 'AAA Моторс-Запад', count: 22 },
     ])
+  })
+
+  it('догружает следующие страницы клиентов и брендов по курсору', async () => {
+    const asked = []
+
+    routes = routes.map((route) =>
+      route.match('/api/v1/clients')
+        ? {
+            ...route,
+            respond: (url) => {
+              asked.push(String(url))
+
+              if (String(url).includes('cursor=page-2')) {
+                return jsonResponse({
+                  items: [
+                    { kind: 'brand', name: 'СТС', count: 3 },
+                    // Повтор первой страницы: сервер мог отдать границу дважды.
+                    { kind: 'client', name: 'AAA Моторс-Запад', count: 22 },
+                  ],
+                  next_cursor: null,
+                })
+              }
+
+              return jsonResponse({
+                items: [{ kind: 'client', name: 'AAA Моторс-Запад', count: 22 }],
+                next_cursor: 'page-2',
+              })
+            },
+          }
+        : route,
+    )
+
+    const store = usePhotosStore()
+    await store.loadClients()
+
+    expect(store.clientsCursor).toBe('page-2')
+    expect(queryParam(asked[0], 'limit')).toBe('200')
+
+    await store.loadMoreClients()
+
+    // Дубликат не добавился, новая строка добавилась, курсор исчерпан.
+    expect(store.clients.map((item) => `${item.kind}:${item.name}`)).toEqual([
+      'client:AAA Моторс-Запад',
+      'brand:СТС',
+    ])
+    expect(store.clientsCursor).toBe(null)
+    expect(queryParam(asked[1], 'cursor')).toBe('page-2')
+
+    // Курсора нет — новых запросов не делаем.
+    const before = asked.length
+
+    await store.loadMoreClients()
+
+    expect(asked.length).toBe(before)
   })
 
   it('ignores a stale client list response', async () => {
@@ -231,12 +290,12 @@ describe('photos store', () => {
     const first = store.loadClients()
     const second = store.loadClients()
 
-    pending[1](jsonResponse({ items: [{ client: 'Новый', count: 1 }] }))
+    pending[1](jsonResponse({ items: [{ kind: 'client', name: 'Новый', count: 1 }] }))
     await second
     pending[0](jsonResponse({ items: [] }))
     await first
 
-    expect(store.clients).toEqual([{ client: 'Новый', count: 1 }])
+    expect(store.clients).toEqual([{ kind: 'client', name: 'Новый', count: 1 }])
   })
 
   it('applyFilters copies clients so a saved search is not mutated', async () => {

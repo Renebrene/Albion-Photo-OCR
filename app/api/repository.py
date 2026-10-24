@@ -258,7 +258,7 @@ def _verdict_source_sql(
     *,
     photo_ref: str = "p",
     alias: str = "v",
-    with_client: bool = False,
+    with_qwen: bool = False,
     low_score: float | None = None,
     min_margin: float | None = None,
 ) -> str:
@@ -276,8 +276,9 @@ def _verdict_source_sql(
     фото без вердикта HYBRID попало бы в счётчики адресов, тогда как грид с
     `recognized_only` его там не показывает.
 
-    `with_client` добавляет клиента QWEN — он нужен только приоритету по
-    клиентам (левая панель, режим «от клиента»).
+    `with_qwen` добавляет клиента и бренд QWEN — они нужны панели клиентов и
+    режиму «от клиента». Обе величины лежат в одной строке `photo_qwen`,
+    поэтому соединение одно.
     """
 
     threshold = _address_threshold_sql(
@@ -286,21 +287,21 @@ def _verdict_source_sql(
         low_score,
         min_margin,
     )
-    client_column = ", q.client AS client" if with_client else ""
-    client_join = (
+    qwen_columns = ", q.client AS client, q.brand AS brand" if with_qwen else ""
+    qwen_join = (
         "LEFT JOIN public.photo_qwen AS q ON q.photo_id = p.photo_id"
-        if with_client
+        if with_qwen
         else ""
     )
 
     return (
         f"SELECT {photo_ref}.photo_id, {photo_ref}.created_at, {photo_ref}.taken_at"
-        + client_column
+        + qwen_columns
         + f", (CASE WHEN {threshold} THEN {alias}.final_id END) AS addr_fp "
         + f"FROM public.photos AS {photo_ref} "
         + _latest_verdict_lateral_sql(photo_ref, alias)
         + " "
-        + client_join
+        + qwen_join
         + " "
         + "WHERE " + _PREVIEW_READY_SQL
     )
@@ -310,6 +311,7 @@ def _recognized_sql(
     photo_ref: str = "t",
     low_score: float | None = None,
     min_margin: float | None = None,
+    address_expr: str | None = None,
 ) -> str:
     """
     The single definition of "распознано" used by every read path.
@@ -319,10 +321,21 @@ def _recognized_sql(
     a manual address override. Older verdicts cannot keep a photo in the grid
     after a failed re-run. Everything else — a weak match, no match, or no
     verdict at all — lands in «Требуют проверки» (see list_addresses).
+
+    `address_expr` позволяет подставить готовое выражение адресного слепка
+    вместо трёх коррелированных подзапросов: у компактного источника
+    (`_verdict_source_sql`) он уже посчитан как `t.addr_fp`. Порог в него
+    применён там же, поэтому результат тот же.
     """
 
+    address = (
+        address_expr
+        if address_expr is not None
+        else _address_sql(photo_ref, low_score, min_margin)
+    )
+
     return (
-        f"({_address_sql(photo_ref, low_score, min_margin)} IS NOT NULL OR EXISTS ("
+        f"({address} IS NOT NULL OR EXISTS ("
         "SELECT 1 FROM public.photo_address_overrides AS ov "
         f"WHERE ov.photo_id = {photo_ref}.photo_id))"
     )
@@ -539,6 +552,7 @@ def _photo_where(
     category: str | None = None,
     recognized_only: bool = False,
     combine: str = "union",
+    address_expr: str | None = None,
 ) -> tuple[str, list[object]]:
     """
     WHERE-часть запроса фото и её параметры.
@@ -556,6 +570,9 @@ def _photo_where(
         raise ValueError("combine must be 'union', 'address' or 'client'")
 
     date_column = "t.taken_at" if date_mode == "capture" else "t.created_at"
+    # Адресный слепок фото: у полной выборки это столбец `t.address`, у
+    # компактного источника — `t.addr_fp` (то же значение, порог применён там).
+    address_ref = address_expr if address_expr is not None else "t.address"
 
     clauses: list[str] = []
     params: list[object] = []
@@ -641,7 +658,7 @@ def _photo_where(
                     # совпадение, отсутствие совпадения или отсутствие
                     # вердикта. Ручное переопределение выводит фото отсюда.
                     address_parts.append(
-                        "NOT " + _recognized_sql("t")
+                        "NOT " + _recognized_sql("t", address_expr=address_expr)
                     )
                     continue
 
@@ -674,7 +691,7 @@ def _photo_where(
                     "   JOIN public.address_directory AS d"
                     "     ON d.address_id = af.address_id AND d.active"
                     "   WHERE af.address_id = %s AND af.active"
-                    "     AND LOWER(af.fingerprint_id) = LOWER(t.address))))"
+                    "     AND LOWER(af.fingerprint_id) = LOWER(" + address_ref + "))))"
                 )
                 address_params.extend([address_id, address_id])
                 continue
@@ -704,7 +721,7 @@ def _photo_where(
                 "     ON d2.address_id = af2.address_id AND d2.active"
                 "   WHERE LOWER(af2.fingerprint_id) = LOWER(%s)"
                 "     AND af2.active"
-                "     AND LOWER(t.address) = LOWER(af2.fingerprint_id))))"
+                "     AND LOWER(" + address_ref + ") = LOWER(af2.fingerprint_id))))"
             )
             address_params.extend([text, text])
 
@@ -839,7 +856,7 @@ def _photo_where(
         # override exists. A newer failed re-run hides the photo; an older
         # successful verdict does not keep it alive.
         # Videos live in a separate list and are not affected.
-        clauses.append(_recognized_sql("t"))
+        clauses.append(_recognized_sql("t", address_expr=address_expr))
 
     if not clauses:
         return "", params
@@ -1326,7 +1343,7 @@ def list_addresses(
     )
     # Источник одинаков для обоих запросов: адресный слепок и две даты.
     # Клиент QWEN добавляется только когда он действительно отбирается.
-    source_sql = _verdict_source_sql(with_client=bool(clients))
+    source_sql = _verdict_source_sql(with_qwen=bool(clients))
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -1702,55 +1719,133 @@ def suggest_terms(term: str, *, limit: int = 8) -> list[dict]:
             ]
 
 
+# Общая часть запроса списка клиентов и брендов: одна строка на имя (с
+# приведением регистра), счётчик фото и вид записи. Имя берётся по модальному
+# написанию: варианты регистра — это один клиент, а фильтр всё равно
+# регистронезависимый, и два ряда показали бы половинные счётчики.
+#
+# `kind` нужен и панели (бренд подписывается), и курсору: под одним и тем же
+# именем могут стоять и клиент, и бренд.
+_CLIENTS_GROUPED_SQL = """
+    SELECT 'client' AS kind,
+           {mode} AS name,
+           count(*) AS count
+    FROM qualified AS t
+    LEFT JOIN public.client_aliases AS a
+           ON LOWER(a.alias) = LOWER(t.client) AND a.kind = 'client'
+    WHERE t.client IS NOT NULL AND t.client <> ''
+    GROUP BY lower(COALESCE(a.canonical, t.client))
+    UNION ALL
+    SELECT 'brand' AS kind,
+           {brand_mode} AS name,
+           count(*) AS count
+    FROM qualified AS t
+    LEFT JOIN public.client_aliases AS a
+           ON LOWER(a.alias) = LOWER(t.brand) AND a.kind = 'brand'
+    WHERE t.brand IS NOT NULL AND t.brand <> ''
+    GROUP BY lower(COALESCE(a.canonical, t.brand))
+"""
+
+
 def list_clients(
     *,
     limit: int = 100,
+    cursor: str | None = None,
     addresses: list[str] | None = None,
     recognized_only: bool = True,
-) -> list[dict]:
+) -> tuple[list[dict], str | None]:
     """
-    Distinct QWEN clients with photo counts.
+    Клиенты и бренды с числом фото — постранично, для правой панели.
 
-    Aliased raw values are folded into their canonical client (client_aliases).
+    Возвращает страницу и курсор продолжения. Курсор — пара
+    (имя в нижнем регистре, вид): сортировка идёт по имени, а под одним именем
+    могут стоять и клиент, и бренд, поэтому одного имени для продолжения мало
+    (иначе на границе страниц терялась бы или повторялась строка).
+
+    Aliased raw values are folded into their canonical name (client_aliases).
     With ``addresses`` the list is narrowed to clients present on those
     addresses (client-priority mode) and counts follow the same predicate as
     the grid.
+
+    Считается по компактному источнику: раньше здесь стояла полная
+    `_PHOTO_SELECT`, которая на каждое фото считала ещё подсказку, второй адрес
+    и метаданные QWEN, а нужны были только клиент, бренд и признак
+    распознавания.
     """
 
     where_sql, where_params = _photo_where(
         addresses=addresses,
         recognized_only=recognized_only,
+        # Порог уже применён в источнике: не считать сходство и отрыв заново.
+        address_expr="t.addr_fp",
     )
     extra = where_sql.removeprefix(" WHERE ")
 
     if extra:
         extra = " AND (" + extra + ")"
 
-    # Case variants are one client: the filter is case-insensitive anyway,
-    # so two rows would show half-counts for the same selection.
+    # Отбор применяется один раз, до разветвления на клиентов и брендов:
+    # в обеих ветках UNION он дал бы двойной набор плейсхолдеров и двойной
+    # проход по корпусу. MATERIALIZED — чтобы общий набор считался один раз,
+    # а не по разу на ветку.
+    qualified = (
+        "SELECT t.photo_id, t.client, t.brand "
+        "FROM src AS t "
+        "LEFT JOIN public.photo_address_overrides AS ov "
+        "       ON ov.photo_id = t.photo_id "
+        "WHERE (t.addr_fp IS NOT NULL OR ov.address_id IS NOT NULL)"
+        + extra
+    )
+
+    decoded = decode_cursor(cursor) if cursor else None
+    paging_sql = ""
+    paging_params: list[object] = []
+
+    if decoded is not None:
+        name_key, kind_key = decoded
+        paging_sql = "WHERE (sort_key, kind) > (%s, %s)"
+        paging_params = [str(name_key), str(kind_key)]
+
+    # На страницу запрашиваем на одну строку больше: если она пришла, значит
+    # есть продолжение, и её курсор отдаём клиенту как «дальше».
     sql = (
-        "SELECT mode() WITHIN GROUP (ORDER BY COALESCE(a.canonical, t.client)) "
-        "       AS client, count(*) AS count "
-        "FROM (" + _PHOTO_SELECT + ") AS t "
-        "LEFT JOIN public.client_aliases AS a "
-        "       ON LOWER(a.alias) = LOWER(t.client) AND a.kind = 'client' "
-        "WHERE t.client IS NOT NULL AND t.client <> ''" + extra + " "
-        "GROUP BY lower(COALESCE(a.canonical, t.client)) "
-        "ORDER BY lower(COALESCE(a.canonical, t.client)) LIMIT %s"
+        "WITH src AS ("
+        + _verdict_source_sql(with_qwen=True)
+        + "), qualified AS MATERIALIZED ("
+        + qualified
+        + "), grouped AS ("
+        + _CLIENTS_GROUPED_SQL.format(
+            mode="mode() WITHIN GROUP (ORDER BY COALESCE(a.canonical, t.client))",
+            brand_mode="mode() WITHIN GROUP (ORDER BY COALESCE(a.canonical, t.brand))",
+        )
+        + ") "
+        # Ключ сортировки объявляется отдельным слоем: в WHERE псевдоним
+        # выходного столбца PostgreSQL не видит.
+        "SELECT kind, name, count, sort_key FROM ("
+        "   SELECT kind, lower(name) AS sort_key, name, count FROM grouped"
+        ") AS page "
+        + paging_sql
+        + " ORDER BY sort_key, kind LIMIT %s"
     )
 
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, where_params + [limit])
-            return [
-                {"client": row[0], "count": int(row[1])}
-                for row in cur.fetchall()
-            ]
+            cur.execute(sql, where_params + paging_params + [limit + 1])
+            rows = cur.fetchall()
 
+    items = [
+        {"kind": row[0], "name": row[1], "count": int(row[2])}
+        for row in rows[:limit]
+    ]
+    next_cursor = None
 
-# ---------------------------------------------------------------------------
-# Client aliases (QWEN client name normalization)
-# ---------------------------------------------------------------------------
+    if len(rows) > limit:
+        last = rows[limit - 1]
+        # Ключ продолжения берём из SQL (lower в базе), а не считаем в Python:
+        # правила регистра у них могут расходиться на редких символах.
+        next_cursor = encode_cursor(last[3], last[0])
+
+    return items, next_cursor
 
 
 def list_client_aliases(kind: str = "client") -> list[dict]:

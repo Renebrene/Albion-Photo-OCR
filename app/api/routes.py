@@ -483,17 +483,27 @@ def list_addresses(
 
 @read_router.get("/v1/clients", response_model=None)
 def list_clients(
-    limit: int = Query(100, ge=1, le=5000),
+    limit: int = Query(100, ge=1, le=500),
+    cursor: str | None = Query(None, max_length=500),
     address: list[str] | None = Query(None, max_length=1000),
 ):
-    """Клиенты/бренды для правой панели: не больше 100, по алфавиту.
+    """
+    Клиенты и бренды для правой панели: страница по алфавиту + курсор.
+
+    Панель листает список при прокрутке, поэтому отдаём `next_cursor`: без
+    него панель была бы ограничена первыми ста именами (в корпусе их больше
+    двухсот), а найти остальные можно было только через строку поиска.
 
     `address` narrowing is used in address-priority mode.
     """
 
-    return {
-        "items": repository.list_clients(limit=limit, addresses=address)
-    }
+    items, next_cursor = repository.list_clients(
+        limit=limit,
+        cursor=cursor,
+        addresses=address,
+    )
+
+    return {"items": items, "next_cursor": next_cursor}
 
 
 @read_router.get("/v1/search/suggestions", response_model=None)

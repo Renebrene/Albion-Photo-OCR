@@ -974,17 +974,19 @@ export function fetchAddresses(options = {}) {
   return getJson(`${base}${base.includes('?') ? '&' : '?'}${extra}`)
 }
 
-export function fetchClients({ addresses = [] } = {}) {
+export function fetchClients({ addresses = [], cursor = null, limit = 0 } = {}) {
   const base = `${BASE}/v1/clients`
   const values = [].concat(addresses || []).filter(Boolean)
+  const parts = values.map((value) => `address=${encodeURIComponent(value)}`)
 
-  if (!values.length) return getJson(base)
+  // Панель листает список при прокрутке: продолжение задаётся курсором,
+  // размер страницы — тем же запросом.
+  if (limit) parts.push(`limit=${encodeURIComponent(limit)}`)
+  if (cursor) parts.push(`cursor=${encodeURIComponent(cursor)}`)
 
-  const extra = values
-    .map((value) => `address=${encodeURIComponent(value)}`)
-    .join('&')
+  if (!parts.length) return getJson(base)
 
-  return getJson(`${base}?${extra}`)
+  return getJson(`${base}?${parts.join('&')}`)
 }
 
 export function fetchDinoBatches({ limit = 50, cursor = null } = {}) {

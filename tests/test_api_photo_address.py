@@ -326,7 +326,45 @@ def test_client_list_narrows_to_addresses(monkeypatch):
     sql, params = captured["queries"][0]
     assert "af.address_id = %s AND af.active" in sql
     assert "public.hybrid_results" in sql
-    assert params == [5, 5, 10]
+    # На строку больше запрошенного: лишняя строка означает «есть продолжение».
+    assert params == [5, 5, 11]
+    # Отбор по адресу применяется один раз, а не в каждой ветке UNION:
+    # иначе плейсхолдеры удваивались бы, а параметры шли вразнобой.
+    assert sql.count("af.address_id = %s") == 1
+
+
+def test_client_list_pages_by_name_and_kind(monkeypatch):
+    """Курсор продолжает список по паре (имя, вид): под именем есть и бренд."""
+
+    from app.api import repository
+
+    captured = {}
+    _fake_connection(monkeypatch, repository, captured)
+
+    cursor = repository.encode_cursor("мира", "client")
+    repository.list_clients(limit=10, cursor=cursor)
+
+    sql, params = captured["queries"][0]
+    assert "(sort_key, kind) > (%s, %s)" in sql
+    assert params[-3:] == ["мира", "client", 11]
+
+
+def test_client_list_counts_clients_and_brands(monkeypatch):
+    """Список панели — клиенты и бренды вместе, каждый со своим видом."""
+
+    from app.api import repository
+
+    captured = {}
+    _fake_connection(monkeypatch, repository, captured)
+
+    repository.list_clients(limit=10)
+
+    sql, _ = captured["queries"][0]
+    assert "'client' AS kind" in sql
+    assert "'brand' AS kind" in sql
+    # Считаем по компактному источнику, а не по полной выборке карточки.
+    assert "_PHOTO_SELECT" not in sql
+    assert "LEFT JOIN LATERAL" in sql
 
 
 def test_collection_client_limit_is_enforced_in_repository(monkeypatch):
