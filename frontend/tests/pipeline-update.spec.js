@@ -89,7 +89,7 @@ describe('Обновление базы', () => {
     wrapper.unmount()
   })
 
-  it('прогресс DINO показывает как «готово / всего»', async () => {
+  it('во время DINO число не дублируется: прогресс показывает строка прогона', async () => {
     setPipeline({
       run: {
         run_id: 1, status: 'RUNNING', stage: 'DINO', manifest: {},
@@ -97,22 +97,22 @@ describe('Обновление базы', () => {
       },
     })
     const wrapper = await mountButton()
-    expect(wrapper.text()).toContain('13686 / 20904')
+    expect(wrapper.find('.pipeline-status').exists()).toBe(false)
     wrapper.unmount()
   })
 
-  it('нулевой счётчик стадии не показывается', async () => {
+  it('показывает описания, когда параллельно идёт QWEN', async () => {
     setPipeline({
       run: {
         run_id: 1, status: 'RUNNING', stage: 'DINO', manifest: {},
         stages: [
-          { stage: 'DINO', done_count: 0, failed_count: 0, total_count: 0 },
-          { stage: 'HYBRID', done_count: 0, failed_count: 0, total_count: 0 },
+          { stage: 'DINO', done_count: 13686, failed_count: 2, total_count: 20904 },
+          { stage: 'QWEN', done_count: 5, failed_count: 0, total_count: 100 },
         ],
       },
     })
     const wrapper = await mountButton()
-    expect(wrapper.find('.pipeline-status').exists()).toBe(false)
+    expect(wrapper.find('.pipeline-status').text()).toContain('Описаний: 5')
     wrapper.unmount()
   })
 

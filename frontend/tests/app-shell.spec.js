@@ -480,8 +480,14 @@ describe('оболочка приложения', () => {
           message: 'идёт «Обновление базы» (стадия HYBRID)',
         })
       }
-      if (path.endsWith('/v1/sort/status')) {
-        return json({ current: { total: 935, done: 700, matched: 697 }, last: null })
+      if (path.endsWith('/v1/pipeline/current')) {
+        return json({
+          run: {
+            run_id: 1, status: 'RUNNING', stage: 'HYBRID', stages: [
+              { stage: 'HYBRID', done_count: 697, failed_count: 0, total_count: 935 },
+            ],
+          },
+        })
       }
 
       return baseFetch(url, options)

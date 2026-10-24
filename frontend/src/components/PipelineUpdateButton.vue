@@ -77,23 +77,14 @@ const statusText = computed(() => {
       return `Превью: ${row?.done_count ?? 0}/${row?.total_count ?? 0}`
     case 'DINO':
     case 'HYBRID': {
-      // Прогресс показываем как «готово / всего». Нулевой счётчик не
-      // показываем вовсе: до старта стадии он всегда 0 и только рябит.
-      const hybrid = stageRow('HYBRID')
-      const live = hybrid?.total_count ? hybrid : row
-      const done = live?.done_count ?? 0
-      const total = live?.total_count ?? 0
-      const parts = []
-
-      if (done || total) parts.push(`${done} / ${total}`)
-
+      // Число этой стадии («13686 / 20904») показывает строка прогона рядом
+      // (`stores/pipeline.js`), поэтому в кнопке оно не дублируется. Если
+      // параллельно идёт QWEN, здесь остаётся только счётчик описаний.
       const qwen = stageRow('QWEN')
 
-      if (qwen && (qwen.total_count || qwen.done_count)) {
-        parts.push(`Описаний: ${qwen.done_count ?? 0}`)
-      }
-
-      return parts.join(' · ')
+      return qwen && (qwen.total_count || qwen.done_count)
+        ? `Описаний: ${qwen.done_count ?? 0}`
+        : ''
     }
     case 'QWEN':
       return row?.failed_count
