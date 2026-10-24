@@ -1,11 +1,12 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 import { fetchSystem } from '../api/client'
+import { usePoller } from '../composables/usePoller'
 
 const info = ref(null)
 const error = ref(null)
-let timer = null
+const loading = ref(false)
 
 const maxLoginIp = computed(() => {
   const entries = Object.entries(info.value?.security?.login_failures_by_ip || {})
@@ -26,29 +27,38 @@ function uptime(seconds) {
 }
 
 async function load() {
+  // Ручное обновление не должно наслаиваться на периодический опрос.
+  if (loading.value) return
+
+  loading.value = true
+
   try {
     info.value = await fetchSystem()
     error.value = null
   } catch (err) {
     error.value = err.message
+  } finally {
+    loading.value = false
   }
 }
 
-onMounted(() => {
-  load()
-  timer = setInterval(load, 2000)
-})
+// Опрос раз в две секунды: тики не накладываются, скрытая вкладка молчит,
+// при уходе со страницы опрос останавливается сам (usePoller).
+const poller = usePoller(load, { intervalMs: 2000, immediate: true })
 
-onUnmounted(() => {
-  if (timer) clearInterval(timer)
-})
+onMounted(poller.start)
 </script>
 
 <template>
   <div>
     <div class="row items-center q-mb-sm">
       <div class="text-subtitle1 col">Система</div>
-      <q-btn dense flat icon="refresh" @click="load" />
+      <q-btn dense flat icon="refresh" :loading="loading" @click="load" />
+    </div>
+    <div v-if="!info && !error" class="q-gutter-sm">
+      <q-skeleton type="text" width="40%" />
+      <q-skeleton type="rect" height="120px" />
+      <q-skeleton type="rect" height="120px" />
     </div>
 
     <div v-if="error" class="q-mb-md">

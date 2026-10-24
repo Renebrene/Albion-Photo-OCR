@@ -17,12 +17,16 @@ import {
   fetchQwenStats,
   fetchRunActivity,
 } from '../api/client'
+import { createPoller } from '../composables/usePoller'
 
 // Интервал опроса. Пайплайн идёт десятками минут, чаще нет смысла.
 export const PIPELINE_POLL_MS = 10_000
 
 // Стадии, где число показывает строка в шапке (в кнопке его нет).
 export const PROGRESS_STAGES = ['DINO', 'HYBRID']
+
+// Поллер живёт вне состояния стора: его нельзя делать реактивным.
+let poller = null
 
 export const usePipelineStore = defineStore('pipeline', {
   state: () => ({
@@ -39,7 +43,6 @@ export const usePipelineStore = defineStore('pipeline', {
     // выполнить свою часть синхронизации ровно один раз за тик.
     tick: 0,
     lastTickAt: 0,
-    timer: null,
   }),
 
   getters: {
@@ -180,20 +183,27 @@ export const usePipelineStore = defineStore('pipeline', {
     },
 
     start(getOptions) {
-      if (this.timer) return
+      if (poller) return
 
-      this.refresh(getOptions?.())
-      this.timer = window.setInterval(
-        () => void this.refresh(getOptions?.()),
-        PIPELINE_POLL_MS,
+      // Общий поллер: тики не накладываются, скрытая вкладка не опрашивается,
+      // после stop ответы в полёте не трогают состояние.
+      poller = createPoller(
+        () => this.refresh(getOptions?.()),
+        { intervalMs: PIPELINE_POLL_MS, immediate: true },
       )
+      poller.start()
     },
 
     stop() {
-      if (!this.timer) return
+      if (poller) {
+        poller.stop()
+        poller = null
+      }
 
-      window.clearInterval(this.timer)
-      this.timer = null
+      // Состояние тоже сбрасываем: иначе после выхода из аккаунта в шапке
+      // остаётся спиннер и текст чужого прогона.
+      this._clear()
+      this.qwen = null
     },
   },
 })
