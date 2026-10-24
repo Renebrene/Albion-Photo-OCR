@@ -173,11 +173,17 @@ def _mount_spa(app: FastAPI) -> None:
 
         # index.html must not be cached: after a rebuild the hashed bundles
         # change, and a cached shell would keep asking for files that no longer
-        # exist (a blank page). The bundles themselves are content-hashed and
-        # can be cached forever, which StaticFiles below already does.
+        # exist (a blank page — ровно так «не загружается» сайт после сборки).
+        # `no-store` строже, чем `no-cache`: ни браузер, ни прокси не должны
+        # держать копию оболочки. Сами бандлы содержат хеш в имени и кешируются
+        # StaticFiles надолго.
         return FileResponse(
             SPA_DIST / "index.html",
-            headers={"Cache-Control": "no-cache, must-revalidate"},
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
         )
 
 
