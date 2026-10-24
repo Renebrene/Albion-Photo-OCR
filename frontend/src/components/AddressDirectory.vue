@@ -70,6 +70,16 @@ async function onImportFileChosen(event) {
   }
 }
 
+// Колонки объявлены один раз: литерал в шаблоне создавался заново на каждой
+// отрисовке, а q-table по нему пересобирает строки.
+const columns = [
+  { name: 'legal', label: 'Юридическое название', field: 'legal_address', align: 'left' },
+  { name: 'simple', label: 'Упрощённое', field: 'simple_address', align: 'left' },
+  { name: 'fp', label: 'Идентификаторы', field: 'fingerprints', align: 'left' },
+  { name: 'active', label: 'Активен', field: 'active', align: 'center' },
+  { name: 'actions', label: '', field: 'address_id', align: 'right' },
+]
+
 async function load() {
   loading.value = true
   try {
@@ -296,13 +306,7 @@ async function saveMap() {
 
       <q-table
         :rows="items"
-        :columns="[
-          { name: 'legal', label: 'Юридическое название', field: 'legal_address', align: 'left' },
-          { name: 'simple', label: 'Упрощённое', field: 'simple_address', align: 'left' },
-          { name: 'fp', label: 'Идентификаторы', field: 'fingerprints', align: 'left' },
-          { name: 'active', label: 'Активен', field: 'active', align: 'center' },
-          { name: 'actions', label: '', field: 'address_id', align: 'right' },
-        ]"
+        :columns="columns"
         row-key="address_id"
         dense
         flat
