@@ -125,6 +125,25 @@ def test_verdict_source_takes_the_verdict_once(monkeypatch):
     assert "public.photo_previews" in sql
 
 
+def test_counters_do_not_use_the_dino_fallback():
+    """
+    Фото с одним лишь DINO не считается распознанным в счётчиках.
+
+    Запасной адрес по `dino_best_id` нужен только для показа в корзине
+    «Требуют проверки» (`_PHOTO_BASE`). Распознанным фото делает
+    `_recognized_sql` — без запасного пути, и грид с `recognized_only` такое
+    фото не покажет. Иначе панель адресов показала бы счётчик, которого нет
+    в выдаче.
+    """
+
+    sql = repository._verdict_source_sql()
+
+    assert "dino_runs" not in sql
+    assert "dino_best_id" not in sql
+    # Показ адреса в карточке запасной путь сохраняет.
+    assert "dino_best_id" in repository._dino_fallback_address_sql("p")
+
+
 def test_verdict_source_adds_the_client_only_when_asked():
     without = repository._verdict_source_sql()
     with_client = repository._verdict_source_sql(with_client=True)

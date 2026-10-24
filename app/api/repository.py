@@ -269,6 +269,13 @@ def _verdict_source_sql(
     а она считает на каждое фото ещё подсказку, второй адрес и метаданные QWEN.
     Здесь остаётся ровно нужное, и адрес берётся из одного LATERAL-соединения.
 
+    `addr_fp` — тот же адресный слепок, что у `_address_sql`: порог уверенности
+    и отрыва применяется, запасной адрес по DINO — нет. Это важно: запасной
+    адрес нужен только для показа в корзине «Требуют проверки» (`_PHOTO_BASE`),
+    а распознанным фото делает `_recognized_sql` — без запасного пути. Иначе
+    фото без вердикта HYBRID попало бы в счётчики адресов, тогда как грид с
+    `recognized_only` его там не показывает.
+
     `with_client` добавляет клиента QWEN — он нужен только приоритету по
     клиентам (левая панель, режим «от клиента»).
     """
@@ -289,9 +296,7 @@ def _verdict_source_sql(
     return (
         f"SELECT {photo_ref}.photo_id, {photo_ref}.created_at, {photo_ref}.taken_at"
         + client_column
-        + f", COALESCE((CASE WHEN {threshold} THEN {alias}.final_id END), "
-        + _dino_fallback_address_sql(photo_ref)
-        + ") AS addr_fp "
+        + f", (CASE WHEN {threshold} THEN {alias}.final_id END) AS addr_fp "
         + f"FROM public.photos AS {photo_ref} "
         + _latest_verdict_lateral_sql(photo_ref, alias)
         + " "
