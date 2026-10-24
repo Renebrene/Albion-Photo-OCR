@@ -184,6 +184,19 @@ def _recognized_sql(
 # фото без вердикта HYBRID до этой выборки не доходят и запасной путь по
 # DINO не срабатывает. Он понадобится корзине «Требуют проверки», где такие фото
 # как раз и показываются (см. docs/hybrid.txt).
+# Фото видно в гриде и в счётчиках адресов только после того, как для него
+# готово превью. Так «Обновление базы» наполняет галерею по мере создания
+# превью, а не сразу после инспектора: до превью плитка была бы пустой
+# заглушкой, а счётчики «Требуют проверки» росли бы на фото, которое ещё
+# нельзя посмотреть. Битый исходник превью не получает и в выдаче не
+# появляется — он виден в отчёте о превью.
+_PREVIEW_READY_SQL = """
+    EXISTS (
+        SELECT 1 FROM public.photo_previews AS v
+        WHERE v.photo_id = p.photo_id
+    )
+"""
+
 _PHOTO_BASE = """
     SELECT
         p.photo_id        AS photo_id,
@@ -228,6 +241,7 @@ _PHOTO_BASE = """
         """ + _runner_up_sql("p", "c.score") + """ AS runner_up_score
     FROM public.photos AS p
     LEFT JOIN public.photo_qwen AS q ON q.photo_id = p.photo_id
+    WHERE """ + _PREVIEW_READY_SQL + """
 """
 
 # The recognised id (t.address) is resolved to the directory names in an outer

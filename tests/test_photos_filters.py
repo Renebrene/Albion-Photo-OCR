@@ -310,3 +310,17 @@ def test_collection_member_type_must_match_scope(monkeypatch):
 
     assert response.status_code == 422
     assert "requires member_type photo" in response.json()["detail"]
+
+
+def test_photo_read_sql_needs_a_preview():
+    """
+    Фото появляется в гриде и в счётчиках адресов только с превью: прогон
+    «Обновление базы» наполняет галерею по мере создания превью, а битый
+    файл (превью не создаётся) в выдачу не попадает вовсе.
+    """
+
+    assert "photo_previews" in repository._PREVIEW_READY_SQL
+    # Условие стоит в базовом SELECT: его наследуют и список, и счётчик
+    # периода, и панель адресов с «Требуют проверки».
+    assert repository._PREVIEW_READY_SQL.strip() in repository._PHOTO_BASE
+    assert "photo_previews" in repository._PHOTO_SELECT

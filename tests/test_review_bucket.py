@@ -111,7 +111,11 @@ def corpus():
     Убирается за собой: батч удаляется каскадом вместе с прогонами.
     """
 
-    from tests.conftest import forget_recognized_photo, recognize_photo
+    from tests.conftest import (
+        ensure_preview_row,
+        forget_recognized_photo,
+        recognize_photo,
+    )
 
     from app.ingest.database import get_connection
 
@@ -132,6 +136,11 @@ def corpus():
                        ON CONFLICT (photo_id) DO NOTHING""",
                     (photo_id, f"/tmp/{photo_id}.jpg", f"{photo_id}.jpg", photo_id[3:] * 2),
                 )
+
+    # Превью нужно всем трём: без него фото нет ни в адресах, ни в «Требуют
+    # проверки» (см. repository._PREVIEW_READY_SQL).
+    for photo_id in ids.values():
+        ensure_preview_row(photo_id)
 
     strong = recognize_photo(ids["strong"], "78_v33")
     weak = recognize_photo(ids["weak"], "78_v33")

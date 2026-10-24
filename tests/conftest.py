@@ -99,14 +99,43 @@ def probe_fingerprints():
             )
 
 
+def ensure_preview_row(photo_id: str) -> None:
+    """
+    Строка превью для тестового фото.
+
+    Грид и счётчики адресов показывают только фото с превью
+    (`repository._PREVIEW_READY_SQL`), поэтому тест, которому нужно фото в
+    выдаче, обязан создать и превью. Строка уходит каскадом вместе с фото.
+    """
+
+    from app.ingest.database import get_connection
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO public.photo_previews (
+                    photo_id, small_path, middle_path,
+                    small_width, small_height, middle_width, middle_height
+                )
+                VALUES (%s, %s, %s, 1, 1, 1, 1)
+                ON CONFLICT (photo_id) DO NOTHING
+                """,
+                (
+                    photo_id,
+                    "/tmp/scene-test-small.webp",
+                    "/tmp/scene-test-middle.webp",
+                ),
+            )
+
+
 def recognize_photo(photo_id: str, fingerprint_id: str = "78_v33") -> dict:
     """
-    Пометить фото распознанным: минимальные DINO-прогон и вердикт HYBRID.
+    Пометить фото распознанным: превью, минимальные DINO-прогон и вердикт HYBRID.
 
-    Грид показывает фото только после HYBRID (`recognized_only=True`): одного
-    DINO-прогона недостаточно — такая строка отфильтровывается, даже если
-    адрес вычисляется по DINO-fallback. Тесты, которым нужно непустое
-    содержимое, должны создавать именно вердикт HYBRID.
+    Грид показывает фото с превью и адресом из HYBRID: без вердикта фото
+    остаётся в «Требуют проверки», без превью его нет в выдаче вовсе.
+    Тесты, которым нужно непустое содержимое, должны создавать вердикт HYBRID.
 
     Возвращает идентификаторы созданных строк: фото уходит каскадом, а
     батч и прогон HYBRID нужно прибрать явно.
@@ -146,6 +175,8 @@ def recognize_photo(photo_id: str, fingerprint_id: str = "78_v33") -> dict:
                    VALUES (%s, %s, %s, %s, %s, FALSE, 12.0, 'DONE', CURRENT_TIMESTAMP)""",
                 (hybrid_run_id, photo_id, dino_run_id, fingerprint_id, fingerprint_id),
             )
+
+    ensure_preview_row(photo_id)
 
     return {
         "batch_id": batch_id,
@@ -203,8 +234,8 @@ def sample_photo():
                 ),
             )
 
-    # Без вердикта HYBRID фото не попадает в грид, а тесты этого файла
-    # проверяют фильтры по непустому корпусу.
+    # Без превью и вердикта HYBRID фото не попадает в грид, а тесты этого
+    # файла проверяют фильтры по непустому корпусу.
     rows = recognize_photo(photo_id)
 
     yield photo_id

@@ -71,6 +71,11 @@ def _insert_photo(photo_id: str, *, brand: str | None = None) -> None:
                 (photo_id, brand),
             )
 
+    # Фото видно в выдаче только с превью (repository._PREVIEW_READY_SQL).
+    from conftest import ensure_preview_row
+
+    ensure_preview_row(photo_id)
+
 
 def _cleanup() -> None:
     ids = [PROBE_ID, PROBE_BRAND_ID]
