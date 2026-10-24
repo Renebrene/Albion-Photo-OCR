@@ -2092,6 +2092,26 @@ function clientBrand(photo) {
   return photo?.category || ''
 }
 
+// Подписи плитки считаются один раз на список, а не по два-три раза на
+// карточку в шаблоне: на длинном списке это заметная работа на каждой
+// отрисовке. Карта пересобирается только когда меняется сам список.
+const tileCaptions = computed(() => {
+  const captions = new Map()
+
+  for (const photo of sortedItems.value) {
+    captions.set(photo.photo_id, {
+      meta: tileMeta(photo),
+      clientBrand: clientBrand(photo),
+    })
+  }
+
+  return captions
+})
+
+function tileCaption(photo) {
+  return tileCaptions.value.get(photo.photo_id) || { meta: '', clientBrand: '' }
+}
+
 /** Подпись собрана из категории: не распознаны ни клиент, ни бренд. */
 function clientBrandFromCategory(photo) {
   return Boolean(photo?.category) && !photo?.client && !photo?.brand
@@ -3357,10 +3377,10 @@ function tagList(meta) {
                     {{ photo.filename }}
                   </div>
                   <div
-                    v-if="tileMeta(photo)"
+                    v-if="tileCaption(photo).meta"
                     class="ellipsis text-caption text-weight-bold font-italic"
                   >
-                    {{ tileMeta(photo) }}
+                    {{ tileCaption(photo).meta }}
                   </div>
                   <!-- Значок QWEN — внизу, перед строкой клиента/бренда/тегов. -->
                   <div class="ellipsis text-caption font-italic row items-center no-wrap">
@@ -3372,8 +3392,8 @@ function tagList(meta) {
                     >
                       <q-tooltip>{{ qwenHint(photo) }}</q-tooltip>
                     </q-icon>
-                    <span v-if="clientBrand(photo)" class="ellipsis">
-                      {{ clientBrand(photo) }}
+                    <span v-if="tileCaption(photo).clientBrand" class="ellipsis">
+                      {{ tileCaption(photo).clientBrand }}
                     </span>
                     <q-tooltip v-if="clientBrandFromCategory(photo)">
                       Клиент или бренд не определены — показана категория.
