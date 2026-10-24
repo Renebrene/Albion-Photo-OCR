@@ -224,6 +224,22 @@ def enqueue_billboard_detect(photo_id: str) -> int | None:
             return int(row[0]) if row is not None else None
 
 
+def active_refine_job() -> dict | None:
+    """Активное «Уточнение» из очереди (его ставит воркер или супервизор)."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {_JOB_COLUMNS} FROM public.job_queue "  # noqa: S608
+                "WHERE job_type = 'REFINE' "
+                "AND status IN ('PENDING', 'RUNNING', 'PAUSED') "
+                "ORDER BY id LIMIT 1"
+            )
+            row = cur.fetchone()
+
+    return _row_to_job(row) if row is not None else None
+
+
 def enqueue_refine(limit: int = 5000) -> int | None:
     """
     Поставить «Уточнение» после того, как QWEN закончил.
@@ -761,6 +777,9 @@ PIPELINE_JOB_TYPES = (
     "DINO_BATCH",
     "HYBRID_RUN",
     "QWEN_PHOTO",
+    # «Уточнение» идёт последним этапом прогона, поэтому остановка прогона
+    # приостанавливает и его очередь.
+    "REFINE",
 )
 
 

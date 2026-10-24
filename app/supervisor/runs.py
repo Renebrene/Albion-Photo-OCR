@@ -747,22 +747,103 @@ def _stage_qwen(run: dict, stage: dict) -> dict:
     failed = _qwen_count(cutoff, "FAILED")
     total = _photos_total(cutoff)
 
-    if active == 0:
-        message = f"ошибок: {failed}" if failed else None
+    if active:
         return {
-            "outcome": "DONE",
+            "outcome": "WAIT",
             "total_count": total,
             "done_count": done,
             "failed_count": failed,
-            "message": message,
         }
 
+    # QWEN закончил: последним этапом прогона идёт «Уточнение» (если включено
+    # и есть что сравнивать). Прогон не сообщает «база обновлена», пока оно
+    # работает.
+    refine = _refine_after_qwen(run, stage)
+
+    if refine is not None:
+        return refine
+
+    message = f"ошибок: {failed}" if failed else None
     return {
-        "outcome": "WAIT",
+        "outcome": "DONE",
         "total_count": total,
         "done_count": done,
         "failed_count": failed,
+        "message": message,
     }
+
+
+def _refine_after_qwen(run: dict, stage: dict) -> dict | None:
+    """
+    Шаг «Уточнения» внутри стадии QWEN. Возвращает WAIT/DONE или None.
+
+    None означает «этап не нужен»: он выключен в настройках или сравнивать
+    нечего. Задание ставит сам супервизор (постановка идемпотентна: второе
+    «Уточнение» не создаётся, пока первое в очереди). Ошибка «Уточнения» не
+    валит прогон — описания QWEN уже сохранены.
+    """
+
+    try:
+        from app.refine import config as refine_config
+
+        if not refine_config.enabled() or not refine_config.available():
+            return None
+    except Exception:  # noqa: BLE001 - этап может быть не установлен
+        return None
+
+    ref = dict(stage["ref"] or {})
+    job_id = ref.get("refine_job_id")
+
+    if job_id is None:
+        # Уже идёт чужое «Уточнение» (например, после дозаполнения за период):
+        # своё не ставим, но и не считаем прогон завершённым.
+        active = jobs_db.active_refine_job()
+
+        if active is not None:
+            return {
+                "outcome": "WAIT",
+                "message": "уточнение: идёт задание из очереди",
+            }
+
+        job_id = jobs_db.enqueue_refine()
+
+        if job_id is None:
+            return None
+
+        _set_stage(
+            run["run_id"], "QWEN",
+            ref={**ref, "refine_job_id": int(job_id)},
+        )
+        logger.info(
+            "pipeline run %s: «Уточнение» поставлено заданием %s",
+            run["run_id"], job_id,
+        )
+        return {"outcome": "WAIT", "message": "уточнение: поставлено в очередь"}
+
+    job = jobs_db.get_job(int(job_id))
+
+    if job is None:
+        return None
+
+    status = str(job.get("status") or "")
+
+    if status in ("PENDING", "RUNNING", "PAUSED"):
+        return {"outcome": "WAIT", "message": "уточнение: идёт"}
+
+    if status == "DONE":
+        result = job.get("result") or {}
+        changed = result.get("photos_changed")
+        message = "уточнение завершено"
+
+        if changed:
+            message = f"уточнение: изменено фото {changed}"
+        elif result.get("status") == "empty":
+            message = "уточнение: нечего связывать"
+
+        return {"outcome": "DONE", "message": message}
+
+    error = job.get("error_message") or status
+    return {"outcome": "DONE", "message": f"уточнение: ошибка ({error})"}
 
 
 _HANDLERS = {
