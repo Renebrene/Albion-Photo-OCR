@@ -239,6 +239,7 @@ def test_refine_reports_progress_per_group(monkeypatch):
         _frame("PH_b", screen="78_v33", seconds=5, client=None),
     ]
     monkeypatch.setattr(runner, "load_frames", lambda *_a, **_k: frames)
+    monkeypatch.setattr(runner, "list_screens", lambda: [("78_v33", len(frames))])
 
     seen = []
 
@@ -249,10 +250,71 @@ def test_refine_reports_progress_per_group(monkeypatch):
         progress=lambda done, total: seen.append((done, total)),
     )
 
-    # Сначала нулевой отчёт (чтобы «0 / N» появилось сразу), затем по группам
-    # до конца.
+    # Сначала нулевой отчёт (чтобы «0 / N» появилось сразу), затем — по кадрам
+    # до конца: в шапке это «Уточнение 2 / 2».
     assert seen
-    assert seen[0][0] == 0
-    assert seen[-1][0] == seen[-1][1]
+    assert seen[0] == (0, len(frames))
+    assert seen[-1] == (len(frames), len(frames))
     assert report["status"] == "dry_run"
+    assert report["frames"] == len(frames)
     assert report["groups"] >= 1
+
+
+def test_screen_bigger_than_a_page_goes_alone():
+    """Экран, который больше страницы, не теряется: он идёт своей страницей."""
+
+    from app.refine.runner import _screen_batches
+
+    batches = _screen_batches([("1_v33", 1), ("2_v33", 100), ("3_v33", 1)], limit=10)
+
+    assert batches == [["1_v33"], ["2_v33"], ["3_v33"]]
+
+
+def test_refine_walks_all_pages_not_just_the_first(monkeypatch):
+    """
+    Проход идёт по всему корпусу страницами, а не только по первым кадрам.
+
+    Регрессия: одиночный LIMIT разбирал первые 5 000 кадров, а повторный запуск
+    перечитывал те же самые — остальные не обрабатывались никогда, и «нужны ещё
+    проходы» не помогали.
+    """
+
+    from app.refine import config as refine_config
+    from app.refine import runner
+
+    monkeypatch.setattr(refine_config, "enabled", lambda: True)
+    monkeypatch.setattr(refine_config, "gap_seconds", lambda: 30.0)
+
+    pages = {
+        ("1_v33",): [_frame("PH_a", screen="1_v33", seconds=0, client="Лента")],
+        ("2_v33",): [
+            _frame("PH_b", screen="2_v33", seconds=1, client=None),
+            _frame("PH_b2", screen="2_v33", seconds=2, client=None),
+        ],
+        ("3_v33",): [_frame("PH_c", screen="3_v33", seconds=3, client=None)],
+    }
+    asked: list[tuple[str, ...]] = []
+
+    def load(limit, *, screens=None):
+        asked.append(tuple(screens or ()))
+        return pages.get(tuple(screens or ()), [])
+
+    monkeypatch.setattr(runner, "load_frames", load)
+    # Экраны и их размеры: страница режется по ним, а не посреди экрана.
+    monkeypatch.setattr(
+        runner,
+        "list_screens",
+        lambda: [("1_v33", 1), ("2_v33", 2), ("3_v33", 1)],
+    )
+
+    report = runner.run_refine(limit=2, dry_run=True)
+
+    # Ни один экран не разрезан между страницами: иначе остаток экрана терялся
+    # бы (так пропадало 1 273 кадра из 14 074). Экран «2_v33» идёт целиком.
+    seen: list[str] = []
+    for page in asked:
+        assert len(page) == len(set(page))
+        seen.extend(page)
+
+    assert seen == ["1_v33", "2_v33", "3_v33"]
+    assert report["frames"] == 4
