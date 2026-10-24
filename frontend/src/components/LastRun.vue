@@ -124,6 +124,13 @@ function stageDurations(run) {
   return parts.join(' · ')
 }
 
+const KINDS = ['pipeline', 'ingest', 'sort', 'qwen', 'scheduler']
+
+// Последний прогон вида, которого не было среди последних 50 записей.
+// Спрашивается отдельно: планировщик пишет запись на каждый тик и вытесняет
+// из окна остальные виды, и панель показывала «нет запусков», хотя прогон был.
+const perKind = ref({})
+
 const latestByKind = computed(() => {
   const byKind = {}
 
@@ -131,10 +138,12 @@ const latestByKind = computed(() => {
     if (!byKind[run.kind]) byKind[run.kind] = run
   }
 
-  return ['pipeline', 'ingest', 'sort', 'qwen', 'scheduler'].map((kind) => ({
+  return KINDS.map((kind) => ({
     kind,
     label: KIND_LABELS[kind],
-    run: byKind[kind] || null,
+    run: perKind.value[kind]?.run || byKind[kind] || null,
+    // Прогонов этого вида нет вообще (а не «не попало в окно»).
+    empty: perKind.value[kind]?.checked && !perKind.value[kind]?.run,
   }))
 })
 
@@ -150,6 +159,30 @@ async function load() {
 
     data.value = last
     history.value = runs.items || []
+
+    // Виды, которых нет в окне последних 50 записей: спрашиваем их последний
+    // прогон отдельно, иначе панель врёт «нет запусков».
+    const inWindow = new Set(history.value.map((run) => run.kind))
+    const missing = KINDS.filter((kind) => !inWindow.has(kind))
+    const found = await Promise.allSettled(
+      missing.map((kind) => fetchRunHistory({ kind, limit: 1 })),
+    )
+
+    const next = { ...perKind.value }
+
+    missing.forEach((kind, index) => {
+      const result = found[index]
+
+      next[kind] = {
+        checked: true,
+        run:
+          result.status === 'fulfilled'
+            ? result.value.items?.[0] || null
+            : null,
+      }
+    })
+
+    perKind.value = next
   } catch (err) {
     error.value = err.message
   } finally {
@@ -227,7 +260,12 @@ onMounted(load)
               />
             </template>
 
-            <span v-else class="text-caption text-grey-6">нет запусков</span>
+            <span v-else-if="item.empty" class="text-caption text-grey-6">
+              нет запусков
+            </span>
+            <span v-else class="text-caption text-grey-6">
+              нет в последних записях — полный список ниже
+            </span>
           </div>
 
           <template v-if="item.run">
