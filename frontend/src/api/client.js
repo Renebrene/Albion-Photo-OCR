@@ -29,16 +29,24 @@ export function authHeaders(extra = {}) {
 // actually opened.
 const _imageCache = new Map()
 const _imageInflight = new Map()
+// Поколение кэша: растёт при смене пользователя (вход/выход). Загрузка,
+// начатая под прошлым токеном, не должна попасть в кэш и достаться
+// следующему пользователю — иначе Гость мог бы увидеть оригинал, который
+// ему не разрешён.
+let _imageGeneration = 0
 // Недавно освобождённые картинки. Без этого прокрутка вниз-вверх заново
 // качала и декодировала всё, что ушло за край экрана: «раньше уже было
 // загружено» пропало, как только появилось освобождение blob URL.
 // Держим небольшой запас: превью весят ~13 КБ, 400 штук — около 5 МБ.
 const _imageRecent = new Map()
 const RECENT_IMAGE_LIMIT = 400
+// В recent попадают только превью: оригиналы из просмотрщика весят мегабайты,
+// и 400 таких blob — это сотни мегабайт несосвобождаемой памяти.
+const RECENT_BLOB_MAX_BYTES = 512 * 1024
 
 export async function acquireImageUrl(url) {
   const cached = _imageCache.get(url)
-  if (cached) {
+  if (cached && cached.generation === _imageGeneration) {
     cached.refs += 1
     return cached.objectUrl
   }
@@ -46,9 +54,14 @@ export async function acquireImageUrl(url) {
   // Уже качали и недавно отпустили: blob ещё жив — отдаём без сети и без
   // повторного декодирования.
   const recent = _imageRecent.get(url)
-  if (recent) {
+  if (recent && recent.generation === _imageGeneration) {
     _imageRecent.delete(url)
-    _imageCache.set(url, { objectUrl: recent.objectUrl, refs: 1 })
+    _imageCache.set(url, {
+      objectUrl: recent.objectUrl,
+      refs: 1,
+      generation: _imageGeneration,
+      size: recent.size,
+    })
     return recent.objectUrl
   }
 
@@ -59,6 +72,8 @@ export async function acquireImageUrl(url) {
     return objectUrl
   }
 
+  const generation = _imageGeneration
+
   const task = (async () => {
     const response = await fetch(url, { headers: authHeaders() })
 
@@ -66,8 +81,21 @@ export async function acquireImageUrl(url) {
       throw new Error(`image error ${response.status}`)
     }
 
-    const objectUrl = URL.createObjectURL(await response.blob())
-    _imageCache.set(url, { objectUrl, refs: 1 })
+    const blob = await response.blob()
+
+    if (generation !== _imageGeneration) {
+      // Пока грузили, пользователь сменился: blob принадлежит прошлой сессии
+      // и не должен попасть ни в кэш, ни на экран.
+      throw new Error('image session changed')
+    }
+
+    const objectUrl = URL.createObjectURL(blob)
+    _imageCache.set(url, {
+      objectUrl,
+      refs: 1,
+      generation,
+      size: blob.size,
+    })
     return objectUrl
   })()
 
@@ -76,7 +104,7 @@ export async function acquireImageUrl(url) {
   try {
     return await task
   } finally {
-    _imageInflight.delete(url)
+    if (_imageInflight.get(url) === task) _imageInflight.delete(url)
   }
 }
 
@@ -89,7 +117,18 @@ export function releaseImageUrl(url) {
   if (entry.refs > 0) return
 
   _imageCache.delete(url)
-  _imageRecent.set(url, { objectUrl: entry.objectUrl })
+
+  // Кэш прошлой сессии или крупный оригинал в recent не держим.
+  if (entry.generation !== _imageGeneration || entry.size > RECENT_BLOB_MAX_BYTES) {
+    URL.revokeObjectURL(entry.objectUrl)
+    return
+  }
+
+  _imageRecent.set(url, {
+    objectUrl: entry.objectUrl,
+    generation: entry.generation,
+    size: entry.size,
+  })
 
   // Переполнение — освобождаем самые старые: память остаётся ограниченной.
   while (_imageRecent.size > RECENT_IMAGE_LIMIT) {
@@ -106,6 +145,10 @@ export function authImageUrl(url) {
 }
 
 export function clearImageCache() {
+  // Новое поколение: незавершённые загрузки прошлой сессии не попадут в кэш,
+  // а их blob будут освобождены при завершении.
+  _imageGeneration += 1
+
   for (const entry of _imageCache.values()) {
     URL.revokeObjectURL(entry.objectUrl)
   }
@@ -114,6 +157,7 @@ export function clearImageCache() {
   }
   _imageCache.clear()
   _imageRecent.clear()
+  _imageInflight.clear()
 }
 
 export async function downloadAuthenticated(url, filename) {
