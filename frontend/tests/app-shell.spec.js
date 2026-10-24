@@ -16,11 +16,14 @@ import VideosGrid from '../src/pages/VideosGrid.vue'
 import Technical from '../src/pages/Technical.vue'
 import { setToken } from '../src/api/client'
 import { useDisplayStore } from '../src/stores/display'
+import { usePhotosStore } from '../src/stores/photos'
 
 const calls = []
 const urls = []
 // Тела запросов архива: по ним видно имена файлов, которые ушли на сервер.
 const archiveBodies = []
+// Тела записей в /v1/selection: по ним видно, что именно сохраняется.
+const selectionBodies = []
 
 // Уведомления в тестах не нужны, а их отсутствие прячет настоящую ошибку.
 Notify.create = vi.fn()
@@ -33,6 +36,7 @@ function installFetch({
   loggedIn = true,
   role = 'Администратор',
   photoPages = null,
+  selection = {},
 } = {}) {
   let photoPageIndex = 0
 
@@ -95,7 +99,13 @@ function installFetch({
       }
     }
 
-    if (path.endsWith('/v1/selection')) return json({ state: {} })
+    if (path.endsWith('/v1/selection')) {
+      if (method === 'PUT') {
+        selectionBodies.push(JSON.parse(options.body))
+      }
+
+      return json({ state: selection })
+    }
 
     if (path.endsWith('/v1/addresses/directory')) {
       return json({
@@ -187,6 +197,7 @@ function installFetch({
 beforeEach(() => {
   calls.length = 0
   urls.length = 0
+  selectionBodies.length = 0
 
   // В сборке это подставляет Vite (define), в тестах переменной нет —
   // приложение обязано подняться и без неё (подпись сборки просто прочерк).
@@ -204,9 +215,13 @@ beforeEach(() => {
 })
 
 describe('оболочка приложения', () => {
-  async function mountShell({ role = null } = {}) {
+  async function mountShell({ role = null, selection = {} } = {}) {
     // Роль задаётся до монтирования: /auth/me отвечает уже от её имени.
-    if (role) installFetch({ role })
+    if (role) {
+      installFetch({ role, selection })
+    } else if (Object.keys(selection).length) {
+      installFetch({ selection })
+    }
 
     const router = createRouter({
       history: createMemoryHistory(),
@@ -509,17 +524,8 @@ describe('оболочка приложения', () => {
     wrapper.unmount()
   })
 
-  it('при входе показывает все фото без старых выделений', async () => {
-    installFetch()
-
-    // Сервер мог сохранить выделение от прошлой сессии — оно игнорируется.
-    const baseFetch = global.fetch
-    global.fetch = vi.fn(async (url, options) => {
-      if (String(url).includes('/v1/selection')) {
-        return json({ state: { selected: ['78_v33'] } })
-      }
-      return baseFetch(url, options)
-    })
+  it('фильтры адресов и клиентов не восстанавливаются при входе', async () => {
+    installFetch({ selection: { selected: ['PH_' + 'b'.repeat(24)] } })
 
     const wrapper = await mountShell()
     await flushPromises()
@@ -529,6 +535,60 @@ describe('оболочка приложения', () => {
     expect(photosCall).not.toContain('address=')
     expect(photosCall).not.toContain('client=')
     expect(photosCall).not.toContain('q=')
+
+    wrapper.unmount()
+  })
+
+  it('отмеченные фото рабочей роли восстанавливаются из состояния на сервере', async () => {
+    const saved = ['PH_' + 'b'.repeat(24), 'PH_' + 'c'.repeat(24)]
+    installFetch({ selection: { selected: saved } })
+
+    const wrapper = await mountShell()
+    await flushPromises()
+
+    // Раньше набор не сохранялся ни у кого: ветка записи была недостижима,
+    // потому что состояние грузилось с persist: false для всех.
+    expect(usePhotosStore().selected).toEqual(saved)
+
+    wrapper.unmount()
+  })
+
+  it('изменение выделения уходит на сервер', async () => {
+    installFetch({ selection: { selected: [] } })
+
+    const wrapper = await mountShell()
+    await flushPromises()
+
+    const photoId = 'PH_' + 'd'.repeat(24)
+    usePhotosStore().toggleSelected(photoId)
+
+    // Запись откладывается на 800 мс — это склейка быстрых кликов.
+    await new Promise((resolve) => setTimeout(resolve, 900))
+    await flushPromises()
+
+    // Настройки отображения пишутся туда же, поэтому берём записи с selected.
+    const saved = selectionBodies.filter((body) => body.state?.selected !== undefined)
+    expect(saved).toHaveLength(1)
+    expect(saved[0].state.selected).toEqual([photoId])
+
+    wrapper.unmount()
+  })
+
+  it('гостю выделение не сохраняется', async () => {
+    const wrapper = await mountShell({
+      role: 'Гость',
+      selection: { selected: ['PH_' + 'e'.repeat(24)] },
+    })
+    await flushPromises()
+
+    // Гость только смотрит: чужое выделение не подхватывается и не пишется.
+    expect(usePhotosStore().selected).toEqual([])
+
+    usePhotosStore().toggleSelected('PH_' + 'f'.repeat(24))
+    await new Promise((resolve) => setTimeout(resolve, 900))
+    await flushPromises()
+
+    expect(selectionBodies).toEqual([])
 
     wrapper.unmount()
   })

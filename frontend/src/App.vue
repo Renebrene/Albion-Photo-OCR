@@ -99,10 +99,12 @@ async function afterAuth() {
   display.setPersistence(canPersist)
   if (!canPersist) display.reset()
 
-  // Выделения адресов и клиентов не переживают сессию: при входе грид
-  // показывает все фото. Настройки отображения при этом по-прежнему
-  // сохраняются за рабочими ролями.
-  photos.loadSelectionState({ persist: false })
+  // Фильтры адресов и клиентов не переживают сессию: при входе грид
+  // показывает все фото. Отмеченные фото — другое: рабочие роли получают
+  // свой набор обратно, а гость только смотрит — его выбор действиями не
+  // используется и не записывается (та же граница, что у настроек отображения
+  // и подсказки в «Уточнении»).
+  photos.loadSelectionState({ persist: canPersist })
   // The display settings follow the user, not the browser. A Guest always
   // starts from the built-in defaults and never persists them.
   if (canPersist) await display.loadFromServer()

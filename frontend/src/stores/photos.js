@@ -866,6 +866,11 @@ export const usePhotosStore = defineStore('photos', {
     // ---- per-manager state ----
 
     async loadSelectionState({ persist = true } = {}) {
+      // Отложенная запись прошлого состояния не должна догонять новое:
+      // иначе она перезапишет только что загруженный набор.
+      clearTimeout(persistTimer)
+      persistTimer = null
+
       if (!persist) {
         // Гость: выбор не используется действиями и не сохраняется.
         this.selected = []
