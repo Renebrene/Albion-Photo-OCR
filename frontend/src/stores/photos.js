@@ -51,6 +51,9 @@ function filterParams(state, { limit, cursor = null }) {
   return {
     limit,
     cursor,
+    // Порядок задаёт сервер: клиент не пересортировывает страницы.
+    sort: state.sortKey || 'photo_id',
+    order: state.sortDirection || 'asc',
     q: state.query || null,
     address: state.selectedAddresses.length ? state.selectedAddresses : null,
     client: state.selectedClients.length ? state.selectedClients : null,
@@ -164,6 +167,9 @@ export const usePhotosStore = defineStore('photos', {
     // вернуть выбор после сброса режима.
     selectionEpoch: 0,
     nlIds: [],
+    // Ключ и направление сортировки: живут в сторе, потому что уходят в запрос.
+    sortKey: 'date',
+    sortDirection: 'desc',
 
     // side panels (mirroring the legacy UI)
     addresses: [],

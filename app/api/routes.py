@@ -163,6 +163,8 @@ def list_photos(
     collection_id: int | None = Query(None, ge=1),
     ids: list[str] | None = Query(None, max_length=200),
     principal=Depends(require_scope("read")),
+    sort: str = Query("photo_id"),
+    order: str = Query("asc", pattern=r"^(asc|desc)$"),
 ):
     date_from, date_to = _date_params(date_from, date_to)
 
@@ -202,7 +204,15 @@ def list_photos(
         # (or after a manual override); videos are a separate list.
         recognized_only=True,
         combine=combine,
+        sort=sort,
+        order=order,
     )
+
+    if sort not in repository.SORT_KEYS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unsupported sort key: {sort}",
+        )
 
     # The grid label («За период N фото») needs the size of the whole filtered
     # set, not just the loaded page. Count once, on the first page: subsequent

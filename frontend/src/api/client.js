@@ -349,6 +349,8 @@ export function fetchPhotos({
   combine = null,
   collection_id = null,
   ids = null,
+  sort = null,
+  order = null,
 } = {}) {
   const params = new URLSearchParams()
   params.set('limit', String(limit))
@@ -367,6 +369,9 @@ export function fetchPhotos({
   if (date_mode) params.set('date_mode', date_mode)
   // How address and client selections combine (union|address|client).
   if (combine) params.set('combine', combine)
+  // Порядок строк задаёт сервер (см. repository.list_photos).
+  if (sort) params.set('sort', sort)
+  if (order) params.set('order', order)
   if (collection_id) params.set('collection_id', String(collection_id))
   if (ids) [].concat(ids).forEach((v) => params.append('ids', v))
 

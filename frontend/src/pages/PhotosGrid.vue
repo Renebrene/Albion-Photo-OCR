@@ -39,7 +39,6 @@ import {
   LIST_FIELDS,
   downloadFileName,
   fieldText,
-  sortPhotos,
   useDisplayStore,
 } from '../stores/display'
 import { usePhotosStore } from '../stores/photos'
@@ -166,8 +165,28 @@ watch(
 
 // Grid presentation (mirrors the legacy list/tile toggle + sorting).
 const viewMode = ref('tiles')
-const sortKey = ref('date')
-const sortDirection = ref('desc')
+// Сортировка задаётся на сервере (`sort`/`order` в /v1/photos): страницы
+// приходят уже в нужном порядке, и догруженная страница больше не встаёт в
+// середину списка. Клиентская пересортировка убрана.
+const sortKey = computed({
+  get: () => store.sortKey,
+  set: (value) => {
+    if (store.sortKey === value) return
+
+    store.sortKey = value
+    store.refresh()
+  },
+})
+
+const sortDirection = computed({
+  get: () => store.sortDirection,
+  set: (value) => {
+    if (store.sortDirection === value) return
+
+    store.sortDirection = value
+    store.refresh()
+  },
+})
 
 const sortOptions = [
   { label: 'По имени файла', value: 'filename' },
@@ -176,9 +195,9 @@ const sortOptions = [
   { label: 'По дате съёмки', value: 'date' },
 ]
 
-const sortedItems = computed(() =>
-  sortPhotos(items.value, sortKey.value, sortDirection.value),
-)
+// Порядок строк уже серверный: этот computed оставлен, чтобы не менять
+// шаблон и навигацию по просмотрщику.
+const sortedItems = computed(() => items.value)
 
 /** Уверенность распознавания строкой: 0.87. Пусто, если вердикта нет. */
 function confidenceText(value) {

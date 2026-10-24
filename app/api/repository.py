@@ -7,6 +7,8 @@ issued. photo_id is always passed as a query parameter, never interpolated.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from psycopg.types.json import Json
 
 from app.api import fingerprints
@@ -319,9 +321,74 @@ def _photo_row(row) -> PhotoSummary:
     )
 
 
+# Сортировка выдачи: ключи те же, что в меню грида.
+#
+# Раньше порядок задавал клиент, пересортировывая уже загруженные страницы:
+# сервер отдавал их по photo_id, поэтому догруженная страница вставала в
+# середину списка. Теперь ключ уходит на сервер, а страницы продолжаются
+# курсором по тому же ключу.
+_SORT_EXPRESSIONS = {
+    "photo_id": "t.photo_id",
+    "filename": "t.filename",
+    "address": (
+        "COALESCE(NULLIF(btrim(t.simple_address), ''), t.legal_address,"
+        " t.address, '')"
+    ),
+    "client": "COALESCE(t.client, '')",
+    "date": "COALESCE(t.taken_at, t.created_at)",
+}
+
+SORT_KEYS = tuple(_SORT_EXPRESSIONS)
+
+
+def sort_expression(sort: str) -> str:
+    """ORDER BY-выражение для ключа сортировки (с подстановкой по умолчанию)."""
+
+    return _SORT_EXPRESSIONS.get(sort, _SORT_EXPRESSIONS["photo_id"])
+
+
+def encode_cursor(value, photo_id: str) -> str:
+    """
+    Курсор страницы: значение ключа сортировки и photo_id.
+
+    Только photo_id, как раньше, годится лишь для сортировки по нему: при
+    сортировке по дате или адресу граница страницы проходит по значению ключа,
+    и одного идентификатора для продолжения недостаточно.
+    """
+
+    import base64
+    import json as _json
+
+    if isinstance(value, datetime):
+        value = value.isoformat(sep=" ", timespec="microseconds")
+
+    payload = _json.dumps({"v": value, "id": photo_id}, ensure_ascii=False)
+    return base64.urlsafe_b64encode(payload.encode()).decode()
+
+
+def decode_cursor(cursor: str):
+    """Обратная операция; при мусоре возвращает None (страница начнётся с начала)."""
+
+    import base64
+    import json as _json
+
+    try:
+        raw = base64.urlsafe_b64decode(cursor.encode()).decode()
+        data = _json.loads(raw)
+    except Exception:  # noqa: BLE001 - курсор приходит от клиента
+        return None
+
+    if not isinstance(data, dict) or "id" not in data:
+        return None
+
+    return data.get("v"), str(data["id"])
+
+
 def _photo_where(
     *,
     cursor: str | None = None,
+    sort: str = "photo_id",
+    order: str = "asc",
     query: str | None = None,
     addresses: list[str] | None = None,
     clients: list[str] | None = None,
@@ -362,8 +429,28 @@ def _photo_where(
     tag_clauses: list[str] = []
 
     if not ids and cursor:
-        clauses.append("t.photo_id > %s")
-        params.append(cursor)
+        if sort == "photo_id":
+            # По умолчанию страница продолжается по photo_id — как раньше.
+            clauses.append(
+                "t.photo_id > %s" if order == "asc" else "t.photo_id < %s"
+            )
+            params.append(cursor)
+        else:
+            decoded = decode_cursor(cursor)
+
+            if decoded is not None:
+                value, last_id = decoded
+                expression = sort_expression(sort)
+                comparator = ">" if order == "asc" else "<"
+                # Ключ сортировки не уникален: границу задаёт пара
+                # (значение ключа, photo_id), иначе строки на границе
+                # страниц повторялись бы или терялись.
+                cast = "%s::timestamp" if sort == "date" else "%s::text"
+                clauses.append(
+                    f"(({expression}), t.photo_id) {comparator}"
+                    f" ({cast}, %s::text)"
+                )
+                params.extend([value, last_id])
 
     if query:
         like = f"%{query}%"
@@ -668,6 +755,8 @@ def list_photos(
     *,
     limit: int,
     cursor: str | None = None,
+    sort: str = "photo_id",
+    order: str = "asc",
     query: str | None = None,
     addresses: list[str] | None = None,
     clients: list[str] | None = None,
@@ -701,8 +790,16 @@ def list_photos(
     skip and repeat rows - so it is ignored in that mode.
     """
 
+    if sort not in _SORT_EXPRESSIONS:
+        raise ValueError(f"unsupported sort key: {sort}")
+
+    if order not in {"asc", "desc"}:
+        raise ValueError("order must be 'asc' or 'desc'")
+
     where, params = _photo_where(
         cursor=cursor,
+        sort=sort,
+        order=order,
         query=query,
         addresses=addresses,
         clients=clients,
@@ -739,8 +836,20 @@ def list_photos(
             "LIMIT %s OFFSET %s"
         )
         params.extend([order_param, limit + 1, offset])
+    elif sort == "photo_id":
+        sql += " ORDER BY t.photo_id%s LIMIT %%s" % (
+            " DESC" if order == "desc" else ""
+        )
+        params.append(limit + 1)
     else:
-        sql += " ORDER BY t.photo_id LIMIT %s"
+        # Порядок задаёт сервер: клиент больше не пересортировывает страницы.
+        # Второй ключ (photo_id) делает порядок полным и устойчивым к
+        # одинаковым значениям.
+        direction = "DESC" if order == "desc" else "ASC"
+        sql += (
+            f" ORDER BY {sort_expression(sort)} {direction},"
+            f" t.photo_id {direction} LIMIT %s"
+        )
         params.append(limit + 1)
 
     with get_connection() as conn:
@@ -758,10 +867,29 @@ def list_photos(
         next_cursor = (
             f"rank:{offset + len(items)}" if has_next and items else None
         )
-    else:
+    elif sort == "photo_id":
         next_cursor = items[-1].photo_id if has_next and items else None
+    else:
+        # Продолжение страницы — по значению ключа сортировки и photo_id.
+        next_cursor = (
+            encode_cursor(_sort_value(items[-1], sort), items[-1].photo_id)
+            if has_next and items
+            else None
+        )
 
     return items, next_cursor
+
+
+def _sort_value(item, sort: str):
+    """Значение ключа сортировки у строки выдачи (для курсора страницы)."""
+
+    if sort == "date":
+        return item.taken_at or item.created_at
+
+    if sort == "address":
+        return item.simple_address or item.legal_address or item.address or ""
+
+    return getattr(item, sort, "") or ""
 
 
 def qwen_status_counts() -> dict:
