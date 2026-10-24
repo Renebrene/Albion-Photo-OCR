@@ -624,8 +624,9 @@ describe('photos store', () => {
     })
   })
 
-  it('loads and persists the per-manager selection', async () => {
-    let saved = null
+  it('выделение фото живёт только в памяти: ни читается, ни пишется в /v1/selection', async () => {
+    // Сервер умеет хранить выделение, но владелец решил не сохранять его:
+    // корзина — состояние страницы и в профиль не попадает (2026-10-24).
     routes.push({
       method: 'GET',
       match: (p) => p === '/api/v1/selection',
@@ -634,42 +635,32 @@ describe('photos store', () => {
     routes.push({
       method: 'PUT',
       match: (p) => p === '/api/v1/selection',
-      respond: (url, opts) => {
-        saved = JSON.parse(opts.body)
-        return jsonResponse({ state: saved.state })
-      },
+      respond: (url, opts) => jsonResponse({ state: JSON.parse(opts.body).state }),
     })
 
     const store = usePhotosStore()
-    await store.loadSelectionState()
-
-    expect(store.selected).toEqual(['PH_a'])
-    expect(store.selectionPersist).toBe(true)
+    store.toggleSelected('PH_b')
 
     vi.useFakeTimers()
-    store.toggleSelected('PH_b')
     await vi.advanceTimersByTimeAsync(900)
     vi.useRealTimers()
 
-    expect(saved).toEqual({ state: { selected: ['PH_a', 'PH_b'] } })
+    expect(store.selected).toEqual(['PH_b'])
+    expect(
+      global.fetch.mock.calls.some(([url]) => String(url).includes('/v1/selection')),
+    ).toBe(false)
   })
 
-  it('does not persist selection when not authenticated', async () => {
-    routes.push({
-      method: 'GET',
-      match: (p) => p === '/api/v1/selection',
-      respond: () => jsonResponse({ detail: 'authentication required' }, 401),
-    })
-
+  it('clearSelection снимает выделение и не пишет на сервер', async () => {
     const store = usePhotosStore()
-    await store.loadSelectionState()
-    expect(store.selectionPersist).toBe(false)
+    store.toggleSelected('PH_x')
+    store.clearSelection()
 
     vi.useFakeTimers()
-    store.toggleSelected('PH_x')
     await vi.advanceTimersByTimeAsync(900)
     vi.useRealTimers()
 
+    expect(store.selected).toEqual([])
     expect(
       global.fetch.mock.calls.some(([url, opts]) =>
         String(url).includes('/v1/selection') && (opts?.method || '') === 'PUT',

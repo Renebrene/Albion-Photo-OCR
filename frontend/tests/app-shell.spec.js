@@ -539,21 +539,20 @@ describe('оболочка приложения', () => {
     wrapper.unmount()
   })
 
-  it('отмеченные фото рабочей роли восстанавливаются из состояния на сервере', async () => {
-    const saved = ['PH_' + 'b'.repeat(24), 'PH_' + 'c'.repeat(24)]
-    installFetch({ selection: { selected: saved } })
+  it('выделение фото не восстанавливается из состояния на сервере', async () => {
+    installFetch({ selection: { selected: ['PH_' + 'b'.repeat(24)] } })
 
     const wrapper = await mountShell()
     await flushPromises()
 
-    // Раньше набор не сохранялся ни у кого: ветка записи была недостижима,
-    // потому что состояние грузилось с persist: false для всех.
-    expect(usePhotosStore().selected).toEqual(saved)
+    // Корзина выделенных — состояние страницы, а не профиля: вход всегда
+    // начинается с пустого набора (решение владельца, 2026-10-24).
+    expect(usePhotosStore().selected).toEqual([])
 
     wrapper.unmount()
   })
 
-  it('изменение выделения уходит на сервер', async () => {
+  it('выделение фото не записывается на сервер', async () => {
     installFetch({ selection: { selected: [] } })
 
     const wrapper = await mountShell()
@@ -561,34 +560,50 @@ describe('оболочка приложения', () => {
 
     const photoId = 'PH_' + 'd'.repeat(24)
     usePhotosStore().toggleSelected(photoId)
-
-    // Запись откладывается на 800 мс — это склейка быстрых кликов.
     await new Promise((resolve) => setTimeout(resolve, 900))
     await flushPromises()
 
-    // Настройки отображения пишутся туда же, поэтому берём записи с selected.
-    const saved = selectionBodies.filter((body) => body.state?.selected !== undefined)
-    expect(saved).toHaveLength(1)
-    expect(saved[0].state.selected).toEqual([photoId])
+    // Выделение живёт только в памяти; в /v1/selection уходят лишь настройки
+    // отображения, поэтому смотрим записи именно с selected.
+    expect(selectionBodies.filter((body) => body.state?.selected !== undefined)).toEqual([])
+    expect(usePhotosStore().selected).toEqual([photoId])
 
     wrapper.unmount()
   })
 
-  it('гостю выделение не сохраняется', async () => {
-    const wrapper = await mountShell({
-      role: 'Гость',
-      selection: { selected: ['PH_' + 'e'.repeat(24)] },
-    })
+  it('возвращение на страницу фото снимает выделение', async () => {
+    installFetch({ selection: { selected: [] } })
+
+    const wrapper = await mountShell()
     await flushPromises()
 
-    // Гость только смотрит: чужое выделение не подхватывается и не пишется.
+    usePhotosStore().toggleSelected('PH_' + 'g'.repeat(24))
+    await flushPromises()
+    expect(usePhotosStore().selected).toHaveLength(1)
+
+    await wrapper.vm.$router.push('/videos')
+    await flushPromises()
+    await wrapper.vm.$router.push('/')
+    await flushPromises()
+
     expect(usePhotosStore().selected).toEqual([])
 
-    usePhotosStore().toggleSelected('PH_' + 'f'.repeat(24))
-    await new Promise((resolve) => setTimeout(resolve, 900))
+    wrapper.unmount()
+  })
+
+  it('кнопка «Обновить» снимает выделение', async () => {
+    installFetch({ selection: { selected: [] } })
+
+    const wrapper = await mountShell()
     await flushPromises()
 
-    expect(selectionBodies).toEqual([])
+    usePhotosStore().toggleSelected('PH_' + 'h'.repeat(24))
+    await flushPromises()
+
+    await wrapper.find('.grid-refresh').trigger('click')
+    await flushPromises()
+
+    expect(usePhotosStore().selected).toEqual([])
 
     wrapper.unmount()
   })

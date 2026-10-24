@@ -12,14 +12,8 @@ import {
   fetchCollections,
   fetchPhotos,
   fetchSavedSearches,
-  fetchSelection,
   removeCollectionMembers,
-  saveSelection,
 } from '../api/client'
-
-// Debounce timer for persisting the per-manager selection (module-scoped so
-// it never lands in the reactive store state).
-let persistTimer = null
 
 // Номера поколений запросов панелей. Медленный ответ старого режима не должен
 // перезаписывать свежий список (например, пустой список клиентов в режиме
@@ -196,8 +190,6 @@ export const usePhotosStore = defineStore('photos', {
 
     // selection
     selected: [],
-    // true once a per-manager state has been loaded (auth present)
-    selectionPersist: false,
   }),
 
   getters: {
@@ -850,7 +842,6 @@ export const usePhotosStore = defineStore('photos', {
       this.selected = this.selectedSet.has(photoId)
         ? this.selected.filter((id) => id !== photoId)
         : [...this.selected, photoId]
-      this.scheduleSelectionPersist()
     },
 
     // selectAllCurrent() удалён: он выбирал только загруженные страницы (грид
@@ -859,42 +850,19 @@ export const usePhotosStore = defineStore('photos', {
     // запросов. Подробности — в docs/roadmap_ui_audit_20261024.md.
 
     clearSelection() {
+      // Выделение фото — состояние страницы, а не профиля: при входе на
+      // страницу (F5, «Обновить», возвращение из другого раздела) набор
+      // пустой — решение владельца, 2026-10-24.
+      //
+      // Раньше рядом жила ветка сохранения в /v1/selection, но она была
+      // недостижима (состояние грузилось с `persist: false` для всех, поэтому
+      // `scheduleSelectionPersist` выходил на первой строке). Сохранение
+      // признано ненужным, поэтому ветка удалена, а не починена (пункт 18
+      // старого плана, пункт 5 второго аудита).
       this.selected = []
-      this.scheduleSelectionPersist()
     },
 
     // ---- per-manager state ----
-
-    async loadSelectionState({ persist = true } = {}) {
-      // Отложенная запись прошлого состояния не должна догонять новое:
-      // иначе она перезапишет только что загруженный набор.
-      clearTimeout(persistTimer)
-      persistTimer = null
-
-      if (!persist) {
-        // Гость: выбор не используется действиями и не сохраняется.
-        this.selected = []
-        this.selectionPersist = false
-        return
-      }
-
-      try {
-        const data = await fetchSelection()
-        this.selected = (data.state && data.state.selected) || []
-        this.selectionPersist = true
-      } catch {
-        // Not authenticated (401) or endpoint unavailable: stay local-only.
-        this.selectionPersist = false
-      }
-    },
-
-    scheduleSelectionPersist() {
-      if (!this.selectionPersist) return
-      clearTimeout(persistTimer)
-      persistTimer = setTimeout(() => {
-        saveSelection({ selected: [...this.selected] }).catch(() => {})
-      }, 800)
-    },
 
     // ---- collections ----
 

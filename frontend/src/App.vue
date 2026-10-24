@@ -100,11 +100,11 @@ async function afterAuth() {
   if (!canPersist) display.reset()
 
   // Фильтры адресов и клиентов не переживают сессию: при входе грид
-  // показывает все фото. Отмеченные фото — другое: рабочие роли получают
-  // свой набор обратно, а гость только смотрит — его выбор действиями не
-  // используется и не записывается (та же граница, что у настроек отображения
-  // и подсказки в «Уточнении»).
-  photos.loadSelectionState({ persist: canPersist })
+  // показывает все фото. Отмеченные фото — тем более: это состояние страницы,
+  // и вход (F5, перезаход) всегда начинается с пустого набора (решение
+  // владельца, 2026-10-24). Настройки отображения при этом по-прежнему
+  // сохраняются за рабочими ролями.
+  photos.clearSelection()
   // The display settings follow the user, not the browser. A Guest always
   // starts from the built-in defaults and never persists them.
   if (canPersist) await display.loadFromServer()
