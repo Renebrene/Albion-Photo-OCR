@@ -1162,34 +1162,49 @@ def stats(
 
             # Recognised addresses: a HYBRID final id or a manual override,
             # folded to the legal address exactly like the panel.
+            #
+            # Запрос намеренно НЕ использует _PHOTO_SELECT: для счётчика нужен
+            # только адрес, а полная выборка считает ещё пять коррелированных
+            # подзапросов на каждое фото (подсказка, уверенность, отрыв,
+            # второй адрес). На 57 тысячах фото это выливалось в минуту работы
+            # и держало соединение пула — интерфейс висел на загрузке.
             cur.execute(
                 """
-                WITH t AS (""" + _PHOTO_SELECT + """),
-                eff AS (
+                WITH base AS (
+                    SELECT p.photo_id,
+                           """ + _address_sql("p") + """ AS address,
+                           (
+                               SELECT ov.address_id
+                               FROM public.photo_address_overrides AS ov
+                               WHERE ov.photo_id = p.photo_id
+                           ) AS override_id
+                    FROM public.photos AS p
+                    WHERE """ + _PREVIEW_READY_SQL + """
+                ),
+                mapped AS (
                     SELECT COALESCE(
-                               ov.address_id,
+                               base.override_id,
                                (
                                    SELECT af.address_id
                                    FROM public.address_fingerprints AS af
                                    JOIN public.fingerprints AS reg
                                      ON reg.fingerprint_id = af.fingerprint_id
                                     AND reg.active
-                                   WHERE af.fingerprint_id = t.address
+                                   WHERE af.fingerprint_id = base.address
                                      AND af.active
                                    LIMIT 1
                                )
                            ) AS address_id
-                    FROM t
-                    LEFT JOIN public.photo_address_overrides AS ov
-                           ON ov.photo_id = t.photo_id
-                    WHERE """ + _recognized_sql("t") + """
+                    FROM base
+                    WHERE base.address IS NOT NULL
+                       OR base.override_id IS NOT NULL
                 )
-                SELECT count(DISTINCT e.address_id)
-                FROM eff AS e
+                SELECT count(DISTINCT m.address_id)
+                FROM mapped AS m
                 JOIN public.address_directory AS d
-                  ON d.address_id = e.address_id
+                  ON d.address_id = m.address_id
                  AND d.active
-                WHERE e.address_id IS NOT NULL
+                WHERE m.address_id IS NOT NULL
                 """
             )
             addresses = int(cur.fetchone()[0])
