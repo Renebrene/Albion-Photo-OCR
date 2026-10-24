@@ -47,7 +47,7 @@ const canEditClients = computed(() =>
       <span class="tab-sep" />
       <q-tab name="ingest" icon="folder_open" label="Инспектор" />
       <q-tab name="processing" icon="play_circle" label="Сортировка" />
-      <q-tab name="qwen" icon="auto_awesome" label="Распознавание" />
+      <q-tab name="qwen" icon="auto_awesome" label="Описание" />
       <q-tab name="refine" icon="tune" label="Уточнение" />
       <span class="tab-sep" />
       <q-tab name="automation" icon="schedule" label="Автоматизация" />

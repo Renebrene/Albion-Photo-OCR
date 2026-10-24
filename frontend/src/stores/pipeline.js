@@ -22,8 +22,36 @@ import { createPoller } from '../composables/usePoller'
 // Интервал опроса. Пайплайн идёт десятками минут, чаще нет смысла.
 export const PIPELINE_POLL_MS = 10_000
 
-// Стадии, где число показывает строка в шапке (в кнопке его нет).
-export const PROGRESS_STAGES = ['DINO', 'HYBRID']
+// Названия этапов в шапке — словами владельца: Инспекция → Превью →
+// Сортировка (Дино, Гибрид) → Описание → Уточнение.
+export const STAGE_LABELS = {
+  INGEST: 'Инспекция',
+  PREVIEW: 'Превью',
+  DINO: 'Сортировка · Дино',
+  HYBRID: 'Сортировка · Гибрид',
+  QWEN: 'Описание',
+  REFINE: 'Уточнение',
+}
+
+// Порядок тот же, что у конвейера: даже если этапы идут параллельно (Дино и
+// Описание), строка читается сверху вниз по шагам.
+const STAGE_ORDER = ['INGEST', 'PREVIEW', 'DINO', 'HYBRID', 'QWEN', 'REFINE']
+
+// Сколько чисел показывать в строке: «сделано / всего» плюс отдельно
+// «пропущено», если часть фото пропущена (битый файл, таймаут модели).
+function stageText(entry) {
+  const label = STAGE_LABELS[entry.key] || entry.key
+  const parts = [label]
+
+  if (entry.total > 0) parts.push(`${entry.processed} / ${entry.total}`)
+  else if (entry.processed > 0) parts.push(`${entry.processed}`)
+
+  // Пропущенное — в скобках: разделитель « · » отделяет этапы друг от друга,
+  // и без скобок «… 20904 пропущено 2» читалось бы как один счётчик.
+  if (entry.skipped > 0) parts.push(`(пропущено ${entry.skipped})`)
+
+  return parts.join(' ')
+}
 
 // Поллер живёт вне состояния стора: его нельзя делать реактивным.
 let poller = null
@@ -34,11 +62,13 @@ export const usePipelineStore = defineStore('pipeline', {
     active: false,
     label: '',
     stage: '',
-    done: null,
-    total: null,
-    // Распознавание (QWEN) идёт своей очередью и часто вне прогона
-    // «Обновление базы», поэтому его прогресс показывается отдельно.
+    // Описание (QWEN) идёт своей очередью и часто вне прогона «Обновление
+    // базы», поэтому его прогресс показывается отдельно — вместе с
+    // «Уточнением», которое идёт хвостом за ним.
     qwen: null,
+    // Строки стадий текущего прогона: отсюда берётся «сделано / всего» для
+    // Инспекции, Превью и Сортировки.
+    stages: [],
     // Растёт на каждом опросе: страницы подписываются на него, чтобы
     // выполнить свою часть синхронизации ровно один раз за тик.
     tick: 0,
@@ -46,22 +76,10 @@ export const usePipelineStore = defineStore('pipeline', {
   }),
 
   getters: {
-    // «Распознавание 12375 / 16597» — обработано / всего в текущей выборке
-    // (обычно это дозаполнение за период). Период — в подсказке.
-    qwenText(state) {
-      const qwen = state.qwen
-
-      if (!qwen) return ''
-
-      const total = qwen.batchTotal
-
-      if (total) {
-        return `Распознавание ${qwen.batchDone ?? 0} / ${total}`
-      }
-
-      if (!qwen.described) return ''
-
-      return `Распознавание ${qwen.described}`
+    // Описание (QWEN) идёт своей очередью, поэтому считается отдельно от
+    // стадий прогона: «сделано / всего» в текущей выборке, период — в подсказке.
+    qwenBusy(state) {
+      return Boolean(state.qwen && (state.qwen.running || state.qwen.pending))
     },
 
     // Период выборки — в подсказке к строке.
@@ -69,26 +87,83 @@ export const usePipelineStore = defineStore('pipeline', {
       return state.qwen?.batchTitle || ''
     },
 
-    qwenBusy(state) {
-      return Boolean(state.qwen && (state.qwen.running || state.qwen.pending))
+    refineBusy(state) {
+      return Boolean(state.qwen?.refine)
     },
 
-    // «идёт «Обновление базы» (стадия DINO) · 13686 / 20904»
+    // Идёт хоть что-то: прогон, описание или уточнение. По этому признаку
+    // шапка показывает мигающую точку, а кнопка — паузу.
+    stageBusy(state) {
+      return Boolean(state.active || this.qwenBusy || this.refineBusy)
+    },
+
+    // Этапы со счётчиками: прогон (Инспекция, Превью, Сортировка), Описание и
+    // Уточнение — в одном списке и в порядке конвейера.
     //
-    // Нулевой счётчик не показываем: «0 / 20904» ничего не сообщает и только
-    // занимает место в шапке.
-    text(state) {
-      if (!state.active) return ''
+    // Число — «обработано / всего», где обработанным считается и пропущенное:
+    // битый файл или таймаут модели не должны держать счётчик незавершённым
+    // (иначе он застревает, как «16594 / 16597»). Сколько именно пропущено,
+    // видно рядом.
+    liveStages(state) {
+      const entries = []
 
-      const parts = []
+      for (const row of state.stages || []) {
+        if (!row?.stage || row.stage === 'QWEN') continue
 
-      if (state.label) parts.push(state.label)
+        const done = Number(row.done_count || 0)
+        const failed = Number(row.failed_count || 0)
+        const total = Number(row.total_count || 0)
+        const current = row.stage === state.stage
 
-      if (state.done && state.total && PROGRESS_STAGES.includes(state.stage)) {
-        parts.push(`${state.done} / ${state.total}`)
+        // Завершённую стадию не показываем: место в шапке занимает то, что
+        // идёт сейчас.
+        if (!current && total > 0 && done + failed >= total) continue
+
+        entries.push({
+          key: row.stage,
+          processed: done + failed,
+          total,
+          skipped: failed,
+        })
       }
 
-      return parts.join(' · ')
+      // Описание: счётчик очереди важнее строки прогона — оно часто идёт вне
+      // прогона и своей очередью.
+      const qwen = state.qwen
+
+      // Строка про описание нужна и когда очередь стоит: «Описание 12050» —
+      // это сколько фото уже описано, а не только живой счётчик.
+      if (qwen && (qwen.batchTotal || this.qwenBusy || qwen.described)) {
+        entries.push({
+          key: 'QWEN',
+          // Без выборки (разовая очередь) размер неизвестен: показываем
+          // единственное честное число — сколько фото уже с описанием.
+          processed: qwen.batchTotal
+            ? (qwen.batchDone || 0) + (qwen.batchFailed || 0)
+            : qwen.described || 0,
+          total: qwen.batchTotal || 0,
+          skipped: qwen.batchTotal ? qwen.batchFailed || 0 : 0,
+        })
+      }
+
+      if (qwen?.refine) {
+        entries.push({
+          key: 'REFINE',
+          processed: qwen.refine.done || 0,
+          total: qwen.refine.total || 0,
+          skipped: 0,
+        })
+      }
+
+      return entries.sort(
+        (left, right) =>
+          STAGE_ORDER.indexOf(left.key) - STAGE_ORDER.indexOf(right.key),
+      )
+    },
+
+    // Строка шапки: «Превью 340 / 3000 · Описание 16594 / 16597».
+    stageLine(state) {
+      return (this.liveStages || []).map(stageText).join(' · ')
     },
   },
 
@@ -111,8 +186,7 @@ export const usePipelineStore = defineStore('pipeline', {
           if (withMatched) {
             await this._loadProgress()
           } else {
-            this.done = null
-            this.total = null
+            this.stages = []
           }
         }
 
@@ -121,8 +195,8 @@ export const usePipelineStore = defineStore('pipeline', {
         // Прогона нет или endpoint недоступен — это не ошибка для шапки.
         this._clear()
       } finally {
-        // Распознавание показываем независимо от прогона: своя очередь, свой
-        // счётчик. У ролей без jobs:read чисел нет.
+        // Описание и Уточнение показываем независимо от прогона: своя
+        // очередь, свой счётчик. У ролей без jobs:read чисел нет.
         if (withMatched) await this._loadQwen()
         else this.qwen = null
 
@@ -141,6 +215,8 @@ export const usePipelineStore = defineStore('pipeline', {
         const batch = stats?.batch || null
 
         this.qwen = {
+          // Активное «Уточнение» (хвост описаний) или null.
+          refine: stats?.refine || null,
           described: stats?.processed ?? 0,
           remaining: stats?.remaining ?? 0,
           pending: jobs.pending ?? 0,
@@ -161,16 +237,16 @@ export const usePipelineStore = defineStore('pipeline', {
       try {
         const data = await fetchCurrentPipeline()
         const run = data?.run || null
-        const stage = (run?.stages || []).find(
-          (item) => item.stage === run?.stage,
-        )
 
-        this.done = stage?.done_count ?? null
-        this.total = stage?.total_count ?? null
+        // Строки всех стадий прогона: из них собирается строка шапки
+        // («Превью 340 / 3000»). Раньше брали только текущую стадию, поэтому
+        // в шапке не было ни Инспекции, ни Превью.
+        this.stages = run?.stages || []
+
+        if (run?.stage) this.stage = run.stage
       } catch {
         // Сводка вспомогательная: стадия показывается и без неё.
-        this.done = null
-        this.total = null
+        this.stages = []
       }
     },
 
@@ -178,8 +254,7 @@ export const usePipelineStore = defineStore('pipeline', {
       this.active = false
       this.label = ''
       this.stage = ''
-      this.done = null
-      this.total = null
+      this.stages = []
     },
 
     start(getOptions) {

@@ -49,7 +49,7 @@ const unloadOnIdle = ref(true)
 const billboardCropEnabled = ref(false)
 const billboardCropAvailable = ref(false)
 const billboardCropSaving = ref(false)
-// Участие QWEN в «Обновлении базы» (главный переключатель распознавания).
+// Участие QWEN в «Обновлении базы» (главный переключатель описаний).
 const qwenInPipeline = ref(true)
 const qwenInPipelineSaving = ref(false)
 // Промпты: действующий (его можно править) и встроенный (для сброса).
@@ -151,7 +151,7 @@ async function setBillboardCropEnabled(value) {
     Notify.create({
       type: 'positive',
       message: billboardCropEnabled.value
-        ? 'Распознавание щита и crop для QWEN включены'
+        ? 'Описание щита и crop для QWEN включены'
         : 'Crop щита выключен; QWEN анализирует полный кадр',
     })
   } catch (err) {
@@ -221,7 +221,7 @@ async function loadStats() {
     stats.value = null
   }
 
-  // Распознавание идёт в воркере: пока очередь не пуста, карточка должна
+  // Описание идёт в воркере: пока очередь не пуста, карточка должна
   // обновляться сама, иначе счётчики «застывают» до ручного перезахода.
   if (qwenQueue.value) startStatsPolling()
   else stopStatsPolling()
@@ -405,7 +405,7 @@ async function stopQueue() {
 async function clearQueue() {
   const confirmed = await confirmDialog({
     title: 'Очистить список заданий?',
-    message: 'Записи о выполненных заданиях распознавания будут удалены. Очередь и результаты описаний не трогаются.',
+    message: 'Записи о выполненных заданиях описаний будут удалены. Очередь и результаты описаний не трогаются.',
     okLabel: 'Очистить',
   })
 
@@ -525,7 +525,7 @@ onBeforeUnmount(stopStatsPolling)
 
 <template>
   <div style="max-width: 1560px">
-    <!-- Главный выключатель распознавания: снимает QWEN из «Обновления базы»
+    <!-- Главный выключатель описаний: снимает QWEN из «Обновления базы»
          целиком. Пока он выключен, прогон идёт инспектор → превью →
          DINO/HYBRID, а «Уточнение» не запускается — сравнивать нечего. -->
     <q-card flat bordered class="q-mb-md">
@@ -566,7 +566,7 @@ onBeforeUnmount(stopStatsPolling)
 
         <q-banner v-if="!canConfigure" dense class="bg-grey-2 text-caption q-mb-sm">
           Провайдер, Base URL, API-ключ и модель меняет только Администратор.
-          Запуск распознавания и выгрузка модели из памяти доступны Менеджеру.
+          Запуск описаний и выгрузка модели из памяти доступны Менеджеру.
         </q-banner>
 
         <q-select
@@ -798,7 +798,7 @@ onBeforeUnmount(stopStatsPolling)
             flat
             color="orange"
             icon="stop"
-            label="Остановить распознавание"
+            label="Остановить описание"
             :disable="!qwenQueue"
             :loading="stopQueueBusy"
             @click="stopQueue"
@@ -857,7 +857,7 @@ onBeforeUnmount(stopStatsPolling)
                 @click="openRescan()"
               />
               <div class="text-caption text-negative q-mt-xs">
-                Удалит текущие QWEN-результаты за выбранный период, сохранив их в историю, и запустит распознавание заново.
+                Удалит текущие QWEN-результаты за выбранный период, сохранив их в историю, и запустит описание заново.
               </div>
               <q-btn
                 outline
@@ -988,7 +988,7 @@ onBeforeUnmount(stopStatsPolling)
           >
             ДЕСТРУКТИВНО: текущие результаты QWEN за выбранный период будут удалены.
             Сначала они сохраняются в историю, затем для выбранных фото запускается
-            новое распознавание с текущей моделью <b>{{ current || '—' }}</b>.
+            новое описание с текущей моделью <b>{{ current || '—' }}</b>.
           </q-banner>
           <q-banner v-else class="bg-blue-1 text-caption" rounded>
             В очередь попадут только фото без успешного описания за выбранный
@@ -1013,7 +1013,7 @@ onBeforeUnmount(stopStatsPolling)
             </div>
           </div>
           <div v-if="qwenQueue" class="text-negative text-caption">
-            Сначала остановите активное распознавание QWEN.
+            Сначала остановите активное описание QWEN.
           </div>
           <div v-if="rescanError" class="text-negative text-caption">{{ rescanError }}</div>
         </q-card-section>

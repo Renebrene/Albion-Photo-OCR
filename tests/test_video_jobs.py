@@ -136,7 +136,7 @@ def test_video_worker_watch_mode_uses_dedicated_loop_with_one_worker(monkeypatch
 
     worker.main()
 
-    assert called == [(["VIDEO_TRANSCODE"], 3.0, 12, "1/1", None)]
+    assert called == [(["VIDEO_TRANSCODE"], 3.0, 12, "1/1", None, None)]
 
 
 def test_explicit_single_video_worker_limits_cpu_threads(monkeypatch):
@@ -152,7 +152,7 @@ def test_explicit_single_video_worker_limits_cpu_threads(monkeypatch):
 
     worker.main()
 
-    assert called == [(["VIDEO_TRANSCODE"], 3.0, 12, "1/1", None)]
+    assert called == [(["VIDEO_TRANSCODE"], 3.0, 12, "1/1", None, None)]
 
 
 def test_video_worker_stale_recovery_resets_derivative_without_ml_imports(monkeypatch):

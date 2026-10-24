@@ -65,7 +65,7 @@ describe('Обновление базы', () => {
     wrapper.unmount()
   })
 
-  it('показывает живой прогресс INGEST «обработано x/y»', async () => {
+  it('числа этапов в кнопке не дублируются: их показывает строка шапки', async () => {
     setPipeline({
       run: {
         run_id: 1, status: 'RUNNING', stage: 'INGEST', manifest: { files: ['a.jpg', 'b.jpg', 'c.jpg'] },
@@ -73,19 +73,37 @@ describe('Обновление базы', () => {
       },
     })
     const wrapper = await mountButton()
-    expect(wrapper.text()).toContain('Обработано медиа 1/3')
+
+    // Счётчики собирает stores/pipeline.js (проверяется в pipeline-stages.spec.js),
+    // в кнопке они раньше дублировались и расходились со строкой.
+    expect(wrapper.text()).not.toContain('1/3')
+    expect(wrapper.text()).not.toContain('1 / 3')
     wrapper.unmount()
   })
 
-  it('показывает прогресс стадии QWEN', async () => {
+  it('во время прогона кнопка показывает паузу', async () => {
+    setPipeline({
+      run: { run_id: 1, status: 'RUNNING', stage: 'QWEN', manifest: {}, stages: [] },
+    })
+    const wrapper = await mountButton()
+
+    const button = wrapper
+      .findAll('button')
+      .find((item) => item.text().includes('Обновление базы'))
+
+    expect(button.html()).toContain('pause')
+    wrapper.unmount()
+  })
+
+  it('пропущенные описания видно отдельной строкой', async () => {
     setPipeline({
       run: {
         run_id: 1, status: 'RUNNING', stage: 'QWEN', manifest: {},
-        stages: [{ stage: 'QWEN', done_count: 5, failed_count: 0, total_count: 10 }],
+        stages: [{ stage: 'QWEN', done_count: 5, failed_count: 2, total_count: 10 }],
       },
     })
     const wrapper = await mountButton()
-    expect(wrapper.text()).toContain('Описаний: 5')
+    expect(wrapper.text()).toContain('Пропущено описаний: 2')
     wrapper.unmount()
   })
 
@@ -101,7 +119,7 @@ describe('Обновление базы', () => {
     wrapper.unmount()
   })
 
-  it('показывает описания, когда параллельно идёт QWEN', async () => {
+  it('во время Дино в кнопке нет чужих чисел', async () => {
     setPipeline({
       run: {
         run_id: 1, status: 'RUNNING', stage: 'DINO', manifest: {},
@@ -112,7 +130,7 @@ describe('Обновление базы', () => {
       },
     })
     const wrapper = await mountButton()
-    expect(wrapper.find('.pipeline-status').text()).toContain('Описаний: 5')
+    expect(wrapper.find('.pipeline-status').exists()).toBe(false)
     wrapper.unmount()
   })
 

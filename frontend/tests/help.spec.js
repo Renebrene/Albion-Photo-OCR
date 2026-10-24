@@ -47,7 +47,7 @@ describe('руководство пользователя', () => {
     const wrapper = await mountHelp()
     const text = wrapper.text()
 
-    expect(text).toContain('Распознавание: кроп щита и облако')
+    expect(text).toContain('Описание: кроп щита и облако')
     expect(text).toContain('Облако (OpenAI-совместимый)')
     expect(text).toContain('отправляется на внешний сервис')
     wrapper.unmount()

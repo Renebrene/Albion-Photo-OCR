@@ -333,8 +333,8 @@ def test_client_list_narrows_to_addresses(monkeypatch):
     assert sql.count("af.address_id = %s") == 1
 
 
-def test_client_list_pages_by_name_and_kind(monkeypatch):
-    """Курсор продолжает список по паре (имя, вид): под именем есть и бренд."""
+def test_client_list_pages_by_name(monkeypatch):
+    """Курсор продолжает список по имени: имена в списке уникальны."""
 
     from app.api import repository
 
@@ -345,8 +345,11 @@ def test_client_list_pages_by_name_and_kind(monkeypatch):
     repository.list_clients(limit=10, cursor=cursor)
 
     sql, params = captured["queries"][0]
-    assert "(sort_key, kind) > (%s, %s)" in sql
-    assert params[-3:] == ["мира", "client", 11]
+    assert "WHERE sort_key > %s" in sql
+    assert params[-2:] == ["мира", 11]
+    # Одно имя — одна строка: клиент и бренд с одним названием не дублируются.
+    assert "DISTINCT ON (lower(name))" in sql
+    assert "(kind = 'client') DESC" in sql
 
 
 def test_client_list_counts_clients_and_brands(monkeypatch):

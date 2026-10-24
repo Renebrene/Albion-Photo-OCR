@@ -215,3 +215,44 @@ def test_refine_is_not_enqueued_without_qwen(monkeypatch):
     worker._maybe_enqueue_refine()  # noqa: SLF001
 
     assert calls == []
+
+
+# ---- прогресс прогона (без базы) -------------------------------------------
+
+
+def test_refine_reports_progress_per_group(monkeypatch):
+    """
+    «Уточнение» сообщает прогресс, как остальные этапы.
+
+    Иначе в шапке нечего показать рядом с описаниями: этап идёт своей
+    очередью, и «сколько сделано / сколько всего» взять неоткуда.
+    """
+
+    from app.refine import config as refine_config
+    from app.refine import runner
+
+    monkeypatch.setattr(refine_config, "enabled", lambda: True)
+    monkeypatch.setattr(refine_config, "gap_seconds", lambda: 30.0)
+
+    frames = [
+        _frame("PH_a", screen="78_v33", seconds=0, client="Лента"),
+        _frame("PH_b", screen="78_v33", seconds=5, client=None),
+    ]
+    monkeypatch.setattr(runner, "load_frames", lambda *_a, **_k: frames)
+
+    seen = []
+
+    # dry_run — чтобы тест не писал в базу: прогресс считается до записи.
+    report = runner.run_refine(
+        limit=10,
+        dry_run=True,
+        progress=lambda done, total: seen.append((done, total)),
+    )
+
+    # Сначала нулевой отчёт (чтобы «0 / N» появилось сразу), затем по группам
+    # до конца.
+    assert seen
+    assert seen[0][0] == 0
+    assert seen[-1][0] == seen[-1][1]
+    assert report["status"] == "dry_run"
+    assert report["groups"] >= 1

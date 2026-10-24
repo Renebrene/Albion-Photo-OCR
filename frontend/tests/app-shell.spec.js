@@ -499,8 +499,8 @@ describe('оболочка приложения', () => {
     const header = wrapper.find('header')
 
     expect(header.text()).toContain('Обновление базы')
-    expect(header.text()).toContain('стадия HYBRID')
-    expect(header.text()).toContain('697 / 935')
+    // Этапы со счётчиками: имя этапа словами владельца и «сделано / всего».
+    expect(header.text()).toContain('Сортировка · Гибрид 697 / 935')
 
     wrapper.unmount()
   })
@@ -823,8 +823,10 @@ describe('оболочка приложения', () => {
     await flushPromises()
 
     const header = wrapper.find('header').text()
-    // Владелец просил только числа: обработано / всего.
-    expect(header).toContain('12383 / 16597')
+    // Обработано / всего, причём пропущенное считается обработанным — иначе
+    // счётчик застревает на «16594 / 16597». Сколько именно пропущено, видно
+    // рядом.
+    expect(header).toContain('Описание 12384 / 16597 (пропущено 1)')
     wrapper.unmount()
   })
 

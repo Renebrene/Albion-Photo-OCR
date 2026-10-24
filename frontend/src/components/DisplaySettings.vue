@@ -62,7 +62,7 @@ async function resetDisplay() {
       />
       <div class="text-caption text-grey">
         Если выключить, в плитке останутся адрес, дата и клиент. Значок
-        распознавания QWEN стоит перед адресом.
+        описания QWEN стоит перед адресом.
       </div>
     </div>
 

@@ -334,33 +334,30 @@ function toggleDark() {
         <PipelineUpdateButton
           v-if="canRunPipeline"
           :can-run="canRunPipeline"
-          :busy="pipeline.qwenBusy"
+          :busy="pipeline.stageBusy"
           @finished="loadStats"
         />
 
-        <!-- Распознавание (QWEN): своя очередь, идёт и вне прогона базы. -->
+        <!-- Этапы со счётчиками — рядом с кнопкой, которая их запускает:
+             Инспекция → Превью → Сортировка (Дино, Гибрид) → Описание →
+             Уточнение. Описание и Уточнение идут своими очередями и часто вне
+             прогона, поэтому показываются здесь же, а не только на странице
+             обработки. Видно с любой страницы. -->
         <div
-          v-if="pipeline.qwenText"
-          class="row items-center no-wrap text-caption q-ml-md q-mr-sm header-qwen-live"
+          v-if="pipeline.stageLine"
+          class="row items-center no-wrap text-caption q-ml-md q-mr-sm header-pipeline-live"
         >
-          <span v-if="pipeline.qwenBusy" class="blink-dot q-mr-xs" />
-          <span>
-            {{ pipeline.qwenText }}
+          <span v-if="pipeline.stageBusy" class="blink-dot q-mr-xs" />
+          <span class="ellipsis">
+            {{ pipeline.stageLine }}
             <q-tooltip>
-              Обработано / всего в текущей выборке распознавания
-              <template v-if="pipeline.qwenTitle"> · {{ pipeline.qwenTitle }}</template>
+              Этапы конвейера: сделано / всего. Пропущенные (битый файл,
+              таймаут модели) считаются сделанными и показаны отдельно.
+              <template v-if="pipeline.qwenTitle">
+                Описание за период: {{ pipeline.qwenTitle }}
+              </template>
             </q-tooltip>
           </span>
-        </div>
-
-        <!-- Стадия прогона и число совпадений — рядом с кнопкой, которая его
-             запускает. Видно с любой страницы, а не только из грида. -->
-        <div
-          v-if="pipeline.text"
-          class="row items-center no-wrap text-caption q-mr-sm header-pipeline-live"
-        >
-          <q-spinner-dots size="14px" class="q-mr-xs" />
-          <span class="ellipsis">{{ pipeline.text }}</span>
         </div>
 
         <q-btn

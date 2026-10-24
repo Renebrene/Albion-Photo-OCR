@@ -218,7 +218,14 @@ def _execute(job: dict) -> dict:
     if job_type == "REFINE":
         from app.refine.runner import run_refine
 
-        return run_refine(limit=int(payload.get("limit") or 5000))
+        # Свой прогресс: шапка показывает «Уточнение done / total», а обратный
+        # вызов заодно делает задание отменяемым (как у остальных этапов).
+        refine_control = job_control(int(job["id"]))
+
+        return run_refine(
+            limit=int(payload.get("limit") or 5000),
+            progress=lambda done, total: refine_control(done, total, "уточнение"),
+        )
 
     if job_type == "NL_SEARCH":
         from app.api.nl_search import run as nl_run

@@ -37,7 +37,7 @@ const error = ref(null)
 const starting = ref(false)
 
 // Ручной запуск сортировки запрещён, пока идёт любой процесс, меняющий
-// состояние распознавания: полный прогон, тик планировщика или другая
+// состояние описаний: полный прогон, тик планировщика или другая
 // DINO/HYBRID-сортировка.
 const activity = ref(null)
 const operationActive = computed(() => Boolean(activity.value))

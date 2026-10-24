@@ -16,7 +16,7 @@ import { usePipelineStore } from '../src/stores/pipeline'
 Notify.create = vi.fn()
 
 let photoTotal = 2
-// Строка прогона в шапке: «готово / всего» берётся из строк стадии
+// Этапы со счётчиками в шапке: «готово / всего» берётся из строк стадии
 // (/v1/pipeline/current). Проверяем и её, и нулевой случай.
 let stageDone = 3
 let stageTotal = 10
@@ -173,15 +173,15 @@ describe('грид следит за HYBRID', () => {
     await tick()
 
     expect(pipeline.active).toBe(true)
-    expect(pipeline.text).toContain('стадия HYBRID')
-    expect(pipeline.text).toContain('3 / 10')
+    expect(pipeline.stageLine).toContain('Сортировка · Гибрид')
+    expect(pipeline.stageLine).toContain('3 / 10')
 
     // В гриде этой строки больше нет: её место — шапка рядом с кнопкой.
     expect(wrapper.text()).not.toContain('3 / 10')
     wrapper.unmount()
   })
 
-  it('нулевой счётчик совпадений в шапке не показывается', async () => {
+  it('стадия с нулевым прогрессом показывает свой размер', async () => {
     const { tick, pipeline } = await mountGrid()
 
     stageDone = 0
@@ -189,7 +189,9 @@ describe('грид следит за HYBRID', () => {
     await tick()
 
     expect(pipeline.active).toBe(true)
-    expect(pipeline.text).toContain('стадия HYBRID')
-    expect(pipeline.text).not.toContain('0 / 20904')
+    // Ноль в начале стадии — не «нет данных»: он говорит, какой этап идёт и
+    // сколько в нём всего. Раньше строка показывала «Совпадений: 0» без
+    // размера, и это выглядело как пустой счётчик.
+    expect(pipeline.stageLine).toContain('Сортировка · Гибрид 0 / 20904')
   })
 })

@@ -487,13 +487,12 @@ export const usePhotosStore = defineStore('photos', {
         if (request !== clientsRequest) return
 
         // Страницы могут пересечься, если список успел измениться между
-        // запросами: ключ — вид и имя в нижнем регистре.
-        const known = new Set(
-          this.clients.map((item) => `${item.kind}:${String(item.name).toLowerCase()}`),
-        )
+        // запросами: ключ — имя в нижнем регистре (имена в списке уникальны,
+        // клиент и бренд с одним названием — одна строка).
+        const known = new Set(this.clients.map((item) => String(item.name).toLowerCase()))
 
         for (const item of data.items || []) {
-          const key = `${item.kind}:${String(item.name).toLowerCase()}`
+          const key = String(item.name).toLowerCase()
 
           if (!known.has(key)) {
             known.add(key)

@@ -1180,6 +1180,31 @@ def qwen_stats() -> dict:
                     "failed": int(total_row[2]),
                 }
 
+            # «Уточнение» — хвост этапа описаний: идёт своей очередью, но
+            # показывается в шапке рядом с ним. Счётчик берём из прогресса
+            # задания (его пишет воркер), пока этап не завершён.
+            cur.execute(
+                """
+                SELECT id, status, progress
+                FROM public.job_queue
+                WHERE job_type = 'REFINE'
+                  AND status IN ('PENDING', 'RUNNING', 'PAUSED')
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            )
+            refine_row = cur.fetchone()
+            refine = None
+
+            if refine_row is not None:
+                refine_progress = refine_row[2] or {}
+                refine = {
+                    "job_id": int(refine_row[0]),
+                    "status": refine_row[1],
+                    "done": int(refine_progress.get("done") or 0),
+                    "total": int(refine_progress.get("total") or 0),
+                }
+
             cur.execute(
                 """
                 SELECT COALESCE(payload ->> 'source', 'manual') AS source,
@@ -1210,6 +1235,9 @@ def qwen_stats() -> dict:
         "queued": counts.get("PENDING", 0) + counts.get("RUNNING", 0),
         "jobs": jobs,
         "batch": batch,
+        # Активное «Уточнение» (или None): этап идёт своей очередью, поэтому
+        # в шапке показывается отдельным счётчиком.
+        "refine": refine,
         "models": models,
         "tokens": tokens,
         "history_rows": history_rows,
@@ -1757,10 +1785,9 @@ def list_clients(
     """
     Клиенты и бренды с числом фото — постранично, для правой панели.
 
-    Возвращает страницу и курсор продолжения. Курсор — пара
-    (имя в нижнем регистре, вид): сортировка идёт по имени, а под одним именем
-    могут стоять и клиент, и бренд, поэтому одного имени для продолжения мало
-    (иначе на границе страниц терялась бы или повторялась строка).
+    Возвращает страницу и курсор продолжения. Сортировка идёт по имени, имя
+    уникально (клиент и бренд с одним названием — одна строка), поэтому курсор
+    задаётся именем в нижнем регистре.
 
     Aliased raw values are folded into their canonical name (client_aliases).
     With ``addresses`` the list is narrowed to clients present on those
@@ -1802,9 +1829,10 @@ def list_clients(
     paging_params: list[object] = []
 
     if decoded is not None:
-        name_key, kind_key = decoded
-        paging_sql = "WHERE (sort_key, kind) > (%s, %s)"
-        paging_params = [str(name_key), str(kind_key)]
+        # Имена уникальны, поэтому для продолжения достаточно имени.
+        name_key = decoded[0] if isinstance(decoded, tuple) else decoded
+        paging_sql = "WHERE sort_key > %s"
+        paging_params = [str(name_key)]
 
     # На страницу запрашиваем на одну строку больше: если она пришла, значит
     # есть продолжение, и её курсор отдаём клиенту как «дальше».
@@ -1818,14 +1846,22 @@ def list_clients(
             mode="mode() WITHIN GROUP (ORDER BY COALESCE(a.canonical, t.client))",
             brand_mode="mode() WITHIN GROUP (ORDER BY COALESCE(a.canonical, t.brand))",
         )
-        + ") "
+        + "), unique_names AS ("
+        # Одно имя показываем один раз, даже если оно есть и среди клиентов, и
+        # среди брендов: в панели это один пункт списка, а не два. При
+        # совпадении берём клиента — тогда и счётчик, и фильтр по клику
+        # относятся к одному и тому же.
+        "   SELECT DISTINCT ON (lower(name)) kind, name, count"
+        "   FROM grouped"
+        "   ORDER BY lower(name), (kind = 'client') DESC"
+        ") "
         # Ключ сортировки объявляется отдельным слоем: в WHERE псевдоним
         # выходного столбца PostgreSQL не видит.
         "SELECT kind, name, count, sort_key FROM ("
-        "   SELECT kind, lower(name) AS sort_key, name, count FROM grouped"
+        "   SELECT kind, name, count, lower(name) AS sort_key FROM unique_names"
         ") AS page "
         + paging_sql
-        + " ORDER BY sort_key, kind LIMIT %s"
+        + " ORDER BY sort_key LIMIT %s"
     )
 
     with get_connection() as conn:
@@ -1843,7 +1879,7 @@ def list_clients(
         last = rows[limit - 1]
         # Ключ продолжения берём из SQL (lower в базе), а не считаем в Python:
         # правила регистра у них могут расходиться на редких символах.
-        next_cursor = encode_cursor(last[3], last[0])
+        next_cursor = encode_cursor(last[3], last[1])
 
     return items, next_cursor
 

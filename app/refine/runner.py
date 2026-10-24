@@ -113,12 +113,17 @@ def run_refine(
     limit: int = DEFAULT_LIMIT,
     fields: tuple[str, ...] = DEFAULT_FIELDS,
     dry_run: bool = False,
+    progress=None,
 ) -> dict:
     """
     Один прогон «Уточнения». Возвращает сводку (её сохраняет очередь).
 
     Выключенный этап — не ошибка: возвращаем `status="disabled"`, чтобы
     задание завершилось успешно и не повторялось.
+
+    `progress(done, total)` — та же обратная связь, что у остальных этапов:
+    шапка показывает «Уточнение 120 / 500», а задание можно отменить (обратный
+    вызов пишет прогресс в очередь и проверяет статус задания).
     """
 
     if not refine_config.enabled():
@@ -150,13 +155,20 @@ def run_refine(
         gap_seconds=refine_config.gap_seconds(),
         max_distance=DEFAULT_MAX_DISTANCE,
     )
+    total_groups = len(groups)
+
+    if progress is not None:
+        progress(0, total_groups)
 
     # Собираем изменения по фото: одно фото может получить и клиента, и бренд.
     changes: dict[str, dict[str, str]] = defaultdict(dict)
     filled = replaced = disputed_groups = 0
     disputed_samples: list[list[str]] = []
 
-    for group in groups:
+    for index, group in enumerate(groups, start=1):
+        if progress is not None:
+            progress(index, total_groups)
+
         group_disputed = False
 
         for field in fields:

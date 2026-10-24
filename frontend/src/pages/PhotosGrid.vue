@@ -218,7 +218,7 @@ const detailsLoading = ref(false)
 const originalStatus = ref(null)
 const originalStatusLoading = ref(false)
 let originalStatusRequest = 0
-// Прежние результаты распознавания: что перезаписала новая модель.
+// Прежние результаты описания: что перезаписала новая модель.
 const qwenHistory = ref([])
 
 // Разовая пересборка описания одного фото (локально или в облаке).
@@ -262,7 +262,7 @@ async function rescanPhoto(provider) {
     if (!result.first_job_id) {
       Notify.create({
         type: 'info',
-        message: 'Это фото уже стоит в очереди распознавания',
+        message: 'Это фото уже стоит в очереди описаний',
       })
       return
     }
@@ -287,7 +287,7 @@ async function rescanPhoto(provider) {
     } else {
       Notify.create({
         type: 'negative',
-        message: `Распознавание: ${job.status}${job.error_message ? ` — ${job.error_message}` : ''}`,
+        message: `Описание: ${job.status}${job.error_message ? ` — ${job.error_message}` : ''}`,
       })
     }
 
@@ -582,9 +582,7 @@ const clientHint = computed(() => {
   const term = clientSearch.value.trim()
   if (!term) return ''
   const first = filteredClients.value[0]
-  return first
-    ? `→ ${first.value}${first.kind === 'brand' ? ' (бренд)' : ''}`
-    : 'нет совпадений'
+  return first ? `→ ${first.value}` : 'нет совпадений'
 })
 
 async function pickFirstAddress() {
@@ -1467,7 +1465,7 @@ async function closeManual({ cancel = true } = {}) {
     return
   }
 
-  // Закрытие во время распознавания ИЛИ поиска отменяет job и делает
+  // Закрытие во время описания ИЛИ поиска отменяет job и делает
   // поздний ответ недействительным.
   const jobId = manualJobId.value
   manualRun += 1
@@ -1531,7 +1529,7 @@ async function runDescribe() {
     manualJobId.value = null
     if (!job || job.status !== 'DONE') {
       manualStage.value = 'idle'
-      Notify.create({ type: 'negative', message: `Распознавание: ${job ? job.status : 'таймаут'}` })
+      Notify.create({ type: 'negative', message: `Описание: ${job ? job.status : 'таймаут'}` })
       return
     }
     const qwen = (job.result && job.result.qwen) || {}
@@ -1926,7 +1924,7 @@ function tileMeta(photo) {
   return [tileDate(photo), tileTime(photo)].filter(Boolean).join(' · ')
 }
 
-/** «клиент · бренд» для карточки; пусто, когда распознавания ещё нет. */
+/** «клиент · бренд» для карточки; пусто, когда описания ещё нет. */
 /**
  * Клиент и бренд для подписи.
  *
@@ -3129,7 +3127,7 @@ function tagList(meta) {
                 <q-card-section class="q-pa-xs">
                   <!-- Подпись плитки: алиас адреса жирным, имя файла обычным,
                        дата съёмки и вес — жирным курсивом, клиент и бренд —
-                       курсивом (результат распознавания QWEN). -->
+                       курсивом (результат описания QWEN). -->
                   <div
                     v-if="display.tileShowAddressName && photo.address"
                     class="ellipsis text-caption text-weight-bold"
@@ -3281,7 +3279,7 @@ function tagList(meta) {
                     </template>
                   </q-item-label>
 
-                  <!-- Строка 2: имя файла и результат распознавания. -->
+                  <!-- Строка 2: имя файла и результат описания. -->
                   <q-item-label
                     v-if="listSecondParts(photo).length"
                     caption
@@ -3514,15 +3512,11 @@ function tagList(meta) {
                 @click="pickClientEntry(item)"
               >
                 <q-item-section>
+                  <!-- Только название: писать, клиент это или бренд, не нужно —
+                       одно имя в списке встречается один раз. -->
                   <div class="ellipsis">{{ item.value }}</div>
                   <div
-                    v-if="item.kind === 'brand'"
-                    class="text-caption text-grey-7"
-                  >
-                    бренд
-                  </div>
-                  <div
-                    v-else-if="item.selectedOnly"
+                    v-if="item.selectedOnly"
                     class="text-caption text-grey-7"
                   >
                     выбран
@@ -4224,7 +4218,7 @@ function tagList(meta) {
                 @update:model-value="seekToFrame"
               />
               <div class="text-caption text-grey-8">
-                Кадр для распознавания: {{ manualFrameSec }} с
+                Кадр для описания: {{ manualFrameSec }} с
               </div>
             </div>
 
@@ -4242,7 +4236,7 @@ function tagList(meta) {
 
           <div class="col-12 col-sm-7">
             <div v-if="manualStage === 'idle'" class="text-caption text-grey-8">
-              Нажмите «Распознать» — QWEN опишет файл, поля ниже можно будет
+              Нажмите «Описать» — QWEN опишет файл, поля ниже можно будет
               поправить перед поиском.
             </div>
             <template v-else>
@@ -4267,8 +4261,8 @@ function tagList(meta) {
             v-if="manualStage === 'idle'"
             color="secondary"
             icon="auto_awesome"
-            label="Распознать (QWEN)"
-            :loading="false"
+            label="Описать (QWEN)"
+            :loading="manualStage === 'describing'"
             @click="runDescribe"
           />
           <template v-else>
@@ -4280,7 +4274,7 @@ function tagList(meta) {
               :disable="!manualHasTerms"
               @click="runManualSearch"
             />
-            <q-btn flat label="Распознать заново" @click="runDescribe" />
+            <q-btn flat label="Описать заново" @click="runDescribe" />
           </template>
         </q-card-actions>
         <div v-if="manualQwenText" class="text-caption text-grey-7 q-px-md q-pb-xs">

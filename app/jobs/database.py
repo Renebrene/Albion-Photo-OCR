@@ -8,6 +8,8 @@ run safely in parallel.
 
 from __future__ import annotations
 
+import os
+
 from typing import Any
 
 from psycopg.types.json import Json
@@ -698,6 +700,13 @@ def mark_cancelled(job_id: int) -> bool:
             return True
 
 
+# Сколько раз задание можно принять обратно после «зависания». Дальше оно
+# закрывается как пропущенное: очередь не должна стоять из-за одного файла, а
+# бесконечные повторы ничего не дают (владелец: при долгом таймауте или явной
+# ошибке — пропускать).
+STALE_MAX_ATTEMPTS = int(os.getenv("SCENE_STALE_MAX_ATTEMPTS", "3"))
+
+
 def requeue_stale(
     *,
     older_than_minutes: int = 30,
@@ -709,6 +718,10 @@ def requeue_stale(
     A crashed or killed worker can leave a claimed job RUNNING forever; this
     recovers it so another worker pass can pick it up. Returns how many jobs
     were requeued.
+
+    Задание, которое «висело» уже `STALE_MAX_ATTEMPTS` раз, повторно не
+    берётся: оно закрывается как FAILED с понятной причиной (`attempts`
+    растёт при каждом взятии задания, см. claim_job).
     """
 
     if older_than_minutes < 0:
@@ -718,8 +731,29 @@ def requeue_stale(
     params: list[object] = [str(int(older_than_minutes))]
     if types:
         params.append(list(types))
+
     with get_connection() as conn:
         with conn.cursor() as cur:
+            # Сначала закрываем те, что зависают не первый раз: возвращать их
+            # в очередь бессмысленно.
+            cur.execute(
+                """
+                UPDATE public.job_queue
+                SET
+                    status = 'FAILED',
+                    finished_at = CURRENT_TIMESTAMP,
+                    error_message = COALESCE(error_message || ' | ', '')
+                        || 'пропущено: задание зависало '
+                        || attempts || ' раз(а)'
+                WHERE status = 'RUNNING'
+                  AND started_at IS NOT NULL
+                  AND started_at < CURRENT_TIMESTAMP
+                        - (%s || ' minutes')::interval
+                  AND attempts >= %s
+                """ + type_clause,
+                [params[0], str(int(STALE_MAX_ATTEMPTS)), *params[1:]],
+            )
+
             cur.execute(
                 """
                 UPDATE public.job_queue
@@ -732,8 +766,9 @@ def requeue_stale(
                   AND started_at IS NOT NULL
                   AND started_at < CURRENT_TIMESTAMP
                         - (%s || ' minutes')::interval
+                  AND attempts < %s
                 """ + type_clause,
-                params,
+                [params[0], str(int(STALE_MAX_ATTEMPTS)), *params[1:]],
             )
             return cur.rowcount
 
