@@ -839,6 +839,26 @@ def qwen_stats() -> dict:
             cur.execute("SELECT count(*) FROM public.photo_qwen_history")
             history_rows = int(cur.fetchone()[0])
 
+            # Очередь распознавания: сколько заданий ждёт и сколько выполняется.
+            # `counts` выше — это строки описаний, а не очередь: фото без
+            # строки в photo_qwen там не видно, поэтому шапке нужен счётчик
+            # именно заданий.
+            cur.execute(
+                """
+                SELECT count(*) FILTER (WHERE status = 'PENDING'),
+                       count(*) FILTER (WHERE status = 'RUNNING'),
+                       count(*) FILTER (WHERE status = 'PAUSED')
+                FROM public.job_queue
+                WHERE job_type = 'QWEN_PHOTO'
+                """
+            )
+            jobs_row = cur.fetchone()
+            jobs = {
+                "pending": int(jobs_row[0]),
+                "running": int(jobs_row[1]),
+                "paused": int(jobs_row[2]),
+            }
+
             cur.execute(
                 """
                 SELECT COALESCE(payload ->> 'source', 'manual') AS source,
@@ -867,6 +887,7 @@ def qwen_stats() -> dict:
         "processed": described,
         "remaining": max(0, photos - described),
         "queued": counts.get("PENDING", 0) + counts.get("RUNNING", 0),
+        "jobs": jobs,
         "models": models,
         "tokens": tokens,
         "history_rows": history_rows,

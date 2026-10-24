@@ -320,6 +320,15 @@ function toggleDark() {
           @finished="loadStats"
         />
 
+        <!-- Распознавание (QWEN): своя очередь, идёт и вне прогона базы. -->
+        <div
+          v-if="pipeline.qwenText"
+          class="row items-center no-wrap text-caption q-mr-sm header-qwen-live"
+        >
+          <q-spinner-dots v-if="pipeline.qwenBusy" size="14px" class="q-mr-xs" />
+          <span>{{ pipeline.qwenText }}</span>
+        </div>
+
         <!-- Стадия прогона и число совпадений — рядом с кнопкой, которая его
              запускает. Видно с любой страницы, а не только из грида. -->
         <div

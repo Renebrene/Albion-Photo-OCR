@@ -763,6 +763,30 @@ describe('оболочка приложения', () => {
     wrapper.unmount()
   })
 
+  it('показывает прогресс распознавания рядом с обновлением базы', async () => {
+    installFetch()
+    const baseFetch = global.fetch
+    global.fetch = vi.fn(async (url, options) => {
+      if (String(url).split('?')[0].endsWith('/v1/qwen/stats')) {
+        return json({
+          photos: 56870,
+          processed: 12050,
+          remaining: 44820,
+          jobs: { pending: 4547, running: 2, paused: 0 },
+        })
+      }
+      return baseFetch(url, options)
+    })
+
+    const wrapper = await mountShell()
+    await flushPromises()
+
+    const header = wrapper.find('header').text()
+    expect(header).toContain('Распознавание: 12050')
+    expect(header).toContain('в очереди 4547')
+    wrapper.unmount()
+  })
+
   it('при сбое /auth/me показывает вход с причиной и повтором', async () => {
     installFetch()
     const baseFetch = global.fetch

@@ -12,7 +12,11 @@
 // («Превью: 5/10», «Описаний: 5»), и дублировать его в шапке незачем.
 import { defineStore } from 'pinia'
 
-import { fetchCurrentPipeline, fetchRunActivity } from '../api/client'
+import {
+  fetchCurrentPipeline,
+  fetchQwenStats,
+  fetchRunActivity,
+} from '../api/client'
 
 // Интервал опроса. Пайплайн идёт десятками минут, чаще нет смысла.
 export const PIPELINE_POLL_MS = 10_000
@@ -28,6 +32,9 @@ export const usePipelineStore = defineStore('pipeline', {
     stage: '',
     done: null,
     total: null,
+    // Распознавание (QWEN) идёт своей очередью и часто вне прогона
+    // «Обновление базы», поэтому его прогресс показывается отдельно.
+    qwen: null,
     // Растёт на каждом опросе: страницы подписываются на него, чтобы
     // выполнить свою часть синхронизации ровно один раз за тик.
     tick: 0,
@@ -36,6 +43,24 @@ export const usePipelineStore = defineStore('pipeline', {
   }),
 
   getters: {
+    // «Распознавание: 12 050 · в очереди 4 547»
+    qwenText(state) {
+      const qwen = state.qwen
+
+      if (!qwen) return ''
+
+      const parts = [`Распознавание: ${qwen.described ?? 0}`]
+
+      if (qwen.pending) parts.push(`в очереди ${qwen.pending}`)
+      else if (qwen.running && !qwen.pending) parts.push('идёт')
+
+      return parts.join(' · ')
+    },
+
+    qwenBusy(state) {
+      return Boolean(state.qwen && (state.qwen.running || state.qwen.pending))
+    },
+
     // «идёт «Обновление базы» (стадия DINO) · 13686 / 20904»
     //
     // Нулевой счётчик не показываем: «0 / 20904» ничего не сообщает и только
@@ -84,11 +109,34 @@ export const usePipelineStore = defineStore('pipeline', {
         // Прогона нет или endpoint недоступен — это не ошибка для шапки.
         this._clear()
       } finally {
+        // Распознавание показываем независимо от прогона: своя очередь, свой
+        // счётчик. У ролей без jobs:read чисел нет.
+        if (withMatched) await this._loadQwen()
+        else this.qwen = null
+
         this.tick += 1
         this.lastTickAt = Date.now()
       }
 
       return this.active
+    },
+
+    async _loadQwen() {
+      try {
+        const stats = await fetchQwenStats()
+        const jobs = stats?.jobs || {}
+
+        this.qwen = {
+          described: stats?.processed ?? 0,
+          remaining: stats?.remaining ?? 0,
+          pending: jobs.pending ?? 0,
+          running: jobs.running ?? 0,
+          paused: jobs.paused ?? 0,
+        }
+      } catch {
+        // Статистика вспомогательная: без неё шапка просто не показывает QWEN.
+        this.qwen = null
+      }
     },
 
     async _loadProgress() {
