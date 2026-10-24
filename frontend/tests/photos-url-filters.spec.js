@@ -10,6 +10,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import PhotosGrid from '../src/pages/PhotosGrid.vue'
+import { useDisplayStore } from '../src/stores/display'
 import { useSessionStore } from '../src/stores/session'
 
 Notify.create = vi.fn()
@@ -133,6 +134,54 @@ describe('фильтры в адресе страницы', () => {
     await nextTick()
 
     expect(router.currentRoute.value.query.q).toBe('ворота')
+    wrapper.unmount()
+  })
+
+  it('направление сортировки попадает в адрес', async () => {
+    const { wrapper, router } = await mountPage()
+
+    // По умолчанию сортировка «по убыванию»: кнопка со стрелкой вниз.
+    const toggle = wrapper
+      .findAll('button')
+      .find((item) => item.text().includes('arrow_downward'))
+    expect(toggle, 'кнопка направления сортировки не найдена').toBeTruthy()
+
+    await toggle.trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    expect(router.currentRoute.value.query.order).toBe('asc')
+    wrapper.unmount()
+  })
+
+  it('источник даты из настроек не затирается открытием страницы', async () => {
+    // Пользователь выбрал «Дата загрузки» в «Отображении» — открытие грида
+    // не должно возвращать его к «Дате съёмки» (второй аудит, п. 3).
+    useDisplayStore().dateFilterMode = 'upload'
+
+    const { wrapper } = await mountPage()
+
+    expect(useDisplayStore().dateFilterMode).toBe('upload')
+    expect(lastPhotoParams().get('date_mode')).toBe('upload')
+
+    wrapper.unmount()
+  })
+
+  it('переключение источника даты перезапрашивает грид', async () => {
+    const { wrapper } = await mountPage()
+
+    expect(lastPhotoParams().get('date_mode')).toBe('capture')
+
+    const requestsBefore = photoUrls.length
+    useDisplayStore().dateFilterMode = 'upload'
+    await flushPromises()
+    await nextTick()
+
+    expect(photoUrls.length).toBeGreaterThan(requestsBefore)
+    expect(lastPhotoParams().get('date_mode')).toBe('upload')
+    // Источник даты — часть выдачи, значит он и в адресе.
+    expect(useDisplayStore().dateFilterMode).toBe('upload')
+
     wrapper.unmount()
   })
 })

@@ -175,6 +175,21 @@ const dateMode = computed({
     display.dateFilterMode = value === 'upload' ? 'upload' : 'capture'
   },
 })
+
+// Пока страница восстанавливает фильтры из адреса, watcher молчит: иначе
+// восстановление сбивало бы себя лишним запросом.
+let filtersHydrated = false
+
+// Источник даты меняют в «Отображении» (шестерёнка), а на выдачу он влияет:
+// без этого переключатель выглядел сломанным — грид не перезапрашивался вовсе
+// (второй аудит, п. 4). Значение при этом попадает в адрес, как остальные
+// фильтры, поэтому F5 его сохраняет.
+watch(dateMode, (value, previous) => {
+  if (!filtersHydrated || value === previous) return
+
+  writeFiltersToQuery()
+  apply()
+})
 // Точные фильтры, выбранные из подсказок поиска.
 const selectedBrand = ref(null)
 const selectedTag = ref(null)
@@ -278,6 +293,9 @@ const sortDirection = computed({
 
     store.sortDirection = value
     store.refresh()
+    // Направление сортировки — часть выдачи, как и сам ключ: без записи в адрес
+    // F5 и чужая ссылка восстанавливали прежнее направление (второй аудит, п. 1).
+    writeFiltersToQuery()
   },
 })
 
@@ -1000,7 +1018,6 @@ onMounted(async () => {
   period.value = 'week'
   customFrom.value = null
   customTo.value = null
-  dateMode.value = 'capture'
   clearStructuredFilters()
   addressSearch.value = ''
   clientSearch.value = ''
@@ -1018,7 +1035,10 @@ onMounted(async () => {
     period.value = filters.period || 'all'
     customFrom.value = filters.from
     customTo.value = filters.to
-    dateMode.value = filters.dateMode || 'capture'
+    // Источник даты восстанавливаем, только когда он есть в адресе: раньше
+    // строка ниже затирала пользовательскую настройку из «Отображения» на
+    // каждом открытии страницы (второй аудит, п. 3).
+    if (filters.dateMode) dateMode.value = filters.dateMode
 
     if (filters.combine) display.addressClientMode = filters.combine
     if (filters.sort) store.sortKey = filters.sort
@@ -1028,6 +1048,7 @@ onMounted(async () => {
   await store.loadFacets()
   display.fitPanels()
   loadQwenModels()
+  filtersHydrated = true
   apply()
 
   // Первый тик store уже прошёл (или пройдёт вот-вот) — синхронизируемся
