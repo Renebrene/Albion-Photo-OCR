@@ -5,13 +5,13 @@ Wants=network-online.target scene-api.service
 
 [Service]
 Type=simple
-WorkingDirectory=/home/alexice/scene-fingerprint
+WorkingDirectory=/home/alexice/albion-photobase
 EnvironmentFile=/home/alexice/.config/scene-fingerprint.env
 # Each PHOTO_PREVIEW job is one photo, so the internal ProcessPoolExecutor
 # handles a single record and does not parallelise by itself. Run three
 # claiming processes instead: measured preview CPU is only ~20 %, so the
 # stage has headroom.
-ExecStart=/home/alexice/scene-fingerprint/.venv/bin/python -m app.jobs.worker --watch --only PHOTO_PREVIEW --parallel 3 --requeue-stale 30 --interval 2
+ExecStart=/home/alexice/albion-photobase/.venv/bin/python -m app.jobs.worker --watch --only PHOTO_PREVIEW --parallel 3 --requeue-stale 30 --interval 2
 Restart=always
 RestartSec=10
 

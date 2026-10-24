@@ -5,10 +5,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Symlink without spaces/parentheses (systemd WorkingDirectory cannot use them).
-WorkingDirectory=/home/alexice/scene-fingerprint
+# Папка без пробелов и скобок: systemd не принимает такие пути в WorkingDirectory.
+WorkingDirectory=/home/alexice/albion-photobase
 EnvironmentFile=/home/alexice/.config/scene-fingerprint.env
-ExecStart=/home/alexice/scene-fingerprint/.venv/bin/python -m uvicorn app.api.main:app --host 0.0.0.0 --port 8010
+ExecStart=/home/alexice/albion-photobase/.venv/bin/python -m uvicorn app.api.main:app --host 0.0.0.0 --port 8010
 Restart=on-failure
 RestartSec=5
 

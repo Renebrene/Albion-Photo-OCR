@@ -5,9 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/alexice/scene-fingerprint
+WorkingDirectory=/home/alexice/albion-photobase
 EnvironmentFile=/home/alexice/.config/scene-fingerprint.env
-ExecStart=/home/alexice/scene-fingerprint/.venv/bin/python scripts/cleanup_job_queue.py --json
-ExecStart=/home/alexice/scene-fingerprint/.venv/bin/python scripts/cleanup_crops.py --older-than-days 7 --json
+ExecStart=/home/alexice/albion-photobase/.venv/bin/python scripts/cleanup_job_queue.py --json
+ExecStart=/home/alexice/albion-photobase/.venv/bin/python scripts/cleanup_crops.py --older-than-days 7 --json
 Nice=10
 TimeoutStartSec=3600

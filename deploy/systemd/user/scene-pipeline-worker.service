@@ -5,12 +5,12 @@ Wants=network-online.target scene-api.service
 
 [Service]
 Type=simple
-WorkingDirectory=/home/alexice/scene-fingerprint
+WorkingDirectory=/home/alexice/albion-photobase
 EnvironmentFile=/home/alexice/.config/scene-fingerprint.env
 # Advances an active pipeline run and claims no jobs itself: the actual
 # INGEST/PREVIEW/DINO/HYBRID/QWEN work runs in the normal workers. Kept off
 # until the operator starts "Обновление базы".
-ExecStart=/home/alexice/scene-fingerprint/.venv/bin/python -m app.jobs.worker --pipeline --interval 3
+ExecStart=/home/alexice/albion-photobase/.venv/bin/python -m app.jobs.worker --pipeline --interval 3
 Restart=always
 RestartSec=10
 
