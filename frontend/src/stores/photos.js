@@ -596,6 +596,19 @@ export const usePhotosStore = defineStore('photos', {
       this.collectionId = null
     },
 
+    /**
+     * Отменить поздние ответы выбора, но сам выбор не трогать.
+     *
+     * Нужно при смене режима ○/△/□: режим меняет только то, как складываются
+     * адреса и клиенты, а выбранное пользователем должно остаться (владелец:
+     * в приоритете по клиентам множественный выбор клиентов сохраняется).
+     */
+    cancelPendingSelections() {
+      this.selectionEpoch += 1
+      addressCollectionRequest += 1
+      clientCollectionRequest += 1
+    },
+
     _syncCollectionId() {
       this.addressCollectionId = this.addressCollectionIds[0] ?? null
       this.clientCollectionId = this.clientCollectionIds[0] ?? null

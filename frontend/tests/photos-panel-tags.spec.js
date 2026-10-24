@@ -353,6 +353,31 @@ describe('строка тегов', () => {
     wrapper.unmount()
   })
 
+  it('смена режима не сбрасывает множественный выбор клиентов', async () => {
+    const wrapper = await mountGrid()
+    const display = useDisplayStore()
+
+    store.selectedClients = ['Клиент А', 'Клиент Б']
+    await flushPromises()
+    await nextTick()
+
+    // □ — приоритет клиентов: режим меняет только то, как складываются адреса
+    // и клиенты, а сам выбор (в том числе множественный) остаётся. Раньше
+    // переключение стирало его через resetSelectionFilters().
+    display.addressClientMode = 'client'
+    await flushPromises()
+    await nextTick()
+
+    expect(store.selectedClients).toEqual(['Клиент А', 'Клиент Б'])
+    expect(store.combine).toBe('client')
+
+    const tags = wrapper.find('.tags-row').text()
+    expect(tags).toContain('Клиент: Клиент А')
+    expect(tags).toContain('Клиент: Клиент Б')
+
+    wrapper.unmount()
+  })
+
   it('выбор клиента из поиска панели не сбрасывает адрес', async () => {
     const wrapper = await mountGrid()
 
@@ -428,23 +453,25 @@ describe('строка тегов', () => {
     const wrapper = await mountGrid()
     const display = useDisplayStore()
 
-    // Смена режима сама сбрасывает выделение адресов И клиентов, включая
-    // активную подборку.
+    // Режим меняет только способ складывания адресов и клиентов: выбранные
+    // клиенты и активная подборка остаются. Раньше переключение стирало выбор
+    // через resetSelectionFilters(), и владелец попросил это убрать.
     store.collections = [
       { collection_id: 5, name: 'Клиенты', scope: 'clients' },
     ]
     store.selectedClients = ['Клиент А']
+    // Подборка живёт парой: список идентификаторов и его состав.
+    store.clientCollectionIds = [5]
     store.clientCollectionId = 5
     store.clientCollectionValues = ['Клиент А']
     display.addressClientMode = 'client'
     await flushPromises()
     await nextTick()
 
-    expect(store.selectedClients).toEqual([])
-    expect(store.clientCollectionId).toBe(null)
-    expect(wrapper.find('.tags-row').exists()).toBe(false)
+    expect(store.selectedClients).toEqual(['Клиент А'])
+    expect(store.clientCollectionId).toBe(5)
+    expect(wrapper.find('.tags-row').text()).toContain('Клиент: Клиент А')
 
-    store.selectedClients = ['Клиент А']
     await store.loadAddresses()
     await flushPromises()
 

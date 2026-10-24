@@ -830,7 +830,7 @@ describe('оболочка приложения', () => {
     wrapper.unmount()
   })
 
-  it('без партии распознавания показывает число описаний', async () => {
+  it('после последнего этапа в шапке остаётся только «База обновлена»', async () => {
     installFetch()
     const baseFetch = global.fetch
     global.fetch = vi.fn(async (url, options) => {
@@ -849,7 +849,13 @@ describe('оболочка приложения', () => {
     const wrapper = await mountShell()
     await flushPromises()
 
-    expect(wrapper.find('header').text()).toContain('12050')
+    // Очередь пуста — данных о процессах в шапке нет: ни «Описание 12050», ни
+    // мигающей точки. Остаётся состояние «База обновлена» с датой.
+    const header = wrapper.find('header').text()
+
+    expect(header).not.toContain('12050')
+    expect(header).not.toContain('Описание')
+
     wrapper.unmount()
   })
 

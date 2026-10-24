@@ -113,7 +113,26 @@ describe('строка этапов в шапке', () => {
     expect(store.stageBusy).toBe(false)
   })
 
-  it('без выборки описаний показывает только пройденное число', async () => {
+  it('после последнего этапа строка этапов убирается', async () => {
+    // Всё закончилось: партия описаний закрыта, заданий нет, уточнение прошло.
+    qwenStats = {
+      jobs: { pending: 0, running: 0, paused: 0 },
+      batch: { run_id: 7, title: '', status: 'DONE', total: 16597, done: 16594, failed: 3 },
+      refine: null,
+      processed: 16268,
+      remaining: 0,
+    }
+
+    const store = usePipelineStore()
+    await store.refresh()
+
+    // Ни счётчиков, ни мигающей точки: в шапке остаётся только «База
+    // обновлена» с датой. Иначе «Описание 16597 / 16597» висело бы вечно.
+    expect(store.stageLine).toBe('')
+    expect(store.stageBusy).toBe(false)
+  })
+
+  it('без выборки описаний показывает пройденное число, пока очередь идёт', async () => {
     qwenStats = {
       jobs: { pending: 0, running: 1, paused: 0 },
       batch: null,

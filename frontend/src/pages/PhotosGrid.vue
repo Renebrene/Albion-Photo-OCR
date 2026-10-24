@@ -149,11 +149,12 @@ const combineMode = computed(() => display.addressClientMode)
 watch(
   () => display.addressClientMode,
   async () => {
-    // Смена режима меняет смысл выбранных адресов/клиентов — сбрасываем
-    // и адресов, и клиентов, и подборки, чтобы грид не показывал старую
-    // комбинацию. resetSelectionFilters() также отменяет поздние ответы
-    // applyCollection.
-    store.resetSelectionFilters()
+    // Смена режима меняет только то, как складываются адреса и клиенты.
+    // Сам выбор не сбрасываем: выбранные клиенты (их может быть несколько)
+    // остаются и в приоритете по клиентам, и при возврате к объединению.
+    // Отменяем лишь поздние ответы выбора, чтобы старый applyCollection не
+    // переписал набор после переключения.
+    store.cancelPendingSelections()
     addressSearch.value = ''
     clientSearch.value = ''
 
