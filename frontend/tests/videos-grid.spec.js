@@ -271,6 +271,107 @@ describe('видеогалерея', () => {
   })
 })
 
+describe('прогресс конвертации не привязан к выделению', () => {
+  const second = {
+    ...item,
+    video_id: `VI_${'c'.repeat(24)}`,
+    filename: 'ворота.MP4',
+    display_title: 'У ворот',
+  }
+
+  function mountPage() {
+    return mount(VideosGrid, {
+      attachTo: document.body,
+      global: {
+        plugins: [Quasar],
+        stubs: {
+          AuthImage: true,
+          QPage: { template: '<div class="test-page"><slot /></div>' },
+        },
+      },
+    })
+  }
+
+  it('показывает идущее сжатие и «Отмена» после выбора другого видео', async () => {
+    let cancelled = false
+    const calls = []
+
+    global.fetch = vi.fn(async (url, options = {}) => {
+      const path = String(url).split('?')[0]
+      const method = (options.method || 'GET').toUpperCase()
+      calls.push({ path, method })
+
+      if (path.endsWith('/v1/videos') && method === 'GET') {
+        return response({ items: [item, second], next_cursor: null })
+      }
+      if (path.endsWith('/transcodes') && method === 'POST') {
+        return response({ derivative_id: 21, job_id: 77, status: 'PENDING', profile: 'standard_1080p' }, 202)
+      }
+      if (path.endsWith('/transcodes/standard_1080p') && method === 'GET') {
+        return response(
+          cancelled
+            ? { derivative_id: 21, job_id: 77, status: 'CANCELLED', profile: 'standard_1080p' }
+            : {
+                derivative_id: 21,
+                job_id: 77,
+                status: 'RUNNING',
+                profile: 'standard_1080p',
+                progress: { percent: 40 },
+              },
+        )
+      }
+      if (path.endsWith('/jobs/77/cancel') && method === 'POST') {
+        cancelled = true
+        return response({ ok: true })
+      }
+      return response({ detail: `no mock for ${method} ${path}` }, 500)
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const checkboxes = wrapper.findAll('.video-card .q-checkbox')
+    expect(checkboxes.length).toBe(2)
+    await checkboxes[1].trigger('click')
+    await flushPromises()
+
+    const compress = wrapper.findAll('button').find((button) => button.text().includes('Сжать'))
+    await compress.trigger('click')
+    await flushPromises()
+
+    const standard = Array.from(document.body.querySelectorAll('.q-item')).find((row) =>
+      row.textContent.includes('Стандартно'),
+    )
+    standard.click()
+    await flushPromises()
+
+    // Задание идёт по второму видео.
+    expect(wrapper.find('.video-transcode-status').text()).toContain('ворота.MP4')
+    expect(wrapper.find('.video-transcode-status').text()).toContain('Стандартно · 1080p')
+    expect(wrapper.find('.video-transcode-status').text()).toContain('RUNNING')
+    // Сырой код профиля пользователю не показываем.
+    expect(wrapper.find('.video-transcode-status').text()).not.toContain('standard_1080p')
+
+    // Выбираем другое видео: блок и «Отмена» остаются на месте.
+    await checkboxes[0].trigger('click')
+    await flushPromises()
+
+    const status = wrapper.find('.video-transcode-status')
+    expect(status.exists()).toBe(true)
+    expect(status.text()).toContain('ворота.MP4')
+
+    const cancel = status.findAll('button').find((button) => button.text().includes('Отмена'))
+    expect(cancel).toBeTruthy()
+    await cancel.trigger('click')
+    await flushPromises()
+
+    expect(calls.some((call) => call.path.endsWith('/jobs/77/cancel'))).toBe(true)
+    expect(wrapper.find('.video-transcode-status').text()).toContain('CANCELLED')
+
+    wrapper.unmount()
+  })
+})
+
 describe('смена фильтра во время загрузки', () => {
   it('сброс не теряется, если страница ещё грузится', async () => {
     const { useVideosStore } = await import('../src/stores/videos')

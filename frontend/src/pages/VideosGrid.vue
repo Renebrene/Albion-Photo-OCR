@@ -55,6 +55,7 @@ const savingTitle = ref(false)
 const downloading = ref(false)
 const transcodeSubmitting = ref(false)
 const transcodeVideoId = ref(null)
+const transcodeVideoLabel = ref('')
 const transcodeProfile = ref(null)
 const transcodeInfo = ref(null)
 const transcodeError = ref('')
@@ -76,6 +77,12 @@ let trimTimer = null
 let storyboardTimer = null
 
 const selectedVideo = computed(() => store.selectedVideo)
+// Задание конвертации: показывается независимо от текущего выделения. Раньше
+// блок был привязан к выделенному видео, и стоило выбрать другое — прогресс
+// и кнопка «Отмена» пропадали, хотя задание продолжало идти.
+const transcodeJob = computed(() => (transcodeVideoId.value ? transcodeInfo.value : null))
+// Скачивание готовой копии относится к выделенному видео, поэтому только при
+// совпадении: профиль конвертации хранится один на страницу.
 const activeTranscode = computed(() =>
   transcodeVideoId.value === selectedVideo.value?.video_id ? transcodeInfo.value : null,
 )
@@ -84,6 +91,18 @@ const transcodeProfiles = [
   { label: 'Стандартно · 1080p', value: 'standard_1080p' },
   { label: 'Легко · 1440p', value: 'light_1440p' },
 ]
+// Подпись профиля для блока прогресса: сырое «standard_1080p» ничего не
+// говорит пользователю.
+const transcodeProfileLabel = computed(() => {
+  const found = transcodeProfiles.find((item) => item.value === transcodeProfile.value)
+  return found ? found.label : transcodeProfile.value || ''
+})
+// Заголовок блока: чтобы было видно, к какому видео относится задание, когда
+// выбрано уже другое.
+const transcodeJobTitle = computed(() => {
+  const name = transcodeVideoLabel.value || transcodeVideoId.value || ''
+  return name ? `Сжатие · ${name}` : 'Сжатие'
+})
 const gridStyle = computed(() => {
   if (display.tileColumns === 'auto') {
     return { gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))' }
@@ -106,7 +125,8 @@ function applyFilters() {
 
 function selectVideo(video) {
   store.selectVideo(video.video_id)
-  transcodeError.value = ''
+  // Ошибку конвертации здесь не чистим: блок прогресса относится к заданию,
+  // а не к выделению, и его подпись говорит, о каком видео речь.
 }
 
 async function openDetails(video) {
@@ -203,6 +223,8 @@ async function startTranscode(profile) {
   transcodeError.value = ''
   transcodeInfo.value = null
   transcodeVideoId.value = selectedVideo.value.video_id
+  transcodeVideoLabel.value =
+    selectedVideo.value.filename || selectedVideo.value.display_title || ''
   transcodeProfile.value = profile
   try {
     const result = await enqueueVideoTranscode(selectedVideo.value.video_id, profile)
@@ -492,12 +514,13 @@ onBeforeUnmount(() => {
         :disabled="!selectedVideo"
       />
     </div>
-    <div v-if="activeTranscode || transcodeError" class="video-transcode-status row items-center q-gutter-sm q-mb-sm">
-      <span v-if="activeTranscode" class="text-caption">{{ transcodeProfile }}: {{ activeTranscode.status }}</span>
-      <q-linear-progress v-if="activeTranscode && ['PENDING', 'RUNNING'].includes(activeTranscode.status)" class="col" :value="Number(activeTranscode.progress?.percent || 0) / 100" />
-      <span v-if="activeTranscode?.status === 'FAILED'" class="text-negative text-caption">{{ activeTranscode.error_message || 'Ошибка конвертации' }}</span>
+    <div v-if="transcodeJob || transcodeError" class="video-transcode-status row items-center q-gutter-sm q-mb-sm">
+      <span class="text-caption ellipsis">{{ transcodeJobTitle }}</span>
+      <span v-if="transcodeJob" class="text-caption text-grey-7">· {{ transcodeProfileLabel }}: {{ transcodeJob.status }}</span>
+      <q-linear-progress v-if="transcodeJob && ['PENDING', 'RUNNING'].includes(transcodeJob.status)" class="col" :value="Number(transcodeJob.progress?.percent || 0) / 100" />
+      <span v-if="transcodeJob?.status === 'FAILED'" class="text-negative text-caption">{{ transcodeJob.error_message || 'Ошибка конвертации' }}</span>
       <span v-if="transcodeError" class="text-negative text-caption">{{ transcodeError }}</span>
-      <q-btn v-if="canWriteVideos && activeTranscode && ['PENDING', 'RUNNING'].includes(activeTranscode.status)" dense flat color="negative" label="Отмена" @click="cancelTranscode" />
+      <q-btn v-if="canWriteVideos && transcodeJob && ['PENDING', 'RUNNING'].includes(transcodeJob.status)" dense flat color="negative" label="Отмена" @click="cancelTranscode" />
     </div>
 
     <div ref="scrollElement" class="video-scroll">
