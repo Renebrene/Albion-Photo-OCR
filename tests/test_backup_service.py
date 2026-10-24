@@ -344,6 +344,60 @@ def test_run_backup_needs_at_least_one_part(monkeypatch, tmp_path):
         service.run_backup({"parts": []})
 
 
+def test_backup_report_is_read_past_the_dump_listing(monkeypatch, tmp_path):
+    """`backup_db.py` печатает вывод `pg_restore --list` ПЕРЕД отчётом.
+
+    2026-10-24 живой прогон упал именно на этом: дамп создавался, а работа
+    закрывалась ошибкой «не удалось разобрать отчёт», потому что весь stdout
+    считался JSON.
+    """
+
+    monkeypatch.setattr(service, "_stored", lambda: {})
+    monkeypatch.setenv("SCENE_BACKUP_DIR", str(tmp_path))
+
+    listing = "\n".join(
+        f"{index}; 2606 28177 FK CONSTRAINT public table_{index} fkey" for index in range(500)
+    )
+    report = {
+        "database": "photobase_ingest_test",
+        "created": "photobase_ingest_test_20260101_120000.dump",
+        "size": 52_571_351,
+        "kept": 4,
+        "deleted": 2,
+    }
+
+    class Completed:
+        returncode = 0
+        stdout = f"{listing}\n{json.dumps(report)}\n"
+        stderr = ""
+
+    monkeypatch.setattr(service.subprocess, "run", lambda *args, **kwargs: Completed())
+
+    result = service.run_backup({"parts": ["database"], "stamp": "20260101_120000"})
+
+    assert result["results"]["database"]["created"] == report["created"]
+    assert result["results"]["database"]["size"] == report["size"]
+
+
+def test_failed_script_reports_only_the_tail(monkeypatch, tmp_path):
+    """Ошибка не должна тащить в очередь мегабайты вывода pg_dump."""
+
+    monkeypatch.setattr(service, "_stored", lambda: {})
+    monkeypatch.setenv("SCENE_BACKUP_DIR", str(tmp_path))
+
+    class Completed:
+        returncode = 1
+        stdout = "шум " * 4000
+        stderr = ""
+
+    monkeypatch.setattr(service.subprocess, "run", lambda *args, **kwargs: Completed())
+
+    with pytest.raises(RuntimeError) as error:
+        service.run_backup({"parts": ["database"], "stamp": "20260101_120000"})
+
+    assert len(str(error.value)) < 1400
+
+
 # --- расписание и каталог ----------------------------------------------------
 
 

@@ -445,6 +445,42 @@ def archive_members(name: str, directory: Path | None = None) -> list[str]:
 # --- backup ------------------------------------------------------------------
 
 
+def _last_json_object(stdout: str) -> dict | None:
+    """Отчёт скрипта — последняя JSON-строка его вывода.
+
+    `backup_db.py` перед отчётом печатает вывод `pg_restore --list`
+    (проверка дампа), поэтому разбирать весь stdout нельзя: отчёт ищем с
+    конца, а строки обрезанного вывода просто не разбираются.
+    """
+
+    for line in reversed(stdout.splitlines()):
+        line = line.strip()
+
+        if not line.startswith("{"):
+            continue
+
+        try:
+            value = json.loads(line)
+        except ValueError:
+            continue
+
+        if isinstance(value, dict):
+            return value
+
+    return None
+
+
+def _tail(text: str, limit: int = 1200) -> str:
+    """Последние строки вывода: начало многословного вывода бесполезно."""
+
+    stripped = (text or "").strip()
+
+    if len(stripped) <= limit:
+        return stripped
+
+    return "… " + stripped[-limit:]
+
+
 def _run_script(relative_path: str, arguments: list[str]) -> dict:
     """Run one of the backup scripts (a repo-relative path) and parse its report."""
 
@@ -461,13 +497,15 @@ def _run_script(relative_path: str, arguments: list[str]) -> dict:
     )
 
     if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "").strip()
+        detail = _tail(completed.stderr or completed.stdout)
         raise RuntimeError(f"{name}: {detail or f'код {completed.returncode}'}")
 
-    try:
-        return json.loads(completed.stdout)
-    except ValueError as exc:
-        raise RuntimeError(f"{name}: не удалось разобрать отчёт") from exc
+    report = _last_json_object(completed.stdout)
+
+    if report is None:
+        raise RuntimeError(f"{name}: не удалось разобрать отчёт")
+
+    return report
 
 
 def run_backup(payload: dict, control=None) -> dict:
