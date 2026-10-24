@@ -261,6 +261,17 @@ function needsLogin() {
   return session.authEnabled && !session.user
 }
 
+// Сервер не ответил на /auth/me (сеть, 5xx). Пробуем ещё раз: пока ответа нет,
+// приложение показывает экран входа с причиной.
+async function retryAuth() {
+  const ok = await session.load()
+
+  if (ok && !needsLogin()) {
+    booted.value = true
+    await afterAuth()
+  }
+}
+
 async function doLogin() {
   try {
     const user = await session.login(loginName.value, password.value)
@@ -388,6 +399,22 @@ function toggleDark() {
           <q-card-section class="text-subtitle1">Вход</q-card-section>
           <q-separator />
           <q-card-section class="q-gutter-md">
+            <q-banner
+              v-if="session.authError"
+              dense
+              class="bg-orange-1 text-orange-10"
+            >
+              {{ session.authError }}
+              <template #action>
+                <q-btn
+                  flat
+                  dense
+                  no-caps
+                  label="Повторить"
+                  @click="retryAuth"
+                />
+              </template>
+            </q-banner>
             <q-input
               v-model="loginName"
               dense

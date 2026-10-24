@@ -8,6 +8,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { Notify, QLayout, QPageContainer, Quasar } from 'quasar'
 import { createPinia, setActivePinia } from 'pinia'
 
+import { useSessionStore } from '../src/stores/session'
+
 import PhotosGrid from '../src/pages/PhotosGrid.vue'
 import { addressEntryForPhoto } from '../src/utils/addressForPhoto'
 import { useDisplayStore } from '../src/stores/display'
@@ -111,6 +113,8 @@ let store
 async function mountGrid() {
   const pinia = createPinia()
   setActivePinia(pinia)
+  // Открытый режим (без аутентификации): спека проверяет полный доступ.
+  useSessionStore().authEnabled = false
 
   const wrapper = mount(Host, { global: { plugins: [Quasar, pinia] } })
   await flushPromises()

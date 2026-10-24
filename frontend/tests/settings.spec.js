@@ -90,6 +90,9 @@ function mountSettings({ role = null } = {}) {
     const session = useSessionStore()
     session.authEnabled = true
     session.user = { name: 'tester', role }
+  } else {
+    // Без роли спека проверяет открытый режим (аутентификация выключена).
+    useSessionStore().authEnabled = false
   }
 
   return mount(Settings, { global: { plugins: [Quasar, pinia] } })

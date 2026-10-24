@@ -39,6 +39,8 @@ beforeEach(() => {
   item.duration_seconds = 12.5
   calls = []
   setActivePinia(createPinia())
+  // Открытый режим (без аутентификации): спека проверяет полный доступ.
+  useSessionStore().authEnabled = false
   global.fetch = fetchMock = vi.fn(async (url, options = {}) => {
     const path = String(url).split('?')[0]
     const method = (options.method || 'GET').toUpperCase()

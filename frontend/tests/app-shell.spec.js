@@ -763,6 +763,56 @@ describe('оболочка приложения', () => {
     wrapper.unmount()
   })
 
+  it('при сбое /auth/me показывает вход с причиной и повтором', async () => {
+    installFetch()
+    const baseFetch = global.fetch
+    let failNext = true
+
+    global.fetch = vi.fn(async (url, options) => {
+      if (String(url).split('?')[0].endsWith('/v1/auth/me') && failNext) {
+        return json({ detail: 'boom' }, 500)
+      }
+      return baseFetch(url, options)
+    })
+
+    const wrapper = await mountShell()
+    await flushPromises()
+
+    // Открытый режим не включается сам: виден экран входа, галерея не смонтирована.
+    expect(wrapper.text()).toContain('Вход')
+    expect(wrapper.text()).toContain('Нет связи с сервером')
+    expect(wrapper.find('.photos-page').exists()).toBe(false)
+
+    // Сервер ответил — «Повторить» пускает в приложение.
+    failNext = false
+    const retry = wrapper.findAll('button').find((b) => b.text().includes('Повторить'))
+    expect(retry).toBeTruthy()
+    await retry.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Нет связи с сервером')
+    expect(wrapper.find('.photos-page').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('при открытом режиме сервера входа не требует', async () => {
+    installFetch()
+    const baseFetch = global.fetch
+    global.fetch = vi.fn(async (url, options) => {
+      if (String(url).split('?')[0].endsWith('/v1/auth/me')) {
+        return json({ user: null, auth_enabled: false })
+      }
+      return baseFetch(url, options)
+    })
+
+    const wrapper = await mountShell()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Нет связи с сервером')
+    expect(wrapper.find('.photos-page').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('показывает кнопку, когда на сервере уже другая сборка', async () => {
     installFetch()
     const baseFetch = global.fetch

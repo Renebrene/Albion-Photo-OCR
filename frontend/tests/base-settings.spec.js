@@ -5,7 +5,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { Quasar } from 'quasar'
-import { createPinia } from 'pinia'
+import { createPinia, setActivePinia } from 'pinia'
+
+import { useSessionStore } from '../src/stores/session'
 
 import BaseSettings from '../src/components/BaseSettings.vue'
 import DisplaySettings from '../src/components/DisplaySettings.vue'
@@ -45,8 +47,11 @@ afterEach(() => {
 describe('вкладка «Настройки»', () => {
   it('содержит настройки Albion и список ссылок', async () => {
     installFetch()
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useSessionStore().authEnabled = false
     const wrapper = mount(BaseSettings, {
-      global: { plugins: [Quasar, createPinia()] },
+      global: { plugins: [Quasar, pinia] },
     })
     await flushPromises()
 

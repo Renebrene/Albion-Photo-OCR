@@ -14,19 +14,32 @@ export const useSessionStore = defineStore('session', {
   state: () => ({
     user: null,
     users: [],
-    authEnabled: false,
+    // Пока сервер не ответил, считаем, что вход нужен. Открытый режим — это
+    // явный ответ сервера (`auth_enabled: false`), а не наше умолчание:
+    // иначе сбой /auth/me (сеть, 5xx) открывал бы техраздел и запуск прогона
+    // любому, кто открыл страницу.
+    authEnabled: true,
+    // Заполняется, когда спросить сервер не удалось: экран входа показывает
+    // причину и кнопку «Повторить».
+    authError: null,
   }),
 
   actions: {
     async load() {
+      this.authError = null
+
       try {
         const data = await fetchMe()
         this.user = data.user
-        this.authEnabled = data.auth_enabled
-      } catch {
+        this.authEnabled = data.auth_enabled !== false
+      } catch (err) {
         this.user = null
+        this.authEnabled = true
+        this.authError = 'Нет связи с сервером — проверьте подключение и повторите'
       }
+
       this.applyColor()
+      return !this.authError
     },
 
     async loadUsers(activeOnly = true) {

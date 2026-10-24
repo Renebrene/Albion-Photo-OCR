@@ -4,7 +4,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { Notify, Quasar } from 'quasar'
-import { createPinia } from 'pinia'
+import { useSessionStore } from '../src/stores/session'
+import { createPinia, setActivePinia } from 'pinia'
 
 import CloudSettings from '../src/components/CloudSettings.vue'
 
@@ -56,8 +57,13 @@ function installFetch() {
 }
 
 function mountSettings() {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  // Открытый режим: спека проверяет настройки Albion без аутентификации.
+  useSessionStore().authEnabled = false
+
   return mount(CloudSettings, {
-    global: { plugins: [Quasar, createPinia()] },
+    global: { plugins: [Quasar, pinia] },
   })
 }
 
