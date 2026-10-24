@@ -763,16 +763,23 @@ describe('оболочка приложения', () => {
     wrapper.unmount()
   })
 
-  it('показывает прогресс распознавания рядом с обновлением базы', async () => {
+  it('показывает прогресс распознавания как «обработано / всего»', async () => {
     installFetch()
     const baseFetch = global.fetch
     global.fetch = vi.fn(async (url, options) => {
       if (String(url).split('?')[0].endsWith('/v1/qwen/stats')) {
         return json({
           photos: 56870,
-          processed: 12050,
-          remaining: 44820,
-          jobs: { pending: 4547, running: 2, paused: 0 },
+          processed: 12383,
+          remaining: 44487,
+          jobs: { pending: 4211, running: 2, paused: 0 },
+          batch: {
+            title: 'QWEN: дозаполнение 2026-08-01 — 2026-11-01',
+            status: 'RUNNING',
+            total: 16597,
+            done: 12383,
+            failed: 1,
+          },
         })
       }
       return baseFetch(url, options)
@@ -782,8 +789,30 @@ describe('оболочка приложения', () => {
     await flushPromises()
 
     const header = wrapper.find('header').text()
-    expect(header).toContain('Распознавание: 12050')
-    expect(header).toContain('в очереди 4547')
+    expect(header).toContain('Распознавание: 12383 / 16597')
+    wrapper.unmount()
+  })
+
+  it('без партии распознавания показывает число описаний', async () => {
+    installFetch()
+    const baseFetch = global.fetch
+    global.fetch = vi.fn(async (url, options) => {
+      if (String(url).split('?')[0].endsWith('/v1/qwen/stats')) {
+        return json({
+          photos: 56870,
+          processed: 12050,
+          remaining: 44820,
+          jobs: { pending: 0, running: 0, paused: 0 },
+          batch: null,
+        })
+      }
+      return baseFetch(url, options)
+    })
+
+    const wrapper = await mountShell()
+    await flushPromises()
+
+    expect(wrapper.find('header').text()).toContain('Распознавание: 12050')
     wrapper.unmount()
   })
 

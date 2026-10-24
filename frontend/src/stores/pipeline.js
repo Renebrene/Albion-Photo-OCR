@@ -43,18 +43,28 @@ export const usePipelineStore = defineStore('pipeline', {
   }),
 
   getters: {
-    // «Распознавание: 12 050 · в очереди 4 547»
+    // «Распознавание: 12375 / 16597» — обработано / всего в текущей выборке
+    // (обычно это дозаполнение за период). Если партии нет, показываем, сколько
+    // описаний есть в базе.
     qwenText(state) {
       const qwen = state.qwen
 
       if (!qwen) return ''
 
-      const parts = [`Распознавание: ${qwen.described ?? 0}`]
+      const total = qwen.batchTotal
 
-      if (qwen.pending) parts.push(`в очереди ${qwen.pending}`)
-      else if (qwen.running && !qwen.pending) parts.push('идёт')
+      if (total) {
+        return `Распознавание: ${qwen.batchDone ?? 0} / ${total}`
+      }
 
-      return parts.join(' · ')
+      if (!qwen.described) return ''
+
+      return `Распознавание: ${qwen.described}`
+    },
+
+    // Период выборки — в подсказке к строке.
+    qwenTitle(state) {
+      return state.qwen?.batchTitle || ''
     },
 
     qwenBusy(state) {
@@ -126,12 +136,18 @@ export const usePipelineStore = defineStore('pipeline', {
         const stats = await fetchQwenStats()
         const jobs = stats?.jobs || {}
 
+        const batch = stats?.batch || null
+
         this.qwen = {
           described: stats?.processed ?? 0,
           remaining: stats?.remaining ?? 0,
           pending: jobs.pending ?? 0,
           running: jobs.running ?? 0,
           paused: jobs.paused ?? 0,
+          batchTitle: batch?.title || '',
+          batchTotal: batch?.total ?? 0,
+          batchDone: batch?.done ?? 0,
+          batchFailed: batch?.failed ?? 0,
         }
       } catch {
         // Статистика вспомогательная: без неё шапка просто не показывает QWEN.

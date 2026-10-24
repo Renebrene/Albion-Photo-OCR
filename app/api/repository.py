@@ -859,6 +859,45 @@ def qwen_stats() -> dict:
                 "paused": int(jobs_row[2]),
             }
 
+            # Текущая выборка распознавания: «обработано / всего» для той
+            # партии, которая идёт сейчас (обычно это дозаполнение за период).
+            # Числа берём живыми из связей задания↔запуск, а не из сохранённых
+            # счётчиков: они отстают, пока очередь ещё идёт.
+            cur.execute(
+                """
+                SELECT run_id, title, status
+                FROM public.run_history
+                WHERE kind = 'qwen'
+                ORDER BY (status IN ('RUNNING', 'PENDING')) DESC, run_id DESC
+                LIMIT 1
+                """
+            )
+            batch_row = cur.fetchone()
+            batch = None
+
+            if batch_row is not None:
+                batch_run_id, batch_title, batch_status = batch_row
+                cur.execute(
+                    """
+                    SELECT count(*) AS total,
+                           count(*) FILTER (WHERE q.status = 'DONE') AS done,
+                           count(*) FILTER (WHERE q.status = 'FAILED') AS failed
+                    FROM public.run_history_jobs AS j
+                    JOIN public.job_queue AS q ON q.id = j.job_id
+                    WHERE j.run_id = %s
+                    """,
+                    (int(batch_run_id),),
+                )
+                total_row = cur.fetchone()
+                batch = {
+                    "run_id": int(batch_run_id),
+                    "title": batch_title,
+                    "status": batch_status,
+                    "total": int(total_row[0]),
+                    "done": int(total_row[1]),
+                    "failed": int(total_row[2]),
+                }
+
             cur.execute(
                 """
                 SELECT COALESCE(payload ->> 'source', 'manual') AS source,
@@ -888,6 +927,7 @@ def qwen_stats() -> dict:
         "remaining": max(0, photos - described),
         "queued": counts.get("PENDING", 0) + counts.get("RUNNING", 0),
         "jobs": jobs,
+        "batch": batch,
         "models": models,
         "tokens": tokens,
         "history_rows": history_rows,

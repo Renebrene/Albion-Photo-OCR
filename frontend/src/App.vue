@@ -326,7 +326,12 @@ function toggleDark() {
           class="row items-center no-wrap text-caption q-mr-sm header-qwen-live"
         >
           <q-spinner-dots v-if="pipeline.qwenBusy" size="14px" class="q-mr-xs" />
-          <span>{{ pipeline.qwenText }}</span>
+          <span>
+            {{ pipeline.qwenText }}
+            <q-tooltip v-if="pipeline.qwenTitle">
+              {{ pipeline.qwenTitle }}
+            </q-tooltip>
+          </span>
         </div>
 
         <!-- Стадия прогона и число совпадений — рядом с кнопкой, которая его
