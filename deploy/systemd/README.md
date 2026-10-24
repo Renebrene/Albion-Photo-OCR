@@ -12,6 +12,7 @@ Several long-running services cover the web app:
 | `scene-preview-worker.service` (user unit) | `PHOTO_PREVIEW --parallel 3`: each job is one photo, so the job-level parallelism is what speeds the stage up | — |
 | `scene-billboard-worker.service` (user unit) | `BILLBOARD_DETECT --parallel 2`: detector/crop branch for QWEN, kept off the general queue | — |
 | `scene-pipeline-worker.service` (user unit) | resumable pipeline supervisor (`--pipeline`); claims no jobs | — |
+| `scene-backup-worker.service` (user unit) | manual `BACKUP` / `RESTORE` jobs from the technical section («Данные» → «Бэкапы»); one process, kept off the photo workers because a backup holds the disk for minutes | — |
 
 Inference (DINO/HYBRID) and QWEN run **only** in the worker — never inside the
 API process. The API serves `frontend/dist` statically, so there is no separate

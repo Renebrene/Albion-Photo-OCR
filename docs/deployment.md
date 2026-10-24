@@ -179,7 +179,7 @@ metadata-v1), а не к пути, поэтому слепки и результ
 ```bash
 systemctl --user restart scene-api scene-worker scene-preview-worker \
     scene-qwen-worker scene-video-worker scene-billboard-worker \
-    scene-pipeline-worker
+    scene-pipeline-worker scene-backup-worker
 ```
 
 То же правило действует и для **правок кода**: API и воркеры держат модули
@@ -309,7 +309,7 @@ env и `SCENE_BACKUP_DIR` → `daemon-reload` → запустить юниты 
 24.10.2026, вечером: проект перенесён в `~/projects/albion-photobase`, каталог
 бэкапов — на `/dev/sda` (`/media/alexice/TEST/albion-photobase-backups`), история
 бэкапов переехала вместе с ним. Проверено: слепков 38, фото в базе 56 870 — как
-до переезда, все восемь юнитов активны и работают из нового пути.
+до переезда, все юниты активны и работают из нового пути.
 
 ## 7. Бэкап
 
@@ -340,6 +340,12 @@ SCENE_BACKUP_DIR=/mnt/photos/backups .venv/bin/python scripts/backup_db.py --jso
 проекта отклоняется (осознанно — `--allow-same-filesystem`). Поэтому отключённый
 диск даёт **ошибку и упавший юнит** (`systemctl --failed`, журнал
 `scene-backup.service`), а не молчаливый бэкап на системный раздел.
+
+То же самое можно делать из интерфейса: **технический раздел → Данные →
+Бэкапы** и **Логи** (пути, расписание, ручной бэкап, восстановление целиком и
+по файлам, путь хранения логов). Работы `BACKUP`/`RESTORE` берёт отдельный юнит
+`scene-backup-worker.service`; подробности и правила восстановления —
+`docs/backup_restore.md`.
 
 **Требуется действие владельца.** `/dev/sda` монтируется udisks при входе в
 графическую сессию, и в `/etc/fstab` его нет. Пока строки в fstab нет, после

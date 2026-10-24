@@ -1,0 +1,19 @@
+[Unit]
+Description=PhotoBAse backup and restore worker (technical section)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/alexice/projects/albion-photobase
+EnvironmentFile=/home/alexice/.config/scene-fingerprint.env
+# Ручные бэкапы и восстановления из технического раздела («Данные» →
+# «Бэкапы»). Отдельный воркер, а не scene-worker: бэкап занимает диск и
+# минуты, и он не должен отбирать работу у DINO/HYBRID/QWEN.
+# Один процесс: две одновременные выгрузки в один каталог не нужны.
+ExecStart=/home/alexice/projects/albion-photobase/.venv/bin/python -m app.jobs.worker --watch --only BACKUP,RESTORE --interval 5
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

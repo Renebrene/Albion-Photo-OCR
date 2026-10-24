@@ -35,6 +35,10 @@ from app.api.videos import (
     read_router as video_read_router,
     write_router as video_write_router,
 )
+from app.api.backup import (
+    read_router as backup_read_router,
+    write_router as backup_write_router,
+)
 from app.api.routes import (
     addresses_router,
     auth_router,
@@ -122,6 +126,8 @@ def create_app() -> FastAPI:
     app.include_router(uploads_router, prefix="/api")
     app.include_router(cloud_read_router, prefix="/api")
     app.include_router(cloud_write_router, prefix="/api")
+    app.include_router(backup_read_router, prefix="/api")
+    app.include_router(backup_write_router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
     app.include_router(users_router, prefix="/api")
     app.include_router(video_public_router, prefix="/api")

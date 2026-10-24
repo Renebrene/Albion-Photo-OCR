@@ -763,6 +763,33 @@ export function fetchDataStorage() {
   return getJson(`${BASE}/v1/data/storage`)
 }
 
+// --- Бэкапы (технический раздел → Данные) ------------------------------------
+// Читать может любой вошедший, запускать и восстанавливать — только
+// Администратор: это scope settings:write.
+
+export function fetchBackupStatus() {
+  return getJson(`${BASE}/v1/backup/status`)
+}
+
+export function fetchBackupArchive(name) {
+  return getJson(`${BASE}/v1/backup/archive/${encodeURIComponent(name)}`)
+}
+
+export function runBackupNow(parts, { allowSameFilesystem = false } = {}) {
+  return postJson(`${BASE}/v1/backup/run`, {
+    parts,
+    allow_same_filesystem: allowSameFilesystem,
+  })
+}
+
+export function runRestoreNow(payload) {
+  return postJson(`${BASE}/v1/backup/restore`, payload)
+}
+
+export function saveBackupSettings(payload) {
+  return putJson(`${BASE}/v1/backup/settings`, payload)
+}
+
 export async function fetchDataExport(format = 'json') {
   const response = await fetch(`${BASE}/v1/data/export?format=${format}`, {
     headers: authHeaders(),

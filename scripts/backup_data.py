@@ -10,7 +10,11 @@ on disk, so a dead disk does not take the fingerprints with it:
   * ``data/reports/`` — the reports written by the pipeline;
   * the environment file (``~/.config/scene-fingerprint.env``) — it holds the
     database password and the Albion token, so it is only ever written into the
-    backup directory (chmod 600) and never printed.
+    backup directory (chmod 600) and never printed;
+  * with ``--with-models``: the embedding model cache (DINOv2) and the billboard
+    detector weights. Restored fingerprints are useless without the very model
+    they were built with, so a self-contained restore needs them — but they are
+    ~350 MB and change a few times a year, so they are off by default.
 
 The archive is written to a temporary file, verified with ``tar -tz`` (every
 expected root must be inside; a truncated archive fails the check), hashed and
@@ -34,6 +38,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import tarfile
 from datetime import datetime, timezone
@@ -59,6 +64,15 @@ DEFAULT_ENV_FILE = Path(
 
 def _data_dir() -> Path:
     return Path(os.getenv("SCENE_DATA", str(REPO / "data"))).expanduser()
+
+
+def _models_dir() -> Path | None:
+    """Кеш HuggingFace с моделью эмбеддингов (settings.model_name)."""
+
+    model_id = os.getenv("SCENE_MODEL", "facebook/dinov2-base")
+    hub = Path(os.getenv("HF_HOME", str(Path.home() / ".cache" / "huggingface"))) / "hub"
+    cache = hub / ("models--" + model_id.replace("/", "--"))
+    return cache if cache.is_dir() else None
 
 
 def _prepare_backup_dir(directory: Path, *, allow_same_filesystem: bool = False) -> Path:
@@ -109,17 +123,30 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _sources(data_dir: Path, env_file: Path) -> list[tuple[str, Path]]:
+def _sources(
+    data_dir: Path,
+    env_file: Path,
+    *,
+    with_models: bool = False,
+) -> list[tuple[str, Path]]:
     """Пары «имя в архиве → путь на диске». Отсутствующие пропускаются."""
 
     candidates = [
+        # Слепки — самое ценное на диске: пересборка 38 слепков занимает часы.
         ("data/fingerprints", data_dir / "fingerprints"),
         ("data/logs", data_dir / "logs"),
         ("data/reports", data_dir / "reports"),
         ("env/scene-fingerprint.env", env_file),
     ]
 
-    return [(name, path) for name, path in candidates if path.exists()]
+    if with_models:
+        # Модель эмбеддингов: без неё восстановленные слепки нельзя
+        # использовать — эмбеддинги другой ревизии несравнимы с ними.
+        candidates.append(("models/dinov2", _models_dir()))
+        # Детектор щитов (YOLO-World) — вход для кропов QWEN.
+        candidates.append(("models/data", data_dir / "models"))
+
+    return [(name, path) for name, path in candidates if path is not None and path.exists()]
 
 
 def _write_archive(target: Path, sources: list[tuple[str, Path]]) -> list[str]:
@@ -199,6 +226,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--allow-same-filesystem", action="store_true")
+    parser.add_argument(
+        "--with-models",
+        action="store_true",
+        help="Добавить модель эмбеддингов и веса детектора щитов (~350 МБ).",
+    )
+    parser.add_argument(
+        "--stamp",
+        default=None,
+        metavar="YYYYMMDD_HHMMSS",
+        help="Метка времени в имени файла (по умолчанию — текущая UTC).",
+    )
     args = parser.parse_args(argv)
 
     if args.keep_daily < 1 or args.keep_monthly < 0:
@@ -206,7 +244,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     data_dir = (args.data_dir or _data_dir()).expanduser()
-    sources = _sources(data_dir, args.env_file.expanduser())
+    sources = _sources(data_dir, args.env_file.expanduser(), with_models=args.with_models)
 
     if not any(name.startswith("data/fingerprints") for name, _ in sources):
         print(f"fingerprints not found under {data_dir} — refusing to make an empty backup", file=sys.stderr)
@@ -220,7 +258,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"backup failed: {exc}", file=sys.stderr)
         return 1
 
-    target = directory / f"scene-data_{_timestamp()}.tar.gz"
+    stamp = args.stamp or _timestamp()
+
+    if not re.match(r"^\d{8}_\d{6}$", stamp):
+        print("--stamp must look like YYYYMMDD_HHMMSS", file=sys.stderr)
+        return 2
+
+    target = directory / f"scene-data_{stamp}.tar.gz"
 
     if args.dry_run:
         report = {"target": str(target), "sources": [name for name, _ in sources], "dry_run": True}
@@ -246,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
         "archive": target.name,
         "size": target.stat().st_size,
         "sha256": digest,
+        "with_models": bool(args.with_models),
         "sources": [{"name": name, "path": str(path)} for name, path in sources],
     }
     target.with_suffix(target.suffix + ".json").write_text(

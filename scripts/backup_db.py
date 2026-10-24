@@ -28,6 +28,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -172,6 +173,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--allow-same-filesystem", action="store_true")
+    parser.add_argument(
+        "--stamp",
+        default=None,
+        metavar="YYYYMMDD_HHMMSS",
+        help="Метка времени в имени файла (по умолчанию — текущая UTC).",
+    )
     args = parser.parse_args(argv)
 
     for name, value in (("daily", args.keep_daily), ("weekly", args.keep_weekly),
@@ -216,7 +223,12 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(report, ensure_ascii=False, sort_keys=True))
         return 0
 
-    stamp = _timestamp()
+    stamp = args.stamp or _timestamp()
+
+    if not re.match(r"^\d{8}_\d{6}$", stamp):
+        print("--stamp must look like YYYYMMDD_HHMMSS", file=sys.stderr)
+        return 2
+
     target = directory / f"{dbname}_{stamp}.dump"
     temp = directory / f".{target.name}.tmp"
 

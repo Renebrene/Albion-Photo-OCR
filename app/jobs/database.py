@@ -30,6 +30,10 @@ JOB_TYPES = {
     "PHOTO_PREVIEW",
     "MEDIA_EXPORT",
     "BILLBOARD_DETECT",
+    # Бэкапы и восстановление — их выполняет отдельный воркер
+    # (scene-backup-worker), чтобы не мешать воркерам фото-пайплайна.
+    "BACKUP",
+    "RESTORE",
 }
 
 _JOB_COLUMNS = (

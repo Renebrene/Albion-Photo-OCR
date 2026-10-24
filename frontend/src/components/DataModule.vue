@@ -3,6 +3,8 @@ import { onMounted, ref } from 'vue'
 import { Notify } from 'quasar'
 
 import { fetchDataExport, fetchDataStorage } from '../api/client'
+import BackupModule from './BackupModule.vue'
+import LogsModule from './LogsModule.vue'
 
 const stats = ref(null)
 const error = ref(null)
@@ -97,6 +99,18 @@ onMounted(load)
             Импорт из легаси-NiceGUI пока не реализован: он затрагивает инспектирование
             и требует отдельного согласования. Используйте штатный «Инспектор».
           </q-banner>
+        </q-card-section>
+      </q-card>
+
+      <q-card flat bordered class="col-12 col-md-6">
+        <q-card-section>
+          <BackupModule />
+        </q-card-section>
+      </q-card>
+
+      <q-card flat bordered class="col-12 col-md-6">
+        <q-card-section>
+          <LogsModule />
         </q-card-section>
       </q-card>
 

@@ -400,6 +400,16 @@ def _execute(job: dict) -> dict:
             )
             raise
 
+    if job_type == "BACKUP":
+        from app.backup import service as backup_service
+
+        return backup_service.run_backup(payload, control=job_control(int(job["id"])))
+
+    if job_type == "RESTORE":
+        from app.backup import service as backup_service
+
+        return backup_service.run_restore(payload, control=job_control(int(job["id"])))
+
     raise ValueError(f"Unsupported job type: {job_type}")
 
 
