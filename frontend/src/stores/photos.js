@@ -40,6 +40,8 @@ let searchesRequest = 0
 // scrolls, so a bigger page means fewer round trips without holding everything
 // in memory at once.
 const PAGE_SIZE = 100
+// Сколько страниц обходит фоновое обновление строк за один проход.
+const SYNC_MAX_PAGES = 25
 
 /**
  * Параметры /v1/photos для текущих фильтров.
@@ -131,6 +133,10 @@ export const usePhotosStore = defineStore('photos', {
     total: null,
     loading: false,
     error: null,
+    // Ошибка панелей: показывается в панели, не в галерее.
+    facetsError: '',
+    // Когда строки последний раз сверялись с базой (для отладки и тестов).
+    syncedAt: null,
 
     // active filters (addresses/clients are multi-select arrays)
     query: '',
@@ -242,24 +248,42 @@ export const usePhotosStore = defineStore('photos', {
      * совпавшие по photo_id.
      */
     async syncLoaded() {
-      const count = this.items.length
+      const loaded = this.items.length
 
-      if (!count || this.loading || count > 500) return
+      if (!loaded || this.loading) return
 
       const generation = this.generation
+      const byId = new Map()
+      let cursor = null
+      let pages = 0
 
       try {
-        // /v1/photos отдаёт не больше 100 строк за запрос: при длинной
-        // прокрутке старый limit=count получал 422, который глушился catch.
-        const page = await fetchPhotos(
-          filterParams(this, { limit: Math.min(count, PAGE_SIZE) }),
-        )
+        // Обходим столько строк, сколько уже загружено: раньше обновлялись
+        // только первые 100, а при выборке больше 500 обновление молча
+        // пропускалось — во время прогона адреса у остальных строк не менялись.
+        // Ограничение по страницам держит фон в разумных рамках (25 страниц
+        // по 100 = 2500 строк).
+        while (byId.size < loaded && pages < SYNC_MAX_PAGES) {
+          pages += 1
 
-        // Фильтр сменился, пока шёл запрос — не подменяем новые строки.
+          const page = await fetchPhotos(
+            filterParams(this, { limit: PAGE_SIZE, cursor }),
+          )
+
+          // Фильтр сменился, пока шёл запрос — не подменяем новые строки.
+          if (generation !== this.generation) return
+
+          for (const item of page.items || []) byId.set(item.photo_id, item)
+
+          if (!page.next_cursor) break
+
+          cursor = page.next_cursor
+        }
+
         if (generation !== this.generation) return
 
-        const byId = new Map(page.items.map((item) => [item.photo_id, item]))
         this.items = this.items.map((item) => byId.get(item.photo_id) || item)
+        this.syncedAt = Date.now()
       } catch {
         // Фоновое обновление не должно ломать грид.
       }
@@ -305,8 +329,12 @@ export const usePhotosStore = defineStore('photos', {
       const searchToken = ++searchesRequest
       this.facetsLoading = true
 
-      try {
-        const [addresses, clients, collections, searches] = await Promise.all([
+      // Панели грузятся независимо: падение одной (например, сохранённых
+      // поисков) не должно ни рисовать баннер в галерее, ни скрывать «Ничего
+      // не найдено», ни останавливать автодогрузку страниц. Ошибку показываем
+      // в самой панели.
+      const [addresses, clients, collections, searches] =
+        await Promise.allSettled([
           fetchAddresses({
             dateFrom: this.dateFrom,
             dateTo: this.dateTo,
@@ -327,27 +355,36 @@ export const usePhotosStore = defineStore('photos', {
           fetchCollections(),
           fetchSavedSearches(),
         ])
-        if (request !== facetsRequest) return
 
-        if (addressToken === addressesRequest) {
-          this.addresses = addresses.items || []
+      if (request === facetsRequest) {
+        const failed = [addresses, clients, collections, searches].filter(
+          (item) => item.status === 'rejected',
+        )
+
+        this.facetsError = failed.length
+          ? failed[0].reason?.message || 'Часть панелей не загрузилась'
+          : ''
+
+        if (addresses.status === 'fulfilled' && addressToken === addressesRequest) {
+          this.addresses = addresses.value.items || []
         }
 
-        if (clientToken === clientsRequest) {
-          this.clients = clients.items || []
+        if (clients.status === 'fulfilled' && clientToken === clientsRequest) {
+          this.clients = clients.value.items || []
         }
 
-        if (collectionToken === collectionsRequest) {
-          this.collections = collections.items || []
+        if (
+          collections.status === 'fulfilled' &&
+          collectionToken === collectionsRequest
+        ) {
+          this.collections = collections.value.items || []
         }
 
-        if (searchToken === searchesRequest) {
-          this.savedSearches = searches.items || []
+        if (searches.status === 'fulfilled' && searchToken === searchesRequest) {
+          this.savedSearches = searches.value.items || []
         }
-      } catch (err) {
-        if (request === facetsRequest) this.error = err.message
-      } finally {
-        if (request === facetsRequest) this.facetsLoading = false
+
+        this.facetsLoading = false
       }
     },
 

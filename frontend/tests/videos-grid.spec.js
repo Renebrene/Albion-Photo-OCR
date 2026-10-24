@@ -270,3 +270,43 @@ describe('видеогалерея', () => {
     wrapper.unmount()
   })
 })
+
+describe('смена фильтра во время загрузки', () => {
+  it('сброс не теряется, если страница ещё грузится', async () => {
+    const { useVideosStore } = await import('../src/stores/videos')
+    const { createPinia: makePinia, setActivePinia: activate } = await import('pinia')
+
+    activate(makePinia())
+
+    const store = useVideosStore()
+    const calls = []
+    let resolveFirst
+
+    global.fetch = vi.fn((url) => {
+      const path = String(url).split('?')[0]
+      calls.push(String(url))
+
+      if (calls.length === 1) {
+        // Первый запрос «висит»: пользователь в это время меняет фильтр.
+        return new Promise((resolve) => {
+          resolveFirst = () =>
+            resolve(response({ items: [{ ...item, video_id: 'VI_' + 'b'.repeat(24) }], next_cursor: null }))
+        })
+      }
+
+      return Promise.resolve(response({ items: [item], next_cursor: null }))
+    })
+
+    const pending = store.loadPage()
+    store.query = 'Малиновского'
+    const reset = store.loadPage({ reset: true })
+
+    resolveFirst()
+    await pending
+    await reset
+
+    // Новый фильтр применился: список — результат второго запроса.
+    expect(store.items.map((row) => row.video_id)).toEqual([item.video_id])
+    expect(calls[1]).toContain(encodeURIComponent('Малиновского'))
+  })
+})

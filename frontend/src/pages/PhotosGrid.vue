@@ -2676,6 +2676,20 @@ function tagList(meta) {
                   </div>
                 </q-item-section>
               </q-item>
+              <q-item v-if="store.facetsError">
+                <q-item-section class="text-caption text-orange-9">
+                  Панель не обновилась
+                  <q-tooltip>{{ store.facetsError }}</q-tooltip>
+                  <q-btn
+                    dense
+                    flat
+                    no-caps
+                    size="sm"
+                    label="Повторить"
+                    @click="store.loadFacets()"
+                  />
+                </q-item-section>
+              </q-item>
               <q-item v-if="!filteredAddresses.length">
                 <q-item-section class="text-caption text-grey">
                   Нет адресов
@@ -3494,6 +3508,20 @@ function tagList(meta) {
                 </q-item-section>
                 <q-item-section side>
                   {{ item.count === null ? '' : item.count }}
+                </q-item-section>
+              </q-item>
+              <q-item v-if="store.facetsError">
+                <q-item-section class="text-caption text-orange-9">
+                  Панель не обновилась
+                  <q-tooltip>{{ store.facetsError }}</q-tooltip>
+                  <q-btn
+                    dense
+                    flat
+                    no-caps
+                    size="sm"
+                    label="Повторить"
+                    @click="store.loadFacets()"
+                  />
                 </q-item-section>
               </q-item>
               <q-item v-if="!filteredClients.length">
