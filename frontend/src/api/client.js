@@ -777,6 +777,15 @@ export function fetchDataStorage() {
   return getJson(`${BASE}/v1/data/storage`)
 }
 
+// --- Доступность оригиналов (технический раздел → Данные) --------------------
+// Сводка по корням SCENE_ORIGINALS_ROOTS: подключён ли том и сколько записей на
+// него ссылается. Только чтение (scope `read`) и без обхода файлов — пофайловая
+// проверка живёт в scripts/check_originals.py.
+
+export function fetchOriginalsHealth() {
+  return getJson(`${BASE}/v1/originals/health`)
+}
+
 // --- Бэкапы (технический раздел → Данные) ------------------------------------
 // Читать может любой вошедший, запускать и восстанавливать — только
 // Администратор: это scope settings:write.

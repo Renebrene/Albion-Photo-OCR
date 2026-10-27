@@ -698,6 +698,21 @@ def get_original_status(photo_id: str) -> dict:
     }
 
 
+@read_router.get("/v1/originals/health")
+def get_originals_health() -> dict:
+    """
+    Сводка по корням оригиналов: подключён ли том и сколько записей на нём.
+
+    Отвечает на вопрос «почему у стольких фото оригинал недоступен» до того, как
+    открывать карточки: корень без каталога — это отмонтированный том, а не
+    пропавшие файлы. Файлы не перебираются (см. `repository.originals_health`),
+    поэтому запрос безопасен для обработчика. Полный пофайловый обход —
+    `scripts/check_originals.py`.
+    """
+
+    return repository.originals_health()
+
+
 def preview_candidates(path: Path) -> list[Path]:
     """Пути превью этого размера: текущий формат, затем прежний JPEG."""
 

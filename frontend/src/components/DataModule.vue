@@ -5,6 +5,7 @@ import { Notify } from 'quasar'
 import { fetchDataExport, fetchDataStorage } from '../api/client'
 import BackupModule from './BackupModule.vue'
 import LogsModule from './LogsModule.vue'
+import OriginalsModule from './OriginalsModule.vue'
 
 const stats = ref(null)
 const error = ref(null)
@@ -111,6 +112,12 @@ onMounted(load)
       <q-card flat bordered class="col-12 col-md-6">
         <q-card-section>
           <LogsModule />
+        </q-card-section>
+      </q-card>
+
+      <q-card flat bordered class="col-12">
+        <q-card-section>
+          <OriginalsModule />
         </q-card-section>
       </q-card>
 

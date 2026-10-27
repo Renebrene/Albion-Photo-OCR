@@ -12,7 +12,7 @@ from datetime import datetime
 from psycopg.types.json import Json
 
 from app.api import fingerprints
-from app.api.config import display_source_directory, source_root_label
+from app.api.config import ORIGINALS_ROOTS, display_source_directory, source_root_label
 from app.api.schemas import (
     DinoBatchSummary,
     DinoRunSummary,
@@ -441,6 +441,83 @@ _PHOTO_SELECT = (
     "suggested_fingerprint, suggested_address, margin, runner_up_address, runner_up_score "
     "FROM (" + _PHOTO_DERIVED + ") AS t"
 )
+
+
+def originals_health() -> dict:
+    """
+    Корни оригиналов: подключён ли том и сколько записей на него ссылается.
+
+    Нужно техническому разделу: когда том отмонтирован, у половины грида
+    «оригинал недоступен», и по одной карточке не понять, что дело в диске, а не
+    в файлах. Перебора файлов здесь нет — `is_dir()` по самим корням и по одному
+    `count(*)` на корень, поэтому ответ пригоден для HTTP-запроса; полный
+    пофайловый обход остаётся за `scripts/check_originals.py` (57 тыс. `stat` в
+    обработчике делать нечего).
+
+    Абсолютные пути корней попадают в ответ: это технический раздел, где такие
+    же пути уже показывает «Бэкапы» (scope `read`).
+    """
+
+    roots = list(ORIGINALS_ROOTS)
+
+    if not roots:
+        return {
+            "configured": False,
+            "roots": [],
+            "total_photos": 0,
+            "outside_roots": 0,
+            "unavailable_roots": 0,
+        }
+
+    # Параметрами уходят значения; подставляется только постоянный шаблон
+    # условия, повторённый по числу корней.
+    clause = " OR ".join(
+        ["source_path = %s OR starts_with(source_path, %s)"] * len(roots)
+    )
+    params = [
+        value
+        for root in roots
+        for value in (str(root), str(root).rstrip("/") + "/")
+    ]
+
+    with get_connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM public.photos")
+        total = int(cur.fetchone()[0])
+
+        cur.execute(f"SELECT count(*) FROM public.photos WHERE {clause}", params)
+        inside = int(cur.fetchone()[0])
+
+        per_root: list[int] = []
+        for root in roots:
+            cur.execute(
+                "SELECT count(*) FROM public.photos"
+                " WHERE source_path = %s OR starts_with(source_path, %s)",
+                (str(root), str(root).rstrip("/") + "/"),
+            )
+            per_root.append(int(cur.fetchone()[0]))
+
+    entries = []
+    for root, photos in zip(roots, per_root):
+        try:
+            available = root.is_dir()
+        except OSError:
+            available = False
+        entries.append(
+            {
+                "path": str(root),
+                "label": root.name or "Исходники",
+                "available": available,
+                "photos": photos,
+            }
+        )
+
+    return {
+        "configured": True,
+        "roots": entries,
+        "total_photos": total,
+        "outside_roots": total - inside,
+        "unavailable_roots": sum(1 for entry in entries if not entry["available"]),
+    }
 
 
 def _photo_row(row) -> PhotoSummary:
