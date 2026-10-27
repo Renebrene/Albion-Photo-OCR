@@ -392,7 +392,61 @@ _SIMPLE_HEADERS = {
 
 # Формат носителя (schema/054): «Экран», «Малый формат», «РнД» …
 # Колонка необязательная: файлы без неё импортируются как раньше.
-_FORMAT_HEADERS = {"формат", "format"}
+# Наборы и мягкие правила взяты из парсера «Локатора»
+# (albion-locator-autonom/src/xls_import.py): там та же выгрузка «Рекламные
+# возможности», где шапка стоит на 12-й строке, а колонка называется
+# «Формат конструкции».
+_FORMAT_HEADERS = {
+    "формат",
+    "формат конструкции",
+    "тип конструкции",
+    "вид конструкции",
+    "конструкция",
+    "format",
+}
+
+# Шапка не обязана быть первой строкой: в выгрузках перед ней идут заголовок
+# отчёта, легенда и пустые строки. Ищем её в первых строках, как «Локатор».
+MAX_HEADER_SCAN_ROWS = 100
+
+
+def _normalize_header(value: str) -> str:
+    text = " ".join(str(value).replace("\xa0", " ").split()).lower().replace("ё", "е")
+    text = re.sub(r"[^\w\s.-]", " ", text)
+    return " ".join(text.split())
+
+
+def _header_kind(title: str) -> str | None:
+    """К какому полю относится заголовок колонки (None — не наше)."""
+
+    norm = _normalize_header(title)
+
+    if not norm:
+        return None
+    if norm in _FORMAT_HEADERS or "формат" in norm:
+        return "format"
+    if norm in _SIMPLE_HEADERS or "упрощ" in norm:
+        return "simple"
+    if norm in _LEGAL_HEADERS or "юридическ" in norm or norm.startswith("наименован"):
+        return "legal"
+    return None
+
+
+def _find_header(rows: list[list[str]]) -> tuple[int | None, dict[str, int]]:
+    """Первая строка в первых MAX_HEADER_SCAN_ROWS, похожая на шапку."""
+
+    for index, row in enumerate(rows[:MAX_HEADER_SCAN_ROWS]):
+        mapping: dict[str, int] = {}
+
+        for column, title in enumerate(row):
+            kind = _header_kind(title)
+            if kind and kind not in mapping:
+                mapping[kind] = column
+
+        if "legal" in mapping or "simple" in mapping:
+            return index, mapping
+
+    return None, {}
 
 MAX_IMPORT_ROWS = 5000
 
@@ -481,28 +535,24 @@ def parse_address_table(content: bytes, filename: str = "") -> list[dict]:
     if not rows:
         return []
 
-    header = [cell.lower() for cell in rows[0]]
-    legal_index = simple_index = format_index = None
+    header_index, mapping = _find_header(rows)
 
-    for index, title in enumerate(header):
-        if legal_index is None and title in _LEGAL_HEADERS:
-            legal_index = index
-        elif simple_index is None and title in _SIMPLE_HEADERS:
-            simple_index = index
-        elif format_index is None and title in _FORMAT_HEADERS:
-            format_index = index
-
-    has_header = legal_index is not None or simple_index is not None
-
-    if not has_header:
-        legal_index = 0
-        simple_index = 1 if len(rows[0]) > 1 else None
-        # Без шапки «Формат» взять неоткуда: третья колонка необязательно она.
+    if header_index is None:
+        # Шапки нет: как раньше — первая колонка юридический адрес, вторая
+        # упрощённый (если есть). «Формат» взять неоткуда.
+        legal_index: int | None = 0
+        simple_index: int | None = 1 if len(rows[0]) > 1 else None
         format_index = None
-    elif legal_index is None:
-        legal_index = 0 if simple_index != 0 else None
+        body = rows
+    else:
+        legal_index = mapping.get("legal")
+        simple_index = mapping.get("simple")
+        format_index = mapping.get("format")
 
-    body = rows[1:] if has_header else rows
+        if legal_index is None:
+            legal_index = 0 if simple_index != 0 else None
+
+        body = rows[header_index + 1:]
 
     items = []
 
