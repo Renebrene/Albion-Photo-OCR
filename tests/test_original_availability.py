@@ -16,6 +16,7 @@ from app.api.file_access import (
     ORIGINAL_NOT_CONFIGURED,
     ORIGINAL_OK,
     ORIGINAL_OUTSIDE_ROOTS,
+    ORIGINAL_ROOT_UNAVAILABLE,
     allowed_media_path,
     original_availability,
 )
@@ -70,6 +71,82 @@ def test_a_directory_is_not_an_available_original(tmp_path):
     nested.mkdir()
 
     assert original_availability(str(nested), [root]) == ORIGINAL_MISSING
+
+
+def test_missing_root_is_reported_as_root_unavailable(tmp_path):
+    """Тома нет на машине: это не «файл не найден», а неподключённый корень."""
+
+    root = tmp_path / "Win10"  # не создаём: том отмонтирован
+    photo = root / "БАЗАФОТО" / "февраль" / "a.jpg"
+
+    assert original_availability(str(photo), [root]) == ORIGINAL_ROOT_UNAVAILABLE
+
+
+def test_root_that_is_not_a_directory_is_root_unavailable(tmp_path):
+    """Файл на месте корня — тоже неподключённый корень, а не пропавший файл."""
+
+    root = tmp_path / "photos"
+    root.write_bytes(b"not a directory")
+
+    assert original_availability(str(root / "a.jpg"), [root]) == ORIGINAL_ROOT_UNAVAILABLE
+
+
+def test_live_root_wins_over_a_missing_one(tmp_path):
+    """Живой корень важнее мёртвого: путь не считаем недоступным раньше времени."""
+
+    dead = tmp_path / "Win10"
+    live = tmp_path / "TEST"
+    live.mkdir()
+    photo = live / "a.jpg"
+    photo.write_bytes(b"jpeg")
+
+    assert original_availability(str(photo), [dead, live]) == ORIGINAL_OK
+
+
+def test_path_outside_the_roots_stays_outside_next_to_a_missing_root(tmp_path):
+    """Мёртвый корень не расширяет список разрешённых путей."""
+
+    dead = tmp_path / "Win10"
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    photo = other / "a.jpg"
+    photo.write_bytes(b"jpeg")
+
+    assert original_availability(str(photo), [dead]) == ORIGINAL_OUTSIDE_ROOTS
+
+
+# ---- метка корня для карточки фото ---------------------------------------
+
+
+def test_source_root_label_names_the_volume_not_the_path(tmp_path, monkeypatch):
+    """В карточке показывается имя тома, а не абсолютный путь."""
+
+    from app.api import config
+
+    live = tmp_path / "TEST"
+    live.mkdir()
+    monkeypatch.setattr(config, "ORIGINALS_ROOTS", [live])
+
+    assert config.source_root_label(str(live / "БАЗАФОТО" / "a.jpg")) == "TEST"
+    # Путь вне корней метки не получает — карточка просто не покажет том.
+    assert config.source_root_label(str(tmp_path / "elsewhere" / "a.jpg")) == ""
+
+
+def test_display_source_directory_keeps_its_old_output(tmp_path, monkeypatch):
+    """Разбор корня вынесен в помощник, но показ каталога не изменился."""
+
+    from app.api import config
+
+    live = tmp_path / "TEST"
+    live.mkdir()
+    monkeypatch.setattr(config, "ORIGINALS_ROOTS", [live])
+
+    assert (
+        config.display_source_directory(str(live / "БАЗАФОТО" / "февраль" / "a.jpg"))
+        == "БАЗАФОТО/февраль"
+    )
+    assert config.display_source_directory(str(live / "a.jpg")) == "TEST"
+    assert config.display_source_directory("") == ""
 
 
 # ---- пересоздание превью по photo_id -------------------------------------
@@ -287,6 +364,32 @@ def test_status_route_marks_a_vanished_original(tmp_path, monkeypatch):
     assert body["reason"] == ORIGINAL_MISSING
 
 
+def test_status_route_reports_a_missing_root_without_the_path(tmp_path, monkeypatch):
+    """Неподключённый том: маршрут отдаёт отдельную причину и не выдаёт путь."""
+
+    from fastapi.testclient import TestClient
+
+    from app.api import routes
+    from app.api.main import app
+
+    root = tmp_path / "Win10"  # том не подключён
+    photo_id = "PH_" + "ab" * 12
+
+    monkeypatch.setattr(routes, "ORIGINALS_ROOTS", [root])
+    monkeypatch.setattr(
+        routes.repository,
+        "get_photo_source",
+        lambda value: {"source_path": str(root / "БАЗАФОТО" / "a.jpg")},
+    )
+
+    client = TestClient(app)
+    body = client.get(f"/api/v1/photos/{photo_id}/original/status").json()
+
+    assert body["available"] is False
+    assert body["reason"] == ORIGINAL_ROOT_UNAVAILABLE
+    assert str(root) not in str(body)
+
+
 def test_status_route_is_404_for_an_unknown_photo(monkeypatch):
     from fastapi.testclient import TestClient
 
@@ -329,3 +432,14 @@ def test_rebuild_script_rejects_an_out_of_range_limit(capsys):
 
     assert module.main(["--limit", "0"]) == 2
     assert "1 до 5000" in capsys.readouterr().err
+
+
+def test_originals_script_reports_an_unavailable_root_separately():
+    """Отчёт не смешивает неподключённый корень с пропавшим файлом и не выдаёт путь."""
+
+    module = _load_script("check_originals", "scripts/check_originals.py")
+
+    assert ORIGINAL_ROOT_UNAVAILABLE in module.REASONS
+    label = module.REASONS[ORIGINAL_ROOT_UNAVAILABLE]
+    assert label != module.REASONS[ORIGINAL_MISSING]
+    assert "/" not in label

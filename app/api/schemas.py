@@ -20,6 +20,9 @@ class PhotoSummary(BaseModel):
     photo_id: str = Field(pattern=r"^PH_[0-9a-f]{24}$")
     filename: str
     source_directory: str = ""
+    # Короткая метка корня оригиналов («TEST», «Win10»): в карточке видно,
+    # с какого тома запись. Пустая строка — путь вне разрешённых корней.
+    source_root: str = ""
     width: int
     height: int
     container_format: str

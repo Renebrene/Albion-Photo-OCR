@@ -2607,6 +2607,9 @@ const ORIGINAL_REASONS = {
   missing: 'файл не найден',
   outside_roots: 'путь вне разрешённых корней',
   not_configured: 'хранилище оригиналов не подключено',
+  // Не «файл не найден»: путь ведёт в корень, которого нет на машине —
+  // том отмонтирован или записи остались от прежнего расположения.
+  root_unavailable: 'том с оригиналами не подключён',
 }
 
 function originalReasonText(reason) {
@@ -2615,6 +2618,11 @@ function originalReasonText(reason) {
 
 const originalUnavailableReason = computed(() =>
   originalReasonText(originalStatus.value?.reason),
+)
+
+/** Том с оригиналами не подключён — помечаем это рядом с каталогом в карточке. */
+const originalRootMissing = computed(
+  () => originalStatus.value?.reason === 'root_unavailable',
 )
 
 /** Статус для произвольного фото: у открытого он уже загружен. */
@@ -3937,8 +3945,10 @@ function tagList(meta) {
             <q-icon name="link_off" />
           </template>
           Оригинал недоступен ({{ originalUnavailableReason }}). Используйте
-          превью — запись фото и его данные не удалены. Восстановить файл можно
-          повторным инспектированием папки или из бэкапа.
+          превью — запись фото и его данные не удалены. Если файлы переехали на
+          другой том, пути в базе правит scripts/remap_source_root.py
+          («Переезд корпуса», docs/deployment.md), а утраченный файл берётся из
+          бэкапа.
         </q-banner>
 
         <div class="row no-wrap" style="max-height: 80vh">
@@ -4187,6 +4197,10 @@ function tagList(meta) {
 
                 <div v-if="current?.source_directory" class="q-mt-md text-caption text-grey-7 ellipsis" :title="current.source_directory">
                   Исходный каталог: {{ current.source_directory }}
+                </div>
+                <div v-if="current?.source_root" class="q-mt-xs text-caption text-grey-7">
+                  Том: {{ current.source_root }}
+                  <span v-if="originalRootMissing" class="text-orange"> — не подключён</span>
                 </div>
                 <div class="q-mt-xs row items-center no-wrap text-caption">
                   <span class="text-grey q-mr-xs">ID:</span>

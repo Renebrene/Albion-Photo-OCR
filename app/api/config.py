@@ -59,26 +59,63 @@ ORIGINALS_ROOTS = [
 ]
 
 
-def display_source_directory(source_path: str) -> str:
-    """Return a display-safe directory relative to an allowed originals root."""
+def _source_parent(source_path: str) -> Path | None:
     try:
-        parent = Path(source_path).resolve(strict=False).parent
+        return Path(source_path).resolve(strict=False).parent
     except (OSError, RuntimeError, ValueError):
-        return ""
-    roots = [(root, root.name or "Исходники") for root in ORIGINALS_ROOTS]
-    roots.append((VIDEO_DERIVATIVES_ROOT, "Отредактированные видео"))
-    for root, label in roots:
+        return None
+
+
+def _match_root(
+    parent: Path, candidates: list[tuple[Path, str]]
+) -> tuple[Path, str, Path] | None:
+    """First root that contains the parent directory, with its resolved path."""
+
+    for root, label in candidates:
         try:
             root_resolved = root.resolve(strict=False)
-            relative = parent.relative_to(root_resolved)
         except (OSError, RuntimeError, ValueError):
             continue
-        if root == VIDEO_DERIVATIVES_ROOT:
-            return label
-        if relative == Path("."):
-            return label
-        return relative.as_posix()
-    return ""
+        if parent != root_resolved and root_resolved not in parent.parents:
+            continue
+        return root, label, root_resolved
+    return None
+
+
+def source_root_label(source_path: str) -> str:
+    """
+    Short label of the originals root a record lives in: "TEST", "Win10".
+
+    Only the last component of the root path, so the photo card can say which
+    volume a record came from without exposing an absolute path.
+    """
+
+    parent = _source_parent(source_path)
+    if parent is None:
+        return ""
+    candidates = [(root, root.name or "Исходники") for root in ORIGINALS_ROOTS]
+    match = _match_root(parent, candidates)
+    return match[1] if match else ""
+
+
+def display_source_directory(source_path: str) -> str:
+    """Return a display-safe directory relative to an allowed originals root."""
+
+    parent = _source_parent(source_path)
+    if parent is None:
+        return ""
+    candidates = [(root, root.name or "Исходники") for root in ORIGINALS_ROOTS]
+    candidates.append((VIDEO_DERIVATIVES_ROOT, "Отредактированные видео"))
+    match = _match_root(parent, candidates)
+    if match is None:
+        return ""
+    root, label, root_resolved = match
+    if root == VIDEO_DERIVATIVES_ROOT:
+        return label
+    relative = parent.relative_to(root_resolved)
+    if relative == Path("."):
+        return label
+    return relative.as_posix()
 
 # --- Working (source) folder for INGEST ------------------------------------
 # The folder the ingest scans for new photos. It is selected in the UI and

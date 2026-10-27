@@ -30,6 +30,7 @@ const photos = [
     client: 'Клиент A',
     brand: 'Бренд A',
     source_directory: 'test',
+    source_root: 'TEST',
     taken_at: '2025-07-17 11:43:19',
     size_bytes: 1,
   },
@@ -44,6 +45,7 @@ const photos = [
     client: 'Клиент B',
     brand: 'Бренд B',
     source_directory: 'test',
+    source_root: 'TEST',
     taken_at: '2025-07-17 11:43:19',
     size_bytes: 1,
   },
@@ -147,6 +149,10 @@ describe('доступность оригинала', () => {
     expect(document.body.textContent).toContain('Оригинал недоступен')
     expect(document.body.textContent).toContain('файл не найден')
     expect(document.body.textContent).toContain('Используйте')
+    // Повторная инспекция путь не меняет (ingest пишет ON CONFLICT DO NOTHING):
+    // подсказка ведёт к переносу путей, а не к повторному сканированию папки.
+    expect(document.body.textContent).toContain('remap_source_root.py')
+    expect(document.body.textContent).not.toContain('Восстановить файл можно')
     // Превью продолжает показываться — запись фото не потеряна.
     expect(wrapper.findAllComponents(AuthImage).length).toBeGreaterThan(0)
   })
@@ -158,6 +164,28 @@ describe('доступность оригинала', () => {
     await openPhoto(wrapper, 0)
 
     expect(document.body.textContent).not.toContain('Оригинал недоступен')
+    // Том виден в карточке и когда с оригиналом всё в порядке.
+    expect(document.body.textContent).toContain('Том: TEST')
+  })
+
+  it('неподключённый том: своя причина вместо «файл не найден»', async () => {
+    installFetch({
+      [photos[0].photo_id]: {
+        photo_id: photos[0].photo_id,
+        available: false,
+        reason: 'root_unavailable',
+      },
+    })
+    const wrapper = await mountGrid()
+
+    await openPhoto(wrapper, 0)
+
+    expect(document.body.textContent).toContain('Оригинал недоступен')
+    expect(document.body.textContent).toContain('том с оригиналами не подключён')
+    expect(document.body.textContent).not.toContain('файл не найден')
+    // В карточке видно и сам том, и что он не подключён.
+    expect(document.body.textContent).toContain('Том: TEST')
+    expect(document.body.textContent).toContain('не подключён')
   })
 
   it('поздний статус предыдущего фото не перезаписывает открытое', async () => {

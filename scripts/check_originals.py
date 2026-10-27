@@ -36,6 +36,7 @@ from app.api.file_access import (  # noqa: E402
     ORIGINAL_NOT_CONFIGURED,
     ORIGINAL_OK,
     ORIGINAL_OUTSIDE_ROOTS,
+    ORIGINAL_ROOT_UNAVAILABLE,
     original_availability,
 )
 from app.ingest.database import get_connection  # noqa: E402
@@ -46,6 +47,7 @@ _SAMPLE_LIMIT = 20
 REASONS = {
     ORIGINAL_MISSING: "файл не найден",
     ORIGINAL_OUTSIDE_ROOTS: "путь вне разрешённых корней",
+    ORIGINAL_ROOT_UNAVAILABLE: "корень оригиналов не подключён",
     ORIGINAL_NOT_CONFIGURED: "SCENE_ORIGINALS_ROOTS не задан",
 }
 
@@ -117,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
     checked = 0
     missing = 0
     outside = 0
+    root_unavailable = 0
     samples: list[dict[str, str]] = []
 
     for photo_id, source_path in _rows(args.photo_ids, max(0, args.limit)):
@@ -126,6 +129,10 @@ def main(argv: list[str] | None = None) -> int:
             continue
         if status == ORIGINAL_OUTSIDE_ROOTS:
             outside += 1
+        elif status == ORIGINAL_ROOT_UNAVAILABLE:
+            # Отдельно от «файла нет»: чинится монтированием тома или
+            # переносом путей, а не поиском пропавшего файла.
+            root_unavailable += 1
         else:
             missing += 1
         if len(samples) < _SAMPLE_LIMIT:
@@ -133,9 +140,10 @@ def main(argv: list[str] | None = None) -> int:
 
     report = {
         "checked": checked,
-        "available": checked - missing - outside,
+        "available": checked - missing - outside - root_unavailable,
         "missing": missing,
         "outside_roots": outside,
+        "root_unavailable": root_unavailable,
         "roots": len(ORIGINALS_ROOTS),
         "samples": samples,
         "dry_run": True,
@@ -151,15 +159,23 @@ def main(argv: list[str] | None = None) -> int:
         print(f"не найдено: {missing}")
         if outside:
             print(f"вне разрешённых корней: {outside}")
+        if root_unavailable:
+            print(f"корень оригиналов не подключён: {root_unavailable}")
         for sample in samples:
             print(f"  {sample['photo_id']}: {sample['reason']}")
+        if root_unavailable:
+            print(
+                "\nКорень оригиналов не смонтирован: проверьте тома из "
+                "SCENE_ORIGINALS_ROOTS или перенесите пути "
+                "(scripts/remap_source_root.py)."
+            )
         if missing or outside:
             print(
                 "\nЗаписи фото не удаляются: в гриде доступно превью, "
                 "а «посмотреть/скачать» покажет «оригинал недоступен»."
             )
 
-    return 1 if (missing or outside) else 0
+    return 1 if (missing or outside or root_unavailable) else 0
 
 
 if __name__ == "__main__":

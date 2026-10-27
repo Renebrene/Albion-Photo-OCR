@@ -12,7 +12,7 @@ from datetime import datetime
 from psycopg.types.json import Json
 
 from app.api import fingerprints
-from app.api.config import display_source_directory
+from app.api.config import display_source_directory, source_root_label
 from app.api.schemas import (
     DinoBatchSummary,
     DinoRunSummary,
@@ -458,6 +458,7 @@ def _photo_row(row) -> PhotoSummary:
         taken_at=row[10],
         size_bytes=row[11],
         source_directory=display_source_directory(row[12]) if row[12] else "",
+        source_root=source_root_label(row[12]) if row[12] else "",
         legal_address=row[13],
         simple_address=row[14],
         qwen_status=row[15],

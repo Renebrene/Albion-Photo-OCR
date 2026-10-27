@@ -10,6 +10,13 @@ ORIGINAL_OK = "ok"
 ORIGINAL_NOT_CONFIGURED = "not_configured"
 ORIGINAL_OUTSIDE_ROOTS = "outside_roots"
 ORIGINAL_MISSING = "missing"
+# The path sits inside a configured root, but the root itself is not a
+# directory any more: the volume was unmounted, moved or never mounted here.
+# Kept apart from ORIGINAL_MISSING on purpose — the fix is different
+# (mount the volume, or remap the stored paths with
+# scripts/remap_source_root.py), and "файл не найден" on a whole volume
+# sends people looking for a missing file instead of a missing disk.
+ORIGINAL_ROOT_UNAVAILABLE = "root_unavailable"
 
 
 def original_availability(source_path: str | None, roots: list[Path]) -> str:
@@ -18,8 +25,10 @@ def original_availability(source_path: str | None, roots: list[Path]) -> str:
 
     Unlike `allowed_media_path`, the missing file and the disallowed root are
     told apart, because they mean different things to a user: "оригинал
-    недоступен, используйте превью" versus a configuration problem. No
-    content is read — only resolve() and is_file().
+    недоступен, используйте превью" versus a configuration problem. A path
+    below a configured root whose directory does not exist is reported
+    separately (ORIGINAL_ROOT_UNAVAILABLE) instead of "файл не найден". No
+    content is read — only resolve(), is_dir() and is_file().
     """
 
     if not source_path:
@@ -33,17 +42,29 @@ def original_availability(source_path: str | None, roots: list[Path]) -> str:
         return ORIGINAL_MISSING
 
     inside = False
+    root_available = False
     for root in roots:
         try:
             root_resolved = root.resolve(strict=False)
         except (OSError, RuntimeError, ValueError):
             continue
-        if resolved == root_resolved or root_resolved in resolved.parents:
-            inside = True
-            break
+        # The loop cannot stop at the first match: a live root later in the
+        # list must win over a dead one earlier in it, so the path is only
+        # called rootless after every root has been considered.
+        if resolved != root_resolved and root_resolved not in resolved.parents:
+            continue
+        inside = True
+        try:
+            if root_resolved.is_dir():
+                root_available = True
+                break
+        except OSError:
+            continue
 
     if not inside:
         return ORIGINAL_OUTSIDE_ROOTS
+    if not root_available:
+        return ORIGINAL_ROOT_UNAVAILABLE
     try:
         return ORIGINAL_OK if resolved.is_file() else ORIGINAL_MISSING
     except OSError:
