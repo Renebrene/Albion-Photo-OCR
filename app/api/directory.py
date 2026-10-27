@@ -59,8 +59,18 @@ def _check_fingerprint_id(fingerprint_id: object) -> str:
     return fingerprint_id
 
 
-def list_addresses() -> list[dict]:
-    """Every address with the fingerprint ids mapped to it."""
+def list_addresses(scope: str | None = None) -> list[dict]:
+    """
+    Every address with the fingerprint ids mapped to it.
+
+    `scope` — закладка справочника: «Экраны» (`screens`) или «Остальное»
+    (`other`). Без него отдаются все — так удобнее смотреть и тестировать.
+    """
+
+    if scope is not None and scope not in {"screens", "other"}:
+        raise DirectoryError("scope must be 'screens' or 'other'")
+
+    where = "WHERE d.scope = %s " if scope else ""
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -71,6 +81,8 @@ def list_addresses() -> list[dict]:
                     d.legal_address,
                     d.simple_address,
                     d.format,
+                    d.city,
+                    d.scope,
                     d.active,
                     d.sort_order,
                     COALESCE(
@@ -81,9 +93,11 @@ def list_addresses() -> list[dict]:
                 FROM public.address_directory AS d
                 LEFT JOIN public.address_fingerprints AS f
                        ON f.address_id = d.address_id AND f.active
+                """ + where + """
                 GROUP BY d.address_id
                 ORDER BY d.sort_order, d.address_id
-                """
+                """,
+                (scope,) if scope else (),
             )
             rows = cur.fetchall()
 
@@ -93,9 +107,11 @@ def list_addresses() -> list[dict]:
             "legal_address": row[1],
             "simple_address": row[2],
             "format": row[3] or "",
-            "active": bool(row[4]),
-            "sort_order": int(row[5]),
-            "fingerprints": list(row[6]),
+            "city": row[4] or "",
+            "scope": row[5],
+            "active": bool(row[6]),
+            "sort_order": int(row[7]),
+            "fingerprints": list(row[8]),
         }
         for row in rows
     ]
@@ -151,11 +167,15 @@ def create_address(
     legal_address: object = None,
     simple_address: object = None,
     sort_order: object = 0,
+    scope: object = "other",
 ) -> dict:
     """Create one address; raises DirectoryError when the input is unusable."""
 
     legal = _clean_name(legal_address, field="legal_address")
     simple = _clean_name(simple_address, field="simple_address")
+
+    if scope not in {"screens", "other"}:
+        raise DirectoryError("scope must be 'screens' or 'other'")
 
     if not legal and not simple:
         raise DirectoryError("an address needs a legal or a simple name")
@@ -174,11 +194,11 @@ def create_address(
                 cur.execute(
                     """
                     INSERT INTO public.address_directory
-                        (legal_address, simple_address, sort_order)
-                    VALUES (%s, %s, %s)
+                        (legal_address, simple_address, sort_order, scope)
+                    VALUES (%s, %s, %s, %s)
                     RETURNING address_id
                     """,
-                    (legal, simple, order),
+                    (legal, simple, order, scope),
                 )
             except Exception as exc:
                 message = str(exc)
@@ -405,6 +425,17 @@ _FORMAT_HEADERS = {
     "format",
 }
 
+# Город (schema/055): нужен закладкам «Районы и трассы», «Города области».
+_CITY_HEADERS = {
+    "город",
+    "город 1",
+    "город1",
+    "город 2",
+    "город2",
+    "населенный пункт",
+    "населенный пункт 1",
+}
+
 # Шапка не обязана быть первой строкой: в выгрузках перед ней идут заголовок
 # отчёта, легенда и пустые строки. Ищем её в первых строках, как «Локатор».
 MAX_HEADER_SCAN_ROWS = 100
@@ -423,6 +454,8 @@ def _header_kind(title: str) -> str | None:
 
     if not norm:
         return None
+    if norm in _CITY_HEADERS or norm.startswith("город"):
+        return "city"
     if norm in _FORMAT_HEADERS or "формат" in norm:
         return "format"
     if norm in _SIMPLE_HEADERS or "упрощ" in norm:
@@ -539,15 +572,17 @@ def parse_address_table(content: bytes, filename: str = "") -> list[dict]:
 
     if header_index is None:
         # Шапки нет: как раньше — первая колонка юридический адрес, вторая
-        # упрощённый (если есть). «Формат» взять неоткуда.
+        # упрощённый (если есть). «Формат» и «Город» взять неоткуда.
         legal_index: int | None = 0
         simple_index: int | None = 1 if len(rows[0]) > 1 else None
         format_index = None
+        city_index = None
         body = rows
     else:
         legal_index = mapping.get("legal")
         simple_index = mapping.get("simple")
         format_index = mapping.get("format")
+        city_index = mapping.get("city")
 
         if legal_index is None:
             legal_index = 0 if simple_index != 0 else None
@@ -568,23 +603,33 @@ def parse_address_table(content: bytes, filename: str = "") -> list[dict]:
             if format_index is not None and format_index < len(row)
             else ""
         )
+        value_city = (
+            row[city_index]
+            if city_index is not None and city_index < len(row)
+            else ""
+        )
 
         if not legal and not simple:
             continue
 
-        # Ключ «format» появляется только когда колонка есть в файле: старые
-        # выгрузки и тесты не обрастают пустым полем.
+        # Ключи «format» и «city» появляются только когда колонки есть в файле:
+        # старые выгрузки и тесты не обрастают пустыми полями.
         item = {"legal_address": legal, "simple_address": simple}
 
         if value_format:
             item["format"] = value_format
+
+        if value_city:
+            item["city"] = value_city
 
         items.append(item)
 
     return items
 
 
-def import_addresses(items: list[dict], *, dry_run: bool = False) -> dict:
+def import_addresses(
+    items: list[dict], *, dry_run: bool = False, scope: str = "other"
+) -> dict:
     """
     Create or update addresses from parsed rows.
 
@@ -593,10 +638,17 @@ def import_addresses(items: list[dict], *, dry_run: bool = False) -> dict:
     disturbed - and only its simplified name is refreshed when the file brings a
     different one.
 
+    `scope` — закладка справочника, в которую попадут НОВЫЕ адреса: «Экраны»
+    (`screens`) или «Остальное» (`other`, по умолчанию). Существующие записи
+    свою закладку сохраняют: загрузка каталога не переносит экранные адреса.
+
     `dry_run` считает то же самое, но ничего не пишет: выгрузка каталога на
     1500 строк иначе добавляет адреса, которых в базе не было, и отменить это
     одной кнопкой нельзя. Счётчики в ответе — «что было бы сделано».
     """
+
+    if scope not in {"screens", "other"}:
+        raise DirectoryError("scope must be 'screens' or 'other'")
 
     if not isinstance(items, list):
         raise DirectoryError("ожидался список адресов")
@@ -617,6 +669,7 @@ def import_addresses(items: list[dict], *, dry_run: bool = False) -> dict:
                     legal = _clean_name(item.get("legal_address"), field="legal_address")
                     simple = _clean_name(item.get("simple_address"), field="simple_address")
                     value_format = _clean_name(item.get("format"), field="format")
+                    value_city = _clean_name(item.get("city"), field="city")
                 except DirectoryError as exc:
                     errors.append(str(exc))
                     continue
@@ -630,7 +683,7 @@ def import_addresses(items: list[dict], *, dry_run: bool = False) -> dict:
                 if legal:
                     cur.execute(
                         """
-                        SELECT address_id, simple_address, legal_address, format
+                        SELECT address_id, simple_address, legal_address, format, city
                         FROM public.address_directory
                         WHERE lower(btrim(legal_address)) = lower(btrim(%s))
                         """,
@@ -643,15 +696,21 @@ def import_addresses(items: list[dict], *, dry_run: bool = False) -> dict:
                         cur.execute(
                             """
                             INSERT INTO public.address_directory
-                                (legal_address, simple_address, format)
-                            VALUES (%s, %s, %s)
+                                (legal_address, simple_address, format, city, scope)
+                            VALUES (%s, %s, %s, %s, %s)
                             """,
-                            (legal, simple, value_format),
+                            (legal, simple, value_format, value_city, scope),
                         )
                     created += 1
                     continue
 
-                address_id, current_simple, current_legal, current_format = existing
+                (
+                    address_id,
+                    current_simple,
+                    current_legal,
+                    current_format,
+                    current_city,
+                ) = existing
 
                 updated_row = False
 
@@ -701,6 +760,20 @@ def import_addresses(items: list[dict], *, dry_run: bool = False) -> dict:
                             WHERE address_id = %s
                             """,
                             (value_format, address_id),
+                        )
+                    updated_row = True
+
+                # Город — из той же шапки: нужен закладкам «Районы и трассы» и
+                # «Города области». Пустая ячейка уже записанный город не стирает.
+                if value_city and value_city != (current_city or ""):
+                    if not dry_run:
+                        cur.execute(
+                            """
+                            UPDATE public.address_directory
+                            SET city = %s, updated_at = CURRENT_TIMESTAMP
+                            WHERE address_id = %s
+                            """,
+                            (value_city, address_id),
                         )
                     updated_row = True
 

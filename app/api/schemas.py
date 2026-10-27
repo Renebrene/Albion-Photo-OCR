@@ -316,6 +316,8 @@ class AddressCreate(BaseModel):
     legal_address: str | None = Field(default=None, max_length=300)
     simple_address: str | None = Field(default=None, max_length=300)
     sort_order: int | None = None
+    # Закладка справочника (schema/055): «Экраны» или «Остальное».
+    scope: str | None = Field(default=None, pattern="^(screens|other)$")
 
 
 class AddressUpdate(BaseModel):

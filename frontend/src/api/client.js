@@ -898,8 +898,10 @@ export function saveHybridSettings(payload) {
   return putJson(`${BASE}/v1/hybrid/settings`, payload)
 }
 
-export function fetchAddressDirectory() {
-  return getJson(`${BASE}/v1/addresses/directory`)
+// `scope` — закладка справочника: «Экраны» (screens) или «Остальное» (other).
+export function fetchAddressDirectory(scope = null) {
+  const query = scope ? `?scope=${encodeURIComponent(scope)}` : ''
+  return getJson(`${BASE}/v1/addresses/directory${query}`)
 }
 
 // Ручное исправление юридического адреса одного фото (scope addresses:write).
@@ -930,12 +932,17 @@ export function deleteAddress(addressId) {
 }
 
 // Import legal addresses from a spreadsheet (.xlsx/.csv) into the directory.
-export async function importAddresses(file, { dryRun = false } = {}) {
+export async function importAddresses(file, { dryRun = false, scope = 'other' } = {}) {
   const form = new FormData()
   form.append('file', file)
 
-  // dry_run=1 — посчитать, что изменится, и ничего не записать.
-  const query = dryRun ? '?dry_run=1' : ''
+  // dry_run=1 — посчитать, что изменится, и ничего не записать;
+  // scope — закладка, в которую попадут новые адреса.
+  const params = new URLSearchParams()
+  if (dryRun) params.set('dry_run', '1')
+  if (scope) params.set('scope', scope)
+
+  const query = params.toString() ? `?${params.toString()}` : ''
 
   // No Content-Type header: the browser sets the multipart boundary.
   const response = await fetch(`${BASE}/v1/addresses/import${query}`, {

@@ -2783,10 +2783,10 @@ def _directory_error(exc: directory_mod.DirectoryError) -> HTTPException:
     response_model=None,
     dependencies=[Depends(require_scope("read"))],
 )
-def list_address_directory():
-    """Every address with the fingerprint ids mapped to it."""
+def list_address_directory(scope: str | None = Query(None, pattern="^(screens|other)$")):
+    """Адреса закладки справочника; без `scope` — все."""
 
-    return {"items": directory_mod.list_addresses()}
+    return {"items": directory_mod.list_addresses(scope=scope)}
 
 
 @addresses_router.put(
@@ -2866,6 +2866,7 @@ def create_address(request: AddressCreate):
             legal_address=request.legal_address,
             simple_address=request.simple_address,
             sort_order=request.sort_order,
+            scope=request.scope or "other",
         )
     except directory_mod.DirectoryError as exc:
         raise _directory_error(exc) from exc
@@ -3368,7 +3369,11 @@ def set_fingerprint_address(
     response_model=None,
     dependencies=[Depends(require_scope("addresses:write"))],
 )
-def import_address_directory(file: UploadFile = File(...), dry_run: bool = Query(False)):
+def import_address_directory(
+    file: UploadFile = File(...),
+    dry_run: bool = Query(False),
+    scope: str = Query("other", pattern="^(screens|other)$"),
+):
     """
     Import legal addresses from a spreadsheet (.xlsx, .xlsm, .csv, .tsv).
 
@@ -3398,7 +3403,8 @@ def import_address_directory(file: UploadFile = File(...), dry_run: bool = Query
 
     try:
         # `dry_run=1` — посчитать, что изменится, и ничего не записать.
-        result = directory_mod.import_addresses(items, dry_run=dry_run)
+        # `scope` — закладка, в которую попадут новые адреса.
+        result = directory_mod.import_addresses(items, dry_run=dry_run, scope=scope)
     except directory_mod.DirectoryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -187,6 +187,8 @@ describe('AddressDirectory.vue', () => {
       {
         legal_address: 'ООО «Тюльпан», ул. Садовая, 7',
         simple_address: 'Садовая 7',
+        // Новый адрес попадает в открытую закладку («Экраны» по умолчанию).
+        scope: 'screens',
       },
     ])
   })

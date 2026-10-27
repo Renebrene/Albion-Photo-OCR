@@ -149,12 +149,14 @@ def test_finds_a_header_below_the_title_rows():
 
     items = directory_mod.parse_address_table(_xlsx(rows), "возможности.xlsx")
 
-    # «Наименование» идёт раньше «Адреса» — юридическим становится оно.
+    # «Наименование» идёт раньше «Адреса» — юридическим становится оно;
+    # город берётся из первой колонки «Город» (schema/055).
     assert items == [
         {
             "legal_address": "1-й Конной Армии ул. 32, A",
             "simple_address": "",
             "format": "Видеоэкран",
+            "city": "Ростов-на-Дону",
         },
     ]
 
@@ -355,7 +357,7 @@ def test_import_writes_when_it_is_not_a_dry_run(monkeypatch):
     """Обычный импорт по-прежнему обновляет формат существующего адреса."""
 
     statements = _recording_connection(
-        monkeypatch, existing=(5, "", "ООО «Тест»", "")
+        monkeypatch, existing=(5, "", "ООО «Тест»", "", "")
     )
 
     result = directory_mod.import_addresses(

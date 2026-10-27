@@ -17,7 +17,16 @@ import {
 import { useAsyncAction } from '../composables/useAsyncAction'
 import { confirmDialog } from '../composables/confirmDialog'
 
-const items = ref([])
+// Закладки справочника (задание, п. 6а): «Экраны» и «Остальное». У каждой своя
+// таблица и своя загрузка XLS; адрес попадает в закладку при создании и
+// сохраняет её при последующих импортах.
+const scope = ref('screens')
+const byScope = ref({ screens: [], other: [] })
+const items = computed(() => byScope.value[scope.value] || [])
+const scopeCounts = computed(() => ({
+  screens: (byScope.value.screens || []).length,
+  other: (byScope.value.other || []).length,
+}))
 const unassigned = ref([])
 const loading = ref(false)
 
@@ -64,7 +73,7 @@ async function onImportFileChosen(event) {
   importing.value = true
 
   try {
-    const result = await importAddresses(file, { dryRun })
+    const result = await importAddresses(file, { dryRun, scope: scope.value })
     Notify.create({
       type: dryRun ? 'info' : 'positive',
       message:
@@ -99,11 +108,15 @@ const columns = [
 async function load() {
   loading.value = true
   try {
-    const [directory, free] = await Promise.all([
-      fetchAddressDirectory(),
+    const [screens, other, free] = await Promise.all([
+      fetchAddressDirectory('screens'),
+      fetchAddressDirectory('other'),
       fetchUnassignedFingerprints(),
     ])
-    items.value = directory.items || []
+    byScope.value = {
+      screens: screens.items || [],
+      other: other.items || [],
+    }
     unassigned.value = free.items || []
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
@@ -136,6 +149,8 @@ async function addAddress() {
     await createAddress({
       legal_address: legal || null,
       simple_address: simple || null,
+      // Новый адрес попадает в открытую закладку.
+      scope: scope.value,
     })
     newLegal.value = ''
     newSimple.value = ''
@@ -253,6 +268,20 @@ async function saveMap() {
 
 <template>
   <div class="column q-gutter-md" style="max-width: 900px">
+    <!-- Две закладки справочника (задание, п. 6а): у каждой своя таблица и своя
+         загрузка XLS. Новый адрес и импорт попадают в открытую закладку. -->
+    <q-tabs
+      v-model="scope"
+      dense
+      align="left"
+      class="text-primary"
+      active-color="primary"
+      indicator-color="primary"
+    >
+      <q-tab name="screens" :label="`Экраны (${scopeCounts.screens})`" />
+      <q-tab name="other" :label="`Остальное (${scopeCounts.other})`" />
+    </q-tabs>
+
     <q-card flat bordered>
       <q-card-section>
         <div class="text-subtitle2 q-mb-sm">Новый адрес</div>
@@ -340,6 +369,14 @@ async function saveMap() {
         :loading="busy"
         no-data-label="Справочник пуст"
       >
+        <!-- На закладке «Экраны» формат всегда «Видеоэкран» (задание, п. 6б);
+             на «Остальном» — тот, что пришёл из XLS по юридическому адресу. -->
+        <template #body-cell-format="props">
+          <q-td :props="props">
+            {{ scope === 'screens' ? 'Видеоэкран' : (props.row.format || '—') }}
+          </q-td>
+        </template>
+
         <template #body-cell-fp="props">
           <q-td :props="props">
             <q-chip
