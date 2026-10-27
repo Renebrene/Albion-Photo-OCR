@@ -930,12 +930,15 @@ export function deleteAddress(addressId) {
 }
 
 // Import legal addresses from a spreadsheet (.xlsx/.csv) into the directory.
-export async function importAddresses(file) {
+export async function importAddresses(file, { dryRun = false } = {}) {
   const form = new FormData()
   form.append('file', file)
 
+  // dry_run=1 — посчитать, что изменится, и ничего не записать.
+  const query = dryRun ? '?dry_run=1' : ''
+
   // No Content-Type header: the browser sets the multipart boundary.
-  const response = await fetch(`${BASE}/v1/addresses/import`, {
+  const response = await fetch(`${BASE}/v1/addresses/import${query}`, {
     method: 'POST',
     headers: authHeaders(),
     body: form,

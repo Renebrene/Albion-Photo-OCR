@@ -39,8 +39,17 @@ const busy = computed(() => loading.value)
 // import from a spreadsheet
 const importInput = ref(null)
 const importing = ref(false)
+// Выбранный файл можно сначала «примерить»: выгрузка каталога на 1500 строк
+// иначе сразу добавляет полторы тысячи адресов.
+const importDryRun = ref(false)
 
 function pickImportFile() {
+  importDryRun.value = false
+  importInput.value?.click()
+}
+
+function pickPreviewFile() {
+  importDryRun.value = true
   importInput.value?.click()
 }
 
@@ -50,19 +59,24 @@ async function onImportFileChosen(event) {
 
   if (!file) return
 
+  const dryRun = importDryRun.value
+
   importing.value = true
 
   try {
-    const result = await importAddresses(file)
+    const result = await importAddresses(file, { dryRun })
     Notify.create({
-      type: 'positive',
+      type: dryRun ? 'info' : 'positive',
       message:
-        `Импорт: строк ${result.rows}, добавлено ${result.created}, ` +
+        `${dryRun ? 'Предпросмотр (база не изменена)' : 'Импорт'}: ` +
+        `строк ${result.rows}, добавлено ${result.created}, ` +
         `обновлено ${result.updated}, без изменений ${result.skipped}` +
         (result.renamed ? `, переименовано слепков ${result.renamed}` : '') +
         (result.errors?.length ? `, ошибок ${result.errors.length}` : ''),
     })
-    await load()
+
+    // Предпросмотр ничего не меняет — перечитывать справочник незачем.
+    if (!dryRun) await load()
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   } finally {
@@ -286,6 +300,16 @@ async function saveMap() {
             :loading="importing"
             @click="pickImportFile"
           />
+          <q-btn
+            dense
+            flat
+            icon="visibility"
+            label="Предпросмотр"
+            :loading="importing"
+            @click="pickPreviewFile"
+          >
+            <q-tooltip>Посчитать, что изменится, и ничего не записать</q-tooltip>
+          </q-btn>
           <input
             ref="importInput"
             type="file"

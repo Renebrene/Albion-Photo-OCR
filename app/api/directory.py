@@ -584,7 +584,7 @@ def parse_address_table(content: bytes, filename: str = "") -> list[dict]:
     return items
 
 
-def import_addresses(items: list[dict]) -> dict:
+def import_addresses(items: list[dict], *, dry_run: bool = False) -> dict:
     """
     Create or update addresses from parsed rows.
 
@@ -592,6 +592,10 @@ def import_addresses(items: list[dict]) -> dict:
     existing address keeps its id - photos and fingerprints mapped to it are not
     disturbed - and only its simplified name is refreshed when the file brings a
     different one.
+
+    `dry_run` считает то же самое, но ничего не пишет: выгрузка каталога на
+    1500 строк иначе добавляет адреса, которых в базе не было, и отменить это
+    одной кнопкой нельзя. Счётчики в ответе — «что было бы сделано».
     """
 
     if not isinstance(items, list):
@@ -635,14 +639,15 @@ def import_addresses(items: list[dict]) -> dict:
                     existing = cur.fetchone()
 
                 if existing is None:
-                    cur.execute(
-                        """
-                        INSERT INTO public.address_directory
-                            (legal_address, simple_address, format)
-                        VALUES (%s, %s, %s)
-                        """,
-                        (legal, simple, value_format),
-                    )
+                    if not dry_run:
+                        cur.execute(
+                            """
+                            INSERT INTO public.address_directory
+                                (legal_address, simple_address, format)
+                            VALUES (%s, %s, %s)
+                            """,
+                            (legal, simple, value_format),
+                        )
                     created += 1
                     continue
 
@@ -651,49 +656,52 @@ def import_addresses(items: list[dict]) -> dict:
                 updated_row = False
 
                 if simple and simple != (current_simple or ""):
-                    cur.execute(
-                        """
-                        UPDATE public.address_directory
-                        SET simple_address = %s, updated_at = CURRENT_TIMESTAMP
-                        WHERE address_id = %s
-                        """,
-                        (simple, address_id),
-                    )
-                    updated_row = True
-
-                    # Слепки берут имя отсюда (`set_address` кладёт алиас в
-                    # display_name). Переименование обязано доехать до них, как
-                    # в `update_address`, иначе после переимпорта на слепке
-                    # остаётся старое имя — и владелец «добавляет его заново».
-                    # Имя, набранное руками, не трогаем.
-                    previous_label = address_label(current_simple, current_legal)
-                    new_label = address_label(simple, current_legal)
-
-                    if new_label != previous_label:
+                    if not dry_run:
                         cur.execute(
                             """
-                            UPDATE public.fingerprints AS f
-                            SET display_name = %s, updated_at = CURRENT_TIMESTAMP
-                            FROM public.address_fingerprints AS af
-                            WHERE af.fingerprint_id = f.fingerprint_id
-                              AND af.address_id = %s
-                              AND (f.display_name = '' OR f.display_name = %s)
+                            UPDATE public.address_directory
+                            SET simple_address = %s, updated_at = CURRENT_TIMESTAMP
+                            WHERE address_id = %s
                             """,
-                            (new_label, address_id, previous_label),
+                            (simple, address_id),
                         )
-                        renamed += cur.rowcount
+
+                        # Слепки берут имя отсюда (`set_address` кладёт алиас в
+                        # display_name). Переименование обязано доехать до них, как
+                        # в `update_address`, иначе после переимпорта на слепке
+                        # остаётся старое имя — и владелец «добавляет его заново».
+                        # Имя, набранное руками, не трогаем.
+                        previous_label = address_label(current_simple, current_legal)
+                        new_label = address_label(simple, current_legal)
+
+                        if new_label != previous_label:
+                            cur.execute(
+                                """
+                                UPDATE public.fingerprints AS f
+                                SET display_name = %s, updated_at = CURRENT_TIMESTAMP
+                                FROM public.address_fingerprints AS af
+                                WHERE af.fingerprint_id = f.fingerprint_id
+                                  AND af.address_id = %s
+                                  AND (f.display_name = '' OR f.display_name = %s)
+                                """,
+                                (new_label, address_id, previous_label),
+                            )
+                            renamed += cur.rowcount
+
+                    updated_row = True
 
                 # Формат — такая же графа файла: обновляем, когда он есть и
                 # отличается. Пустое значение в файле не стирает уже указанный.
                 if value_format and value_format != (current_format or ""):
-                    cur.execute(
-                        """
-                        UPDATE public.address_directory
-                        SET format = %s, updated_at = CURRENT_TIMESTAMP
-                        WHERE address_id = %s
-                        """,
-                        (value_format, address_id),
-                    )
+                    if not dry_run:
+                        cur.execute(
+                            """
+                            UPDATE public.address_directory
+                            SET format = %s, updated_at = CURRENT_TIMESTAMP
+                            WHERE address_id = %s
+                            """,
+                            (value_format, address_id),
+                        )
                     updated_row = True
 
                 if updated_row:
@@ -706,5 +714,6 @@ def import_addresses(items: list[dict]) -> dict:
         "updated": updated,
         "skipped": skipped,
         "renamed": renamed,
+        "dry_run": dry_run,
         "errors": errors[:20],
     }

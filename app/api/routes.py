@@ -3368,7 +3368,7 @@ def set_fingerprint_address(
     response_model=None,
     dependencies=[Depends(require_scope("addresses:write"))],
 )
-def import_address_directory(file: UploadFile = File(...)):
+def import_address_directory(file: UploadFile = File(...), dry_run: bool = Query(False)):
     """
     Import legal addresses from a spreadsheet (.xlsx, .xlsm, .csv, .tsv).
 
@@ -3397,7 +3397,8 @@ def import_address_directory(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="в файле нет адресов")
 
     try:
-        result = directory_mod.import_addresses(items)
+        # `dry_run=1` — посчитать, что изменится, и ничего не записать.
+        result = directory_mod.import_addresses(items, dry_run=dry_run)
     except directory_mod.DirectoryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

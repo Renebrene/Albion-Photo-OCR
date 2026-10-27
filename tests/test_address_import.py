@@ -295,6 +295,79 @@ def test_import_keeps_the_format_column(cleanup_imported):
 
 
 @requires_directory
+def _recording_connection(monkeypatch, existing=None):
+    """Подменяет соединение и запоминает выполненные операторы."""
+
+    from contextlib import contextmanager
+
+    statements: list[str] = []
+
+    class Cursor:
+        def execute(self, sql, params=()):
+            statements.append(" ".join(sql.split()))
+
+        def fetchone(self):
+            return existing
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class Connection:
+        def cursor(self):
+            return Cursor()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    @contextmanager
+    def fake():
+        yield Connection()
+
+    monkeypatch.setattr(directory_mod, "get_connection", fake)
+    return statements
+
+
+def test_dry_run_counts_without_writing(monkeypatch):
+    """Предпросмотр каталога: цифры есть, ни одной записи в базу."""
+
+    statements = _recording_connection(monkeypatch, existing=None)
+
+    result = directory_mod.import_addresses(
+        [{"legal_address": "ООО «Тест»", "simple_address": "Тест", "format": "Экран"}],
+        dry_run=True,
+    )
+
+    assert result["created"] == 1
+    assert result["dry_run"] is True
+    assert statements, "предпросмотр обязан хотя бы прочитать существующие строки"
+    assert all(
+        "INSERT" not in sql and "UPDATE" not in sql for sql in statements
+    ), statements
+
+
+def test_import_writes_when_it_is_not_a_dry_run(monkeypatch):
+    """Обычный импорт по-прежнему обновляет формат существующего адреса."""
+
+    statements = _recording_connection(
+        monkeypatch, existing=(5, "", "ООО «Тест»", "")
+    )
+
+    result = directory_mod.import_addresses(
+        [{"legal_address": "ООО «Тест»", "format": "Экран"}]
+    )
+
+    assert result["updated"] == 1
+    assert result["dry_run"] is False
+    assert any("UPDATE public.address_directory" in sql for sql in statements)
+
+
+@requires_directory
 def test_import_matches_case_and_spacing(cleanup_imported):
     directory_mod.import_addresses(
         [{"legal_address": f"{PREFIX}ул. Мира, 1", "simple_address": ""}]
