@@ -2789,6 +2789,23 @@ def list_address_directory(scope: str | None = Query(None, pattern="^(screens|ot
     return {"items": directory_mod.list_addresses(scope=scope)}
 
 
+@read_router.get("/v1/addresses/directory/grouped")
+def list_address_sides(scope: str | None = Query(None, pattern="^(screens|other)$")):
+    """
+    Адреса, сведённые к сторонам: поверхности A(1), A(2), A(3) — одна строка.
+
+    Правило — из проекта «Сайт» (app/api/sides.py): у щита и видеоэкрана A1/A2
+    остаются разными сторонами, у остальных форматов поверхности сводятся к
+    стороне. Используется переключателем «По сторонам» в справочнике.
+    """
+
+    from app.api import sides as sides_mod
+
+    return {
+        "items": sides_mod.group_surfaces(directory_mod.list_addresses(scope=scope))
+    }
+
+
 @addresses_router.put(
     "/v1/photos/{photo_id}/address",
     response_model=None,

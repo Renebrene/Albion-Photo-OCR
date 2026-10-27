@@ -9,6 +9,7 @@ import {
   createAddress,
   deleteAddress,
   fetchAddressDirectory,
+  fetchAddressSides,
   fetchUnassignedFingerprints,
   importAddresses,
   setAddressFingerprints,
@@ -27,6 +28,13 @@ const scopeCounts = computed(() => ({
   screens: (byScope.value.screens || []).length,
   other: (byScope.value.other || []).length,
 }))
+
+// «По сторонам» — поверхности A(1), A(2), A(3) одной строкой (правило «Сайта»:
+// у щита и видеоэкрана A1/A2 остаются разными сторонами). «По поверхностям» —
+// каждая запись отдельно, как она лежит в базе.
+const view = ref('sides')
+const sideByScope = ref({ screens: [], other: [] })
+const sideItems = computed(() => sideByScope.value[scope.value] || [])
 const unassigned = ref([])
 const loading = ref(false)
 
@@ -95,6 +103,21 @@ async function onImportFileChosen(event) {
 
 // Колонки объявлены один раз: литерал в шаблоне создавался заново на каждой
 // отрисовке, а q-table по нему пересобирает строки.
+// Сведённый вид: одна строка — одна сторона со счётчиком поверхностей.
+const sideColumns = [
+  { name: 'side', label: 'Сторона', field: 'side', align: 'left' },
+  { name: 'base', label: 'Адрес', field: 'base', align: 'left' },
+  { name: 'format', label: 'Формат', field: 'format', align: 'left' },
+  { name: 'city', label: 'Город', field: 'city', align: 'left' },
+  { name: 'fp', label: 'Идентификаторы', field: 'surfaces', align: 'left' },
+  { name: 'count', label: 'Поверхностей', field: 'count', align: 'right' },
+]
+
+/** Идентификаторы всех поверхностей стороны — без повторов. */
+function sideFingerprints(row) {
+  return [...new Set((row.surfaces || []).flatMap((item) => item.fingerprints || []))]
+}
+
 const columns = [
   { name: 'legal', label: 'Юридическое название', field: 'legal_address', align: 'left' },
   { name: 'simple', label: 'Упрощённое', field: 'simple_address', align: 'left' },
@@ -108,14 +131,20 @@ const columns = [
 async function load() {
   loading.value = true
   try {
-    const [screens, other, free] = await Promise.all([
+    const [screens, other, screenSides, otherSides, free] = await Promise.all([
       fetchAddressDirectory('screens'),
       fetchAddressDirectory('other'),
+      fetchAddressSides('screens'),
+      fetchAddressSides('other'),
       fetchUnassignedFingerprints(),
     ])
     byScope.value = {
       screens: screens.items || [],
       other: other.items || [],
+    }
+    sideByScope.value = {
+      screens: screenSides.items || [],
+      other: otherSides.items || [],
     }
     unassigned.value = free.items || []
   } catch (err) {
@@ -352,7 +381,22 @@ async function saveMap() {
 
     <q-card flat bordered>
       <q-card-section class="row items-center q-pb-xs">
-        <div class="panel-title col">Адреса ({{ items.length }})</div>
+        <div class="panel-title col">
+          Адреса ({{ view === 'sides' ? sideItems.length : items.length }})
+        </div>
+        <!-- Как на «Сайте»: «по сторонам» сводит A(1), A(2), A(3) в одну
+             строку; у щита и видеоэкрана A1/A2 остаются разными сторонами. -->
+        <q-btn-toggle
+          v-model="view"
+          dense
+          flat
+          toggle-color="primary"
+          class="q-mr-sm"
+          :options="[
+            { label: 'По сторонам', value: 'sides' },
+            { label: 'По поверхностям', value: 'surfaces' },
+          ]"
+        />
         <q-btn dense flat icon="refresh" :loading="busy" @click="load">
           <q-tooltip>Обновить</q-tooltip>
         </q-btn>
@@ -360,6 +404,58 @@ async function saveMap() {
       <q-separator />
 
       <q-table
+        v-if="view === 'sides'"
+        :rows="sideItems"
+        :columns="sideColumns"
+        :row-key="(row) => `${row.base}|${row.format}|${row.side}`"
+        dense
+        flat
+        :pagination="{ rowsPerPage: 0 }"
+        :loading="busy"
+        no-data-label="Сторон нет"
+      >
+        <template #body-cell-format="props">
+          <q-td :props="props">
+            {{ scope === 'screens' ? 'Видеоэкран' : (props.row.format || '—') }}
+          </q-td>
+        </template>
+        <template #body-cell-base="props">
+          <q-td :props="props">
+            {{ props.row.base }}
+            <div v-if="props.row.simple" class="text-caption text-grey">
+              {{ props.row.simple }}
+            </div>
+          </q-td>
+        </template>
+        <template #body-cell-fp="props">
+          <q-td :props="props">
+            <q-chip
+              v-for="id in sideFingerprints(props.row)"
+              :key="id"
+              dense
+              size="sm"
+              color="primary"
+              text-color="white"
+            >
+              {{ id }}
+            </q-chip>
+            <span v-if="!sideFingerprints(props.row).length" class="text-caption text-grey">
+              не сопоставлено
+            </span>
+          </q-td>
+        </template>
+        <template #body-cell-count="props">
+          <q-td :props="props">
+            {{ props.row.count }}
+            <q-tooltip>
+              поверхности: {{ props.row.surfaces.map((item) => item.side).join(', ') }}
+            </q-tooltip>
+          </q-td>
+        </template>
+      </q-table>
+
+      <q-table
+        v-else
         :rows="items"
         :columns="columns"
         row-key="address_id"

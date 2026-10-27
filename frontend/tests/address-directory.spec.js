@@ -33,6 +33,28 @@ function installFetch() {
       return jsonResponse({ items: unassigned })
     }
 
+    // Сведённый вид: одна строка — одна сторона (адреса в фикстуре без стороны).
+    if (method === 'GET' && path === '/api/v1/addresses/directory/grouped') {
+      const items = directory.map((row) => ({
+        base: row.legal_address,
+        format: row.format || '',
+        side: '',
+        city: row.city || '',
+        scope: row.scope || 'screens',
+        simple: row.simple_address || '',
+        count: 1,
+        surfaces: [
+          {
+            address_id: row.address_id,
+            legal_address: row.legal_address,
+            side: '',
+            fingerprints: row.fingerprints || [],
+          },
+        ],
+      }))
+      return jsonResponse({ items })
+    }
+
     if (method === 'POST' && path === '/api/v1/addresses/directory') {
       posted.push(JSON.parse(options.body))
       return jsonResponse({ address_id: 5 }, 201)
@@ -195,6 +217,13 @@ describe('AddressDirectory.vue', () => {
 
   it('sends the selected fingerprints for an address', async () => {
     const wrapper = mountDirectory()
+    await flushPromises()
+
+    // Действия живут в таблице поверхностей: в сведённом виде строки — стороны.
+    const surfaces = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('По поверхностям'))
+    await surfaces.trigger('click')
     await flushPromises()
 
     // Open the mapping dialog of the only row and keep its current id.

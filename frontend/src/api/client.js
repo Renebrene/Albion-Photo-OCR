@@ -904,6 +904,12 @@ export function fetchAddressDirectory(scope = null) {
   return getJson(`${BASE}/v1/addresses/directory${query}`)
 }
 
+// Адреса, сведённые к сторонам: A(1), A(2), A(3) — одна строка (правило «Сайта»).
+export function fetchAddressSides(scope = null) {
+  const query = scope ? `?scope=${encodeURIComponent(scope)}` : ''
+  return getJson(`${BASE}/v1/addresses/directory/grouped${query}`)
+}
+
 // Ручное исправление юридического адреса одного фото (scope addresses:write).
 export function setPhotoAddressOverride(photoId, addressId) {
   return putJson(`${BASE}/v1/photos/${photoId}/address`, {
