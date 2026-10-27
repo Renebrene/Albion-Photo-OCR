@@ -70,6 +70,7 @@ def list_addresses() -> list[dict]:
                     d.address_id,
                     d.legal_address,
                     d.simple_address,
+                    d.format,
                     d.active,
                     d.sort_order,
                     COALESCE(
@@ -91,9 +92,10 @@ def list_addresses() -> list[dict]:
             "address_id": int(row[0]),
             "legal_address": row[1],
             "simple_address": row[2],
-            "active": bool(row[3]),
-            "sort_order": int(row[4]),
-            "fingerprints": list(row[5]),
+            "format": row[3] or "",
+            "active": bool(row[4]),
+            "sort_order": int(row[5]),
+            "fingerprints": list(row[6]),
         }
         for row in rows
     ]
@@ -388,6 +390,10 @@ _SIMPLE_HEADERS = {
     "simple",
 }
 
+# Формат носителя (schema/054): «Экран», «Малый формат», «РнД» …
+# Колонка необязательная: файлы без неё импортируются как раньше.
+_FORMAT_HEADERS = {"формат", "format"}
+
 MAX_IMPORT_ROWS = 5000
 
 
@@ -476,19 +482,23 @@ def parse_address_table(content: bytes, filename: str = "") -> list[dict]:
         return []
 
     header = [cell.lower() for cell in rows[0]]
-    legal_index = simple_index = None
+    legal_index = simple_index = format_index = None
 
     for index, title in enumerate(header):
         if legal_index is None and title in _LEGAL_HEADERS:
             legal_index = index
         elif simple_index is None and title in _SIMPLE_HEADERS:
             simple_index = index
+        elif format_index is None and title in _FORMAT_HEADERS:
+            format_index = index
 
     has_header = legal_index is not None or simple_index is not None
 
     if not has_header:
         legal_index = 0
         simple_index = 1 if len(rows[0]) > 1 else None
+        # Без шапки «Формат» взять неоткуда: третья колонка необязательно она.
+        format_index = None
     elif legal_index is None:
         legal_index = 0 if simple_index != 0 else None
 
@@ -503,11 +513,23 @@ def parse_address_table(content: bytes, filename: str = "") -> list[dict]:
             if simple_index is not None and simple_index < len(row)
             else ""
         )
+        value_format = (
+            row[format_index]
+            if format_index is not None and format_index < len(row)
+            else ""
+        )
 
         if not legal and not simple:
             continue
 
-        items.append({"legal_address": legal, "simple_address": simple})
+        # Ключ «format» появляется только когда колонка есть в файле: старые
+        # выгрузки и тесты не обрастают пустым полем.
+        item = {"legal_address": legal, "simple_address": simple}
+
+        if value_format:
+            item["format"] = value_format
+
+        items.append(item)
 
     return items
 
@@ -540,6 +562,7 @@ def import_addresses(items: list[dict]) -> dict:
                 try:
                     legal = _clean_name(item.get("legal_address"), field="legal_address")
                     simple = _clean_name(item.get("simple_address"), field="simple_address")
+                    value_format = _clean_name(item.get("format"), field="format")
                 except DirectoryError as exc:
                     errors.append(str(exc))
                     continue
@@ -553,7 +576,7 @@ def import_addresses(items: list[dict]) -> dict:
                 if legal:
                     cur.execute(
                         """
-                        SELECT address_id, simple_address, legal_address
+                        SELECT address_id, simple_address, legal_address, format
                         FROM public.address_directory
                         WHERE lower(btrim(legal_address)) = lower(btrim(%s))
                         """,
@@ -565,15 +588,17 @@ def import_addresses(items: list[dict]) -> dict:
                     cur.execute(
                         """
                         INSERT INTO public.address_directory
-                            (legal_address, simple_address)
-                        VALUES (%s, %s)
+                            (legal_address, simple_address, format)
+                        VALUES (%s, %s, %s)
                         """,
-                        (legal, simple),
+                        (legal, simple, value_format),
                     )
                     created += 1
                     continue
 
-                address_id, current_simple, current_legal = existing
+                address_id, current_simple, current_legal, current_format = existing
+
+                updated_row = False
 
                 if simple and simple != (current_simple or ""):
                     cur.execute(
@@ -584,7 +609,7 @@ def import_addresses(items: list[dict]) -> dict:
                         """,
                         (simple, address_id),
                     )
-                    updated += 1
+                    updated_row = True
 
                     # Слепки берут имя отсюда (`set_address` кладёт алиас в
                     # display_name). Переименование обязано доехать до них, как
@@ -607,6 +632,22 @@ def import_addresses(items: list[dict]) -> dict:
                             (new_label, address_id, previous_label),
                         )
                         renamed += cur.rowcount
+
+                # Формат — такая же графа файла: обновляем, когда он есть и
+                # отличается. Пустое значение в файле не стирает уже указанный.
+                if value_format and value_format != (current_format or ""):
+                    cur.execute(
+                        """
+                        UPDATE public.address_directory
+                        SET format = %s, updated_at = CURRENT_TIMESTAMP
+                        WHERE address_id = %s
+                        """,
+                        (value_format, address_id),
+                    )
+                    updated_row = True
+
+                if updated_row:
+                    updated += 1
                 else:
                     skipped += 1
 

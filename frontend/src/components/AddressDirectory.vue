@@ -75,6 +75,8 @@ async function onImportFileChosen(event) {
 const columns = [
   { name: 'legal', label: 'Юридическое название', field: 'legal_address', align: 'left' },
   { name: 'simple', label: 'Упрощённое', field: 'simple_address', align: 'left' },
+  // Приходит из XLS (колонка «Формат»); пусто — «не указан».
+  { name: 'format', label: 'Формат', field: 'format', align: 'left' },
   { name: 'fp', label: 'Идентификаторы', field: 'fingerprints', align: 'left' },
   { name: 'active', label: 'Активен', field: 'active', align: 'center' },
   { name: 'actions', label: '', field: 'address_id', align: 'right' },

@@ -98,6 +98,43 @@ def test_parses_an_xlsx_with_russian_headers():
     ]
 
 
+def test_parses_the_format_column_from_the_header():
+    """«Формат» (schema/054) приходит из того же файла, что и адреса."""
+
+    content = _xlsx(
+        [
+            ["Юридический адрес", "Упрощённый адрес", "Формат"],
+            ["ООО «Ромашка», ул. Мира, 1", "Мира 1", "Экран"],
+            ["ООО «Тюльпан», ул. Садовая, 7", "Садовая 7", ""],
+        ]
+    )
+
+    items = directory_mod.parse_address_table(content, "адреса.xlsx")
+
+    assert items == [
+        {
+            "legal_address": "ООО «Ромашка», ул. Мира, 1",
+            "simple_address": "Мира 1",
+            "format": "Экран",
+        },
+        # Пустая ячейка не превращается в ключ: «не указан» — это отсутствие.
+        {"legal_address": "ООО «Тюльпан», ул. Садовая, 7", "simple_address": "Садовая 7"},
+    ]
+
+
+def test_table_without_a_format_column_has_no_format_key():
+    content = _xlsx(
+        [
+            ["Юридический адрес", "Упрощённый адрес"],
+            ["ООО «Ромашка»", "Мира 1"],
+        ]
+    )
+
+    items = directory_mod.parse_address_table(content, "адреса.xlsx")
+
+    assert "format" not in items[0]
+
+
 def test_parses_english_headers_in_any_order():
     content = _xlsx(
         [
@@ -190,6 +227,34 @@ def test_import_creates_updates_and_skips(cleanup_imported):
         if item["legal_address"].startswith(PREFIX)
     }
     assert addresses[f"{PREFIX}ул. Садовая, 7"]["simple_address"] == "Садовая, 7"
+
+
+@requires_directory
+def test_import_keeps_the_format_column(cleanup_imported):
+    """«Формат» из файла сохраняется, а пустая графа его не стирает."""
+
+    legal = PREFIX + "Формат"
+
+    result = directory_mod.import_addresses(
+        [{"legal_address": legal, "simple_address": "Ф-1", "format": "Экран"}]
+    )
+
+    assert result["created"] == 1
+
+    def stored():
+        return next(
+            row for row in directory_mod.list_addresses() if row["legal_address"] == legal
+        )
+
+    assert stored()["format"] == "Экран"
+
+    # Повторный импорт без колонки «Формат» (и со сменой короткого имени).
+    directory_mod.import_addresses(
+        [{"legal_address": legal, "simple_address": "Ф-2"}]
+    )
+
+    assert stored()["format"] == "Экран"
+    assert stored()["simple_address"] == "Ф-2"
 
 
 @requires_directory
