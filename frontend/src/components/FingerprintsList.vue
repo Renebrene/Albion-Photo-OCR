@@ -47,6 +47,44 @@ const { busy: editBusy, run: editRun } = useAsyncAction()
 const poll = usePollToken()
 
 const items = ref([])
+
+// Закладки раздела (задание, п. 5в): закладки — фильтр по общей таблице.
+// К какой закладке относится слепок, решает сервер (row.tab) по его адресу;
+// «Без адреса» показываем только когда такие есть.
+const FINGERPRINT_TABS = [
+  { value: 'screens', label: 'Экраны' },
+  { value: 'small', label: 'Малые форматы РнД' },
+  { value: 'rostov', label: 'Ростов 6х3' },
+  { value: 'roads', label: 'Районы и трассы 6х3' },
+  { value: 'cities', label: 'Города области' },
+  { value: '', label: 'Без адреса' },
+]
+
+const tab = ref('screens')
+
+const tabsWithCounts = computed(() => {
+  const counts = {}
+
+  for (const row of items.value) {
+    const key = row.tab || ''
+    counts[key] = (counts[key] || 0) + 1
+  }
+
+  return FINGERPRINT_TABS
+    .map((option) => ({ ...option, count: counts[option.value] || 0 }))
+    .filter((option) => option.value !== '' || option.count > 0)
+})
+
+const visibleItems = computed(() =>
+  items.value.filter((row) => (row.tab || '') === tab.value),
+)
+
+/** Формат слепка — из его адреса; на «Экранах» всегда «Видеоэкран». */
+function formatOf(row) {
+  if (!row.address) return '—'
+  if (row.address.scope === 'screens' || row.tab === 'screens') return 'Видеоэкран'
+  return row.address.format || '—'
+}
 const loading = ref(false)
 const syncing = ref(false)
 const error = ref(null)
@@ -698,8 +736,25 @@ function day(value) {
       <q-banner class="bg-red-1 text-negative">{{ error }}</q-banner>
     </div>
 
+    <!-- Закладки — фильтр по общей таблице (задание, п. 5в). -->
+    <q-tabs
+      v-model="tab"
+      dense
+      align="left"
+      class="text-primary q-mb-sm"
+      active-color="primary"
+      indicator-color="primary"
+    >
+      <q-tab
+        v-for="option in tabsWithCounts"
+        :key="option.value"
+        :name="option.value"
+        :label="`${option.label} (${option.count})`"
+      />
+    </q-tabs>
+
     <q-table
-      :rows="items"
+      :rows="visibleItems"
       :loading="loading"
       row-key="fingerprint_id"
       flat
@@ -710,11 +765,10 @@ function day(value) {
         { name: 'id', label: 'ID', field: 'fingerprint_id', align: 'left', sortable: true },
         { name: 'preview', label: 'Превью', field: 'fingerprint_id', align: 'center' },
         { name: 'name', label: 'Имя', field: 'name', align: 'left', sortable: true },
-        { name: 'address', label: 'Адрес', field: (row) => addressLabel(row), align: 'left' },
+        { name: 'address', label: 'Адрес', field: (row) => addressLabel(row), align: 'left', sortable: true },
+        { name: 'format', label: 'Формат', field: (row) => formatOf(row), align: 'left', sortable: true },
         { name: 'images', label: 'Фото', field: 'images_count', align: 'right', sortable: true },
-        { name: 'version', label: 'Версия', field: 'algorithm_version', align: 'left' },
         { name: 'updated', label: 'Версия обновлена', field: (row) => day(row.current_version && row.current_version.created_at), align: 'left' },
-        { name: 'disk', label: 'На диске', field: 'on_disk', align: 'center' },
         { name: 'active', label: 'Активен', field: 'active', align: 'center' },
         { name: 'actions', label: '', field: 'fingerprint_id', align: 'right' },
       ]"

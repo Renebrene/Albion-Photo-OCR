@@ -219,13 +219,8 @@ describe('AddressDirectory.vue', () => {
     const wrapper = mountDirectory()
     await flushPromises()
 
-    // Действия живут в таблице поверхностей: в сведённом виде строки — стороны.
-    const surfaces = wrapper
-      .findAll('button')
-      .find((button) => button.text().includes('По поверхностям'))
-    await surfaces.trigger('click')
-    await flushPromises()
-
+    // В таблице строки — стороны; у этой одна поверхность, поэтому действие
+    // применяется к ней без выбора.
     // Open the mapping dialog of the only row and keep its current id.
     // Quasar renders dialogs in a portal, so the dialog content lives in the
     // document body rather than inside the mounted wrapper.

@@ -85,6 +85,41 @@ def test_a_shield_keeps_a1_and_a2_as_two_sides():
     assert all(group["count"] == 1 for group in groups)
 
 
+def _registry_row(address_id, legal, simple, format_name, city, scope):
+    """Строка в порядке _REGISTRY_SELECT (индексы 11..18)."""
+    return (
+        "78_v33", "", "", "3.3", "dinov2", 768, 19, "", True, None, None,
+        address_id, legal, simple, format_name, city, scope, 19, None,
+    )
+
+
+def test_fingerprint_tab_follows_its_address():
+    from app.api import fingerprints
+
+    screens = fingerprints._row_to_fingerprint(
+        _registry_row(1, "Комарова 13, A", "Комарова", "Видеоэкран", "Ростов-на-Дону", "screens")
+    )
+    city = fingerprints._row_to_fingerprint(
+        _registry_row(2, "Таганрогская ул. 157/2, A", "", "Щит", "Таганрог", "other")
+    )
+
+    assert screens["tab"] == "screens"
+    assert screens["address"]["format"] == "Видеоэкран"
+    assert city["tab"] == "cities"
+    assert city["address"]["city"] == "Таганрог"
+
+
+def test_fingerprint_without_an_address_has_no_tab():
+    from app.api import fingerprints
+
+    item = fingerprints._row_to_fingerprint(
+        _registry_row(None, None, None, None, None, None)
+    )
+
+    assert item["address"] is None
+    assert item["tab"] == ""
+
+
 def test_different_formats_on_one_base_do_not_merge():
     """Щит и призматрон по одному адресу — разные блоки, как на сайте."""
 

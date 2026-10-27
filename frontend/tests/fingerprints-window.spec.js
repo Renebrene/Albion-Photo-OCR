@@ -101,6 +101,8 @@ beforeEach(() => {
   registry = [
     {
       fingerprint_id: '78_v33',
+      // Закладка раздела (задание, п. 5в) приходит с сервера.
+      tab: 'screens',
       display_name: '',
       // Name resolved by the API: no manual name, so the address alias.
       name: 'Мира 1',
@@ -117,6 +119,7 @@ beforeEach(() => {
     },
     {
       fingerprint_id: '90_v33',
+      tab: '',
       display_name: 'Малая подборка',
       // A name typed by hand wins over the alias.
       name: 'Малая подборка',
@@ -146,14 +149,24 @@ afterEach(() => {
 })
 
 describe('FingerprintsList.vue', () => {
-  it('renders the registry with legal address, photo count and disk state', async () => {
+  it('renders the registry by tabs: screens first, then unmapped', async () => {
     const wrapper = mountWindow()
     await flushPromises()
 
     expect(wrapper.text()).toContain('Слепки (2)')
+    // Закладка «Экраны» — фильтр: без адреса сюда не попадает.
+    expect(wrapper.text()).toContain('Экраны (1)')
     expect(wrapper.text()).toContain('78_v33')
     // The address column shows the legal name, not the alias.
     expect(wrapper.text()).toContain('ООО «Ромашка»')
+    expect(wrapper.text()).not.toContain('Малая подборка')
+
+    const empty = wrapper
+      .findAll('.q-tab')
+      .find((element) => element.text().includes('Без адреса'))
+    await empty.trigger('click')
+    await flushPromises()
+
     expect(wrapper.text()).toContain('Малая подборка')
     expect(wrapper.text()).toContain('19')
   })
@@ -168,6 +181,37 @@ describe('FingerprintsList.vue', () => {
     expect(cells.at(0).text()).toContain('78_v33')
     expect(cells.at(2).text()).toBe('Мира 1')
     expect(cells.at(3).text()).toContain('ООО «Ромашка»')
+  })
+
+  it('sorts by address up and down (both in one tab)', async () => {
+    // Обе записи в одной закладке: сортировка идёт по видимым строкам.
+    registry[1].tab = 'screens'
+    registry[1].address = {
+      address_id: 2,
+      legal_address: 'Азовская ул. 1, A',
+      simple_address: 'Азовская',
+    }
+
+    const wrapper = mountWindow()
+    await flushPromises()
+
+    const header = wrapper
+      .findAll('th')
+      .find((element) => element.text().includes('Адрес'))
+    expect(header, 'колонка «Адрес» не найдена').toBeTruthy()
+
+    const firstId = () => wrapper.findAll('tbody tr').at(0).text()
+
+    await header.trigger('click')
+    await flushPromises()
+
+    // По возрастанию — «Азовская» раньше «Мира 1».
+    expect(firstId()).toContain('90_v33')
+
+    await header.trigger('click')
+    await flushPromises()
+
+    expect(firstId()).toContain('78_v33')
   })
 
   it('offers a preview of the source photos', async () => {
@@ -212,11 +256,17 @@ describe('FingerprintsList.vue', () => {
     const wrapper = mountWindow()
     await flushPromises()
 
-    // 90_v33 has no mapping: the address cell falls back to a dash.
-    const rows = wrapper.findAll('tbody tr')
-    const second = rows.at(1).text()
-    expect(second).toContain('90_v33')
-    expect(second).toContain('—')
+    // 90_v33 has no mapping: it lives in the «Без адреса» tab.
+    const empty = wrapper
+      .findAll('.q-tab')
+      .find((tab) => tab.text().includes('Без адреса'))
+    await empty.trigger('click')
+    await flushPromises()
+
+    // В закладке «Без адреса» эта запись единственная.
+    const row = wrapper.findAll('tbody tr').at(0).text()
+    expect(row).toContain('90_v33')
+    expect(row).toContain('—')
   })
 
   it('syncs with the disk from the toolbar', async () => {

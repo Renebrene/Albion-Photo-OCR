@@ -22,19 +22,49 @@ import { confirmDialog } from '../composables/confirmDialog'
 // таблица и своя загрузка XLS; адрес попадает в закладку при создании и
 // сохраняет её при последующих импортах.
 const scope = ref('screens')
-const byScope = ref({ screens: [], other: [] })
-const items = computed(() => byScope.value[scope.value] || [])
-const scopeCounts = computed(() => ({
-  screens: (byScope.value.screens || []).length,
-  other: (byScope.value.other || []).length,
-}))
 
-// «По сторонам» — поверхности A(1), A(2), A(3) одной строкой (правило «Сайта»:
-// у щита и видеоэкрана A1/A2 остаются разными сторонами). «По поверхностям» —
-// каждая запись отдельно, как она лежит в базе.
-const view = ref('sides')
+// Поверхности A(1), A(2), A(3) показываются одной строкой — стороной (правило
+// «Сайта»: у щита и видеоэкрана A1/A2 остаются разными сторонами). Если у
+// стороны несколько поверхностей, действия спрашивают, к какой применить.
 const sideByScope = ref({ screens: [], other: [] })
 const sideItems = computed(() => sideByScope.value[scope.value] || [])
+
+// В закладках считаем стороны — таблица показывает их же, а не поверхности.
+const scopeCounts = computed(() => ({
+  screens: (sideByScope.value.screens || []).length,
+  other: (sideByScope.value.other || []).length,
+}))
+
+const surfacePickerOpen = ref(false)
+const surfacePicker = ref({ surfaces: [], action: null, label: '' })
+
+/** Выполнить действие над стороной: над поверхностью или через выбор. */
+function runOnSurface(row, action, label) {
+  const surfaces = (row.surfaces || []).map((item) => ({
+    ...item,
+    simple_address: item.simple_address || row.simple || '',
+    format: row.format,
+    city: row.city,
+    scope: row.scope,
+  }))
+
+  if (!surfaces.length) return
+
+  if (surfaces.length === 1) {
+    action(surfaces[0])
+    return
+  }
+
+  surfacePicker.value = { surfaces, action, label }
+  surfacePickerOpen.value = true
+}
+
+function pickSurface(item) {
+  const pending = surfacePicker.value
+  surfacePickerOpen.value = false
+
+  if (pending && typeof pending.action === 'function') pending.action(item)
+}
 const unassigned = ref([])
 const loading = ref(false)
 
@@ -104,44 +134,30 @@ async function onImportFileChosen(event) {
 // Колонки объявлены один раз: литерал в шаблоне создавался заново на каждой
 // отрисовке, а q-table по нему пересобирает строки.
 // Сведённый вид: одна строка — одна сторона со счётчиком поверхностей.
-const sideColumns = [
-  { name: 'side', label: 'Сторона', field: 'side', align: 'left' },
-  { name: 'base', label: 'Адрес', field: 'base', align: 'left' },
-  { name: 'format', label: 'Формат', field: 'format', align: 'left' },
-  { name: 'city', label: 'Город', field: 'city', align: 'left' },
-  { name: 'fp', label: 'Идентификаторы', field: 'surfaces', align: 'left' },
-  { name: 'count', label: 'Поверхностей', field: 'count', align: 'right' },
-]
-
 /** Идентификаторы всех поверхностей стороны — без повторов. */
 function sideFingerprints(row) {
   return [...new Set((row.surfaces || []).flatMap((item) => item.fingerprints || []))]
 }
 
 const columns = [
-  { name: 'legal', label: 'Юридическое название', field: 'legal_address', align: 'left' },
-  { name: 'simple', label: 'Упрощённое', field: 'simple_address', align: 'left' },
-  // Приходит из XLS (колонка «Формат»); пусто — «не указан».
+  { name: 'side', label: 'Сторона', field: 'side', align: 'left' },
+  { name: 'base', label: 'Адрес', field: 'base', align: 'left' },
+  // Приходит из XLS (колонка «Формат»); на «Экранах» — всегда «Видеоэкран».
   { name: 'format', label: 'Формат', field: 'format', align: 'left' },
-  { name: 'fp', label: 'Идентификаторы', field: 'fingerprints', align: 'left' },
-  { name: 'active', label: 'Активен', field: 'active', align: 'center' },
-  { name: 'actions', label: '', field: 'address_id', align: 'right' },
+  { name: 'city', label: 'Город', field: 'city', align: 'left' },
+  { name: 'fp', label: 'Идентификаторы', field: 'surfaces', align: 'left' },
+  { name: 'count', label: 'Поверхностей', field: 'count', align: 'right' },
+  { name: 'actions', label: '', field: 'side', align: 'right' },
 ]
 
 async function load() {
   loading.value = true
   try {
-    const [screens, other, screenSides, otherSides, free] = await Promise.all([
-      fetchAddressDirectory('screens'),
-      fetchAddressDirectory('other'),
+    const [screenSides, otherSides, free] = await Promise.all([
       fetchAddressSides('screens'),
       fetchAddressSides('other'),
       fetchUnassignedFingerprints(),
     ])
-    byScope.value = {
-      screens: screens.items || [],
-      other: other.items || [],
-    }
     sideByScope.value = {
       screens: screenSides.items || [],
       other: otherSides.items || [],
@@ -213,16 +229,6 @@ async function saveEdit() {
   }
   })
 }
-async function toggleActive(item, value) {
-  try {
-    await updateAddress(item.address_id, { active: value })
-    await load()
-  } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
-    await load()
-  }
-}
-
 async function removeAddress(item) {
   const confirmed = await confirmDialog({
     title: 'Удалить адрес?',
@@ -381,32 +387,18 @@ async function saveMap() {
 
     <q-card flat bordered>
       <q-card-section class="row items-center q-pb-xs">
-        <div class="panel-title col">
-          Адреса ({{ view === 'sides' ? sideItems.length : items.length }})
-        </div>
-        <!-- Как на «Сайте»: «по сторонам» сводит A(1), A(2), A(3) в одну
-             строку; у щита и видеоэкрана A1/A2 остаются разными сторонами. -->
-        <q-btn-toggle
-          v-model="view"
-          dense
-          flat
-          toggle-color="primary"
-          class="q-mr-sm"
-          :options="[
-            { label: 'По сторонам', value: 'sides' },
-            { label: 'По поверхностям', value: 'surfaces' },
-          ]"
-        />
+        <div class="panel-title col">Адреса ({{ sideItems.length }})</div>
         <q-btn dense flat icon="refresh" :loading="busy" @click="load">
           <q-tooltip>Обновить</q-tooltip>
         </q-btn>
       </q-card-section>
       <q-separator />
 
+      <!-- Одна строка — одна сторона: A(1), A(2), A(3) сведены в A (правило
+           «Сайта»); у щита и видеоэкрана A1/A2 остаются разными сторонами. -->
       <q-table
-        v-if="view === 'sides'"
         :rows="sideItems"
-        :columns="sideColumns"
+        :columns="columns"
         :row-key="(row) => `${row.base}|${row.format}|${row.side}`"
         dense
         flat
@@ -414,6 +406,8 @@ async function saveMap() {
         :loading="busy"
         no-data-label="Сторон нет"
       >
+        <!-- На закладке «Экраны» формат всегда «Видеоэкран» (задание, п. 6б);
+             на «Остальном» — тот, что пришёл из XLS по юридическому адресу. -->
         <template #body-cell-format="props">
           <q-td :props="props">
             {{ scope === 'screens' ? 'Видеоэкран' : (props.row.format || '—') }}
@@ -452,61 +446,12 @@ async function saveMap() {
             </q-tooltip>
           </q-td>
         </template>
-      </q-table>
-
-      <q-table
-        v-else
-        :rows="items"
-        :columns="columns"
-        row-key="address_id"
-        dense
-        flat
-        :pagination="{ rowsPerPage: 0 }"
-        :loading="busy"
-        no-data-label="Справочник пуст"
-      >
-        <!-- На закладке «Экраны» формат всегда «Видеоэкран» (задание, п. 6б);
-             на «Остальном» — тот, что пришёл из XLS по юридическому адресу. -->
-        <template #body-cell-format="props">
-          <q-td :props="props">
-            {{ scope === 'screens' ? 'Видеоэкран' : (props.row.format || '—') }}
-          </q-td>
-        </template>
-
-        <template #body-cell-fp="props">
-          <q-td :props="props">
-            <q-chip
-              v-for="id in props.row.fingerprints"
-              :key="id"
-              dense
-              size="sm"
-              color="primary"
-              text-color="white"
-            >
-              {{ id }}
-            </q-chip>
-            <span v-if="!props.row.fingerprints.length" class="text-caption text-grey">
-              не сопоставлено
-            </span>
-          </q-td>
-        </template>
-
-        <template #body-cell-active="props">
-          <q-td :props="props">
-            <q-toggle
-              :model-value="props.row.active"
-              dense
-              @update:model-value="(value) => toggleActive(props.row, value)"
-            />
-          </q-td>
-        </template>
-
         <template #body-cell-actions="props">
           <q-td :props="props">
-            <q-btn dense flat icon="link" @click="openMap(props.row)">
+            <q-btn dense flat icon="link" @click="runOnSurface(props.row, openMap, 'Идентификаторы')">
               <q-tooltip>Идентификаторы распознавания</q-tooltip>
             </q-btn>
-            <q-btn dense flat icon="edit" @click="openEdit(props.row)">
+            <q-btn dense flat icon="edit" @click="runOnSurface(props.row, openEdit, 'Изменить названия')">
               <q-tooltip>Изменить названия</q-tooltip>
             </q-btn>
             <q-btn
@@ -514,7 +459,7 @@ async function saveMap() {
               flat
               icon="delete"
               :loading="removeBusy"
-              @click="removeAddress(props.row)"
+              @click="runOnSurface(props.row, removeAddress, 'Удалить адрес')"
             >
               <q-tooltip>Удалить адрес</q-tooltip>
             </q-btn>
@@ -522,6 +467,31 @@ async function saveMap() {
         </template>
       </q-table>
     </q-card>
+
+    <!-- У стороны несколько поверхностей — спрашиваем, к какой применить действие. -->
+    <q-dialog v-model="surfacePickerOpen">
+      <q-card style="min-width: 420px">
+        <q-card-section class="text-subtitle1">
+          {{ surfacePicker.label }} — выберите поверхность
+        </q-card-section>
+        <q-separator />
+        <q-list dense separator>
+          <q-item
+            v-for="surface in surfacePicker.surfaces"
+            :key="surface.address_id"
+            clickable
+            @click="pickSurface(surface)"
+          >
+            <q-item-section>
+              <q-item-label>{{ surface.legal_address }}</q-item-label>
+              <q-item-label caption>
+                сторона {{ surface.side || '—' }}
+              </q-item-label>
+            </q-item-section>
+          </q-item>
+        </q-list>
+      </q-card>
+    </q-dialog>
 
     <!-- edit names -->
     <q-dialog v-model="editOpen">

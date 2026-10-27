@@ -294,6 +294,29 @@ def resolve_name(
 
 
 def _row_to_fingerprint(row) -> dict:
+    address = None
+
+    if row[11] is not None:
+        address = {
+            "address_id": row[11],
+            "legal_address": row[12],
+            "simple_address": row[13],
+            # Колонки SELECT: … simple_address(13), format(14), city(15),
+            # scope(16), images_count(17), created_at(18).
+            "format": row[14] or "",
+            "city": row[15] or "",
+            "scope": row[16] or "",
+        }
+
+    # Закладка раздела «Слепки» (задание, п. 5в): решается по адресу слепка.
+    # Импорт ленивый — directory.py сам берёт address_label из этого модуля.
+    tab = ""
+
+    if address is not None:
+        from app.api.directory import address_tab
+
+        tab = address_tab(address["scope"], address["city"], address["format"])
+
     return {
         "fingerprint_id": row[0],
         "display_name": row[1],
@@ -309,18 +332,13 @@ def _row_to_fingerprint(row) -> dict:
         "active": bool(row[8]),
         "created_at": row[9],
         "updated_at": row[10],
-        "address": {
-            "address_id": row[11],
-            "legal_address": row[12],
-            "simple_address": row[13],
-        }
-        if row[11] is not None
-        else None,
+        "address": address,
+        "tab": tab,
         "current_version": {
-            "images_count": int(row[14]) if row[14] is not None else None,
-            "created_at": row[15],
+            "images_count": int(row[17]) if row[17] is not None else None,
+            "created_at": row[18],
         }
-        if row[14] is not None
+        if row[17] is not None
         else None,
     }
 
@@ -331,6 +349,7 @@ _REGISTRY_SELECT = """
         f.model, f.dimension, f.images_count, f.source_folder, f.active,
         f.created_at, f.updated_at,
         d.address_id, d.legal_address, d.simple_address,
+        d.format, d.city, d.scope,
         v.images_count, v.created_at
     FROM public.fingerprints AS f
     LEFT JOIN public.address_fingerprints AS af

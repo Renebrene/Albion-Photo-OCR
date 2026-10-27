@@ -132,6 +132,7 @@ def group_surfaces(rows: list[dict]) -> list[dict]:
             {
                 "address_id": item.get("address_id"),
                 "legal_address": item.get("legal_address"),
+                "simple_address": item.get("simple_address") or "",
                 "side": side,
                 "fingerprints": list(item.get("fingerprints") or []),
             }
