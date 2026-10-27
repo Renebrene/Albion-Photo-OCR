@@ -29,6 +29,42 @@ def test_many_client_filters_do_not_return_422(monkeypatch):
     assert response.json()["items"] == []
 
 
+def test_a_long_sort_cursor_is_accepted(monkeypatch):
+    """
+    Курсор страницы длиннее 64 символов не должен давать 422.
+
+    Курсор — base64 от {"v": ключ сортировки, "id": photo_id}. Для даты это
+    ~96 символов, для имени файла — до 156; старый Query(max_length=64) отбивал
+    вторую страницу, и грид вставал на первых 100 фото с ошибкой
+    «String should have at most 64 characters».
+    """
+
+    seen: dict = {}
+
+    def fake_list_photos(**kwargs):
+        seen.update(kwargs)
+        return [], None
+
+    monkeypatch.setattr(repository, "list_photos", fake_list_photos)
+    monkeypatch.setattr(repository, "count_photos", lambda **kwargs: 0)
+
+    cursor = repository.encode_cursor(
+        "Конной Армии 32 А (10).JPG",
+        "PH_a9fa729cd53e78f0ca31b800",
+    )
+
+    assert len(cursor) > 64
+
+    response = client.get(
+        "/api/v1/photos",
+        params={"limit": "100", "sort": "filename", "cursor": cursor},
+    )
+
+    assert response.status_code == 200
+    # Курсор дошёл до репозитория как есть, а не был обрезан.
+    assert seen["cursor"] == cursor
+
+
 def test_recognized_uses_the_latest_hybrid_verdict_only():
     """Старый успешный вердикт не должен пережить новый провальный прогон."""
 

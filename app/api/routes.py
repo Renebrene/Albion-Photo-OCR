@@ -143,7 +143,13 @@ def health() -> dict:
 @read_router.get("/v1/photos", response_model=None)
 def list_photos(
     limit: int = Query(50, ge=1, le=100),
-    cursor: str | None = Query(None, max_length=64),
+    # Курсор — base64 от {"v": ключ сортировки, "id": photo_id}. Лимит 64 остался
+    # от старого формата (PH_… и rank:N), а новый на сортировке по имени файла
+    # или адресу занимает до ~156 символов: второй запрос страницы падал с 422
+    # («String should have at most 64 characters»), и грид вставал на первых 100
+    # фото. Разбор курсора терпим к мусору (decode_cursor → None), поэтому
+    # свободный верхний предел здесь только защищает от гигантских строк.
+    cursor: str | None = Query(None, max_length=2048),
     q: str | None = Query(None, max_length=256),
     # `max_length` on a list query parameter limits the NUMBER of values.
     # The clients panel shows at most 100, so «Все» can send at most 100.
