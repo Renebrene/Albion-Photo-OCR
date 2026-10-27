@@ -1,153 +1,189 @@
 """
-Доступность оригиналов: сводка по корням для технического раздела.
+Tests for the original-file endpoint containment (fail-closed allowed roots).
 
-База не нужна — соединение подменяется: проверяется подсчёт, различение
-отмонтированного тома и то, что ответ не перебирает файлы (иначе он не годился
-бы для HTTP-запроса).
+Needs PostgreSQL for the probe photo; path checks and the scope check do not.
 """
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+import hashlib
+import os
 
+import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
-from app.api import repository
+from app.api import routes as api_routes
 from app.api.main import app
+from app.ingest.database import get_connection
+
+client = TestClient(app, raise_server_exceptions=False)
+
+PROBE_ID = "PH_" + "7" * 24
 
 
-def _fake_connection(monkeypatch, counts):
-    """Отдаёт заранее заданные ответы count(*) в порядке запросов."""
-
-    class Cursor:
-        def execute(self, sql, params=()):
-            self.sql = sql
-            self.params = params
-
-        def fetchone(self):
-            return (next(counts),)
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return False
-
-    class Connection:
-        def cursor(self):
-            return Cursor()
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return False
-
-    @contextmanager
-    def fake():
-        yield Connection()
-
-    monkeypatch.setattr(repository, "get_connection", fake)
+def _db_available() -> bool:
+    if not os.getenv("INGEST_DB_PASSWORD"):
+        return False
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("select to_regclass('public.photos')")
+                return cur.fetchone()[0] is not None
+    except Exception:
+        return False
 
 
-def test_originals_health_marks_an_unmounted_volume(tmp_path, monkeypatch):
-    """Том без каталога виден отдельно: это диск, а не пропавшие файлы."""
-
-    live = tmp_path / "TEST"
-    live.mkdir()
-    dead = tmp_path / "Win10"  # том отмонтирован
-
-    monkeypatch.setattr(repository, "ORIGINALS_ROOTS", [dead, live])
-    # Порядок запросов: всего, внутри корней, затем по одному на корень.
-    _fake_connection(monkeypatch, iter([100, 90, 0, 90]))
-
-    health = repository.originals_health()
-
-    assert health["configured"] is True
-    assert health["total_photos"] == 100
-    assert health["outside_roots"] == 10
-    assert health["unavailable_roots"] == 1
-    assert [root["label"] for root in health["roots"]] == ["Win10", "TEST"]
-    assert [root["available"] for root in health["roots"]] == [False, True]
-    assert [root["photos"] for root in health["roots"]] == [0, 90]
+requires_db = pytest.mark.skipif(
+    not _db_available(),
+    reason="ingest DB not available (INGEST_DB_*)",
+)
 
 
-def test_originals_health_counts_a_root_by_its_path_prefix(tmp_path, monkeypatch):
-    """Счётчик корня сравнивает путь с корнем и его префиксом, без LIKE."""
+def _cleanup() -> None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM public.photos WHERE photo_id = %s", (PROBE_ID,))
 
-    seen = []
-    root = tmp_path / "TEST"
+
+def test_no_roots_configured_refuses(monkeypatch):
+    monkeypatch.setenv("SCENE_API_TOKENS", "tok:originals")
+    monkeypatch.setattr(api_routes, "ORIGINALS_ROOTS", [])
+
+    response = client.get(
+        f"/api/v1/photos/{PROBE_ID}/original",
+        headers={"Authorization": "Bearer tok"},
+    )
+    # Refused before any DB access: originals are not configured.
+    assert response.status_code == 503
+
+
+@requires_db
+def test_original_only_within_allowed_root(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCENE_API_TOKENS", "tok:originals")
+    headers = {"Authorization": "Bearer tok"}
+
+    _cleanup()
+
+    inside = tmp_path / "inside"
+    outside = tmp_path / "outside"
+    inside.mkdir()
+    outside.mkdir()
+
+    allowed_file = inside / "ok.jpg"
+    Image.new("RGB", (8, 8), (10, 120, 60)).save(allowed_file, format="JPEG")
+
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO public.photos (
+                        photo_id, source_path, filename, sha256,
+                        container_format, frame_count, width, height
+                    )
+                    VALUES (%s, %s, 'ok.jpg', %s, 'JPEG', 1, 8, 8)
+                    """,
+                    (
+                        PROBE_ID,
+                        str(allowed_file),
+                        hashlib.sha256(PROBE_ID.encode()).hexdigest(),
+                    ),
+                )
+
+        # A root that contains the file -> served.
+        monkeypatch.setattr(api_routes, "ORIGINALS_ROOTS", [inside])
+        ok = client.get(f"/api/v1/photos/{PROBE_ID}/original", headers=headers)
+        assert ok.status_code == 200
+        assert ok.headers["content-type"].startswith("image/jpeg")
+
+        # A root that does NOT contain the file -> refused (404).
+        monkeypatch.setattr(api_routes, "ORIGINALS_ROOTS", [outside])
+        blocked = client.get(
+            f"/api/v1/photos/{PROBE_ID}/original", headers=headers
+        )
+        assert blocked.status_code == 404
+    finally:
+        _cleanup()
+
+
+@requires_db
+def test_original_symlink_escape_is_blocked(tmp_path, monkeypatch):
+    monkeypatch.setenv("SCENE_API_TOKENS", "tok:originals")
+    headers = {"Authorization": "Bearer tok"}
+
+    _cleanup()
+
+    root = tmp_path / "volume"
     root.mkdir()
+    secret = tmp_path / "secret.jpg"
+    Image.new("RGB", (8, 8), (1, 2, 3)).save(secret, format="JPEG")
 
-    class Cursor:
-        def execute(self, sql, params=()):
-            seen.append((sql, params))
+    link = root / "escape.jpg"
+    link.symlink_to(secret)
 
-        def fetchone(self):
-            return (0,)
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO public.photos (
+                        photo_id, source_path, filename, sha256,
+                        container_format, frame_count, width, height
+                    )
+                    VALUES (%s, %s, 'escape.jpg', %s, 'JPEG', 1, 8, 8)
+                    """,
+                    (
+                        PROBE_ID,
+                        str(link),
+                        hashlib.sha256(PROBE_ID.encode()).hexdigest(),
+                    ),
+                )
 
-        def __enter__(self):
-            return self
+        monkeypatch.setattr(api_routes, "ORIGINALS_ROOTS", [root])
 
-        def __exit__(self, *_args):
-            return False
-
-    class Connection:
-        def cursor(self):
-            return Cursor()
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return False
-
-    @contextmanager
-    def fake():
-        yield Connection()
-
-    monkeypatch.setattr(repository, "ORIGINALS_ROOTS", [root])
-    monkeypatch.setattr(repository, "get_connection", fake)
-
-    repository.originals_health()
-
-    per_root = seen[-1]
-    assert "starts_with(source_path, %s)" in per_root[0]
-    assert per_root[1] == (str(root), str(root) + "/")
+        response = client.get(
+            f"/api/v1/photos/{PROBE_ID}/original", headers=headers
+        )
+        # Resolved path escapes the allowed root -> refused.
+        assert response.status_code == 404
+    finally:
+        _cleanup()
 
 
-def test_originals_health_without_roots_does_not_touch_the_database(monkeypatch):
-    """Пустой SCENE_ORIGINALS_ROOTS — это ответ, а не запрос в базу."""
+def test_original_is_streamed_with_range_support(tmp_path, monkeypatch):
+    """The original is served from disk (chunked, Range-capable), not read
+    whole into memory; path containment is still applied. DB-free."""
 
-    def explode():
-        raise AssertionError("когда корней нет, база не нужна")
+    monkeypatch.setenv("SCENE_API_TOKENS", "tok:originals")
+    headers = {"Authorization": "Bearer tok"}
 
-    monkeypatch.setattr(repository, "ORIGINALS_ROOTS", [])
-    monkeypatch.setattr(repository, "get_connection", explode)
+    root = tmp_path / "root"
+    root.mkdir()
+    payload = b"\xff\xd8\xff" + b"x" * 5000 + b"\xff\xd9"
+    (root / "a.jpg").write_bytes(payload)
 
-    assert repository.originals_health() == {
-        "configured": False,
-        "roots": [],
-        "total_photos": 0,
-        "outside_roots": 0,
-        "unavailable_roots": 0,
-    }
+    monkeypatch.setattr(api_routes, "ORIGINALS_ROOTS", [root])
+    monkeypatch.setattr(
+        api_routes.repository,
+        "get_photo_source",
+        lambda photo_id: {"source_path": str(root / "a.jpg")},
+    )
 
+    url = f"/api/v1/photos/{PROBE_ID}/original"
 
-def test_route_reports_the_summary_for_the_technical_section(tmp_path, monkeypatch):
-    live = tmp_path / "TEST"
-    live.mkdir()
+    full = client.get(url, headers=headers)
+    assert full.status_code == 200
+    assert full.content == payload
+    assert full.headers["content-type"].startswith("image/jpeg")
+    assert int(full.headers["content-length"]) == len(payload)
 
-    monkeypatch.setattr(repository, "ORIGINALS_ROOTS", [live])
-    _fake_connection(monkeypatch, iter([5, 5, 5]))
+    # A single byte-range is honoured (206) without sending the whole file.
+    partial = client.get(url, headers={**headers, "Range": "bytes=0-3"})
+    assert partial.status_code == 206
+    assert partial.content == payload[:4]
+    assert partial.headers["content-range"] == f"bytes 0-3/{len(payload)}"
 
-    client = TestClient(app)
-    body = client.get("/api/v1/originals/health").json()
-
-    assert body["configured"] is True
-    assert body["roots"] == [
-        {"path": str(live), "label": "TEST", "available": True, "photos": 5}
-    ]
-    assert body["total_photos"] == 5
-    assert body["outside_roots"] == 0
-    assert body["unavailable_roots"] == 0
+    # A file resolved outside the allowed root is still refused.
+    monkeypatch.setattr(api_routes, "ORIGINALS_ROOTS", [tmp_path / "other"])
+    assert client.get(url, headers=headers).status_code == 404
