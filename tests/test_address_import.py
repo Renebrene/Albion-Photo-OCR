@@ -357,7 +357,7 @@ def test_import_writes_when_it_is_not_a_dry_run(monkeypatch):
     """Обычный импорт по-прежнему обновляет формат существующего адреса."""
 
     statements = _recording_connection(
-        monkeypatch, existing=(5, "", "ООО «Тест»", "", "")
+        monkeypatch, existing=(5, "", "ООО «Тест»", "", "", "other")
     )
 
     result = directory_mod.import_addresses(

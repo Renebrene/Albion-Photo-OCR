@@ -117,6 +117,82 @@ def list_addresses(scope: str | None = None) -> list[dict]:
     ]
 
 
+# ---- закладки слепков (задание, п. 5в) -------------------------------------
+#
+# «Экраны» — всё из одноимённой закладки справочника. Остальные адреса делятся
+# по городу и формату из XLS. Здесь только правило; данные те же, что в
+# справочнике, поэтому закладки не дублируют таблицу.
+
+TAB_SCREENS = "screens"
+TAB_SMALL = "small"
+TAB_ROSTOV = "rostov"
+TAB_ROADS = "roads"
+TAB_CITY = "cities"
+TAB_UNKNOWN = "unknown"
+
+TAB_LABELS = {
+    TAB_SCREENS: "Экраны",
+    TAB_SMALL: "Малые форматы РнД",
+    TAB_ROSTOV: "Ростов 6х3",
+    TAB_ROADS: "Районы и трассы 6х3",
+    TAB_CITY: "Города области",
+    TAB_UNKNOWN: "Не разобрано",
+}
+
+# Форматы Ростова-на-Дону: «сити-формат/пилон/роллер, скроллер, пиллары» и
+# «щит, призматрон» — как записано в задании. Сравнение по подстроке, потому
+# что в файле встречаются «Пиллар»/«Пиллары» и «Сити-формат».
+_SMALL_FORMAT_KEYS = ("сити", "пилон", "роллер", "скроллер", "пиллар")
+_SIX_BY_THREE_FORMAT_KEYS = ("щит", "призматрон")
+
+
+def _norm(value: str) -> str:
+    return " ".join(str(value or "").replace("\xa0", " ").split()).lower().replace("ё", "е")
+
+
+def address_tab(scope: str, city: str, format_name: str) -> str:
+    """
+    Закладка слепков, к которой относится адрес (задание, п. 5в).
+
+    Ростов + сити-формат/пилон/роллер/скроллер/пиллар → «Малые форматы РнД»;
+    Ростов + щит/призматрон → «Ростов 6х3»; город вида «…РАЙОН» или «ТРАССА …»
+    → «Районы и трассы 6х3»; остальные города области → «Города области».
+    Неподошедший формат возвращает TAB_UNKNOWN: такие адреса показываем, а не
+    прячем, чтобы правило можно было поправить по факту.
+    """
+
+    if scope == "screens":
+        return TAB_SCREENS
+
+    city_norm = _norm(city)
+    format_norm = _norm(format_name)
+
+    if "район" in city_norm or "трасс" in city_norm:
+        return TAB_ROADS
+
+    if city_norm.startswith("ростов"):
+        if any(key in format_norm for key in _SMALL_FORMAT_KEYS):
+            return TAB_SMALL
+
+        if any(key in format_norm for key in _SIX_BY_THREE_FORMAT_KEYS):
+            return TAB_ROSTOV
+
+        return TAB_UNKNOWN
+
+    return TAB_CITY
+
+
+def tab_counts(addresses: list[dict]) -> dict[str, int]:
+    """Сколько адресов попадает в каждую закладку."""
+
+    counts = {tab: 0 for tab in TAB_LABELS}
+
+    for item in addresses:
+        counts[address_tab(item["scope"], item["city"], item["format"])] += 1
+
+    return counts
+
+
 def get_address(address_id: int) -> dict | None:
     for item in list_addresses():
         if item["address_id"] == address_id:
@@ -683,7 +759,7 @@ def import_addresses(
                 if legal:
                     cur.execute(
                         """
-                        SELECT address_id, simple_address, legal_address, format, city
+                        SELECT address_id, simple_address, legal_address, format, city, scope
                         FROM public.address_directory
                         WHERE lower(btrim(legal_address)) = lower(btrim(%s))
                         """,
@@ -710,7 +786,14 @@ def import_addresses(
                     current_legal,
                     current_format,
                     current_city,
+                    current_scope,
                 ) = existing
+
+                # На закладке «Экраны» формат всегда «Видеоэкран» (задание,
+                # п. 6б): каталог не должен подменять его «Щитом» из соседней
+                # строки того же адреса.
+                if current_scope == "screens":
+                    value_format = "Видеоэкран"
 
                 updated_row = False
 

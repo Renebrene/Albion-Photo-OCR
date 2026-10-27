@@ -19,6 +19,88 @@ from app.api.main import app
 client = TestClient(app, raise_server_exceptions=False)
 
 
+# ---- закладки слепков: правило из задания (п. 5в) ---------------------------
+
+
+def test_screens_tab_wins_over_the_catalog():
+    """Адрес из закладки «Экраны» остаётся экраном, что бы ни было в формате."""
+
+    assert (
+        directory_mod.address_tab("screens", "Ростов-на-Дону", "Щит")
+        == directory_mod.TAB_SCREENS
+    )
+
+
+def test_rostov_formats_split_into_two_tabs():
+    assert (
+        directory_mod.address_tab("other", "Ростов-на-Дону", "Сити-формат")
+        == directory_mod.TAB_SMALL
+    )
+    assert (
+        directory_mod.address_tab("other", "Ростов-на-Дону", "Скроллер")
+        == directory_mod.TAB_SMALL
+    )
+    assert (
+        directory_mod.address_tab("other", "Ростов-на-Дону", "Пиллар")
+        == directory_mod.TAB_SMALL
+    )
+    assert (
+        directory_mod.address_tab("other", "Ростов-на-Дону", "Щит")
+        == directory_mod.TAB_ROSTOV
+    )
+    assert (
+        directory_mod.address_tab("other", "Ростов-на-Дону", "Призматрон")
+        == directory_mod.TAB_ROSTOV
+    )
+
+
+def test_region_districts_and_highways_are_told_apart_by_name():
+    assert (
+        directory_mod.address_tab("other", "Мясниковский район", "Щит")
+        == directory_mod.TAB_ROADS
+    )
+    assert (
+        directory_mod.address_tab("other", "Трасса М4", "Щит")
+        == directory_mod.TAB_ROADS
+    )
+    assert (
+        directory_mod.address_tab("other", "Верхнетемерницкий (Аксайский район)", "Щит")
+        == directory_mod.TAB_ROADS
+    )
+    assert (
+        directory_mod.address_tab("other", "Таганрог", "Щит")
+        == directory_mod.TAB_CITY
+    )
+
+
+def test_unknown_rostov_format_is_reported_not_hidden():
+    """Новый формат в Ростове не должен молча уехать в чужую закладку."""
+
+    assert (
+        directory_mod.address_tab("other", "Ростов-на-Дону", "Брандмауэр")
+        == directory_mod.TAB_UNKNOWN
+    )
+
+
+def test_tab_counts_covers_every_row():
+    addresses = [
+        {"scope": "screens", "city": "Ростов-на-Дону", "format": "Видеоэкран"},
+        {"scope": "other", "city": "Ростов-на-Дону", "format": "Щит"},
+        {"scope": "other", "city": "Трасса М4", "format": "Щит"},
+        {"scope": "other", "city": "Шахты", "format": "Щит"},
+        {"scope": "other", "city": "Ростов-на-Дону", "format": "Нечто"},
+    ]
+
+    counts = directory_mod.tab_counts(addresses)
+
+    assert counts[directory_mod.TAB_SCREENS] == 1
+    assert counts[directory_mod.TAB_ROSTOV] == 1
+    assert counts[directory_mod.TAB_ROADS] == 1
+    assert counts[directory_mod.TAB_CITY] == 1
+    assert counts[directory_mod.TAB_UNKNOWN] == 1
+    assert sum(counts.values()) == len(addresses)
+
+
 def _db_available() -> bool:
     if not os.getenv("INGEST_DB_PASSWORD"):
         return False
