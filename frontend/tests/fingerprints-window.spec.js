@@ -289,7 +289,7 @@ describe('FingerprintsList.vue', () => {
 
     await wrapper
       .findAll('button')
-      .find((button) => button.text().includes('Батч-сборка'))
+      .find((button) => button.text().includes('Пакет'))
       .trigger('click')
     await flushPromises()
 
@@ -330,7 +330,7 @@ describe('FingerprintsList.vue', () => {
 
     await wrapper
       .findAll('button')
-      .find((button) => button.text().includes('Батч-сборка'))
+      .find((button) => button.text().includes('Пакет'))
       .trigger('click')
     await flushPromises()
 

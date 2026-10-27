@@ -16,6 +16,7 @@ import {
   cancelJob,
   deleteFingerprint,
   fetchAddressDirectory,
+  fetchAddressSides,
   fetchFingerprintBatch,
   fetchFingerprintRegistry,
   fetchFingerprintVersions,
@@ -156,8 +157,11 @@ const buildJob = ref(null) // { id, status, result, error }
 const buildForm = ref({
   fingerprint_id: '',
   folder: '',
-  max_photos: 30,
+  // 0 — «все фото в папке»: это значение по умолчанию (задание, п. 5а).
+  max_photos: 0,
   replace: true,
+  // Юридический адрес выбирается при сборке; формат берётся из него.
+  address_id: null,
 })
 
 // folder picker
@@ -172,18 +176,61 @@ const runningBuild = computed(() =>
 )
 
 const PHOTO_CHOICES = [
-  { label: '30 фото (норма 20–30)', value: 30 },
+  { label: 'все фото в папке (по умолчанию)', value: 0 },
+  { label: '30 фото', value: 30 },
   { label: '20 фото', value: 20 },
-  { label: 'все фото в папке', value: 0 },
 ]
+
+// Адреса для окна сборки: стороны из справочника, только те, что относятся к
+// открытой закладке (у «Экранов» свой список, у остальных — адреса из XLS).
+const addressGroups = ref([])
+const addressFilter = ref('')
+
+const buildAddressOptions = computed(() => {
+  const needle = addressFilter.value.trim().toLowerCase()
+
+  return addressGroups.value
+    .filter((group) => (group.tab || '') === tab.value)
+    .map((group) => ({
+      label:
+        (group.side ? `${group.base}, ${group.side}` : group.base) +
+        (group.count > 1 ? ` · поверхностей: ${group.count}` : ''),
+      value: group.surfaces[0]?.address_id ?? null,
+      format: group.format,
+    }))
+    .filter((option) => option.value !== null)
+    .filter((option) => !needle || option.label.toLowerCase().includes(needle))
+})
+
+const buildFormat = computed(
+  () => buildAddressOptions.value.find((option) => option.value === buildForm.value.address_id)?.format || '',
+)
+
+function filterAddresses(value, update) {
+  update(() => {
+    addressFilter.value = value || ''
+  })
+}
+
+async function loadAddressGroups() {
+  try {
+    addressGroups.value = (await fetchAddressSides()).items || []
+  } catch {
+    addressGroups.value = []
+  }
+}
 
 function openBuild(item = null) {
   buildForm.value = {
     fingerprint_id: item?.fingerprint_id || '',
     folder: item?.source_folder || '',
-    max_photos: 30,
+    // По умолчанию — все фото в папке (задание, п. 5а).
+    max_photos: 0,
     replace: true,
+    address_id: item?.address?.address_id ?? null,
   }
+  addressFilter.value = ''
+  void loadAddressGroups()
   poll.bump()
   buildJob.value = null
   buildOpen.value = true
@@ -263,6 +310,20 @@ async function startBuild() {
 
     if (!started.skipped) {
       await pollBuild(started.job_id)
+
+      // Адрес выбран при сборке — привязываем его после успешной сборки:
+      // до неё строки реестра ещё нет, и привязывать не к чему.
+      if (form.address_id) {
+        try {
+          await setFingerprintAddress(form.fingerprint_id.trim(), form.address_id)
+          await load()
+        } catch (err) {
+          Notify.create({
+            type: 'warning',
+            message: `Слепок собран, но адрес не привязан: ${err.message}`,
+          })
+        }
+      }
     }
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
@@ -319,7 +380,8 @@ const batchSelected = ref([])
 // правится руками; совпадения с существующими слепками разводятся суффиксом
 // `_1`, потому что сборка идёт с `replace` и молча перезаписала бы чужой слепок.
 const batchIds = ref({})
-const batchMaxPhotos = ref(30)
+// 0 — «все фото в папке», как и в одиночной сборке (задание, п. 5б).
+const batchMaxPhotos = ref(0)
 const batchState = ref(null) // агрегат от /v1/fingerprints/batch/{id}
 
 function openBatch() {
@@ -475,7 +537,7 @@ async function cancelBatch() {
     }
   }
 
-  Notify.create({ type: 'info', message: 'Батч отменён' })
+  Notify.create({ type: 'info', message: 'Пакетная сборка отменена' })
 }
 
 async function pollBuild(jobId) {
@@ -714,7 +776,7 @@ function day(value) {
           Выбрать папку с фотографиями и собрать (или пересобрать) слепок
         </q-tooltip>
       </q-btn>
-      <q-btn v-if="isAdmin" dense flat icon="library_add" label="Батч-сборка"
+      <q-btn v-if="isAdmin" dense flat icon="library_add" label="Пакет"
         @click="openBatch">
         <q-tooltip>
           Собрать слепки по всем папкам адреса за раз — задания разберут
@@ -1036,13 +1098,43 @@ function day(value) {
         <q-card-section class="text-subtitle1">Создать / пересобрать слепок</q-card-section>
         <q-separator />
         <q-card-section class="q-gutter-sm">
-          <q-input
-            v-model="buildForm.fingerprint_id"
-            dense
-            outlined
-            label="ID слепка"
-            hint="например 78_v33 — пересборка заменит векторы, старая версия останется в журнале"
-          />
+          <!-- ID, юридический адрес и формат — одной строкой (задание, п. 5а). -->
+          <div class="row items-center q-gutter-sm">
+            <q-input
+              v-model="buildForm.fingerprint_id"
+              dense
+              outlined
+              label="ID слепка"
+              style="width: 190px"
+            />
+            <q-select
+              v-model="buildForm.address_id"
+              :options="buildAddressOptions"
+              dense
+              outlined
+              emit-value
+              map-options
+              option-label="label"
+              option-value="value"
+              label="Юридический адрес"
+              class="col"
+              use-input
+              input-debounce="0"
+              @filter="filterAddresses"
+            />
+            <q-input
+              :model-value="buildFormat || '—'"
+              dense
+              outlined
+              readonly
+              label="Формат"
+              style="width: 150px"
+            />
+          </div>
+          <div class="text-caption text-grey-7">
+            ID подставляется транслитом имени папки; адреса — из открытой
+            закладки («Экраны» — свой список, остальные — из загруженного XLS).
+          </div>
 
           <div class="row items-center q-gutter-sm">
             <q-input
@@ -1079,10 +1171,10 @@ function day(value) {
           </div>
 
           <div class="text-caption text-grey">
-            Норма — 20–30 фото (замер: `docs/fingerprint_size_experiment.md`).
-            Подвыборка берётся шагом по списку, файлы не копируются. После
-            сборки оригиналы не нужны: сохраняются векторы, а в базе — имена
-            фото и даты съёмок.
+            По умолчанию берутся все фото из папки (задание, п. 5а); меньше
+            можно выбрать явно — подвыборка идёт шагом по списку, файлы не
+            копируются. После сборки оригиналы не нужны: сохраняются векторы,
+            а в базе — имена фото и даты съёмок.
           </div>
 
           <div v-if="buildJob" class="q-mt-md">
@@ -1266,11 +1358,11 @@ function day(value) {
     </q-dialog>
   
 
-    <!-- батч-сборка: папки -> задания, их разбирают воркеры -->
+    <!-- пакетная сборка: папки -> задания, их разбирают воркеры -->
     <q-dialog v-model="batchOpen">
       <q-card style="min-width: 620px; max-width: 94vw; max-height: 90vh">
         <q-card-section class="row items-center">
-          <div class="text-subtitle1 col">Батч-сборка слепков</div>
+          <div class="text-subtitle1 col">Пакетная сборка слепков</div>
           <q-btn dense flat icon="desktop_windows" label="Системный диалог"
             :loading="batchBusy" @click="pickBatchParent" />
         </q-card-section>
@@ -1422,7 +1514,7 @@ function day(value) {
           <q-btn flat label="Закрыть" v-close-popup />
           <q-btn
             color="primary"
-            label="Запустить батч"
+            label="Запустить пакет"
             :loading="batchBusy"
             :disable="!batchSelected.length"
             @click="startBatch"

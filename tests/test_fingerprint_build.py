@@ -435,3 +435,70 @@ def test_native_picker_is_off_by_default():
     response = client.post("/api/v1/fingerprints/pick-folder")
 
     assert response.status_code == 501
+
+
+# ---- системный выбор папки: отмена ≠ сбой ---------------------------------
+
+
+def _enable_picker(monkeypatch, *, display=True):
+    from app.api import routes
+
+    monkeypatch.setattr(routes, "NATIVE_PICKER", True)
+    monkeypatch.setattr(routes.shutil, "which", lambda _name: "/usr/bin/zenity")
+
+    if display:
+        monkeypatch.setenv("DISPLAY", ":0")
+    else:
+        monkeypatch.delenv("DISPLAY", raising=False)
+        monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+
+
+def test_native_picker_without_a_display_says_so(monkeypatch):
+    """Служба без графической сессии: это не «отмена», а недоступность."""
+
+    _enable_picker(monkeypatch, display=False)
+
+    response = client.post("/api/v1/fingerprints/pick-folder")
+
+    assert response.status_code == 503
+    assert "графической" in response.json()["detail"]
+
+
+def test_native_picker_reports_a_failure_to_open(monkeypatch):
+    """zenity не смог открыть окно — показываем его причину, а не «отменён»."""
+
+    from app.api import routes
+
+    _enable_picker(monkeypatch)
+
+    class Done:
+        returncode = 1
+        stdout = ""
+        stderr = "cannot open display :0\n"
+
+    monkeypatch.setattr(routes.subprocess, "run", lambda *a, **k: Done())
+
+    response = client.post("/api/v1/fingerprints/pick-folder")
+
+    assert response.status_code == 503
+    assert "cannot open display" in response.json()["detail"]
+
+
+def test_native_picker_reports_a_cancel_as_a_cancel(monkeypatch):
+    """Пустой stderr и код 1 — человек закрыл окно."""
+
+    from app.api import routes
+
+    _enable_picker(monkeypatch)
+
+    class Done:
+        returncode = 1
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(routes.subprocess, "run", lambda *a, **k: Done())
+
+    response = client.post("/api/v1/fingerprints/pick-folder")
+
+    assert response.status_code == 409
+    assert "отменён" in response.json()["detail"]

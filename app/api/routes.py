@@ -2801,9 +2801,16 @@ def list_address_sides(scope: str | None = Query(None, pattern="^(screens|other)
 
     from app.api import sides as sides_mod
 
-    return {
-        "items": sides_mod.group_surfaces(directory_mod.list_addresses(scope=scope))
-    }
+    groups = sides_mod.group_surfaces(directory_mod.list_addresses(scope=scope))
+
+    # Закладка, к которой относится сторона: окно сборки слепка показывает
+    # адреса только открытой закладки (задание, п. 5а).
+    for group in groups:
+        group["tab"] = directory_mod.address_tab(
+            group["scope"], group["city"], group["format"]
+        )
+
+    return {"items": groups}
 
 
 @addresses_router.put(
@@ -3325,6 +3332,19 @@ def pick_folder_native():
             detail="zenity не найден на сервере",
         )
 
+    # Служба без графической сессии: zenity не откроет окно, а вернёт тот же
+    # код, что и «Отмена». Различаем заранее, чтобы не писать «отменён», когда
+    # диалог вообще не мог появиться.
+    if not os.getenv("DISPLAY") and not os.getenv("WAYLAND_DISPLAY"):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "системный диалог недоступен: у службы API нет графической "
+                "сессии (DISPLAY/WAYLAND_DISPLAY). Используйте встроенный "
+                "браузер папок"
+            ),
+        )
+
     try:
         completed = subprocess.run(
             [
@@ -3341,6 +3361,16 @@ def pick_folder_native():
         raise HTTPException(status_code=504, detail="диалог не был закрыт") from exc
 
     if completed.returncode != 0:
+        # zenity различает отмену и сбой только по stderr: пустой stderr —
+        # человек закрыл окно, текст — окно не смогло открыться.
+        problem = (completed.stderr or "").strip().splitlines()
+
+        if problem:
+            raise HTTPException(
+                status_code=503,
+                detail=f"системный диалог недоступен: {problem[0][:300]}",
+            )
+
         raise HTTPException(status_code=409, detail="выбор папки отменён")
 
     chosen = (completed.stdout or "").strip()
