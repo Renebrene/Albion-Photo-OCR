@@ -410,6 +410,11 @@ def _execute(job: dict) -> dict:
 
         return backup_service.run_restore(payload, control=job_control(int(job["id"])))
 
+    if job_type == "ORIGINALS_CHECK":
+        from app.originals import check as originals_check
+
+        return originals_check.run(control=job_control(int(job["id"])))
+
     raise ValueError(f"Unsupported job type: {job_type}")
 
 

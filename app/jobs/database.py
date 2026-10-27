@@ -34,6 +34,9 @@ JOB_TYPES = {
     # (scene-backup-worker), чтобы не мешать воркерам фото-пайплайна.
     "BACKUP",
     "RESTORE",
+    # Полный обход оригиналов (57 тыс. stat) — тяжёлая диагностика из
+    # технического раздела, поэтому тоже заданием, а не в HTTP.
+    "ORIGINALS_CHECK",
 }
 
 _JOB_COLUMNS = (
@@ -267,6 +270,50 @@ def enqueue_refine(limit: int = 5000) -> int | None:
                 RETURNING id
                 """,
                 (Json({"limit": int(limit)}),),
+            )
+            row = cur.fetchone()
+
+            return int(row[0]) if row is not None else None
+
+
+def enqueue_originals_check() -> int | None:
+    """
+    Поставить полную проверку доступности оригиналов.
+
+    Дубли не нужны: пока проверка в очереди или идёт, вторая не создаётся —
+    два одновременных обхода только грузят диск. В этом случае возвращается id
+    уже стоящего задания, чтобы вызывающий (кнопка в техническом разделе) мог
+    показать его прогресс, а не потерять проверку.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO public.job_queue (job_type, payload, status)
+                SELECT 'ORIGINALS_CHECK', %s, 'PENDING'
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM public.job_queue
+                    WHERE job_type = 'ORIGINALS_CHECK'
+                      AND status IN ('PENDING', 'RUNNING')
+                )
+                RETURNING id
+                """,
+                (Json({}),),
+            )
+            row = cur.fetchone()
+
+            if row is not None:
+                return int(row[0])
+
+            cur.execute(
+                """
+                SELECT id FROM public.job_queue
+                WHERE job_type = 'ORIGINALS_CHECK'
+                  AND status IN ('PENDING', 'RUNNING')
+                ORDER BY id
+                LIMIT 1
+                """
             )
             row = cur.fetchone()
 

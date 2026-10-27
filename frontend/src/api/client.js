@@ -786,6 +786,15 @@ export function fetchOriginalsHealth() {
   return getJson(`${BASE}/v1/originals/health`)
 }
 
+// Полная проверка файлов — заданием: 57 тыс. stat не ждут в HTTP-запросе.
+export function startOriginalsCheck() {
+  return postJson(`${BASE}/v1/originals/check`, {})
+}
+
+export function fetchOriginalsCheckLatest() {
+  return getJson(`${BASE}/v1/originals/check/latest`)
+}
+
 // --- Бэкапы (технический раздел → Данные) ------------------------------------
 // Читать может любой вошедший, запускать и восстанавливать — только
 // Администратор: это scope settings:write.

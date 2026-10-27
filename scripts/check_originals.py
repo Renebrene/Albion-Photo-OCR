@@ -11,6 +11,11 @@
 кнопки: см. `GET /v1/photos/{photo_id}/original/status` в UI и
 `docs/preview.txt`.
 
+Тот же обход выполняется заданием ORIGINALS_CHECK из технического раздела
+(«Данные» → «Доступность оригиналов»): счётчики и причины общие — см.
+`app/originals/check.py`. Здесь остаются только аргументы, вывод и код возврата,
+чтобы ручная проверка и кнопка не разошлись в трактовке.
+
 Использование:
 
     .venv/bin/python scripts/check_originals.py --dry-run
@@ -31,25 +36,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.api.config import ORIGINALS_ROOTS  # noqa: E402
-from app.api.file_access import (  # noqa: E402
-    ORIGINAL_MISSING,
-    ORIGINAL_NOT_CONFIGURED,
-    ORIGINAL_OK,
-    ORIGINAL_OUTSIDE_ROOTS,
-    ORIGINAL_ROOT_UNAVAILABLE,
-    original_availability,
-)
-from app.ingest.database import get_connection  # noqa: E402
+from app.originals.check import REASONS, scan  # noqa: E402
 
-_PAGE = 2000
+# В консольном отчёте примеров меньше, чем в файле отчёта задания.
 _SAMPLE_LIMIT = 20
-
-REASONS = {
-    ORIGINAL_MISSING: "файл не найден",
-    ORIGINAL_OUTSIDE_ROOTS: "путь вне разрешённых корней",
-    ORIGINAL_ROOT_UNAVAILABLE: "корень оригиналов не подключён",
-    ORIGINAL_NOT_CONFIGURED: "SCENE_ORIGINALS_ROOTS не задан",
-}
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -69,42 +59,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _rows(photo_ids: list[str] | None, limit: int):
-    """Порциями отдаёт (photo_id, source_path) по всей таблице."""
-
-    cursor = None
-    seen = 0
-
-    while True:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                if photo_ids:
-                    cur.execute(
-                        """SELECT photo_id, source_path FROM public.photos
-                           WHERE photo_id = ANY(%s) ORDER BY photo_id""",
-                        (sorted(set(photo_ids)),),
-                    )
-                else:
-                    cur.execute(
-                        """SELECT photo_id, source_path FROM public.photos
-                           WHERE (%s::text IS NULL OR photo_id > %s)
-                           ORDER BY photo_id LIMIT %s""",
-                        (cursor, cursor, _PAGE),
-                    )
-                rows = cur.fetchall()
-
-        if not rows:
-            return
-        cursor = str(rows[-1][0])
-        for photo_id, source_path in rows:
-            yield str(photo_id), source_path
-            seen += 1
-            if limit and seen >= limit:
-                return
-        if photo_ids:
-            return
-
-
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
 
@@ -116,40 +70,30 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    checked = 0
-    missing = 0
-    outside = 0
-    root_unavailable = 0
-    samples: list[dict[str, str]] = []
-
-    for photo_id, source_path in _rows(args.photo_ids, max(0, args.limit)):
-        status = original_availability(source_path, ORIGINALS_ROOTS)
-        checked += 1
-        if status == ORIGINAL_OK:
-            continue
-        if status == ORIGINAL_OUTSIDE_ROOTS:
-            outside += 1
-        elif status == ORIGINAL_ROOT_UNAVAILABLE:
-            # Отдельно от «файла нет»: чинится монтированием тома или
-            # переносом путей, а не поиском пропавшего файла.
-            root_unavailable += 1
-        else:
-            missing += 1
-        if len(samples) < _SAMPLE_LIMIT:
-            samples.append({"photo_id": photo_id, "reason": REASONS.get(status, status)})
+    counts = scan(
+        ORIGINALS_ROOTS,
+        photo_ids=args.photo_ids,
+        limit=max(0, args.limit),
+    )
 
     report = {
-        "checked": checked,
-        "available": checked - missing - outside - root_unavailable,
-        "missing": missing,
-        "outside_roots": outside,
-        "root_unavailable": root_unavailable,
+        "checked": counts["checked"],
+        "available": counts["available"],
+        "missing": counts["missing"],
+        "outside_roots": counts["outside_roots"],
+        "root_unavailable": counts["root_unavailable"],
+        # В консольном отчёте — число корней; полный список с состоянием
+        # каталогов отдаёт /v1/originals/health и файл отчёта задания.
         "roots": len(ORIGINALS_ROOTS),
-        "samples": samples,
+        "samples": counts["samples"][:_SAMPLE_LIMIT],
         "dry_run": True,
         "limit": max(0, args.limit),
         "photo_ids": args.photo_ids or [],
     }
+
+    missing = counts["missing"]
+    outside = counts["outside_roots"]
+    root_unavailable = counts["root_unavailable"]
 
     if args.json:
         print(json.dumps(report, ensure_ascii=False))
@@ -161,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"вне разрешённых корней: {outside}")
         if root_unavailable:
             print(f"корень оригиналов не подключён: {root_unavailable}")
-        for sample in samples:
+        for sample in report["samples"]:
             print(f"  {sample['photo_id']}: {sample['reason']}")
         if root_unavailable:
             print(

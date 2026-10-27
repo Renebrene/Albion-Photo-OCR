@@ -713,6 +713,47 @@ def get_originals_health() -> dict:
     return repository.originals_health()
 
 
+@read_router.get("/v1/originals/check/latest")
+def get_originals_check_latest() -> dict:
+    """Последний отчёт полной проверки оригиналов (None — проверок не было)."""
+
+    from app.originals import check as originals_check
+
+    return {"report": originals_check.latest_report()}
+
+
+@jobs_router.post(
+    "/v1/originals/check",
+    status_code=202,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def start_originals_check() -> dict:
+    """
+    Поставить полную проверку оригиналов заданием.
+
+    Обход 57 тыс. файлов идёт в воркере: обработчик ждать его не должен.
+    Прогресс — `GET /api/v1/jobs/{id}`, готовый отчёт —
+    `GET /api/v1/originals/check/latest`.
+    """
+
+    from app.originals import check as originals_check
+
+    if not ORIGINALS_ROOTS:
+        raise HTTPException(
+            status_code=503,
+            detail="SCENE_ORIGINALS_ROOTS не задан: проверять нечего",
+        )
+
+    job_id = jobs_db.enqueue_originals_check()
+
+    return {
+        # Если такая проверка уже стоит в очереди или идёт, вернётся её id:
+        # кнопка показывает прогресс существующего задания, а не создаёт второе.
+        "job_id": job_id,
+        "report_dir": str(originals_check.reports_dir()),
+    }
+
+
 def preview_candidates(path: Path) -> list[Path]:
     """Пути превью этого размера: текущий формат, затем прежний JPEG."""
 
