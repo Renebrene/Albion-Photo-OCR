@@ -51,7 +51,10 @@ def _check_fingerprint_id(fingerprint_id: object) -> str:
     if not isinstance(fingerprint_id, str) or not FINGERPRINT_ID_RE.match(
         fingerprint_id
     ):
-        raise DirectoryError("fingerprint id has an unexpected format")
+        raise DirectoryError(
+            "fingerprint id must be 1-64 characters of latin letters, digits,"
+            " '.', '_' or '-' (the UI generates one by transliteration)"
+        )
 
     return fingerprint_id
 

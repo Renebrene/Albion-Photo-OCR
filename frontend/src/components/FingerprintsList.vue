@@ -28,6 +28,12 @@ import {
   syncFingerprints,
   updateFingerprint,
 } from '../api/client'
+import {
+  FINGERPRINT_ID_RE,
+  VERSION_SUFFIX,
+  assignBatchIds,
+  slugifyName,
+} from '../utils/fingerprint-id'
 import { useAsyncAction } from '../composables/useAsyncAction'
 import { useSessionStore } from '../stores/session'
 
@@ -271,7 +277,9 @@ const batchParent = ref('')
 const batchParentPath = ref('') // родитель текущего списка, для кнопки «вверх»
 const batchDirs = ref([])
 const batchSelected = ref([])
-// Пользовательский ID на папку; пусто — берётся <имя_папки>_v33.
+// ID на папку. Заполняется транслитом имени папки при загрузке списка и дальше
+// правится руками; совпадения с существующими слепками разводятся суффиксом
+// `_1`, потому что сборка идёт с `replace` и молча перезаписала бы чужой слепок.
 const batchIds = ref({})
 const batchMaxPhotos = ref(30)
 const batchState = ref(null) // агрегат от /v1/fingerprints/batch/{id}
@@ -286,12 +294,9 @@ function openBatch() {
   batchOpen.value = true
 }
 
-function defaultBatchId(path) {
-  return `${path.split('/').filter(Boolean).pop()}_v33`
-}
-
 function batchIdFor(path) {
-  return batchIds.value[path] ?? defaultBatchId(path)
+  const name = String(path ?? '').split('/').filter(Boolean).pop() || ''
+  return batchIds.value[path] ?? slugifyName(name, { suffix: VERSION_SUFFIX })
 }
 
 function setBatchId(path, value) {
@@ -308,6 +313,12 @@ async function loadBatchDirs(path) {
     // Every sub-folder is listed: folders without photos in them must stay
     // visible, otherwise there is no way down to data/input/78.
     batchDirs.value = result.dirs || []
+    // Готовые ID сразу видны в полях: транслит имени папки, без совпадений между
+    // папками списка и с уже существующими слепками.
+    batchIds.value = assignBatchIds(
+      batchDirs.value,
+      (items.value || []).map((item) => item.fingerprint_id),
+    )
     batchSelected.value = []
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
@@ -351,10 +362,13 @@ async function startBatch() {
   }))
   const ids = items.map((item) => item.fingerprint_id)
 
-  if (ids.some((id) => !/^[A-Za-z0-9._-]{1,64}$/.test(id))) {
+  if (ids.some((id) => !FINGERPRINT_ID_RE.test(id))) {
     Notify.create({
       type: 'warning',
-      message: 'ID может содержать буквы, цифры, точку, дефис и подчёркивание',
+      message:
+        'ID слепка: 1–64 символа, только латиница, цифры, точка, дефис и ' +
+        'подчёркивание. Кириллицу заменяет транслит — нажмите «Показать подпапки», ' +
+        'чтобы вернуть автоподстановку',
     })
     return
   }

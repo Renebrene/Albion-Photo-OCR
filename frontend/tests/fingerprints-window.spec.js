@@ -256,6 +256,53 @@ describe('FingerprintsList.vue', () => {
     expect(dialog).toContain('0 фото')
   })
 
+  it('подставляет ID транслитом и разводит совпадения', async () => {
+    const wrapper = mountWindow()
+    await flushPromises()
+
+    // Подменяем только список папок: реестр уже загружен монтированием.
+    const base = global.fetch
+    global.fetch = vi.fn(async (url, options = {}) => {
+      if (String(url).includes('/v1/fingerprints/browse')) {
+        return jsonResponse({
+          path: '/photos',
+          parent: null,
+          photos: 0,
+          dirs: [
+            { name: 'Менжинского 2', path: '/photos/Менжинского 2', photos: 3 },
+            { name: 'Менжинского 2', path: '/photos/Менжинского 2 (копия)', photos: 3 },
+            { name: '78', path: '/photos/78', photos: 5 },
+          ],
+        })
+      }
+      return base(url, options)
+    })
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('Батч-сборка'))
+      .trigger('click')
+    await flushPromises()
+
+    const show = [...document.body.querySelectorAll('button')].find((button) =>
+      button.textContent.includes('Показать подпапки'),
+    )
+    show.click()
+    await flushPromises()
+
+    const values = [
+      ...document.body.querySelectorAll('.batch-id-input input'),
+    ].map((input) => input.value)
+
+    // Кириллица → транслит; одинаковые имена и занятый реестром ID разведены,
+    // иначе сборка с replace перезаписала бы чужой слепок.
+    expect(values).toEqual([
+      'menzhinskogo_2_v33',
+      'menzhinskogo_2_v33_1',
+      '78_v33_1',
+    ])
+  })
+
   it('opens the version journal of a fingerprint', async () => {
     const wrapper = mountWindow()
     await flushPromises()
