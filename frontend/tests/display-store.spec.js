@@ -156,6 +156,14 @@ describe('display store', () => {
     await waitLocalWrite()
 
     expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY))).toEqual({
+      // Период и сортировка грида — такие же личные настройки.
+      filters: {
+        period: 'week',
+        from: null,
+        to: null,
+        sortKey: 'date',
+        sortDirection: 'desc',
+      },
       tileColumns: 6,
       listFields: ['filename', 'brand'],
       downloadNameMode: 'filename',
@@ -175,6 +183,29 @@ describe('display store', () => {
     expect(display.tileColumns).toBe('auto')
     expect(display.listFields).toEqual(['filename', 'address', 'client'])
     expect(display.downloadNameMode).toBe('filename')
+  })
+
+  it('keeps the grid filters with the rest of the settings', async () => {
+    const display = useDisplayStore()
+
+    display.setFilters({ period: 'month', sortKey: 'filename', sortDirection: 'asc' })
+    await waitLocalWrite()
+
+    const stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY))
+
+    expect(stored.filters).toEqual({
+      period: 'month',
+      from: null,
+      to: null,
+      sortKey: 'filename',
+      sortDirection: 'asc',
+    })
+
+    // Снимок отдаёт копию: правка возвращённого объекта не меняет настройки.
+    const snapshot = display.snapshot()
+    snapshot.filters.period = 'year'
+
+    expect(display.filters.period).toBe('month')
   })
 
   it('does not persist layout changes when persistence is disabled for a Guest', async () => {

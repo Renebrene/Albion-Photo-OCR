@@ -36,6 +36,9 @@ let photoUrls
 
 beforeEach(() => {
   photoUrls = []
+  // Настройки отображения (включая сохранённые фильтры) живут в localStorage:
+  // без очистки следующий тест унаследует срез предыдущего.
+  window.localStorage.clear()
   setActivePinia(createPinia())
   useSessionStore().authEnabled = false
 
@@ -106,6 +109,58 @@ describe('фильтры в адресе страницы', () => {
     // «Сегодня» — конкретные календарные сутки, а не «за неделю» по умолчанию.
     expect(params.get('date_from')).toBeTruthy()
     expect(params.get('date_from')).toBe(params.get('date_to'))
+
+    wrapper.unmount()
+  })
+
+  it('восстанавливает сохранённые период и сортировку, когда адрес пуст', async () => {
+    const display = useDisplayStore()
+    display.filters = {
+      period: 'today',
+      from: null,
+      to: null,
+      sortKey: 'filename',
+      sortDirection: 'asc',
+    }
+
+    const { wrapper, router } = await mountPage()
+
+    const params = lastPhotoParams()
+
+    // Привычный срез пользователя: сортировка по имени и «сегодня».
+    expect(params.get('sort')).toBe('filename')
+    expect(params.get('order')).toBe('asc')
+    expect(params.get('date_from')).toBeTruthy()
+    expect(params.get('date_from')).toBe(params.get('date_to'))
+
+    // Адрес повторяет то, что показано, — ссылку можно передать коллеге.
+    expect(router.currentRoute.value.query.sort).toBe('filename')
+    expect(router.currentRoute.value.query.period).toBe('today')
+
+    wrapper.unmount()
+  })
+
+  it('фильтры из адреса главнее сохранённых и не переписывают их', async () => {
+    const display = useDisplayStore()
+    display.filters = {
+      period: 'month',
+      from: null,
+      to: null,
+      sortKey: 'filename',
+      sortDirection: 'asc',
+    }
+
+    const { wrapper } = await mountPage('?sort=address&order=desc')
+
+    const params = lastPhotoParams()
+
+    // Ссылка применила своё…
+    expect(params.get('sort')).toBe('address')
+    expect(params.get('order')).toBe('desc')
+
+    // …но чужой срез не стал «привычным» у пользователя.
+    expect(display.filters.sortKey).toBe('filename')
+    expect(display.filters.period).toBe('month')
 
     wrapper.unmount()
   })

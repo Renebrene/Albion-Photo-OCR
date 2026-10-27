@@ -154,8 +154,45 @@ export const useDisplayStore = defineStore('display', () => {
    * Take the settings from a plain object (localStorage or the server),
    * falling back to the defaults for anything missing or unusable.
    */
+  // Фильтры грида (период и сортировка) — личные настройки, а не часть адреса:
+  // человек открывает базу и видит привычный срез. Адрес главнее — ссылка с
+  // фильтрами применяет свои значения и сохранённые не затирает, поэтому
+  // setFilters зовут только из обработчиков действий пользователя.
+  const filters = ref({
+    period: 'week',
+    from: null,
+    to: null,
+    sortKey: 'date',
+    sortDirection: 'desc',
+  })
+
+  function normaliseFilters(source) {
+    const saved = source && typeof source === 'object' ? source : {}
+
+    return {
+      period: typeof saved.period === 'string' ? saved.period : 'week',
+      from: typeof saved.from === 'string' && saved.from ? saved.from : null,
+      to: typeof saved.to === 'string' && saved.to ? saved.to : null,
+      sortKey: typeof saved.sortKey === 'string' ? saved.sortKey : 'date',
+      sortDirection: saved.sortDirection === 'asc' ? 'asc' : 'desc',
+    }
+  }
+
+  /**
+   * Запомнить фильтры грида (период и сортировка).
+   *
+   * Значения, пришедшие из адреса страницы, сюда не попадают: чужая ссылка не
+   * должна становиться чьим-то «привычным срезом» после одного открытия.
+   */
+  function setFilters(partial) {
+    filters.value = normaliseFilters({ ...filters.value, ...partial })
+    persist()
+  }
+
   function applyState(source) {
     const saved = source && typeof source === 'object' ? source : {}
+
+    filters.value = normaliseFilters(saved.filters)
 
     tileColumns.value = TILE_COUNTS.some(
       (option) => option.value === saved.tileColumns,
@@ -275,6 +312,7 @@ export const useDisplayStore = defineStore('display', () => {
 
   function snapshot() {
     return {
+      filters: { ...filters.value },
       tileColumns: tileColumns.value,
       listFields: [...listFields.value],
       downloadNameMode: downloadNameMode.value,
@@ -577,6 +615,10 @@ export const useDisplayStore = defineStore('display', () => {
     tileShowAddressName,
     dateFilterMode,
     addressClientMode,
+    // Период и сортировка грида — личные настройки, переживают F5 и вход с
+    // другой машины; адрес страницы по-прежнему главнее.
+    filters,
+    setFilters,
     leftPanelOpen,
     rightPanelOpen,
     leftPanelWidth,

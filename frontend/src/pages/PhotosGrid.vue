@@ -282,6 +282,8 @@ const sortKey = computed({
     if (store.sortKey === value) return
 
     store.sortKey = value
+    // Сортировка — часть привычного среза: запоминаем её за пользователем.
+    display.setFilters({ sortKey: value })
     store.refresh()
     writeFiltersToQuery()
   },
@@ -293,12 +295,28 @@ const sortDirection = computed({
     if (store.sortDirection === value) return
 
     store.sortDirection = value
+    display.setFilters({ sortDirection: value })
     store.refresh()
     // Направление сортировки — часть выдачи, как и сам ключ: без записи в адрес
     // F5 и чужая ссылка восстанавливали прежнее направление (второй аудит, п. 1).
     writeFiltersToQuery()
   },
 })
+
+/**
+ * Пользователь сменил период или его границы: запомнить это как свой срез.
+ *
+ * Отдельно от `apply()`: тот вызывается и при восстановлении фильтров из
+ * адреса, и при первом рендере — сохранять оттуда чужие значения нельзя.
+ */
+function onPeriodChange() {
+  display.setFilters({
+    period: period.value,
+    from: customFrom.value,
+    to: customTo.value,
+  })
+  apply()
+}
 
 const sortOptions = [
   { label: 'По имени файла', value: 'filename' },
@@ -1048,6 +1066,25 @@ onMounted(async () => {
     if (filters.combine) display.addressClientMode = filters.combine
     if (filters.sort) store.sortKey = filters.sort
     if (filters.order) store.sortDirection = filters.order
+  } else {
+    // Адрес фильтров не задаёт (обычный вход в базу) — берём привычный срез
+    // пользователя: период и сортировку, сохранённые его прошлым действием.
+    const saved = display.filters || {}
+
+    if (PERIODS.some((item) => item.value === saved.period)) {
+      period.value = saved.period
+    }
+
+    customFrom.value = saved.from || null
+    customTo.value = saved.to || null
+
+    if (sortOptions.some((option) => option.value === saved.sortKey)) {
+      store.sortKey = saved.sortKey
+    }
+
+    if (['asc', 'desc'].includes(saved.sortDirection)) {
+      store.sortDirection = saved.sortDirection
+    }
   }
 
   await store.loadFacets()
@@ -3243,7 +3280,7 @@ function tagList(meta) {
             option-value="value"
             label="Период"
             style="min-width: 150px"
-            @update:model-value="apply()"
+            @update:model-value="onPeriodChange"
           />
           <template v-if="period === 'custom'">
             <q-input
@@ -3253,7 +3290,7 @@ function tagList(meta) {
               outlined
               label="С"
               style="width: 130px"
-              @change="apply()"
+              @change="onPeriodChange"
               @blur="apply()"
             />
             <q-input
@@ -3263,7 +3300,7 @@ function tagList(meta) {
               outlined
               label="По"
               style="width: 130px"
-              @change="apply()"
+              @change="onPeriodChange"
               @blur="apply()"
             />
           </template>
