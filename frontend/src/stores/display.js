@@ -158,6 +158,11 @@ export const useDisplayStore = defineStore('display', () => {
   // человек открывает базу и видит привычный срез. Адрес главнее — ссылка с
   // фильтрами применяет свои значения и сохранённые не затирает, поэтому
   // setFilters зовут только из обработчиков действий пользователя.
+  // Группа верхней панели (задание, п. 7) — запоминается за пользователем.
+  // Хранится здесь же, потому что это личная настройка отображения, а не
+  // фильтр: она меняет весь смысл грида и списков.
+  const photoGroup = ref('screens')
+
   const filters = ref({
     period: 'week',
     from: null,
@@ -191,6 +196,11 @@ export const useDisplayStore = defineStore('display', () => {
 
   function applyState(source) {
     const saved = source && typeof source === 'object' ? source : {}
+
+    photoGroup.value =
+      typeof saved.photoGroup === 'string' && saved.photoGroup
+        ? saved.photoGroup
+        : 'screens'
 
     filters.value = normaliseFilters(saved.filters)
 
@@ -312,6 +322,7 @@ export const useDisplayStore = defineStore('display', () => {
 
   function snapshot() {
     return {
+      photoGroup: photoGroup.value,
       filters: { ...filters.value },
       tileColumns: tileColumns.value,
       listFields: [...listFields.value],
@@ -619,6 +630,9 @@ export const useDisplayStore = defineStore('display', () => {
     // другой машины; адрес страницы по-прежнему главнее.
     filters,
     setFilters,
+    // Группа верхней панели: «Экраны» / «Р-н-Д 6х3» / «Города области» /
+    // «Область и трассы 6х3» / «Р-н-Д малые форматы».
+    photoGroup,
     leftPanelOpen,
     rightPanelOpen,
     leftPanelWidth,

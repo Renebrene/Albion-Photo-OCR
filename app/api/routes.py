@@ -168,6 +168,11 @@ def list_photos(
     combine: str = Query("union", pattern="^(union|address|client)$"),
     collection_id: int | None = Query(None, ge=1),
     ids: list[str] | None = Query(None, max_length=200),
+    # Группа верхней панели (задание, п. 7): грид показывает только адреса
+    # этой закладки. Значение короткое — ссылку можно передать коллеге.
+    group: str | None = Query(
+        None, pattern="^(screens|small|rostov|roads|cities)$"
+    ),
     principal=Depends(require_scope("read")),
     sort: str = Query("photo_id"),
     order: str = Query("asc", pattern=r"^(asc|desc)$"),
@@ -191,6 +196,24 @@ def list_photos(
                 status_code=422,
                 detail="collection scope must be photos",
             )
+
+    # Группа верхней панели сужает выборку до адресов своей закладки. Выбранные
+    # в панели адреса остаются фильтром внутри группы; если выбор пуст — берём
+    # всю группу. Выбор вне группы даёт пустой грид, а не «всё подряд».
+    if group:
+        group_values = {
+            f"addr:{value}" for value in directory_mod.address_ids_for_tab(group)
+        }
+
+        if address:
+            address = [
+                str(value).strip()
+                for value in address
+                if str(value).strip() in group_values
+            ]
+
+        if not address:
+            address = sorted(group_values) or ["addr:-1"]
 
     items, next_cursor = repository.list_photos(
         limit=limit,
@@ -470,21 +493,91 @@ def list_addresses(
     date_to: date_type | None = Query(None),
     date_mode: str = Query("upload", pattern="^(upload|capture)$"),
     client: list[str] | None = Query(None, max_length=100),
+    group: str | None = Query(
+        None, pattern="^(screens|small|rostov|roads|cities)$"
+    ),
 ):
+    """
+    Адреса левой панели, сведённые к сторонам.
+
+    Поверхности одной стороны (A(1), A(2), A(3)) дают одну строку: `ids`
+    перечисляет адреса поверхностей, `count`/`period_count` суммируются,
+    идентификаторы объединяются. `group` оставляет только адреса выбранной
+    группы верхней панели (задание, п. 7).
+    """
+
     # `count` is all-time (the panel must not lose it when a period is picked);
     # `period_count` repeats the count inside the caller's date range.
     # `client` narrows the list in client-priority mode.
     start, end = _date_params(date_from, date_to)
 
-    return {
-        "items": repository.list_addresses(
-            limit=limit,
-            date_from=start,
-            date_to=end,
-            date_mode=date_mode,
-            clients=client,
-        )
-    }
+    items = repository.list_addresses(
+        limit=limit,
+        date_from=start,
+        date_to=end,
+        date_mode=date_mode,
+        clients=client,
+    )
+
+    from app.api import sides as sides_mod
+
+    grouped: list[dict] = []
+    by_key: dict[tuple[str, str, str], dict] = {}
+    order: list[tuple[str, str, str]] = []
+
+    for item in items:
+        # «Требуют проверки» — служебная строка, её не сводим.
+        if item.get("review"):
+            grouped.append(item)
+            continue
+
+        if group and directory_mod.address_tab(
+            item.get("scope") or "",
+            item.get("city") or "",
+            item.get("format") or "",
+        ) != group:
+            continue
+
+        base, side = sides_mod.split_legal_side(item.get("legal_address") or "")
+        parent = sides_mod.parent_side(side, item.get("format") or "")
+        key = (base.casefold(), str(item.get("format") or "").casefold(), parent)
+
+        entry = by_key.get(key)
+
+        if entry is None:
+            entry = {
+                "address": item.get("address"),
+                "address_id": item.get("address_id"),
+                # id всех поверхностей стороны: выбор в панели отмечает их разом.
+                "ids": [],
+                "name": (
+                    item.get("simple_address") or f"{base}, {parent}"
+                ).strip(", "),
+                "simple_address": item.get("simple_address") or "",
+                "legal_address": base,
+                "format": item.get("format") or "",
+                "city": item.get("city") or "",
+                "scope": item.get("scope") or "",
+                "side": parent,
+                "fingerprints": [],
+                "count": 0,
+                "period_count": 0,
+                "review": False,
+            }
+            by_key[key] = entry
+            order.append(key)
+
+        entry["ids"].append(item.get("address_id"))
+        entry["count"] += int(item.get("count") or 0)
+        entry["period_count"] += int(item.get("period_count") or 0)
+
+        for fingerprint_id in item.get("fingerprints") or []:
+            if fingerprint_id not in entry["fingerprints"]:
+                entry["fingerprints"].append(fingerprint_id)
+
+    grouped.extend(by_key[key] for key in order)
+
+    return {"items": grouped}
 
 
 @read_router.get("/v1/clients", response_model=None)

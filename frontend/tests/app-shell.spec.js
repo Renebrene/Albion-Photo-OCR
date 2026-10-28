@@ -709,7 +709,7 @@ describe('оболочка приложения', () => {
     const wrapper = await mountShell()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Фотогалерея')
+    expect(wrapper.text()).toContain('Видеоэкраны РнД и Область')
     expect(wrapper.text()).toContain('Видео')
     expect(wrapper.html()).toContain('/technical')
     expect(wrapper.text()).toContain('Обновление базы')
@@ -746,7 +746,7 @@ describe('оболочка приложения', () => {
     const html = wrapper.html()
 
     // Разрешено: грид, фильтры, текстовая строка поиска, видео.
-    expect(wrapper.text()).toContain('Фотогалерея')
+    expect(wrapper.text()).toContain('Видеоэкраны РнД и Область')
     expect(wrapper.text()).toContain('Видео')
     expect(
       wrapper.find('input[placeholder*="Название файла"]').exists(),
@@ -895,7 +895,13 @@ describe('оболочка приложения', () => {
 
   it('переключает верхнюю кнопку на отдельную видеогалерею', async () => {
     const wrapper = await mountShell()
-    const videosTab = wrapper.findAll('a').find((item) => item.text().includes('Видео'))
+    // Вкладка фото теперь тоже начинается с «Видеоэкраны…» — отличаем по тексту.
+    const videosTab = wrapper
+      .findAll('a')
+      .find((item) => {
+        const text = item.text()
+        return text.includes('Видео') && !text.includes('экраны')
+      })
 
     expect(videosTab).toBeTruthy()
     await videosTab.trigger('click')

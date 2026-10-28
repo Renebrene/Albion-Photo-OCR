@@ -1471,12 +1471,14 @@ def list_addresses(
                     """ + client_filter_s + """
                 )
                 SELECT d.address_id, d.simple_address, d.legal_address,
+                       d.format, d.city, d.scope,
                        count(e.photo_id) AS count,
                        count(e.photo_id) FILTER (WHERE """ + period_sql + """) AS period_count
                 FROM public.address_directory AS d
                 LEFT JOIN eff AS e ON e.address_id = d.address_id
                 WHERE d.active
-                GROUP BY d.address_id, d.simple_address, d.legal_address
+                GROUP BY d.address_id, d.simple_address, d.legal_address,
+                         d.format, d.city
                 """ + ("HAVING count(e.photo_id) > 0 " if clients else "") + """
                 ORDER BY lower(COALESCE(NULLIF(btrim(d.simple_address), ''),
                                         d.legal_address)),
@@ -1536,7 +1538,16 @@ def list_addresses(
             }
         )
 
-    for address_id, simple_address, legal_address, count, period_count in rows:
+    for (
+        address_id,
+        simple_address,
+        legal_address,
+        format_name,
+        city,
+        scope,
+        count,
+        period_count,
+    ) in rows:
         address_id = int(address_id)
         name = (simple_address or legal_address or f"Адрес {address_id}").strip()
 
@@ -1547,6 +1558,9 @@ def list_addresses(
                 "name": name,
                 "simple_address": simple_address,
                 "legal_address": legal_address,
+                "format": format_name or "",
+                "city": city or "",
+                "scope": scope or "",
                 "fingerprints": mapped.get(address_id, []),
                 "count": int(count),
                 "period_count": int(period_count),

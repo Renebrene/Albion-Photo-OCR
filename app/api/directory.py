@@ -182,6 +182,50 @@ def address_tab(scope: str, city: str, format_name: str) -> str:
     return TAB_CITY
 
 
+def list_address_rows() -> list[dict]:
+    """Лёгкий список адресов без счётчиков — для фильтра по закладкам."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT address_id, legal_address, simple_address, format, city, scope
+                FROM public.address_directory
+                WHERE active
+                ORDER BY address_id
+                """
+            )
+            rows = cur.fetchall()
+
+    return [
+        {
+            "address_id": int(row[0]),
+            "legal_address": row[1],
+            "simple_address": row[2],
+            "format": row[3] or "",
+            "city": row[4] or "",
+            "scope": row[5],
+        }
+        for row in rows
+    ]
+
+
+def address_ids_for_tab(tab: str) -> list[int]:
+    """
+    id адресов закладки слепков (задание, п. 7).
+
+    Кнопки верхней панели перерисовывают грид под группу: «Р-н-Д 6х3»,
+    «Города области», «Область и трассы 6х3», «Р-н-Д малые форматы» и закладка
+    «Видеоэкраны РнД и Область» (экраны). Возвращаются только активные адреса.
+    """
+
+    return [
+        row["address_id"]
+        for row in list_address_rows()
+        if address_tab(row["scope"], row["city"], row["format"]) == tab
+    ]
+
+
 def tab_counts(addresses: list[dict]) -> dict[str, int]:
     """Сколько адресов попадает в каждую закладку."""
 

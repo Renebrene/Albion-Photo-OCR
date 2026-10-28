@@ -17,6 +17,45 @@ const router = useRouter()
 const session = useSessionStore()
 const photos = usePhotosStore()
 const display = useDisplayStore()
+
+// Группы верхней панели (задание, п. 7). Текст в две строки; значение
+// совпадает с закладками раздела «Слепки» и параметром `group` у грида.
+const GROUP_BUTTONS = [
+  {
+    value: 'rostov',
+    label: 'Р-н-Д\n6х3',
+    tooltip: 'Ростов-на-Дону: щиты и призматроны',
+  },
+  {
+    value: 'cities',
+    label: 'Города\nобласти',
+    tooltip: 'Города Ростовской области, кроме Ростова',
+  },
+  {
+    value: 'roads',
+    label: 'Область и\nтрассы 6х3',
+    tooltip: 'Районы области и трассы',
+  },
+  {
+    value: 'small',
+    label: 'Р-н-Д\nмалые форматы',
+    tooltip: 'Ростов: сити-формат, скроллер, пиллар',
+  },
+]
+
+/** Выбрать группу: грид и списки перерисовываются, выбор запоминается. */
+async function pickGroup(value) {
+  if (display.photoGroup !== value) {
+    display.photoGroup = value
+    display.setFilters({}) // запускает сохранение настроек (дебаунс)
+  }
+
+  await photos.setGroup(value)
+
+  if (router.currentRoute.value.path !== '/') {
+    await router.push('/')
+  }
+}
 const pipeline = usePipelineStore()
 
 const password = ref('')
@@ -109,6 +148,10 @@ async function afterAuth() {
   // The display settings follow the user, not the browser. A Guest always
   // starts from the built-in defaults and never persists them.
   if (canPersist) await display.loadFromServer()
+
+  // Последняя выбранная группа восстанавливается за пользователем и сразу
+  // применяется к гриду (задание, п. 7, пункт «д»).
+  await photos.setGroup(display.photoGroup)
 
   if (canSeeStats.value) {
     await loadStats()
@@ -383,9 +426,35 @@ function toggleDark() {
           shrink
           class="header-gallery"
         >
-          <q-route-tab to="/" icon="photo_library" label="Фотогалерея" exact />
+          <q-route-tab
+            to="/"
+            icon="photo_library"
+            label="Видеоэкраны РнД и Область"
+            exact
+          />
           <q-route-tab to="/videos" icon="movie" label="Видео" exact />
         </q-tabs>
+
+        <!-- Группы верхней панели (задание, п. 7): выбор меняет весь грид и
+             списки. Последний выбор запоминается за пользователем. -->
+        <div
+          v-if="session.user || !session.authEnabled"
+          class="header-groups row items-center no-wrap q-ml-md"
+        >
+          <q-btn
+            v-for="option in GROUP_BUTTONS"
+            :key="option.value"
+            dense
+            flat
+            no-caps
+            class="header-group"
+            :class="{ 'header-group--active': photos.group === option.value }"
+            @click="pickGroup(option.value)"
+          >
+            <span class="header-group-label">{{ option.label }}</span>
+            <q-tooltip>{{ option.tooltip }}</q-tooltip>
+          </q-btn>
+        </div>
 
         <!-- Технический раздел: шестерёнка вместо вкладки. Доступен только
              Администратору и Менеджеру — у Гостя его нет вовсе. -->
@@ -698,7 +767,7 @@ function toggleDark() {
   padding: 2px 14px 2px 6px;
 }
 
-/* Главный экран («Фотогалерея») выделен той же плашкой. */
+/* Главный экран («Видеоэкраны РнД и Область») выделен той же плашкой. */
 .header-gallery :deep(.q-tab) {
   background: rgba(255, 255, 255, 0.18);
   border: 1px solid rgba(255, 255, 255, 0.38);
@@ -710,6 +779,31 @@ function toggleDark() {
 .header-gallery :deep(.q-tab--active) {
   background: rgba(255, 255, 255, 0.34);
   border-color: rgba(255, 255, 255, 0.6);
+}
+
+/* Группы верхней панели (задание, п. 7): текст в две строки. */
+.header-groups {
+  gap: 2px;
+}
+
+.header-group {
+  color: rgba(255, 255, 255, 0.92);
+  min-height: 34px;
+  padding: 2px 8px;
+  border-radius: 8px;
+}
+
+.header-group--active {
+  background: rgba(255, 255, 255, 0.28);
+  color: #fff;
+}
+
+.header-group-label {
+  display: block;
+  white-space: pre-line;
+  font-size: 10.5px;
+  line-height: 1.12;
+  text-align: center;
 }
 
 /* Подвал-статусбар. */

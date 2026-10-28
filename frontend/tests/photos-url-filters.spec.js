@@ -165,6 +165,41 @@ describe('фильтры в адресе страницы', () => {
     wrapper.unmount()
   })
 
+  it('сторона с несколькими поверхностями выбирается целиком', async () => {
+    // Список адресов приходит сведённым к сторонам: у строки несколько id.
+    const base = global.fetch
+    global.fetch = vi.fn(async (url, options = {}) => {
+      const path = String(url).split('?')[0]
+      if (path.endsWith('/v1/addresses')) {
+        return json({
+          items: [
+            {
+              address: 'addr:78',
+              address_id: 78,
+              ids: [78, 79],
+              name: 'Комарова 13',
+              simple_address: 'Комарова',
+              legal_address: 'Комарова 13',
+              count: 4,
+              period_count: 2,
+            },
+          ],
+        })
+      }
+      return base(url, options)
+    })
+
+    const { wrapper } = await mountPage()
+
+    await wrapper.findAll('.address-name').at(0).trigger('click')
+    await flushPromises()
+
+    // Выбраны обе поверхности стороны — иначе грид показал бы половину.
+    expect(lastPhotoParams().getAll('address')).toEqual(['addr:78', 'addr:79'])
+
+    wrapper.unmount()
+  })
+
   it('без фильтров в адресе страница открывается как обычно', async () => {
     const { wrapper, router } = await mountPage()
 

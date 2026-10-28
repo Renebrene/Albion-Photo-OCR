@@ -132,3 +132,71 @@ def test_different_formats_on_one_base_do_not_merge():
 
     assert len(groups) == 2
     assert {group["format"] for group in groups} == {"Щит", "Призматрон"}
+
+
+def _panel_row(address_id, legal, format_name, count, period_count, fingerprints=None):
+    return {
+        "address": f"addr:{address_id}",
+        "address_id": address_id,
+        "name": legal,
+        "simple_address": "",
+        "legal_address": legal,
+        "format": format_name,
+        "city": "Ростов-на-Дону",
+        "scope": "other",
+        "fingerprints": list(fingerprints or []),
+        "count": count,
+        "period_count": period_count,
+        "review": False,
+    }
+
+
+def test_panel_merges_surfaces_into_one_side(monkeypatch):
+    """Левая панель отдаёт сторону, а не три поверхности призматрона."""
+
+    from app.api import routes
+
+    rows = [
+        _panel_row(1, "40 Лет Победы 232, A(1)", "Призматрон", 3, 1, ["78_v33"]),
+        _panel_row(2, "40 Лет Победы 232, A(2)", "Призматрон", 2, 1),
+        _panel_row(3, "339 Стрелковой Дивизии, 7/ Содружества ул., A1", "Щит", 4, 0),
+        _panel_row(4, "339 Стрелковой Дивизии, 7/ Содружества ул., A2", "Щит", 1, 0),
+    ]
+
+    monkeypatch.setattr(routes.repository, "list_addresses", lambda **kwargs: rows)
+
+    items = routes.list_addresses(
+        limit=100, date_from=None, date_to=None, date_mode="upload", client=None, group=None
+    )["items"]
+
+    # Призматрон A(1)+A(2) — одна строка; щит A1 и A2 — две разные.
+    assert len(items) == 3
+
+    prism = next(item for item in items if item["format"] == "Призматрон")
+    assert prism["ids"] == [1, 2]
+    assert prism["side"] == "A"
+    assert prism["count"] == 5
+    assert prism["period_count"] == 2
+    assert prism["fingerprints"] == ["78_v33"]
+
+    shield_sides = sorted(item["side"] for item in items if item["format"] == "Щит")
+    assert shield_sides == ["A1", "A2"]
+
+
+def test_panel_can_be_narrowed_to_a_group(monkeypatch):
+    from app.api import routes
+
+    rows = [
+        _panel_row(1, "40 Лет Победы 232, A(1)", "Призматрон", 3, 1),
+        _panel_row(2, "Таганрогская ул. 157/2, A", "Щит", 4, 0),
+    ]
+    rows[1]["city"] = "Таганрог"
+
+    monkeypatch.setattr(routes.repository, "list_addresses", lambda **kwargs: rows)
+
+    items = routes.list_addresses(
+        limit=100, date_from=None, date_to=None, date_mode="upload", client=None, group="cities"
+    )["items"]
+
+    assert len(items) == 1
+    assert items[0]["city"] == "Таганрог"

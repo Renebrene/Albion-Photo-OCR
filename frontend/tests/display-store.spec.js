@@ -156,6 +156,8 @@ describe('display store', () => {
     await waitLocalWrite()
 
     expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY))).toEqual({
+      // Группа верхней панели (задание, п. 7) — тоже личная настройка.
+      photoGroup: 'screens',
       // Период и сортировка грида — такие же личные настройки.
       filters: {
         period: 'week',

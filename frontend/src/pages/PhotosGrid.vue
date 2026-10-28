@@ -1443,6 +1443,46 @@ function toggleValue(list, value) {
   else list.splice(index, 1)
 }
 
+/**
+ * Значения фильтра для строки панели.
+ *
+ * Строка — сторона: у неё может быть несколько поверхностей (`addr:<id>`),
+ * и выбор должен отметить их все, иначе грид покажет только часть стороны.
+ */
+function addressValues(item) {
+  const ids = Array.isArray(item?.ids) ? item.ids : []
+
+  if (ids.length) return ids.map((value) => `addr:${value}`)
+
+  return item?.address ? [item.address] : []
+}
+
+function isAddressItemActive(item) {
+  const values = addressValues(item)
+
+  return (
+    values.length > 0
+    && values.every((value) => store.selectedAddresses.includes(value))
+  )
+}
+
+/** Клик по стороне в панели: отметить/снять все её поверхности. */
+async function toggleAddressItem(item) {
+  const values = addressValues(item)
+
+  if (!values.length) return
+
+  if (isAddressItemActive(item)) {
+    store.selectedAddresses = store.selectedAddresses.filter(
+      (value) => !values.includes(value),
+    )
+  } else {
+    store.selectedAddresses = [...new Set([...store.selectedAddresses, ...values])]
+  }
+
+  await apply()
+}
+
 async function pickAddress(address) {
   // Выбор из отфильтрованного поиска заменяет только выбор АДРЕСОВ: клиенты,
   // бренд и тег должны остаться (фильтры складываются по OR).
@@ -2959,9 +2999,9 @@ function tagList(meta) {
                 v-for="item in filteredAddresses"
                 :key="item.address"
                 clickable
-                :active="store.selectedAddresses.includes(item.address)"
+                :active="isAddressItemActive(item)"
                 active-class="bg-primary text-white"
-                @click="pickAddress(item.address)"
+                @click="toggleAddressItem(item)"
               >
                 <q-item-section v-if="item.review" avatar>
                   <q-icon name="help_outline" color="orange-9" size="18px">

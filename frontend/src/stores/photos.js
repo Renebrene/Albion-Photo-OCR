@@ -57,6 +57,7 @@ function filterParams(state, { limit, cursor = null }) {
     sort: state.sortKey || 'photo_id',
     order: state.sortDirection || 'asc',
     q: state.query || null,
+    group: state.group || null,
     address: state.selectedAddresses.length ? state.selectedAddresses : null,
     client: state.selectedClients.length ? state.selectedClients : null,
     brand: state.brand || null,
@@ -139,6 +140,10 @@ export const usePhotosStore = defineStore('photos', {
     facetsErrors: { addresses: '', clients: '', collections: '', searches: '' },
     // Когда строки последний раз сверялись с базой (для отладки и тестов).
     syncedAt: null,
+
+    // Группа верхней панели (задание, п. 7): грид показывает только адреса
+    // этой закладки. Пусто — без ограничения (для старых ссылок и тестов).
+    group: null,
 
     // active filters (addresses/clients are multi-select arrays)
     query: '',
@@ -532,6 +537,32 @@ export const usePhotosStore = defineStore('photos', {
       } catch (err) {
         if (request === collectionsRequest) this.error = err.message
       }
+    },
+
+    /**
+     * Сменить группу верхней панели (задание, п. 7).
+     *
+     * Грид перерисовывается под адреса закладки. Выбор адресов и клиентов
+     * сбрасывается: он относился к прежней группе, а «пустой выбор» в новой
+     * означал бы «все адреса группы».
+     */
+    async setGroup(group) {
+      const value = group || null
+
+      if (this.group === value) return
+
+      this.group = value
+
+      // Пока грид не загружен (старт приложения), достаточно запомнить группу:
+      // первый запрос страницы уже уйдёт с ней, лишний круг не нужен.
+      if (!this.items.length) return
+
+      this.selectedAddresses = []
+      this.selectedClients = []
+      this.collectionId = null
+      this.nlIds = []
+      await this.refresh()
+      await Promise.allSettled([this.loadAddresses(), this.loadClients()])
     },
 
     async applyFilters({
