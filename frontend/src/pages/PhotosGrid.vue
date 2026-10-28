@@ -763,8 +763,17 @@ const activeClientCollections = computed(() =>
     .filter(Boolean),
 )
 
+/**
+ * Подпись адреса в теге — как в списках: название и сторона.
+ *
+ * Сторона отличает адреса с одним названием (у щита и экрана A1/A2, у
+ * остальных A/Б), поэтому в теге она нужна: без неё два тега «Комарова 13»
+ * неразличимы (задание, 28.10.2026).
+ */
 function addressTagLabel(item) {
-  return item.name || item.simple_address || item.address
+  const name = item.name || item.simple_address || item.address
+
+  return item.side ? `${name}, ${item.side}` : name
 }
 
 const addressTags = computed(() => {
@@ -778,16 +787,44 @@ const addressTags = computed(() => {
     }))
   }
 
-  return store.selectedAddresses.map((value) => {
-    const found = addresses.value.find((item) => item.address === value)
+  const tags = []
+  const seen = new Set()
 
-    return {
-      key: `address:${value}`,
-      label: found ? addressTagLabel(found) : value,
-      type: 'address',
-      value,
+  for (const value of store.selectedAddresses) {
+    // Строка панели — сторона: клик отмечает все её поверхности
+    // (`addr:<id>`), а тег должен быть один и называться стороной. Раньше на
+    // каждую поверхность рисовался свой тег, и лишние показывали «addr:157».
+    const found = addresses.value.find(
+      (item) =>
+        item.address === value
+        || (item.ids || []).some((id) => `addr:${id}` === value),
+    )
+
+    if (!found) {
+      tags.push({
+        key: `address:${value}`,
+        label: value,
+        type: 'address',
+        value,
+        values: [value],
+      })
+      continue
     }
-  })
+
+    if (seen.has(found.address)) continue
+    seen.add(found.address)
+
+    tags.push({
+      key: `address:${found.address}`,
+      label: addressTagLabel(found),
+      type: 'address',
+      value: found.address,
+      // Снятие тега снимает всю сторону, а не одну поверхность.
+      values: addressValues(found),
+    })
+  }
+
+  return tags
 })
 
 const clientTags = computed(() => {
@@ -841,9 +878,15 @@ function tagColor(type) {
 
 async function removeTag(tag) {
   switch (tag.type) {
-    case 'address':
-      toggleValue(store.selectedAddresses, tag.value)
+    case 'address': {
+      // Тег — сторона: снимаем все её поверхности, иначе от выбора остался бы
+      // след из значений, которых в панели уже не видно.
+      const values = tag.values || [tag.value]
+      store.selectedAddresses = store.selectedAddresses.filter(
+        (value) => !values.includes(value),
+      )
       break
+    }
     case 'client':
       toggleValue(store.selectedClients, tag.value)
       break

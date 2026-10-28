@@ -105,12 +105,12 @@ describe('photos store', () => {
     routes.photos = (url) => {
       urls.push(url)
 
-      // Three pages of 100, 100 and 56: exactly how the grid walks 256 photos.
+      // Три страницы по 50, 50 и 30: как грид проходит 130 фото.
       const cursor = new URL(url, 'http://x').searchParams.get('cursor')
       const pages = {
-        null: { items: Array.from({ length: 100 }, (_, i) => photo(`PH_${i}`)), next_cursor: 'c1' },
-        c1: { items: Array.from({ length: 100 }, (_, i) => photo(`PH_b${i}`)), next_cursor: 'c2' },
-        c2: { items: Array.from({ length: 56 }, (_, i) => photo(`PH_c${i}`)), next_cursor: null },
+        null: { items: Array.from({ length: 50 }, (_, i) => photo(`PH_${i}`)), next_cursor: 'c1' },
+        c1: { items: Array.from({ length: 50 }, (_, i) => photo(`PH_b${i}`)), next_cursor: 'c2' },
+        c2: { items: Array.from({ length: 30 }, (_, i) => photo(`PH_c${i}`)), next_cursor: null },
       }
 
       return jsonResponse(pages[cursor])
@@ -123,11 +123,11 @@ describe('photos store', () => {
     await store.loadPage()
     await store.loadPage()
 
-    expect(store.items).toHaveLength(256)
+    expect(store.items).toHaveLength(130)
     expect(store.hasMore).toBe(false)
 
-    // Одна страница — максимальный размер, который принимает API.
-    expect(urls[0]).toContain('limit=100')
+    // Размер страницы грида (аудит 28.10.2026: 100 → 50).
+    expect(urls[0]).toContain('limit=50')
     // Никакого фильтра по дате по умолчанию: грид показывает все фото.
     expect(urls[0]).not.toContain('date_from')
   })

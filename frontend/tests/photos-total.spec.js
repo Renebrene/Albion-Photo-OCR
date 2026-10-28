@@ -98,7 +98,7 @@ describe('total в гриде', () => {
 })
 
 describe('фоновая синхронизация и ИИ-поиск', () => {
-  it('syncLoaded не просит у API больше 100 строк', async () => {
+  it('syncLoaded не превышает серверный лимит на страницу', async () => {
     let seenLimit = null
 
     global.fetch = vi.fn(async (url) => {
@@ -117,7 +117,10 @@ describe('фоновая синхронизация и ИИ-поиск', () => {
 
     await store.syncLoaded()
 
-    expect(seenLimit).toBe('100')
+    // API принимает не больше 100 строк на страницу; грид просит свой размер
+    // (50 после аудита 28.10.2026) и никогда не выходит за лимит.
+    expect(Number(seenLimit)).toBeLessThanOrEqual(100)
+    expect(seenLimit).toBe('50')
   })
 
   it('applyNlResults обрезает ids до серверного лимита 200', async () => {

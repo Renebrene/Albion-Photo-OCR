@@ -58,6 +58,25 @@ def _open_api_for_tests(monkeypatch):
     monkeypatch.setenv("SCENE_AUTH_REQUIRED", "0")
 
 
+@pytest.fixture(autouse=True)
+def _clear_api_cache():
+    """
+    Every test starts with an empty cache панелей и счётчиков.
+
+    Кэш живёт в модуле и переживает отдельный тест: без сброса следующий тест
+    с теми же параметрами получил бы чужой ответ вместо вызова подменённого
+    репозитория.
+    """
+
+    from app.api import cache
+
+    cache.clear()
+
+    yield
+
+    cache.clear()
+
+
 @pytest.fixture
 def probe_fingerprints():
     """

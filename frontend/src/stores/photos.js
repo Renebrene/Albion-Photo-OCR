@@ -30,10 +30,11 @@ let clientCollectionRequest = 0
 let collectionsRequest = 0
 let searchesRequest = 0
 
-// The API caps one page at 100 rows; the grid loads page by page as the user
-// scrolls, so a bigger page means fewer round trips without holding everything
-// in memory at once.
-const PAGE_SIZE = 100
+// Размер страницы грида. API принимает до 100 строк; 50 — компромисс по
+// времени до первой картинки (аудит 28.10.2026): первая страница — это 50
+// карточек с превью вместо 100 (плитки ленивые, но разметка и запросы превью
+// создаются сразу), а прокрутка догружает следующие страницы тем же курсором.
+const PAGE_SIZE = 50
 // Сколько страниц обходит фоновое обновление строк за один проход.
 const SYNC_MAX_PAGES = 25
 
@@ -433,11 +434,9 @@ export const usePhotosStore = defineStore('photos', {
                 : null,
           }),
           fetchClients({
-            // В приоритете по адресам список клиентов сужается ими.
-            addresses:
-              this.combine === 'address' && this.selectedAddresses.length
-                ? this.selectedAddresses
-                : [],
+            // База поиска клиентов и брендов — весь корпус: список не зависит
+            // ни от выбранных адресов, ни от кнопки-подборки (владелец,
+            // 28.10.2026). Сужение по адресам убрано и здесь, и в loadClients.
             limit: CLIENTS_PAGE_SIZE,
           }),
           fetchCollections(),
@@ -516,11 +515,12 @@ export const usePhotosStore = defineStore('photos', {
       const request = ++clientsRequest
 
       try {
+        // База поиска клиентов и брендов не зависит от списка адресов: ни от
+        // выбранных адресов, ни от кнопки-подборки верхней панели. Раньше в
+        // приоритете по адресам список сужался выбранными адресами, и при
+        // переключении подборки (выбор адресов сбрасывается) он менялся на
+        // глазах — владелец: поиск должен искать по всей базе (28.10.2026).
         const data = await fetchClients({
-          addresses:
-            this.combine === 'address' && this.selectedAddresses.length
-              ? this.selectedAddresses
-              : [],
           limit: CLIENTS_PAGE_SIZE,
         })
 
@@ -549,11 +549,9 @@ export const usePhotosStore = defineStore('photos', {
       this.clientsLoadingMore = true
 
       try {
+        // Продолжение того же полного списка (см. loadClients): сужения по
+        // адресам здесь нет.
         const data = await fetchClients({
-          addresses:
-            this.combine === 'address' && this.selectedAddresses.length
-              ? this.selectedAddresses
-              : [],
           limit: CLIENTS_PAGE_SIZE,
           cursor,
         })

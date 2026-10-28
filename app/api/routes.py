@@ -33,6 +33,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, StreamingResponse
 
 from app import settings_store
+from app.api import cache
 from app.api import directory as directory_mod
 from app.api import fingerprints as fingerprints_mod
 from app.api import file_access
@@ -283,20 +284,41 @@ def list_photos(
     total = None
 
     if cursor is None and count:
-        total = repository.count_photos(
-            query=q,
-            addresses=address,
-            clients=client,
-            date_from=date_from,
-            date_to=date_to,
-            date_mode=date_mode,
-            collection_id=collection_id,
-            ids=ids,
-            brand=brand,
-            tag=tag,
-            category=category,
-            recognized_only=True,
-            combine=combine,
+        # Счётчик дорогой (полный проход по корпусу, 1-5 с) и зависит только от
+        # фильтра: период, группа, адреса, клиенты. Возврат к прежнему периоду
+        # или кнопке берёт готовое число (аудит 28.10.2026).
+        total = cache.cached(
+            (
+                "photos-count",
+                q,
+                tuple(address or []),
+                tuple(client or []),
+                brand,
+                tag,
+                category,
+                # Здесь уже ISO-строки: даты нормализованы _date_params выше.
+                date_from,
+                date_to,
+                date_mode,
+                combine,
+                collection_id,
+                tuple(ids or []),
+            ),
+            lambda: repository.count_photos(
+                query=q,
+                addresses=address,
+                clients=client,
+                date_from=date_from,
+                date_to=date_to,
+                date_mode=date_mode,
+                collection_id=collection_id,
+                ids=ids,
+                brand=brand,
+                tag=tag,
+                category=category,
+                recognized_only=True,
+                combine=combine,
+            ),
         )
 
     return {
@@ -316,10 +338,17 @@ def get_stats(
 
     start, end = _date_params(date_from, date_to)
 
-    return repository.stats(
-        date_from=start,
-        date_to=end,
-        date_mode=date_mode,
+    # Подвал считается по корпусу (1-2 с) и повторяется при каждом обновлении
+    # страницы: короткий кэш по периоду.
+    return dict(
+        cache.cached(
+            ("stats", start, end, date_mode),
+            lambda: repository.stats(
+                date_from=start,
+                date_to=end,
+                date_mode=date_mode,
+            ),
+        )
     )
 
 
@@ -561,14 +590,27 @@ def list_addresses(
     )
     clients = _union_values(client, member_clients)
 
-    items = repository.list_addresses(
-        limit=limit,
-        date_from=start,
-        date_to=end,
-        date_mode=date_mode,
-        clients=clients,
-        group=group,
-    )
+    # Копия списка: запись в кэше переиспользуется между запросами, и случайная
+    # правка на месте испортила бы её для всех.
+    items = list(cache.cached(
+        (
+            "addresses",
+            limit,
+            start,
+            end,
+            date_mode,
+            tuple(clients or []),
+            group,
+        ),
+        lambda: repository.list_addresses(
+            limit=limit,
+            date_from=start,
+            date_to=end,
+            date_mode=date_mode,
+            clients=clients,
+            group=group,
+        ),
+    ))
 
     if member_addresses is not None:
         items = [
@@ -647,13 +689,27 @@ def list_clients(
     двухсот), а найти остальные можно было только через строку поиска.
 
     `address` narrowing is used in address-priority mode.
+
+    Первая страница кэшируется коротко: панель считает клиентов по всему
+    корпусу (2-4 с), а список меняется только пайплайном. Страницы продолжения
+    (курсор) не кэшируются — их запрашивают один раз при прокрутке.
     """
 
-    items, next_cursor = repository.list_clients(
-        limit=limit,
-        cursor=cursor,
-        addresses=address,
-    )
+    def load() -> tuple[list[dict], str | None]:
+        return repository.list_clients(
+            limit=limit,
+            cursor=cursor,
+            addresses=address,
+        )
+
+    if cursor is None:
+        items, next_cursor = cache.cached(
+            ("clients", limit, tuple(address or [])),
+            load,
+        )
+        items = list(items)
+    else:
+        items, next_cursor = load()
 
     return {"items": items, "next_cursor": next_cursor}
 

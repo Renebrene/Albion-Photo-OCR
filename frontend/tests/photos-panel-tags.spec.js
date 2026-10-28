@@ -887,3 +887,104 @@ describe('уход со страницы', () => {
     expect(revoke).toHaveBeenCalledWith('blob:preview')
   })
 })
+
+describe('сторона в тегах', () => {
+  // Панель отдаёт строку-сторону: у неё несколько поверхностей (`ids`), а клик
+  // отмечает их все. Требование владельца (28.10.2026): в тегах видно сторону,
+  // как в списках, и тег на сторону один.
+  function installSides() {
+    global.fetch = vi.fn(async (url) => {
+      const parsed = new URL(String(url), 'http://localhost')
+
+      if (parsed.pathname.endsWith('/v1/photos')) {
+        return json({ items: [photo], next_cursor: null, total: 1 })
+      }
+
+      if (parsed.pathname.endsWith('/v1/addresses')) {
+        return json({
+          items: [
+            {
+              address: 'addr:78',
+              address_id: 78,
+              ids: [78, 79],
+              side: 'A',
+              name: 'Комарова 13',
+              simple_address: 'Комарова 13',
+              legal_address: 'Комарова, 13, A',
+              count: 2,
+              period_count: 2,
+            },
+            {
+              address: 'addr:80',
+              address_id: 80,
+              ids: [80],
+              side: 'Б',
+              name: 'Комарова 13',
+              simple_address: 'Комарова 13',
+              legal_address: 'Комарова, 13, Б',
+              count: 1,
+              period_count: 1,
+            },
+          ],
+        })
+      }
+
+      return json({ items: [], next_cursor: null })
+    })
+  }
+
+  it('на сторону приходится один тег с её буквой', async () => {
+    installSides()
+    const wrapper = await mountGrid()
+
+    // Клик по стороне отмечает все поверхности: 78 и 79.
+    store.selectedAddresses = ['addr:78', 'addr:79']
+    await flushPromises()
+    await nextTick()
+
+    const text = wrapper.find('.tags-row').text()
+
+    expect(text).toContain('Комарова 13, A')
+    // Значения поверхностей в теги не попадают.
+    expect(text).not.toContain('addr:')
+    expect(wrapper.findAll('.tags-row .q-chip')).toHaveLength(1)
+
+    wrapper.unmount()
+  })
+
+  it('разные стороны одного названия различаются', async () => {
+    installSides()
+    const wrapper = await mountGrid()
+
+    store.selectedAddresses = ['addr:78', 'addr:80']
+    await flushPromises()
+    await nextTick()
+
+    // У чипа в тексте ещё подпись кнопки снятия («cancel»).
+    const labels = wrapper
+      .findAll('.tags-row .q-chip')
+      .map((chip) => chip.text().replace('cancel', '').trim())
+
+    expect(labels).toEqual(['Комарова 13, A', 'Комарова 13, Б'])
+
+    wrapper.unmount()
+  })
+
+  it('снятие тега снимает всю сторону, а не одну поверхность', async () => {
+    installSides()
+    const wrapper = await mountGrid()
+
+    store.selectedAddresses = ['addr:78', 'addr:79', 'addr:80']
+    await flushPromises()
+    await nextTick()
+
+    // Убираем первую сторону (A): остаются только её соседи из Б.
+    const chips = wrapper.findAll('.tags-row .q-chip')
+    await chips[0].find('.q-chip__icon--remove').trigger('click')
+    await flushPromises()
+
+    expect(store.selectedAddresses).toEqual(['addr:80'])
+
+    wrapper.unmount()
+  })
+})
