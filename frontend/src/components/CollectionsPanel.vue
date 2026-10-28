@@ -32,7 +32,17 @@ const canEdit = computed(() => {
   return ['Администратор', 'Менеджер'].includes(session.user?.role)
 })
 
-const items = computed(() => store.collectionsFor(props.scope))
+// Подборки адресов показываются только в своей группе верхней панели;
+// клиентские — всегда (задание, п. 7, пункт «е»).
+const items = computed(() =>
+  store.collectionsFor(props.scope).filter((collection) => {
+    const groups = collection.groups
+
+    if (!store.group || !Array.isArray(groups) || !groups.length) return true
+
+    return groups.includes(store.group)
+  }),
+)
 
 // Подборка подсвечивается тем же цветом, что и её элементы в панели:
 // адреса — primary, клиенты — secondary.
@@ -83,7 +93,7 @@ async function remove(collection) {
 </script>
 
 <template>
-  <q-card flat bordered class="column" style="flex: 1; min-height: 140px">
+  <q-card flat bordered class="column collection-panel" style="flex: 1; min-height: 140px">
     <q-card-section class="panel-head q-pb-xs row items-center">
       <div class="panel-title col">{{ title }}</div>
       <q-btn
@@ -108,15 +118,13 @@ async function remove(collection) {
           :active-class="activeClass"
           @click="pick(collection)"
         >
-          <q-item-section avatar>
-            <q-icon name="bookmark" size="18px" />
-          </q-item-section>
+          <!-- Без пиктограммы: строки обеих панелей одинаковые, текст с одной
+               левой кромки (задание, 28.10.2026). -->
           <q-item-section>
-            <div class="ellipsis">{{ collection.name }}</div>
+            <div class="ellipsis collection-name">{{ collection.name }}</div>
             <div class="text-caption text-grey-7">
-              {{
-                scope === 'clients' ? 'клиентов' : 'адресов'
-              }}: {{ collection.members }}
+              {{ scope === 'clients' ? 'клиентов' : 'адресов' }}:
+              {{ collection.members }}
             </div>
           </q-item-section>
           <q-item-section v-if="canEdit" side>
@@ -141,3 +149,16 @@ async function remove(collection) {
     </q-scroll-area>
   </q-card>
 </template>
+
+<style scoped>
+/* Одинаковые строки в обеих панелях: одна высота и одно выравнивание. */
+.collection-panel :deep(.q-item) {
+  min-height: 48px;
+  padding: 4px 12px;
+}
+
+.collection-name {
+  font-size: 13px;
+  line-height: 1.25;
+}
+</style>

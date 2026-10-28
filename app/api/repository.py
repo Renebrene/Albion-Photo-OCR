@@ -2232,6 +2232,36 @@ def list_collections(user_id: str | None = None) -> list[dict]:
             return [_collection_row(row) for row in cur.fetchall()]
 
 
+def collection_address_members() -> dict[int, list[str]]:
+    """
+    Значения адресных подборок — для фильтра по группам верхней панели.
+
+    Подборка хранит только значения (`addr:<id>`), поэтому принадлежность к
+    группе считается по её адресам, а не хранится отдельно: адрес могли
+    переимпортировать, и группа у него сменится вместе с данными.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT cm.collection_id, cm.member_value
+                FROM public.collection_members AS cm
+                JOIN public.collections AS c
+                  ON c.collection_id = cm.collection_id
+                WHERE cm.member_type = 'address'
+                """
+            )
+            rows = cur.fetchall()
+
+    result: dict[int, list[str]] = {}
+
+    for collection_id, value in rows:
+        result.setdefault(int(collection_id), []).append(str(value))
+
+    return result
+
+
 def get_collection(collection_id: int, user_id: str | None = None) -> dict | None:
     sql = """
         SELECT

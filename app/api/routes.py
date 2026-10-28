@@ -1955,7 +1955,42 @@ def _principal_user_id(principal) -> str | None:
 
 @read_router.get("/v1/collections", response_model=None)
 def list_collections(principal=Depends(require_scope("read"))):
-    return {"items": repository.list_collections(_principal_user_id(principal))}
+    items = repository.list_collections(_principal_user_id(principal))
+
+    # Подборка адресов получает список групп верхней панели (задание, п. 7):
+    # панель показывает только подборки, относящиеся к выбранной группе.
+    # Клиентские подборки групп не имеют — они видны в любом режиме.
+    address_items = [item for item in items if item.get("scope") == "addresses"]
+
+    if address_items:
+        members = repository.collection_address_members()
+        tabs = {
+            row["address_id"]: directory_mod.address_tab(
+                row["scope"], row["city"], row["format"]
+            )
+            for row in directory_mod.list_address_rows()
+        }
+
+        for item in address_items:
+            groups = set()
+
+            for value in members.get(int(item["collection_id"]), []):
+                if not value.lower().startswith("addr:"):
+                    continue
+
+                try:
+                    address_id = int(value.split(":", 1)[1])
+                except ValueError:
+                    continue
+
+                tab = tabs.get(address_id)
+
+                if tab:
+                    groups.add(tab)
+
+            item["groups"] = sorted(groups)
+
+    return {"items": items}
 
 
 def _require_member_type(collection: dict, member_type: str) -> None:
