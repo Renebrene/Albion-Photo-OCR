@@ -27,7 +27,15 @@ const scope = ref('screens')
 // «Сайта»: у щита и видеоэкрана A1/A2 остаются разными сторонами). Если у
 // стороны несколько поверхностей, действия спрашивают, к какой применить.
 const sideByScope = ref({ screens: [], other: [] })
-const sideItems = computed(() => sideByScope.value[scope.value] || [])
+// Порядковый номер строки: колонка «Сторона» убрана, сторону видно в самой
+// строке адреса, а по номеру удобно называть строку в разговоре и в отчёте
+// (задание, 28.10.2026).
+const sideItems = computed(() =>
+  (sideByScope.value[scope.value] || []).map((row, index) => ({
+    ...row,
+    row_number: index + 1,
+  })),
+)
 
 // В закладках считаем стороны — таблица показывает их же, а не поверхности.
 const scopeCounts = computed(() => ({
@@ -134,20 +142,30 @@ async function onImportFileChosen(event) {
 // Колонки объявлены один раз: литерал в шаблоне создавался заново на каждой
 // отрисовке, а q-table по нему пересобирает строки.
 // Сведённый вид: одна строка — одна сторона со счётчиком поверхностей.
+/**
+ * Адрес строки со стороной: «Комарова 13, A».
+ *
+ * Так же подписаны адреса в списке выбора слепка (`FingerprintsList`), поэтому
+ * сторона ушла из отдельной колонки в строку адреса.
+ */
+function addressLine(row) {
+  return row.side ? `${row.base}, ${row.side}` : row.base
+}
+
 /** Идентификаторы всех поверхностей стороны — без повторов. */
 function sideFingerprints(row) {
   return [...new Set((row.surfaces || []).flatMap((item) => item.fingerprints || []))]
 }
 
 const columns = [
-  { name: 'side', label: 'Сторона', field: 'side', align: 'left' },
+  { name: 'num', label: '№', field: 'row_number', align: 'left' },
   { name: 'base', label: 'Адрес', field: 'base', align: 'left' },
   // Приходит из XLS (колонка «Формат»); на «Экранах» — всегда «Видеоэкран».
   { name: 'format', label: 'Формат', field: 'format', align: 'left' },
   { name: 'city', label: 'Город', field: 'city', align: 'left' },
   { name: 'fp', label: 'Идентификаторы', field: 'surfaces', align: 'left' },
   { name: 'count', label: 'Поверхностей', field: 'count', align: 'right' },
-  { name: 'actions', label: '', field: 'side', align: 'right' },
+  { name: 'actions', label: '', field: 'base', align: 'right' },
 ]
 
 async function load() {
@@ -413,9 +431,11 @@ async function saveMap() {
             {{ scope === 'screens' ? 'Видеоэкран' : (props.row.format || '—') }}
           </q-td>
         </template>
+        <!-- Сторона — в самой строке адреса: отдельной колонки «Сторона» нет
+             (задание, 28.10.2026). -->
         <template #body-cell-base="props">
           <q-td :props="props">
-            {{ props.row.base }}
+            {{ addressLine(props.row) }}
             <div v-if="props.row.simple" class="text-caption text-grey">
               {{ props.row.simple }}
             </div>

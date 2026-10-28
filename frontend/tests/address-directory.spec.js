@@ -35,10 +35,10 @@ function installFetch() {
 
     // Сведённый вид: одна строка — одна сторона (адреса в фикстуре без стороны).
     if (method === 'GET' && path === '/api/v1/addresses/directory/grouped') {
-      const items = directory.map((row) => ({
+      const items = directory.map((row, index) => ({
         base: row.legal_address,
         format: row.format || '',
-        side: '',
+        side: index === 0 ? 'A' : 'B',
         city: row.city || '',
         scope: row.scope || 'screens',
         simple: row.simple_address || '',
@@ -47,7 +47,7 @@ function installFetch() {
           {
             address_id: row.address_id,
             legal_address: row.legal_address,
-            side: '',
+            side: index === 0 ? 'A' : 'B',
             fingerprints: row.fingerprints || [],
           },
         ],
@@ -99,6 +99,14 @@ beforeEach(() => {
       sort_order: 0,
       fingerprints: ['78_v33'],
     },
+    {
+      address_id: 2,
+      legal_address: 'ООО «Ромашка», ул. Мира, 1 (вторая сторона)',
+      simple_address: 'Мира 1',
+      active: true,
+      sort_order: 1,
+      fingerprints: ['79_v33'],
+    },
   ]
   unassigned = ['83_v33', '89_v33']
   installFetch()
@@ -123,6 +131,28 @@ async function chooseFile(wrapper, name = 'возможности.xlsx') {
 }
 
 describe('AddressDirectory.vue', () => {
+  it('нумерует строки и показывает сторону в адресе', async () => {
+    // Отдельной колонки «Сторона» больше нет: сторона — часть строки адреса,
+    // а первая колонка — порядковый номер (задание, 28.10.2026).
+    const wrapper = mountDirectory()
+    await flushPromises()
+
+    const headers = wrapper.findAll('thead th').map((cell) => cell.text().trim())
+    expect(headers).not.toContain('Сторона')
+    expect(headers).toContain('№')
+
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows.length).toBeGreaterThan(1)
+    expect(rows[0].text()).toContain('1')
+    expect(rows[1].text()).toContain('2')
+
+    // Адрес строки — со стороной, как в списке выбора слепка.
+    expect(rows[0].text()).toContain('A')
+    expect(rows[1].text()).toContain('B')
+
+    wrapper.unmount()
+  })
+
   it('предпросмотр импорта считает, но не трогает справочник', async () => {
     const wrapper = mountDirectory()
     await flushPromises()
@@ -181,7 +211,7 @@ describe('AddressDirectory.vue', () => {
     expect(wrapper.text()).toContain('ООО «Ромашка», ул. Мира, 1')
     expect(wrapper.text()).toContain('Мира 1')
     expect(wrapper.text()).toContain('78_v33')
-    expect(wrapper.text()).toContain('Адреса (1)')
+    expect(wrapper.text()).toContain('Адреса (2)')
   })
 
   it('refuses to create an address without any name', async () => {
