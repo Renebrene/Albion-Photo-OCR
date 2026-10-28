@@ -2262,6 +2262,61 @@ def collection_address_members() -> dict[int, list[str]]:
     return result
 
 
+def collection_panel_filter(
+    collection_ids: list[int] | None,
+) -> tuple[set[str] | None, list[str]]:
+    """
+    Состав подборок для панели адресов: её адреса и её клиенты.
+
+    Возвращает `(адресные значения | None, клиенты)`. `None` вместо набора
+    значений означает «адресных подборок среди запрошенных нет» — тогда панель
+    по адресам не сужается. Клиенты отдаются отдельно: их отбор идёт через
+    фотографии (`_photo_where(clients=...)`), а не по справочнику адресов.
+    Подборки фотографий (`member_type='photo'`) панель адресов не сужают.
+    """
+
+    # Обработчик маршрута вызывают и напрямую (тесты, скрипты): тогда вместо
+    # None приходит объект FastAPI-значения по умолчанию, и без проверки типа
+    # уходил бы лишний запрос в базу.
+    ids = (
+        [int(value) for value in collection_ids]
+        if isinstance(collection_ids, (list, tuple, set))
+        else []
+    )
+
+    if not ids:
+        return None, []
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT cm.member_type, cm.member_value
+                FROM public.collection_members AS cm
+                JOIN public.collections AS c
+                  ON c.collection_id = cm.collection_id
+                WHERE cm.collection_id = ANY(%s)
+                """,
+                (ids,),
+            )
+            rows = cur.fetchall()
+
+    addresses: set[str] | None = None
+    clients: list[str] = []
+
+    for member_type, value in rows:
+        text = str(value)
+
+        if member_type == "address":
+            if addresses is None:
+                addresses = set()
+            addresses.add(text)
+        elif member_type == "client" and text not in clients:
+            clients.append(text)
+
+    return addresses, clients
+
+
 def get_collection(collection_id: int, user_id: str | None = None) -> dict | None:
     sql = """
         SELECT

@@ -135,6 +135,32 @@ def _date_params(
     return start, end
 
 
+def _union_values(first: list[str] | None, second: list[str]) -> list[str] | None:
+    """Объединение двух наборов значений без дублей; пусто — None для SQL."""
+
+    merged: list[str] = []
+
+    for value in [*(first or []), *second]:
+        if value and value not in merged:
+            merged.append(value)
+
+    return merged or None
+
+
+def _address_in_values(item: dict, values: set[str]) -> bool:
+    """
+    Адрес строки панели входит в набор значений подборки.
+
+    Новые подборки хранят `addr:<address_id>`, старые — идентификатор слепка,
+    поэтому проверяются оба поля: и значение строки, и её слепки.
+    """
+
+    if item.get("address") in values:
+        return True
+
+    return any(value in values for value in item.get("fingerprints") or [])
+
+
 @public_router.get("/health")
 def health() -> dict:
     return {"status": "ok", "version": "0.1.0"}
@@ -496,6 +522,7 @@ def list_addresses(
     group: str | None = Query(
         None, pattern="^(screens|small|rostov|roads|cities)$"
     ),
+    collection_id: list[int] | None = Query(None, max_length=50),
 ):
     """
     Адреса левой панели, сведённые к сторонам.
@@ -503,7 +530,9 @@ def list_addresses(
     Поверхности одной стороны (A(1), A(2), A(3)) дают одну строку: `ids`
     перечисляет адреса поверхностей, `count`/`period_count` суммируются,
     идентификаторы объединяются. `group` оставляет только адреса выбранной
-    группы верхней панели (задание, п. 7).
+    группы верхней панели (задание, п. 7). `collection_id` (может повторяться)
+    грузит список в составе подборок: адресная подборка даёт свои адреса,
+    клиентская — адреса, где есть её клиенты (задание, 28.10.2026).
     """
 
     # `count` is all-time (the panel must not lose it when a period is picked);
@@ -511,13 +540,29 @@ def list_addresses(
     # `client` narrows the list in client-priority mode.
     start, end = _date_params(date_from, date_to)
 
+    # Состав подборок: адреса проверяются по справочнику, клиенты — через
+    # фотографии (существующий отбор `clients`), поэтому идут разными путями.
+    member_addresses, member_clients = repository.collection_panel_filter(
+        collection_id
+    )
+    clients = _union_values(client, member_clients)
+
     items = repository.list_addresses(
         limit=limit,
         date_from=start,
         date_to=end,
         date_mode=date_mode,
-        clients=client,
+        clients=clients,
     )
+
+    if member_addresses is not None:
+        items = [
+            item
+            for item in items
+            # Служебная строка «Требуют проверки» — не адрес, её не сужаем.
+            if item.get("review")
+            or _address_in_values(item, member_addresses)
+        ]
 
     from app.api import sides as sides_mod
 

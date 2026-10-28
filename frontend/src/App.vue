@@ -20,7 +20,14 @@ const display = useDisplayStore()
 
 // Группы верхней панели (задание, п. 7). Текст в две строки; значение
 // совпадает с закладками раздела «Слепки» и параметром `group` у грида.
+// Первая кнопка — главный экран: раньше он был отдельной вкладкой
+// «Видеоэкраны РнД и Область» и по размеру не совпадал с подборками.
 const GROUP_BUTTONS = [
+  {
+    value: 'screens',
+    label: 'Видеоэкраны',
+    tooltip: 'Видеоэкраны РнД и Область — главный экран',
+  },
   {
     value: 'rostov',
     label: 'Р-н-Д\n6х3',
@@ -42,6 +49,10 @@ const GROUP_BUTTONS = [
     tooltip: 'Ростов: сити-формат, скроллер, пиллар',
   },
 ]
+
+// На видеогалерее ни одна подборка не активна: там свой раздел. Кнопка
+// «Видео» подсвечивается вместо подборок.
+const onVideosRoute = computed(() => router.currentRoute.value.path === '/videos')
 
 /** Выбрать группу: грид и списки перерисовываются, выбор запоминается. */
 async function pickGroup(value) {
@@ -409,52 +420,55 @@ function toggleDark() {
           </span>
         </div>
 
+        <!-- Подборки (задание, 28.10.2026): блок с разделителями по краям.
+             Слева — «Обновление базы», справа — «Видео» тем же видом, что и
+             подборки. Главный экран «Видеоэкраны» — первая подборка. -->
+        <template v-if="session.user || !session.authEnabled">
+          <span class="header-divider q-ml-md" />
+
+          <div class="header-groups row items-center no-wrap">
+            <q-btn
+              v-for="option in GROUP_BUTTONS"
+              :key="option.value"
+              dense
+              flat
+              no-caps
+              class="header-group"
+              :class="{ 'header-group--active': !onVideosRoute && photos.group === option.value }"
+              @click="pickGroup(option.value)"
+            >
+              <span class="header-group-label">{{ option.label }}</span>
+              <q-tooltip>{{ option.tooltip }}</q-tooltip>
+            </q-btn>
+          </div>
+
+          <span class="header-divider" />
+
+          <q-btn
+            dense
+            flat
+            no-caps
+            to="/videos"
+            class="header-group"
+            :class="{ 'header-group--active': onVideosRoute }"
+          >
+            <span class="header-group-label">Видео</span>
+            <q-tooltip>Видеогалерея: отдельный раздел с роликами</q-tooltip>
+          </q-btn>
+        </template>
+
+        <!-- Тема: сразу за кнопкой «Видео», чтобы блок подборок остался между
+             «Обновлением базы» и «Видео», как просили. -->
         <q-btn
           flat
           round
           dense
           :icon="darkMode ? 'dark_mode' : 'light_mode'"
+          class="q-ml-sm"
           @click="toggleDark"
         >
           <q-tooltip>{{ darkMode ? 'Тёмная тема' : 'Светлая тема' }}</q-tooltip>
         </q-btn>
-
-        <!-- Главный экран выделен плашкой, как блок пользователя. -->
-        <q-tabs
-          v-if="session.user || !session.authEnabled"
-          align="right"
-          shrink
-          class="header-gallery"
-        >
-          <q-route-tab
-            to="/"
-            icon="photo_library"
-            label="Видеоэкраны РнД и Область"
-            exact
-          />
-          <q-route-tab to="/videos" icon="movie" label="Видео" exact />
-        </q-tabs>
-
-        <!-- Группы верхней панели (задание, п. 7): выбор меняет весь грид и
-             списки. Последний выбор запоминается за пользователем. -->
-        <div
-          v-if="session.user || !session.authEnabled"
-          class="header-groups row items-center no-wrap q-ml-md"
-        >
-          <q-btn
-            v-for="option in GROUP_BUTTONS"
-            :key="option.value"
-            dense
-            flat
-            no-caps
-            class="header-group"
-            :class="{ 'header-group--active': photos.group === option.value }"
-            @click="pickGroup(option.value)"
-          >
-            <span class="header-group-label">{{ option.label }}</span>
-            <q-tooltip>{{ option.tooltip }}</q-tooltip>
-          </q-btn>
-        </div>
 
         <!-- Технический раздел: шестерёнка вместо вкладки. Доступен только
              Администратору и Менеджеру — у Гостя его нет вовсе. -->
@@ -767,18 +781,15 @@ function toggleDark() {
   padding: 2px 14px 2px 6px;
 }
 
-/* Главный экран («Видеоэкраны РнД и Область») выделен той же плашкой. */
-.header-gallery :deep(.q-tab) {
-  background: rgba(255, 255, 255, 0.18);
-  border: 1px solid rgba(255, 255, 255, 0.38);
-  border-radius: 999px;
-  min-height: 32px;
-  padding: 0 14px;
-}
-
-.header-gallery :deep(.q-tab--active) {
-  background: rgba(255, 255, 255, 0.34);
-  border-color: rgba(255, 255, 255, 0.6);
+/* Разделители по краям блока подборок: слева «Обновление базы», справа
+   «Видео». Высота задана явно — в тулбаре вертикальный разделитель иначе
+   растягивается на всю высоту шапки. */
+.header-divider {
+  display: inline-block;
+  width: 1px;
+  height: 24px;
+  margin: 0 10px;
+  background: rgba(255, 255, 255, 0.45);
 }
 
 /* Группы верхней панели (задание, п. 7): текст в две строки. */

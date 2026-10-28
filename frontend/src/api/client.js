@@ -424,6 +424,10 @@ export function fetchPhotos({
   date_to = null,
   date_mode = null,
   combine = null,
+  // Группа верхней панели (задание, п. 7): грид показывает только адреса
+  // своей закладки. Параметр был в filterParams, но в запрос не попадал —
+  // переключение группы не меняло выдачу.
+  group = null,
   collection_id = null,
   ids = null,
   sort = null,
@@ -446,6 +450,8 @@ export function fetchPhotos({
   if (date_mode) params.set('date_mode', date_mode)
   // How address and client selections combine (union|address|client).
   if (combine) params.set('combine', combine)
+  // Группа верхней панели: сужает грид до адресов закладки.
+  if (group) params.set('group', group)
   // Порядок строк задаёт сервер (см. repository.list_photos).
   if (sort) params.set('sort', sort)
   if (order) params.set('order', order)
@@ -1038,15 +1044,23 @@ export function fetchCollectionMembers(collectionId, memberType = 'photo') {
 
 export function fetchAddresses(options = {}) {
   const base = `${BASE}/v1/addresses${dateQuery(options)}`
-  const clients = [].concat(options.clients || []).filter(Boolean)
+  const parts = []
 
-  if (!clients.length) return getJson(base)
+  for (const value of [].concat(options.clients || []).filter(Boolean)) {
+    parts.push(`client=${encodeURIComponent(value)}`)
+  }
 
-  const extra = clients
-    .map((value) => `client=${encodeURIComponent(value)}`)
-    .join('&')
+  // Группа верхней панели: панель показывает адреса той же закладки, что и грид.
+  if (options.group) parts.push(`group=${encodeURIComponent(options.group)}`)
 
-  return getJson(`${base}${base.includes('?') ? '&' : '?'}${extra}`)
+  // Активные подборки: список грузится в их составе (задание, 28.10.2026).
+  for (const id of [].concat(options.collectionIds || []).filter(Boolean)) {
+    parts.push(`collection_id=${encodeURIComponent(id)}`)
+  }
+
+  if (!parts.length) return getJson(base)
+
+  return getJson(`${base}${base.includes('?') ? '&' : '?'}${parts.join('&')}`)
 }
 
 export function fetchClients({ addresses = [], cursor = null, limit = 0 } = {}) {

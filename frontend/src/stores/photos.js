@@ -74,6 +74,26 @@ function filterParams(state, { limit, cursor = null }) {
 }
 
 /**
+ * Параметры панели адресов: период, группа и активные подборки.
+ *
+ * Панель показывает тот же список адресов, что и грид, поэтому сужается той
+ * же группой верхней панели, а при выбранной подборке — её составом (задание,
+ * 28.10.2026): в списке остаются адреса подборки, а не весь корпус.
+ */
+function addressPanelParams(state) {
+  return {
+    dateFrom: state.dateFrom,
+    dateTo: state.dateTo,
+    dateMode: state.dateMode,
+    group: state.group || null,
+    collectionIds: [
+      ...state.addressCollectionIds,
+      ...state.clientCollectionIds,
+    ],
+  }
+}
+
+/**
  * Привести значение адреса к идентификатору панели.
  *
  * Новые значения — `addr:<address_id>`; старые подборки и сохранённые поиски
@@ -364,9 +384,7 @@ export const usePhotosStore = defineStore('photos', {
       const [addresses, clients, collections, searches] =
         await Promise.allSettled([
           fetchAddresses({
-            dateFrom: this.dateFrom,
-            dateTo: this.dateTo,
-            dateMode: this.dateMode,
+            ...addressPanelParams(this),
             // В приоритете по клиентам список адресов сужается ими.
             clients:
               this.combine === 'client' && this.selectedClients.length
@@ -433,9 +451,7 @@ export const usePhotosStore = defineStore('photos', {
 
       try {
         const data = await fetchAddresses({
-          dateFrom: this.dateFrom,
-          dateTo: this.dateTo,
-          dateMode: this.dateMode,
+          ...addressPanelParams(this),
           clients:
             this.combine === 'client' && this.selectedClients.length
               ? this.selectedClients
@@ -557,9 +573,10 @@ export const usePhotosStore = defineStore('photos', {
       // первый запрос страницы уже уйдёт с ней, лишний круг не нужен.
       if (!this.items.length) return
 
-      this.selectedAddresses = []
-      this.selectedClients = []
-      this.collectionId = null
+      // Подборка живёт в своей группе (задание, п. 7е), поэтому смена группы
+      // снимает и выбор, и подборки: иначе панель адресов осталась бы суженной
+      // подборкой другой группы.
+      this.resetSelectionFilters()
       this.nlIds = []
       await this.refresh()
       await Promise.allSettled([this.loadAddresses(), this.loadClients()])

@@ -709,7 +709,8 @@ describe('оболочка приложения', () => {
     const wrapper = await mountShell()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Видеоэкраны РнД и Область')
+    // Главный экран теперь первая подборка, «Видео» — кнопка справа.
+    expect(wrapper.text()).toContain('Видеоэкраны')
     expect(wrapper.text()).toContain('Видео')
     expect(wrapper.html()).toContain('/technical')
     expect(wrapper.text()).toContain('Обновление базы')
@@ -746,7 +747,7 @@ describe('оболочка приложения', () => {
     const html = wrapper.html()
 
     // Разрешено: грид, фильтры, текстовая строка поиска, видео.
-    expect(wrapper.text()).toContain('Видеоэкраны РнД и Область')
+    expect(wrapper.text()).toContain('Видеоэкраны')
     expect(wrapper.text()).toContain('Видео')
     expect(
       wrapper.find('input[placeholder*="Название файла"]').exists(),
@@ -889,6 +890,64 @@ describe('оболочка приложения', () => {
     const last = new URL(photoRequests[photoRequests.length - 1], 'http://localhost')
     expect(last.searchParams.get('brand')).toBe('Рязанка')
     expect(last.searchParams.get('q')).toBe(null)
+
+    wrapper.unmount()
+  })
+
+  it('верхняя панель: подборки между разделителями, «Видео» — того же вида', async () => {
+    const wrapper = await mountShell()
+    const html = wrapper.html()
+
+    // Одинаковая подпись и выравнивание: главный экран — первая подборка.
+    const labels = wrapper
+      .findAll('.header-group')
+      .map((button) => button.text().replace(/\s+/g, ' ').trim())
+
+    expect(labels).toEqual([
+      'Видеоэкраны',
+      'Р-н-Д 6х3',
+      'Города области',
+      'Область и трассы 6х3',
+      'Р-н-Д малые форматы',
+      'Видео',
+    ])
+
+    // Разделители по краям блока подборок: слева «Обновление базы», справа «Видео».
+    expect(wrapper.findAll('.header-divider').length).toBe(2)
+    expect(html.indexOf('header-divider')).toBeLessThan(html.indexOf('header-groups'))
+    expect(html.indexOf('header-groups')).toBeLessThan(html.lastIndexOf('header-divider'))
+    expect(html.indexOf('Обновление базы')).toBeLessThan(html.indexOf('header-divider'))
+
+    wrapper.unmount()
+  })
+
+  it('«Видеоэкраны» фильтрует грид, «Видео» открывает галерею', async () => {
+    const wrapper = await mountShell()
+    const photos = usePhotosStore()
+    const button = (label) =>
+      wrapper
+        .findAll('.header-group')
+        .find((item) => item.text().replace(/\s+/g, ' ').trim() === label)
+
+    // По умолчанию активен главный экран, и фильтр уже уходит в запрос.
+    expect(button('Видеоэкраны').classes()).toContain('header-group--active')
+    expect(urls.some((url) => url.includes('group=screens'))).toBe(true)
+
+    await button('Города области').trigger('click')
+    await flushPromises()
+
+    expect(photos.group).toBe('cities')
+    expect(urls.some((url) => url.includes('group=cities'))).toBe(true)
+    expect(button('Города области').classes()).toContain('header-group--active')
+    expect(button('Видеоэкраны').classes()).not.toContain('header-group--active')
+
+    // «Видео» — такая же кнопка и подсвечивается на своей странице.
+    await button('Видео').trigger('click')
+    await flushPromises()
+
+    expect(calls.some((path) => path.endsWith('/v1/videos'))).toBe(true)
+    expect(button('Видео').classes()).toContain('header-group--active')
+    expect(button('Города области').classes()).not.toContain('header-group--active')
 
     wrapper.unmount()
   })
