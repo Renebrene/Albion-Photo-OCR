@@ -84,6 +84,9 @@ class VideoSummary(BaseModel):
     size_bytes: int
     taken_at: datetime | None = None
     created_at: datetime | None = None
+    # Файл оригинала на месте: запись осталась от прежнего расположения или
+    # с тома, который сейчас не смонтирован (задание, п. 11).
+    available: bool = True
 
 
 class VideoPage(BaseModel):

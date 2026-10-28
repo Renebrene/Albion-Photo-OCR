@@ -8,7 +8,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api import videos
+from app.api import video_repository, videos
 from app.api.auth import ROLE_SCOPES
 
 
@@ -80,6 +80,56 @@ def test_list_videos_passes_capture_date_filter(monkeypatch):
     assert seen["date_mode"] == "capture"
     assert seen["date_from"] == "2026-10-01"
     assert response.json()["items"][0]["video_id"] == video_id
+
+
+def _video_row(video_id: str, source_path: str | None) -> dict:
+    return {
+        "video_id": video_id, "filename": "one.mp4", "display_title": "",
+        "container_format": "mp4", "video_codec": "h264", "width": 640,
+        "height": 360, "duration_seconds": 1.5, "fps": 25.0,
+        "frame_count": 38, "size_bytes": 1000, "taken_at": None,
+        "created_at": None, "source_path": source_path,
+    }
+
+
+def test_list_videos_marks_videos_without_original_file(monkeypatch, tmp_path):
+    """Запись без файла остаётся в списке, но помечена недоступной (п. 11)."""
+
+    present = tmp_path / "there.mp4"
+    present.write_bytes(b"x")
+    rows = [
+        _video_row("VI_" + "aa" * 12, str(present)),
+        _video_row("VI_" + "bb" * 12, str(tmp_path / "gone.mp4")),
+        _video_row("VI_" + "cc" * 12, None),
+    ]
+
+    monkeypatch.setenv("SCENE_AUTH_REQUIRED", "0")
+    monkeypatch.setenv("SCENE_API_TOKENS", "")
+    monkeypatch.setattr(videos.video_repository, "list_videos", lambda **kwargs: (rows, None))
+
+    response = TestClient(make_app()).get("/api/v1/videos")
+
+    assert response.status_code == 200
+    assert [item["available"] for item in response.json()["items"]] == [True, False, False]
+    # Наружу уходит только признак: записанного пути в ответе нет.
+    assert str(tmp_path) not in response.text
+    assert "source_path" not in response.json()["items"][0]
+
+
+def test_video_row_keeps_the_recorded_path_for_the_availability_check(tmp_path):
+    """Путь нужен только для проверки файла; наружу уходит признак (п. 11)."""
+
+    stored = str(tmp_path / "one.mp4")
+    row = (
+        "VI_" + "aa" * 12, "one.mp4", "", "mp4", "h264", 640, 360, 1.5, 25.0,
+        38, 1000, None, None, stored, None, None, None,
+    )
+
+    mapped = video_repository._video_row(row)
+
+    assert mapped["source_path"] == stored
+    # Путь не записан — проверять нечего.
+    assert video_repository._video_row(row[:13] + (None,) + row[14:])["source_path"] is None
 
 
 def test_list_videos_rejects_invalid_dates(monkeypatch):

@@ -41,6 +41,9 @@ const MAX_EDIT_VIDEO_BYTES = 1_610_612_736
 const MAX_EDIT_VIDEO_DURATION_SECONDS = 600
 function editLimitReason(video) {
   if (!video) return ''
+  // Запись осталась от прежнего расположения или с отключённого тома:
+  // редактировать нечего, и человек должен видеть почему (задание, п. 11).
+  if (video.available === false) return 'Файл оригинала не найден — редактирование невозможно'
   if (Number(video.size_bytes) > MAX_EDIT_VIDEO_BYTES) return 'Редактирование ограничено размером до 1,5 ГиБ'
   if (Number(video.duration_seconds) > MAX_EDIT_VIDEO_DURATION_SECONDS) return 'Редактирование ограничено длительностью до 10 минут'
   return ''
@@ -143,6 +146,13 @@ async function openDetails(video) {
 
   if (!canPlayVideos.value) {
     playbackError.value = 'Просмотр доступен сотрудникам'
+    return
+  }
+
+  // Файла нет: билет запрашивать нечего — сервер ответит 404, и в плеере
+  // вместо причины появилось бы «Не удалось открыть видео» (задание, п. 11).
+  if (video.available === false) {
+    playbackError.value = 'Оригинал видео недоступен: файла по записанному пути нет'
     return
   }
 
@@ -539,6 +549,9 @@ onBeforeUnmount(() => {
             <div v-if="video.display_title" class="video-title ellipsis">
               {{ video.display_title }}
             </div>
+            <div v-if="video.available === false" class="text-caption text-negative">
+              файл не найден
+            </div>
             <!-- Дата, хроно, вес, выбор и меню — одной компактной строкой. -->
             <div class="video-line row items-center no-wrap">
               <span class="video-meta ellipsis">
@@ -600,6 +613,13 @@ onBeforeUnmount(() => {
           <q-card flat bordered class="video-detail-card">
             <q-card-section class="panel-head"><div class="panel-title">Сведения о видео</div></q-card-section>
             <q-card-section class="q-gutter-sm">
+              <q-banner
+                v-if="currentVideo && currentVideo.available === false"
+                class="bg-orange-1 text-caption"
+              >
+                Оригинал видео недоступен: запись осталась, файла по записанному
+                пути нет. Восстановить можно переносом путей или из бэкапа.
+              </q-banner>
               <div><b>Файл:</b> {{ currentVideo?.filename }}</div>
               <div><b>Каталог:</b> {{ currentVideo?.source_directory || '—' }}</div>
               <div><b>Съёмка:</b> {{ formatCapture(currentVideo?.taken_at) }}</div>

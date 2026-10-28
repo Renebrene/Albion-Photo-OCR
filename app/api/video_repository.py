@@ -50,6 +50,9 @@ def _video_row(row) -> dict:
         "taken_at": row[11],
         "created_at": row[12],
         "source_directory": display_source_directory(str(row[13])) if row[13] else "",
+        # Записанный путь нужен, чтобы проверить наличие файла (п. 11); в ответ
+        # API он не попадает — VideoSummary объявляет только признак available.
+        "source_path": str(row[13]) if row[13] else None,
     }
 
 

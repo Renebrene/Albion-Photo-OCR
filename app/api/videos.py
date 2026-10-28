@@ -181,6 +181,13 @@ def list_videos(
         limit=limit, cursor=cursor, query=q,
         date_from=date_from, date_to=date_to, date_mode=date_mode,
     )
+
+    # Файл на месте? Список показывает запись и без оригинала: удалять её
+    # молча нельзя, а человек должен видеть, почему видео не открывается.
+    for item in items:
+        source = item.get("source_path")
+        item["available"] = bool(source) and os.path.isfile(source)
+
     return {"items": [VideoSummary(**item).model_dump() for item in items], "next_cursor": next_cursor}
 
 

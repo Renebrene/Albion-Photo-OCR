@@ -37,6 +37,8 @@ function response(body, status = 200) {
 beforeEach(() => {
   item.size_bytes = 5 * 1024 * 1024
   item.duration_seconds = 12.5
+  // Флаг ставит только тест недоступного оригинала; остальные — файл на месте.
+  item.available = true
   calls = []
   setActivePinia(createPinia())
   // Открытый режим (без аутентификации): спека проверяет полный доступ.
@@ -81,6 +83,30 @@ beforeEach(() => {
 })
 
 describe('видеогалерея', () => {
+
+  it('помечает видео без оригинала и объясняет это в карточке', async () => {
+    item.available = false
+    const wrapper = mountPage()
+    await flushPromises()
+
+    // Запись осталась, файла нет — видно прямо в плитке.
+    expect(wrapper.text()).toContain('файл не найден')
+
+    const detailsButton = wrapper.findAll('button').find((button) => button.html().includes('more_horiz'))
+    await detailsButton.trigger('click')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('Оригинал видео недоступен')
+    // Билет на воспроизведение не запрашивается: смотреть нечего.
+    expect(calls.some((call) => call.path.endsWith('/playback-ticket'))).toBe(false)
+    const trimButton = Array.from(document.body.querySelectorAll('button'))
+      .find((button) => button.textContent.includes('Обрезать фрагмент'))
+    expect(trimButton).toBeTruthy()
+    expect(trimButton.disabled).toBe(true)
+
+    wrapper.unmount()
+  })
+
   function mountPage() {
     return mount(VideosGrid, {
       attachTo: document.body,
