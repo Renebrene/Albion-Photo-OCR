@@ -933,7 +933,7 @@ describe('сторона в тегах', () => {
     })
   }
 
-  it('на сторону приходится один тег с её буквой', async () => {
+  it('на сторону приходится один тег с названием из списка', async () => {
     installSides()
     const wrapper = await mountGrid()
 
@@ -944,7 +944,10 @@ describe('сторона в тегах', () => {
 
     const text = wrapper.find('.tags-row').text()
 
-    expect(text).toContain('Комарова 13, A')
+    // Название — как в списке; букву стороны не дописываем: она уже в названии
+    // из каталога (владелец, 28.10.2026).
+    expect(text).toContain('Комарова 13')
+    expect(text).not.toContain(', A')
     // Значения поверхностей в теги не попадают.
     expect(text).not.toContain('addr:')
     expect(wrapper.findAll('.tags-row .q-chip')).toHaveLength(1)
@@ -952,7 +955,7 @@ describe('сторона в тегах', () => {
     wrapper.unmount()
   })
 
-  it('разные стороны одного названия различаются', async () => {
+  it('у каждой выбранной стороны свой тег', async () => {
     installSides()
     const wrapper = await mountGrid()
 
@@ -960,12 +963,13 @@ describe('сторона в тегах', () => {
     await flushPromises()
     await nextTick()
 
-    // У чипа в тексте ещё подпись кнопки снятия («cancel»).
+    // У чипа в тексте ещё подпись кнопки снятия («cancel»). Стороны с разными
+    // поверхностями дают отдельные теги, даже если названия совпадают.
     const labels = wrapper
       .findAll('.tags-row .q-chip')
       .map((chip) => chip.text().replace('cancel', '').trim())
 
-    expect(labels).toEqual(['Комарова 13, A', 'Комарова 13, Б'])
+    expect(labels).toEqual(['Комарова 13', 'Комарова 13'])
 
     wrapper.unmount()
   })
