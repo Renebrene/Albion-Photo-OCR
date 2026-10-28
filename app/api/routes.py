@@ -2950,7 +2950,8 @@ def stop_pipeline_run(run_id: int, principal=Depends(require_scope("jobs:write")
     if not pipeline_runs.request_stop(run_id, stopped_by=stopped_by):
         raise HTTPException(status_code=409, detail="run is not active")
 
-    return pipeline_runs.get_run_with_stages(run_id)
+    # Ответ — для интерфейса: манифест в нём не нужен (см. current_pipeline_run).
+    return pipeline_runs.get_run_with_stages(run_id, with_manifest=False)
 
 
 @jobs_router.post(
@@ -2966,54 +2967,46 @@ def resume_pipeline_run(run_id: int):
     except pipeline_runs.PipelineBusy as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    return pipeline_runs.get_run_with_stages(run_id)
-
-
-def _run_without_manifest_files(run: dict | None) -> dict | None:
-    """
-    Прогон для клиента: манифест без списка имён файлов.
-
-    В манифесте лежат имена всех файлов прогона — на текущем корпусе это
-    56 932 строки и 3,3 МБ JSON. Шапка опрашивает статус каждые 3 секунды и
-    ничего, кроме `stages` и `stage`, оттуда не берёт, поэтому список имён
-    отдаётся счётчиком (`files_count`). Сам манифест нужен супервизору, а не
-    интерфейсу (аудит 28.10.2026: 3,3 МБ × каждые 3 с на вкладку).
-    """
-
-    if run is None:
-        return None
-
-    manifest = dict(run.get("manifest") or {})
-    files = manifest.pop("files", None)
-
-    if files is not None:
-        manifest["files_count"] = len(files)
-
-    return {**run, "manifest": manifest}
+    return pipeline_runs.get_run_with_stages(run_id, with_manifest=False)
 
 
 @read_router.get("/v1/pipeline/current", response_model=None)
 def current_pipeline_run():
-    """Active run with its stages, else the most recent run, else null."""
+    """
+    Активный прогон со стадиями, иначе последний, иначе null.
+
+    Читается без манифеста (`with_manifest=False`): в нём список ВСЕХ имён
+    файлов прогона — на корпусе в 57 тысяч фото это 3,4 МБ JSONB. Шапка
+    опрашивает статус каждые 3 секунды и берёт отсюда только `stages` и `stage`,
+    а чтение строки с манифестом стоит 0,26 с вместо 0,02 с (аудит 28.10.2026).
+    Манифест остаётся супервизору: возобновление прогона читает его как раньше.
+    """
 
     from app.supervisor import runs as pipeline_runs
 
-    run = pipeline_runs.active_run() or pipeline_runs.latest_run()
+    run = pipeline_runs.active_run(with_manifest=False) or pipeline_runs.latest_run(
+        with_manifest=False
+    )
+
+    if run is None:
+        return {"run": None}
 
     return {
-        "run": _run_without_manifest_files(
-            pipeline_runs.get_run_with_stages(run["run_id"]) if run else None
+        "run": pipeline_runs.get_run_with_stages(
+            run["run_id"], with_manifest=False
         )
     }
 
 
 @read_router.get("/v1/pipeline", response_model=None)
 def list_pipeline_runs(limit: int = Query(20, ge=1, le=100)):
+    """История прогонов — тоже без манифеста: интерфейс его не показывает."""
+
     from app.supervisor import runs as pipeline_runs
 
     items = [
-        _run_without_manifest_files(pipeline_runs.get_run_with_stages(run["run_id"]))
-        for run in pipeline_runs.list_runs(limit=limit)
+        pipeline_runs.get_run_with_stages(run["run_id"], with_manifest=False)
+        for run in pipeline_runs.list_runs(limit=limit, with_manifest=False)
     ]
 
     return {"items": items}
@@ -3023,12 +3016,12 @@ def list_pipeline_runs(limit: int = Query(20, ge=1, le=100)):
 def get_pipeline_run(run_id: int):
     from app.supervisor import runs as pipeline_runs
 
-    run = pipeline_runs.get_run_with_stages(run_id)
+    run = pipeline_runs.get_run_with_stages(run_id, with_manifest=False)
 
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
 
-    return _run_without_manifest_files(run)
+    return run
 
 
 # ---------------------------------------------------------------------------

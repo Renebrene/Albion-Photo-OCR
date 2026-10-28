@@ -403,32 +403,56 @@ def test_grid_page_can_skip_the_counter(monkeypatch):
     assert len(counts) == 1
 
 
-def test_pipeline_status_does_not_ship_the_file_manifest(monkeypatch):
+def test_pipeline_status_is_read_without_the_file_manifest(monkeypatch):
     """
-    Статус прогона отдаётся без списка имён файлов.
+    Статус прогона читается без колонки манифеста.
 
-    В манифесте 56 932 строки (3,3 МБ JSON), шапка опрашивает статус каждые
-    3 секунды и берёт оттуда только стадии (аудит 28.10.2026). Имена остаются
-    супервизору — наружу уходит их число.
+    В манифесте список ВСЕХ имён файлов прогона: на корпусе в 57 тысяч фото это
+    3,4 МБ JSONB, а шапка опрашивает статус каждые 3 секунды и берёт отсюда
+    только стадии. Чтение строки с манифестом стоит 0,26 с вместо 0,02 с
+    (аудит 28.10.2026). Супервизор по-прежнему читает манифест — для
+    возобновления прогона.
     """
 
     from app.supervisor import runs as pipeline_runs
 
-    run = {
-        "run_id": 5,
-        "status": "RUNNING",
-        "stages": [{"stage": "INGEST", "status": "RUNNING"}],
-        "manifest": {"files": ["a.JPG", "b.JPG", "c.JPG"], "skip_qwen": False},
-    }
+    seen: dict = {}
 
-    monkeypatch.setattr(pipeline_runs, "active_run", lambda: {"run_id": 5})
-    monkeypatch.setattr(pipeline_runs, "latest_run", lambda: None)
-    monkeypatch.setattr(pipeline_runs, "get_run_with_stages", lambda _run_id: dict(run))
+    def fake_run_with_stages(run_id, **kwargs):
+        seen.update(kwargs)
+        return {
+            "run_id": run_id,
+            "status": "RUNNING",
+            "stages": [{"stage": "INGEST", "status": "RUNNING"}],
+        }
+
+    monkeypatch.setattr(pipeline_runs, "active_run", lambda **kwargs: {"run_id": 5})
+    monkeypatch.setattr(pipeline_runs, "latest_run", lambda **kwargs: None)
+    monkeypatch.setattr(pipeline_runs, "get_run_with_stages", fake_run_with_stages)
 
     body = client.get("/api/v1/pipeline/current").json()["run"]
 
-    assert "files" not in body["manifest"]
-    assert body["manifest"]["files_count"] == 3
-    # Остальное в манифесте не теряется: по нему решают, был ли пропущен QWEN.
-    assert body["manifest"]["skip_qwen"] is False
+    assert seen["with_manifest"] is False
+    assert "manifest" not in body
     assert body["stages"][0]["stage"] == "INGEST"
+
+
+def test_pipeline_history_is_read_without_the_manifest(monkeypatch):
+    from app.supervisor import runs as pipeline_runs
+
+    seen: dict = {}
+
+    def fake_list_runs(**kwargs):
+        seen.update(kwargs)
+        return [{"run_id": 4}]
+
+    monkeypatch.setattr(pipeline_runs, "list_runs", fake_list_runs)
+    monkeypatch.setattr(
+        pipeline_runs,
+        "get_run_with_stages",
+        lambda run_id, **kwargs: {"run_id": run_id, "stages": []},
+    )
+
+    client.get("/api/v1/pipeline?limit=5")
+
+    assert seen["with_manifest"] is False

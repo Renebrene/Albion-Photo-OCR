@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.auth import validate_token_config
+from app.api.compression import SelectiveGZipMiddleware
 from app.api.cloud import (
     read_router as cloud_read_router,
     write_router as cloud_write_router,
@@ -78,6 +79,11 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if ENABLE_DOCS else None,
         openapi_url="/openapi.json" if ENABLE_DOCS else None,
     )
+
+    # Сжатие текстовых и JSON-ответов: бандлы сборки и ответы API. Видео,
+    # превью и Range-запросы проходят мимо — по типу содержимого
+    # (см. app/api/compression.py). SCENE_API_GZIP=0 выключает.
+    app.add_middleware(SelectiveGZipMiddleware)
 
     app.add_middleware(
         CORSMiddleware,

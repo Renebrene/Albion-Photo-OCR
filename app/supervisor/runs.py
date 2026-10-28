@@ -50,6 +50,15 @@ _RUN_COLUMNS = (
     "run_id, mode, status, stage, stop_requested, folder, manifest, counts, "
     "message, created_by, created_at, started_at, finished_at, updated_at"
 )
+# Те же поля без манифеста. В манифесте лежит список ВСЕХ имён файлов прогона:
+# на корпусе в 57 тысяч фото это 3,4 МБ JSONB, и чтение строки ради стадий
+# тянет их с диска (0,26 с вместо 0,02 с — аудит 28.10.2026). Интерфейсу нужны
+# только стадии, поэтому статус и список прогонов читаются без манифеста, а
+# супервизор (возобновление прогона) — с ним, как раньше.
+_RUN_COLUMNS_LIGHT = (
+    "run_id, mode, status, stage, stop_requested, folder, counts, "
+    "message, created_by, created_at, started_at, finished_at, updated_at"
+)
 _STAGE_COLUMNS = (
     "run_id, stage, position, status, total_count, done_count, failed_count, "
     "ref, message, started_at, finished_at"
@@ -79,6 +88,26 @@ def _run_row(row) -> dict:
     }
 
 
+def _run_row_light(row) -> dict:
+    """Строка прогона без манифеста (SELECT без этой колонки)."""
+
+    return {
+        "run_id": int(row[0]),
+        "mode": str(row[1]),
+        "status": str(row[2]),
+        "stage": str(row[3]),
+        "stop_requested": bool(row[4]),
+        "folder": row[5],
+        "counts": row[6] or {},
+        "message": row[7],
+        "created_by": row[8],
+        "created_at": row[9],
+        "started_at": row[10],
+        "finished_at": row[11],
+        "updated_at": row[12],
+    }
+
+
 def _stage_row(row) -> dict:
     return {
         "run_id": int(row[0]),
@@ -100,16 +129,26 @@ def _stage_row(row) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def get_run(run_id: int) -> dict | None:
+def get_run(run_id: int, *, with_manifest: bool = True) -> dict | None:
+    """
+    Прогон по номеру.
+
+    `with_manifest=False` не читает колонку манифеста: она нужна супервизору для
+    возобновления, а интерфейсу — нет (см. `_RUN_COLUMNS_LIGHT`).
+    """
+
+    columns = _RUN_COLUMNS if with_manifest else _RUN_COLUMNS_LIGHT
+    mapper = _run_row if with_manifest else _run_row_light
+
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"SELECT {_RUN_COLUMNS} FROM public.pipeline_runs WHERE run_id = %s",  # noqa: S608
+                f"SELECT {columns} FROM public.pipeline_runs WHERE run_id = %s",  # noqa: S608
                 (int(run_id),),
             )
             row = cur.fetchone()
 
-    return _run_row(row) if row is not None else None
+    return mapper(row) if row is not None else None
 
 
 def get_stages(run_id: int) -> list[dict]:
@@ -125,50 +164,59 @@ def get_stages(run_id: int) -> list[dict]:
     return [_stage_row(row) for row in rows]
 
 
-def get_run_with_stages(run_id: int) -> dict | None:
-    run = get_run(run_id)
+def get_run_with_stages(run_id: int, *, with_manifest: bool = True) -> dict | None:
+    run = get_run(run_id, with_manifest=with_manifest)
     if run is None:
         return None
     run["stages"] = get_stages(run_id)
     return run
 
 
-def active_run() -> dict | None:
+def active_run(*, with_manifest: bool = True) -> dict | None:
+    columns = _RUN_COLUMNS if with_manifest else _RUN_COLUMNS_LIGHT
+    mapper = _run_row if with_manifest else _run_row_light
+
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"SELECT {_RUN_COLUMNS} FROM public.pipeline_runs "  # noqa: S608
+                f"SELECT {columns} FROM public.pipeline_runs "  # noqa: S608
                 "WHERE status IN ('PENDING', 'RUNNING') ORDER BY run_id DESC LIMIT 1"
             )
             row = cur.fetchone()
 
-    return _run_row(row) if row is not None else None
+    return mapper(row) if row is not None else None
 
 
-def latest_run() -> dict | None:
+def latest_run(*, with_manifest: bool = True) -> dict | None:
+    columns = _RUN_COLUMNS if with_manifest else _RUN_COLUMNS_LIGHT
+    mapper = _run_row if with_manifest else _run_row_light
+
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"SELECT {_RUN_COLUMNS} FROM public.pipeline_runs "  # noqa: S608
+                f"SELECT {columns} FROM public.pipeline_runs "  # noqa: S608
                 "ORDER BY run_id DESC LIMIT 1"
             )
             row = cur.fetchone()
 
-    return _run_row(row) if row is not None else None
+    return mapper(row) if row is not None else None
 
 
-def list_runs(*, limit: int = 20) -> list[dict]:
+def list_runs(*, limit: int = 20, with_manifest: bool = True) -> list[dict]:
     limit = max(1, min(int(limit), 100))
+    columns = _RUN_COLUMNS if with_manifest else _RUN_COLUMNS_LIGHT
+    mapper = _run_row if with_manifest else _run_row_light
+
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"SELECT {_RUN_COLUMNS} FROM public.pipeline_runs "  # noqa: S608
+                f"SELECT {columns} FROM public.pipeline_runs "  # noqa: S608
                 "ORDER BY run_id DESC LIMIT %s",
                 (limit,),
             )
             rows = cur.fetchall()
 
-    return [_run_row(row) for row in rows]
+    return [mapper(row) for row in rows]
 
 
 # ---------------------------------------------------------------------------

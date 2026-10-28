@@ -147,8 +147,9 @@ def test_start_accepts_and_returns_run(monkeypatch):
 
 
 def test_current_returns_null_when_no_runs(monkeypatch):
-    monkeypatch.setattr(pipeline_runs, "active_run", lambda: None)
-    monkeypatch.setattr(pipeline_runs, "latest_run", lambda: None)
+    # Маршрут читает прогон без манифеста: `with_manifest=False`.
+    monkeypatch.setattr(pipeline_runs, "active_run", lambda **_kwargs: None)
+    monkeypatch.setattr(pipeline_runs, "latest_run", lambda **_kwargs: None)
 
     response = client.get("/api/v1/pipeline/current")
     assert response.status_code == 200
