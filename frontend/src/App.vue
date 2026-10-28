@@ -6,6 +6,7 @@ import { useRouter } from 'vue-router'
 import { usePoller } from './composables/usePoller'
 
 import PipelineUpdateButton from './components/PipelineUpdateButton.vue'
+import { cacheBustUrl } from './utils/cacheBust'
 import { fetchMediaStatistics, fetchStats } from './api/client'
 import { ADDRESS_CLIENT_MODES, useDisplayStore } from './stores/display'
 import { usePipelineStore } from './stores/pipeline'
@@ -126,9 +127,12 @@ onBeforeUnmount(() => {
 })
 
 function reloadPage() {
-  // Именно перезагрузка, а не reload(true): так браузер сам перепроверит
-  // index.html (он отдаётся с no-cache) и заберёт новые хешированные бандлы.
-  window.location.reload()
+  // Перезагрузка с обходом кеша: адрес получает уникальный параметр, поэтому
+  // оболочка запрашивается заново, а не берётся из кеша браузера или прокси.
+  // Раньше здесь был location.reload(), и при кеширующем слое вкладка снова
+  // получала старый index.html: «Доступна новая сборка» не проходила никогда
+  // (28.10.2026). Фильтры в адресе сохраняются — заменяется только `_v`.
+  window.location.replace(cacheBustUrl(window.location.href, Date.now().toString(36)))
 }
 
 function flushDisplay() {

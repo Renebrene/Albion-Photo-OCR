@@ -121,6 +121,28 @@ def create_app() -> FastAPI:
 
         return await call_next(request)
 
+    @app.middleware("http")
+    async def _static_cache_headers(request: Request, call_next):
+        """
+        Заголовки кеша для статики SPA.
+
+        Раньше `index.html` и `build.json` отдавались без `Cache-Control`, и
+        браузер (или прокси) мог держать их по эвристике: подсказка «Доступна
+        новая сборка» повторялась после каждого обновления, потому что вкладка
+        снова получала старую оболочку (28.10.2026).
+        """
+
+        response = await call_next(request)
+        value = static_cache_control(request.url.path)
+
+        if value:
+            response.headers.setdefault("Cache-Control", value)
+
+        if request.url.path.startswith("/assets/"):
+            response.headers.setdefault("Vary", "Accept-Encoding")
+
+        return response
+
     app.include_router(public_router, prefix="/api")
     app.include_router(read_router, prefix="/api")
     app.include_router(originals_router, prefix="/api")
@@ -145,6 +167,27 @@ def create_app() -> FastAPI:
     _mount_spa(app)
 
     return app
+
+
+def static_cache_control(path: str) -> str | None:
+    """
+    Cache-Control для статики SPA.
+
+    Оболочка (`/`, `index.html`) и `build.json` не кешируются: после сборки
+    имена бандлов меняются, и закешированная оболочка просит файлы, которых уже
+    нет (белая страница), а закешированный `build.json` врёт про версию.
+    Бандлы содержат хеш в имени, поэтому их можно кешировать навсегда.
+    Остальное (logo.png и подобное) — без указаний, их размер не тот, чтобы
+    изобретать политику (задание, 28.10.2026).
+    """
+
+    if path.startswith("/assets/"):
+        return "public, max-age=31536000, immutable"
+
+    if path in ("/", "/index.html", "/build.json"):
+        return "no-store, no-cache, must-revalidate, max-age=0"
+
+    return None
 
 
 def _mount_spa(app: FastAPI) -> None:
