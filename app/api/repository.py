@@ -725,6 +725,16 @@ def _photo_where(
         # several active fingerprints. Legacy fingerprint ids stay supported
         # for old collections and saved searches. A manual override wins over
         # the recognised id; archived fingerprints never match.
+        #
+        # Значения собираются в ДВА набора, а не в блок на каждое значение:
+        # у группы «Видеоэкраны» 95 адресов, и прежняя форма давала 190
+        # коррелированных подзапросов и 72 КБ SQL — счётчик по корпусу
+        # (56 934 фото) считался ~100 с, страница — ~5 с (аудит 28.10.2026).
+        # Логика та же: OR по значениям, а `NOT EXISTS (переопределение)` от
+        # значения не зависит, поэтому выносится за скобки.
+        numeric_ids: list[int] = []
+        fingerprint_values: list[str] = []
+
         for value in addresses:
             text = str(value).strip()
 
@@ -741,39 +751,42 @@ def _photo_where(
                     continue
 
                 try:
-                    address_id = int(suffix)
+                    numeric_ids.append(int(suffix))
                 except ValueError:
                     # Never silently drop a malformed value: with address
                     # priority it would turn into "no filter" and show ALL
                     # photos. A false predicate yields an empty page instead.
                     address_parts.append("FALSE")
-                    continue
-
-                address_parts.append(
-                    "(EXISTS ("
-                    "   SELECT 1 FROM public.photo_address_overrides AS ov"
-                    "   JOIN public.address_directory AS od"
-                    "     ON od.address_id = ov.address_id AND od.active"
-                    "   WHERE ov.photo_id = t.photo_id"
-                    "     AND ov.address_id = %s)"
-                    " OR (NOT EXISTS ("
-                    "   SELECT 1 FROM public.photo_address_overrides AS ov2"
-                    "   JOIN public.address_directory AS od2"
-                    "     ON od2.address_id = ov2.address_id AND od2.active"
-                    "   WHERE ov2.photo_id = t.photo_id)"
-                    "  AND EXISTS ("
-                    "   SELECT 1 FROM public.address_fingerprints AS af"
-                    "   JOIN public.fingerprints AS reg"
-                    "     ON reg.fingerprint_id = af.fingerprint_id"
-                    "    AND reg.active"
-                    "   JOIN public.address_directory AS d"
-                    "     ON d.address_id = af.address_id AND d.active"
-                    "   WHERE af.address_id = %s AND af.active"
-                    "     AND LOWER(af.fingerprint_id) = LOWER(" + address_ref + "))))"
-                )
-                address_params.extend([address_id, address_id])
                 continue
 
+            fingerprint_values.append(text.lower())
+
+        if numeric_ids:
+            address_parts.append(
+                "(EXISTS ("
+                "   SELECT 1 FROM public.photo_address_overrides AS ov"
+                "   JOIN public.address_directory AS od"
+                "     ON od.address_id = ov.address_id AND od.active"
+                "   WHERE ov.photo_id = t.photo_id"
+                "     AND ov.address_id = ANY(%s))"
+                " OR (NOT EXISTS ("
+                "   SELECT 1 FROM public.photo_address_overrides AS ov2"
+                "   JOIN public.address_directory AS od2"
+                "     ON od2.address_id = ov2.address_id AND od2.active"
+                "   WHERE ov2.photo_id = t.photo_id)"
+                "  AND EXISTS ("
+                "   SELECT 1 FROM public.address_fingerprints AS af"
+                "   JOIN public.fingerprints AS reg"
+                "     ON reg.fingerprint_id = af.fingerprint_id"
+                "    AND reg.active"
+                "   JOIN public.address_directory AS d"
+                "     ON d.address_id = af.address_id AND d.active"
+                "   WHERE af.address_id = ANY(%s) AND af.active"
+                "     AND LOWER(af.fingerprint_id) = LOWER(" + address_ref + "))))"
+            )
+            address_params.extend([numeric_ids, numeric_ids])
+
+        if fingerprint_values:
             address_parts.append(
                 "(EXISTS ("
                 "   SELECT 1 FROM public.photo_address_overrides AS ov"
@@ -784,7 +797,7 @@ def _photo_where(
                 "   JOIN public.address_directory AS od"
                 "     ON od.address_id = af.address_id AND od.active"
                 "   WHERE ov.photo_id = t.photo_id"
-                "     AND LOWER(af.fingerprint_id) = LOWER(%s))"
+                "     AND LOWER(af.fingerprint_id) = ANY(%s))"
                 " OR (NOT EXISTS ("
                 "   SELECT 1 FROM public.photo_address_overrides AS ov2"
                 "   JOIN public.address_directory AS od2"
@@ -797,11 +810,11 @@ def _photo_where(
                 "    AND reg2.active"
                 "   JOIN public.address_directory AS d2"
                 "     ON d2.address_id = af2.address_id AND d2.active"
-                "   WHERE LOWER(af2.fingerprint_id) = LOWER(%s)"
+                "   WHERE LOWER(af2.fingerprint_id) = ANY(%s)"
                 "     AND af2.active"
                 "     AND LOWER(" + address_ref + ") = LOWER(af2.fingerprint_id))))"
             )
-            address_params.extend([text, text])
+            address_params.extend([fingerprint_values, fingerprint_values])
 
     client_parts: list[str] = []
     client_params: list[object] = []

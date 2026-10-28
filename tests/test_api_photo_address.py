@@ -183,9 +183,11 @@ def test_address_filter_ignores_recognized_id_after_override(monkeypatch):
 
     sql, params = captured["queries"][0]
     assert "photo_address_overrides" in sql
-    assert "LOWER(af.fingerprint_id) = LOWER(%s)" in sql
+    # Legacy-значения тоже одним набором: сравнение идёт по списку слепков
+    # (аудит 28.10.2026 — один блок на набор вместо блока на значение).
+    assert "LOWER(af.fingerprint_id) = ANY(%s)" in sql
     assert "reg.active" in sql
-    assert params[:2] == ["89_v33", "89_v33"]
+    assert params[:2] == [["89_v33"], ["89_v33"]]
     assert params[-1] == 11  # limit + 1 for the next-page probe
 
 
@@ -200,9 +202,9 @@ def test_address_filter_accepts_legal_address_ids(monkeypatch):
     repository.list_photos(limit=10, addresses=["addr:5"])
 
     sql, params = captured["queries"][0]
-    assert "ov.address_id = %s" in sql
-    assert "af.address_id = %s AND af.active" in sql
-    assert params[:2] == [5, 5]
+    assert "ov.address_id = ANY(%s)" in sql
+    assert "af.address_id = ANY(%s) AND af.active" in sql
+    assert params[:2] == [[5], [5]]
     assert params[-1] == 11
 
 
@@ -324,13 +326,13 @@ def test_client_list_narrows_to_addresses(monkeypatch):
     repository.list_clients(limit=10, addresses=["addr:5"])
 
     sql, params = captured["queries"][0]
-    assert "af.address_id = %s AND af.active" in sql
+    assert "af.address_id = ANY(%s) AND af.active" in sql
     assert "public.hybrid_results" in sql
     # На строку больше запрошенного: лишняя строка означает «есть продолжение».
-    assert params == [5, 5, 11]
+    assert params == [[5], [5], 11]
     # Отбор по адресу применяется один раз, а не в каждой ветке UNION:
     # иначе плейсхолдеры удваивались бы, а параметры шли вразнобой.
-    assert sql.count("af.address_id = %s") == 1
+    assert sql.count("af.address_id = ANY(%s)") == 1
 
 
 def test_client_list_pages_by_name(monkeypatch):

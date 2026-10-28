@@ -199,6 +199,9 @@ def list_photos(
     group: str | None = Query(
         None, pattern="^(screens|small|rostov|roads|cities)$"
     ),
+    # Считать ли размер всей выборки. Счётчик нужен подписи «За период N фото»
+    # и стоит секунды: его можно взять отдельным запросом, не задерживая грид.
+    count: bool = Query(True),
     principal=Depends(require_scope("read")),
     sort: str = Query("photo_id"),
     order: str = Query("asc", pattern=r"^(asc|desc)$"),
@@ -272,9 +275,14 @@ def list_photos(
     # The grid label («За период N фото») needs the size of the whole filtered
     # set, not just the loaded page. Count once, on the first page: subsequent
     # pages are the same set while the user scrolls.
+    #
+    # `count=0` — страница без счётчика: сама страница отдаётся за десятые доли
+    # секунды (LIMIT по индексу даты), а счёт по корпусу у группы «Видеоэкраны»
+    # занимает секунды. Окно запрашивает его отдельно и показывает подпись,
+    # когда число придёт (аудит 28.10.2026).
     total = None
 
-    if cursor is None:
+    if cursor is None and count:
         total = repository.count_photos(
             query=q,
             addresses=address,
@@ -2905,6 +2913,29 @@ def resume_pipeline_run(run_id: int):
     return pipeline_runs.get_run_with_stages(run_id)
 
 
+def _run_without_manifest_files(run: dict | None) -> dict | None:
+    """
+    Прогон для клиента: манифест без списка имён файлов.
+
+    В манифесте лежат имена всех файлов прогона — на текущем корпусе это
+    56 932 строки и 3,3 МБ JSON. Шапка опрашивает статус каждые 3 секунды и
+    ничего, кроме `stages` и `stage`, оттуда не берёт, поэтому список имён
+    отдаётся счётчиком (`files_count`). Сам манифест нужен супервизору, а не
+    интерфейсу (аудит 28.10.2026: 3,3 МБ × каждые 3 с на вкладку).
+    """
+
+    if run is None:
+        return None
+
+    manifest = dict(run.get("manifest") or {})
+    files = manifest.pop("files", None)
+
+    if files is not None:
+        manifest["files_count"] = len(files)
+
+    return {**run, "manifest": manifest}
+
+
 @read_router.get("/v1/pipeline/current", response_model=None)
 def current_pipeline_run():
     """Active run with its stages, else the most recent run, else null."""
@@ -2913,7 +2944,11 @@ def current_pipeline_run():
 
     run = pipeline_runs.active_run() or pipeline_runs.latest_run()
 
-    return {"run": pipeline_runs.get_run_with_stages(run["run_id"]) if run else None}
+    return {
+        "run": _run_without_manifest_files(
+            pipeline_runs.get_run_with_stages(run["run_id"]) if run else None
+        )
+    }
 
 
 @read_router.get("/v1/pipeline", response_model=None)
@@ -2921,7 +2956,7 @@ def list_pipeline_runs(limit: int = Query(20, ge=1, le=100)):
     from app.supervisor import runs as pipeline_runs
 
     items = [
-        pipeline_runs.get_run_with_stages(run["run_id"])
+        _run_without_manifest_files(pipeline_runs.get_run_with_stages(run["run_id"]))
         for run in pipeline_runs.list_runs(limit=limit)
     ]
 
@@ -2937,7 +2972,7 @@ def get_pipeline_run(run_id: int):
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
 
-    return run
+    return _run_without_manifest_files(run)
 
 
 # ---------------------------------------------------------------------------

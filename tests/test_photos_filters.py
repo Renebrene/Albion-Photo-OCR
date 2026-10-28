@@ -82,7 +82,12 @@ def test_address_filter_requires_an_active_directory_row():
 
     assert "public.address_directory" in where
     assert "active" in where
-    assert params == [5, 5]
+    # Один блок на весь набор адресов: раньше на каждый адрес приходился свой
+    # (у группы «Видеоэкраны» — 95 блоков и 190 подзапросов, счёт по корпусу
+    # занимал ~100 с; аудит 28.10.2026).
+    assert "ov.address_id = ANY(%s)" in where
+    assert "af.address_id = ANY(%s)" in where
+    assert params == [[5], [5]]
 
 
 def test_the_grid_asks_only_for_recognized_photos(monkeypatch):
@@ -216,7 +221,7 @@ def test_combine_union_ors_all_tag_facets():
         combine="union",
     )
 
-    assert params == [5, 5, "Клиент", "Клиент", "СТС", "СТС"]
+    assert params == [[5], [5], "Клиент", "Клиент", "СТС", "СТС"]
     assert "LOWER(t.brand) = LOWER(%s)" in where
 
 
@@ -228,7 +233,7 @@ def test_combine_address_makes_the_address_the_universe():
         combine="address",
     )
 
-    assert params == [5, 5, "Клиент", "Клиент", "СТС", "СТС"]
+    assert params == [[5], [5], "Клиент", "Клиент", "СТС", "СТС"]
     assert ") AND (" in where
 
 
@@ -240,7 +245,7 @@ def test_combine_client_prioritises_clients_and_keeps_param_order():
         combine="client",
     )
 
-    assert params == ["Клиент", "Клиент", 5, 5, "СТС", "СТС"]
+    assert params == ["Клиент", "Клиент", [5], [5], "СТС", "СТС"]
     assert ") AND (" in where
 
 
@@ -363,3 +368,67 @@ def test_photo_read_sql_needs_a_preview():
     # периода, и панель адресов с «Требуют проверки».
     assert repository._PREVIEW_READY_SQL.strip() in repository._PHOTO_BASE
     assert "photo_previews" in repository._PHOTO_SELECT
+
+
+def test_grid_page_can_skip_the_counter(monkeypatch):
+    """
+    Страница без счётчика: `count=0` не запускает подсчёт по всему корпусу.
+
+    Счётчик нужен подписи «За период N фото» и стоит секунды; окно берёт его
+    отдельным запросом, чтобы фотографии показывались сразу (аудит 28.10.2026).
+    """
+
+    counts: list[dict] = []
+
+    def fake_photos(**kwargs):
+        return [], None
+
+    def fake_count(**kwargs):
+        counts.append(kwargs)
+        return 56934
+
+    monkeypatch.setattr(repository, "list_photos", fake_photos)
+    monkeypatch.setattr(repository, "count_photos", fake_count)
+
+    without = client.get("/api/v1/photos?count=0")
+
+    assert without.status_code == 200
+    assert without.json()["total"] is None
+    assert counts == []
+
+    # По умолчанию счётчик на месте: старые клиенты получают прежний ответ.
+    with_count = client.get("/api/v1/photos")
+
+    assert with_count.json()["total"] == 56934
+    assert len(counts) == 1
+
+
+def test_pipeline_status_does_not_ship_the_file_manifest(monkeypatch):
+    """
+    Статус прогона отдаётся без списка имён файлов.
+
+    В манифесте 56 932 строки (3,3 МБ JSON), шапка опрашивает статус каждые
+    3 секунды и берёт оттуда только стадии (аудит 28.10.2026). Имена остаются
+    супервизору — наружу уходит их число.
+    """
+
+    from app.supervisor import runs as pipeline_runs
+
+    run = {
+        "run_id": 5,
+        "status": "RUNNING",
+        "stages": [{"stage": "INGEST", "status": "RUNNING"}],
+        "manifest": {"files": ["a.JPG", "b.JPG", "c.JPG"], "skip_qwen": False},
+    }
+
+    monkeypatch.setattr(pipeline_runs, "active_run", lambda: {"run_id": 5})
+    monkeypatch.setattr(pipeline_runs, "latest_run", lambda: None)
+    monkeypatch.setattr(pipeline_runs, "get_run_with_stages", lambda _run_id: dict(run))
+
+    body = client.get("/api/v1/pipeline/current").json()["run"]
+
+    assert "files" not in body["manifest"]
+    assert body["manifest"]["files_count"] == 3
+    # Остальное в манифесте не теряется: по нему решают, был ли пропущен QWEN.
+    assert body["manifest"]["skip_qwen"] is False
+    assert body["stages"][0]["stage"] == "INGEST"

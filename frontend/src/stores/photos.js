@@ -43,16 +43,22 @@ const SYNC_MAX_PAGES = 25
 // восьми, а прокрутка подгружает их по мере надобности.
 const CLIENTS_PAGE_SIZE = 200
 
+// Задержка перед отдельным запросом счётчика: даёт странице показаться и
+// схлопывает быстрый перебор кнопок в один счёт (аудит 28.10.2026).
+const TOTAL_DELAY_MS = 400
+let totalTimer = null
+
 /**
  * Параметры /v1/photos для текущих фильтров.
  *
  * Один и тот же набор нужен странице, фоновому syncLoaded() и проверке
  * «сколько фото сейчас в выборке» — поэтому он собирается здесь.
  */
-function filterParams(state, { limit, cursor = null }) {
+function filterParams(state, { limit, cursor = null, count = true }) {
   return {
     limit,
     cursor,
+    count,
     // Порядок задаёт сервер: клиент не пересортировывает страницы.
     sort: state.sortKey || 'photo_id',
     order: state.sortDirection || 'asc',
@@ -148,6 +154,9 @@ export const usePhotosStore = defineStore('photos', {
     // Номер поколения фильтра: ответы старых запросов после смены фильтра
     // отбрасываются, иначе они дописывают чужие строки и курсор.
     generation: 0,
+    // Грид хотя бы раз что-то загрузил. Пустой список означает и «фильтр ничего
+    // не нашёл», и «ещё не грузили» — по флагу эти случаи различимы.
+    loadedOnce: false,
     nextCursor: null,
     // Size of the whole filtered set. The API returns it on the first page
     // only; later pages keep it unchanged.
@@ -253,7 +262,14 @@ export const usePhotosStore = defineStore('photos', {
 
       try {
         const page = await fetchPhotos(
-          filterParams(this, { limit: PAGE_SIZE, cursor: this.nextCursor }),
+          filterParams(this, {
+            limit: PAGE_SIZE,
+            cursor: this.nextCursor,
+            // Счётчик не ждём: страница с LIMIT по индексу даты приходит за
+            // десятые доли секунды, а счёт по корпусу — секунды. Подпись
+            // «За период N фото» дозаполняется отдельным запросом (refresh).
+            count: false,
+          }),
         )
 
         // Пока запрос летел, фильтр сменился: строки и курсор уже не те.
@@ -268,6 +284,7 @@ export const usePhotosStore = defineStore('photos', {
         }
 
         this.nextCursor = page.next_cursor
+        this.loadedOnce = true
 
         // null on continuation pages: the set is unchanged while scrolling.
         if (page.total !== null && page.total !== undefined) {
@@ -286,6 +303,30 @@ export const usePhotosStore = defineStore('photos', {
       this.nextCursor = null
       this.total = null
       await this.loadPage(this.generation)
+      this._scheduleTotal(this.generation)
+    },
+
+    /**
+     * Досчитать размер выборки для подписи «За период N фото».
+     *
+     * Отдельным запросом и с небольшой задержкой: страница уже показана, а
+     * счёт по корпусу идёт секунды — при быстром переборе кнопок незачем
+     * запускать его на каждое нажатие. Результат применяется, только если
+     * фильтр с тех пор не сменился.
+     */
+    _scheduleTotal(generation) {
+      // `setTimeout`, а не `window.setTimeout`: стор гоняется и в node-тестах.
+      if (totalTimer !== null) clearTimeout(totalTimer)
+
+      totalTimer = setTimeout(() => {
+        totalTimer = null
+
+        this.countFiltered().then((value) => {
+          if (value !== null && value !== undefined && generation === this.generation) {
+            this.total = value
+          }
+        })
+      }, TOTAL_DELAY_MS)
     },
 
     /**
@@ -569,9 +610,13 @@ export const usePhotosStore = defineStore('photos', {
 
       this.group = value
 
-      // Пока грид не загружен (старт приложения), достаточно запомнить группу:
-      // первый запрос страницы уже уйдёт с ней, лишний круг не нужен.
-      if (!this.items.length) return
+      // На старте приложения грид ещё ни разу не грузился: достаточно запомнить
+      // группу, первый запрос страницы уже уйдёт с ней. Признак — отдельный
+      // флаг, а не пустой список: у группы может не быть ни одного фото, и тогда
+      // «нет строк» означало не «ещё не грузили», а «здесь пусто». Из-за этого
+      // после пустой группы кнопки переставали работать вовсе: подсветка
+      // менялась, а грид не перезапрашивался (аудит 28.10.2026).
+      if (!this.loadedOnce) return
 
       // Подборка живёт в своей группе (задание, п. 7е), поэтому смена группы
       // снимает и выбор, и подборки: иначе панель адресов осталась бы суженной

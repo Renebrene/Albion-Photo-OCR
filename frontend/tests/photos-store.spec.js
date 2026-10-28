@@ -868,3 +868,77 @@ describe('сохранённый поиск', () => {
     expect(savedSearchBodies[0].filters.clients).toEqual(['Клиент А'])
   })
 })
+
+// Аудит скорости 28.10.2026: показ страницы не должен ждать счётчик, а смена
+// группы обязана перезапрашивать грид даже когда он пуст.
+describe('скорость списка фото', () => {
+  it('страница берётся без счётчика, счётчик приходит отдельным запросом', async () => {
+    const urls = []
+
+    routes.photos = (url) => {
+      urls.push(String(url))
+      return jsonResponse({ items: [photo('PH_a')], next_cursor: null, total: 56934 })
+    }
+
+    const store = usePhotosStore()
+    await store.refresh()
+
+    // Страница: счётчика нет — он считается секунды и не должен её задерживать.
+    expect(queryParam(urls.at(-1), 'count')).toBe('0')
+    expect(urls.at(-1)).toContain('/v1/photos?')
+
+    // Число для подписи приходит отдельным запросом (limit=1) и только после него.
+    await vi.waitFor(() =>
+      expect(urls.some((url) => queryParam(url, 'limit') === '1')).toBe(true),
+    )
+    await vi.waitFor(() => expect(store.total).toBe(56934))
+  })
+
+  it('пока счётчик не пришёл, выборка показывается без числа', async () => {
+    routes.photos = () =>
+      jsonResponse({ items: [photo('PH_a')], next_cursor: null, total: null })
+
+    const store = usePhotosStore()
+    await store.refresh()
+
+    expect(store.total).toBe(null)
+    expect(store.items).toHaveLength(1)
+  })
+
+  it('смена группы перезапрашивает грид, даже если он пуст', async () => {
+    const urls = []
+
+    routes.photos = (url) => {
+      urls.push(String(url))
+      return jsonResponse({ items: [], next_cursor: null, total: 0 })
+    }
+
+    const store = usePhotosStore()
+    store.group = 'rostov'
+    await store.refresh()
+
+    // Пустая группа: строк нет, но грид уже грузился.
+    expect(store.items).toHaveLength(0)
+    const before = urls.filter((url) => url.includes('/v1/photos?')).length
+
+    await store.setGroup('screens')
+
+    expect(urls.filter((url) => url.includes('/v1/photos?')).length).toBeGreaterThan(before)
+    expect(queryParam(urls.at(-1), 'group')).toBe('screens')
+  })
+
+  it('на старте группа только запоминается — лишнего запроса нет', async () => {
+    const urls = []
+
+    routes.photos = (url) => {
+      urls.push(String(url))
+      return jsonResponse({ items: [], next_cursor: null, total: 0 })
+    }
+
+    const store = usePhotosStore()
+    await store.setGroup('cities')
+
+    expect(store.group).toBe('cities')
+    expect(urls.filter((url) => url.includes('/v1/photos?'))).toHaveLength(0)
+  })
+})

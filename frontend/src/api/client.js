@@ -428,6 +428,9 @@ export function fetchPhotos({
   // своей закладки. Параметр был в filterParams, но в запрос не попадал —
   // переключение группы не меняло выдачу.
   group = null,
+  // count=false — страница без счётчика: он считается секунды и запрашивается
+  // отдельно, чтобы фотографии появлялись сразу (аудит 28.10.2026).
+  count = true,
   collection_id = null,
   ids = null,
   sort = null,
@@ -452,6 +455,7 @@ export function fetchPhotos({
   if (combine) params.set('combine', combine)
   // Группа верхней панели: сужает грид до адресов закладки.
   if (group) params.set('group', group)
+  if (!count) params.set('count', '0')
   // Порядок строк задаёт сервер (см. repository.list_photos).
   if (sort) params.set('sort', sort)
   if (order) params.set('order', order)
