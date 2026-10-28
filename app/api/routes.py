@@ -514,13 +514,18 @@ def data_export(format: str = Query("json", pattern=r"^(json|csv)$")):
 
 @read_router.get("/v1/addresses", response_model=None)
 def list_addresses(
-    limit: int = Query(1000, ge=1, le=5000),
+    # `limit` не задаётся: список адресов отдаётся целиком. Молчаливое усечение
+    # (1000 строк по алфавиту) прятало адреса от панели, а фильтр по закладке
+    # применялся после него — из 95 экранных адресов 34 не доезжали (задание,
+    # 28.10.2026). Если ограничение понадобится, оно должно идти после выборки
+    # по закладке, а не вместо неё.
+    limit: int | None = Query(None, ge=1, le=100000),
     date_from: date_type | None = Query(None),
     date_to: date_type | None = Query(None),
     date_mode: str = Query("upload", pattern="^(upload|capture)$"),
     client: list[str] | None = Query(None, max_length=100),
     group: str | None = Query(
-        None, pattern="^(screens|small|rostov|roads|cities)$"
+        None, pattern="^(screens|small|rostov|roads|cities|unknown)$"
     ),
     collection_id: list[int] | None = Query(None, max_length=50),
 ):
@@ -530,9 +535,10 @@ def list_addresses(
     Поверхности одной стороны (A(1), A(2), A(3)) дают одну строку: `ids`
     перечисляет адреса поверхностей, `count`/`period_count` суммируются,
     идентификаторы объединяются. `group` оставляет только адреса выбранной
-    группы верхней панели (задание, п. 7). `collection_id` (может повторяться)
-    грузит список в составе подборок: адресная подборка даёт свои адреса,
-    клиентская — адреса, где есть её клиенты (задание, 28.10.2026).
+    группы верхней панели (задание, п. 7) — фильтр идёт в SQL по
+    `panel_group`, поэтому список по кнопке полный. `collection_id` (может
+    повторяться) грузит список в составе подборок: адресная подборка даёт свои
+    адреса, клиентская — адреса, где есть её клиенты (задание, 28.10.2026).
     """
 
     # `count` is all-time (the panel must not lose it when a period is picked);
@@ -553,6 +559,7 @@ def list_addresses(
         date_to=end,
         date_mode=date_mode,
         clients=clients,
+        group=group,
     )
 
     if member_addresses is not None:
@@ -574,13 +581,6 @@ def list_addresses(
         # «Требуют проверки» — служебная строка, её не сводим.
         if item.get("review"):
             grouped.append(item)
-            continue
-
-        if group and directory_mod.address_tab(
-            item.get("scope") or "",
-            item.get("city") or "",
-            item.get("format") or "",
-        ) != group:
             continue
 
         base, side = sides_mod.split_legal_side(item.get("legal_address") or "")

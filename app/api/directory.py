@@ -120,8 +120,9 @@ def list_addresses(scope: str | None = None) -> list[dict]:
 # ---- закладки слепков (задание, п. 5в) -------------------------------------
 #
 # «Экраны» — всё из одноимённой закладки справочника. Остальные адреса делятся
-# по городу и формату из XLS. Здесь только правило; данные те же, что в
-# справочнике, поэтому закладки не дублируют таблицу.
+# по городу и формату из XLS. Правило одно (`address_tab`), но его результат
+# хранится в `address_directory.panel_group` (schema/056): списки меняются редко
+# и формируются заранее при разборе XLS, а не считаются на каждый запрос.
 
 TAB_SCREENS = "screens"
 TAB_SMALL = "small"
@@ -189,7 +190,8 @@ def list_address_rows() -> list[dict]:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT address_id, legal_address, simple_address, format, city, scope
+                SELECT address_id, legal_address, simple_address, format, city,
+                       scope, panel_group
                 FROM public.address_directory
                 WHERE active
                 ORDER BY address_id
@@ -205,6 +207,7 @@ def list_address_rows() -> list[dict]:
             "format": row[3] or "",
             "city": row[4] or "",
             "scope": row[5],
+            "panel_group": row[6],
         }
         for row in rows
     ]
@@ -217,13 +220,75 @@ def address_ids_for_tab(tab: str) -> list[int]:
     Кнопки верхней панели перерисовывают грид под группу: «Р-н-Д 6х3»,
     «Города области», «Область и трассы 6х3», «Р-н-Д малые форматы» и закладка
     «Видеоэкраны РнД и Область» (экраны). Возвращаются только активные адреса.
+
+    Закладка берётся из `panel_group` (schema/056), а не считается здесь по
+    городу и формату: она заполняется при разборе XLS и пересчётом, иначе один
+    и тот же список собирался бы заново на каждый запрос грида.
     """
 
-    return [
-        row["address_id"]
-        for row in list_address_rows()
-        if address_tab(row["scope"], row["city"], row["format"]) == tab
-    ]
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT address_id
+                FROM public.address_directory
+                WHERE active AND panel_group = %s
+                ORDER BY address_id
+                """,
+                (tab,),
+            )
+            return [int(row[0]) for row in cur.fetchall()]
+
+
+def recompute_panel_groups(*, dry_run: bool = False) -> dict:
+    """
+    Пересчитать закладку кнопки у всех адресов по текущим данным.
+
+    Нужен после миграции schema/056 (колонка появляется пустой), после правки
+    самого правила `address_tab` и для строк, созданных мимо разбора XLS.
+    Возвращает счётчики: сколько строк посчитано и по каким закладкам.
+
+    `dry_run` считает то же самое, но не пишет — на 1500 адресах ошибка в
+    правиле иначе сразу разъехалась бы по всей базе.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT address_id, scope, city, format, panel_group
+                FROM public.address_directory
+                ORDER BY address_id
+                """
+            )
+            rows = cur.fetchall()
+
+            planned: list[tuple[str, int]] = []
+            counts = {tab: 0 for tab in TAB_LABELS}
+
+            for address_id, scope, city, format_name, current in rows:
+                tab = address_tab(scope or "", city or "", format_name or "")
+                counts[tab] = counts.get(tab, 0) + 1
+
+                if tab != current:
+                    planned.append((tab, int(address_id)))
+
+            if not dry_run and planned:
+                cur.executemany(
+                    """
+                    UPDATE public.address_directory
+                    SET panel_group = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE address_id = %s
+                    """,
+                    planned,
+                )
+
+    return {
+        "total": len(rows),
+        "changed": len(planned),
+        "counts": counts,
+        "dry_run": dry_run,
+    }
 
 
 def tab_counts(addresses: list[dict]) -> dict[str, int]:
@@ -308,17 +373,21 @@ def create_address(
     if not -MAX_SORT_ORDER <= order <= MAX_SORT_ORDER:
         raise DirectoryError("sort_order is out of range")
 
+    # Закладка кнопки считается сразу: у новой строки нет ни города, ни формата,
+    # поэтому экран попадает в «Экраны», а остальное — в «Города области».
+    panel_group = address_tab(scope, "", "")
+
     with get_connection() as conn:
         with conn.cursor() as cur:
             try:
                 cur.execute(
                     """
                     INSERT INTO public.address_directory
-                        (legal_address, simple_address, sort_order, scope)
-                    VALUES (%s, %s, %s, %s)
+                        (legal_address, simple_address, sort_order, scope, panel_group)
+                    VALUES (%s, %s, %s, %s, %s)
                     RETURNING address_id
                     """,
-                    (legal, simple, order, scope),
+                    (legal, simple, order, scope, panel_group),
                 )
             except Exception as exc:
                 message = str(exc)
@@ -803,7 +872,8 @@ def import_addresses(
                 if legal:
                     cur.execute(
                         """
-                        SELECT address_id, simple_address, legal_address, format, city, scope
+                        SELECT address_id, simple_address, legal_address, format, city,
+                               scope, panel_group
                         FROM public.address_directory
                         WHERE lower(btrim(legal_address)) = lower(btrim(%s))
                         """,
@@ -812,14 +882,21 @@ def import_addresses(
                     existing = cur.fetchone()
 
                 if existing is None:
+                    # Закладка кнопки верхней панели считается при разборе файла:
+                    # списки меняются редко, а собирать их на каждый запрос незачем
+                    # (задание, 28.10.2026; schema/056).
+                    group_of_row = address_tab(scope, value_city, value_format)
+
                     if not dry_run:
                         cur.execute(
                             """
                             INSERT INTO public.address_directory
-                                (legal_address, simple_address, format, city, scope)
-                            VALUES (%s, %s, %s, %s, %s)
+                                (legal_address, simple_address, format, city, scope,
+                                 panel_group)
+                            VALUES (%s, %s, %s, %s, %s, %s)
                             """,
-                            (legal, simple, value_format, value_city, scope),
+                            (legal, simple, value_format, value_city, scope,
+                             group_of_row),
                         )
                     created += 1
                     continue
@@ -831,6 +908,7 @@ def import_addresses(
                     current_format,
                     current_city,
                     current_scope,
+                    current_group,
                 ) = existing
 
                 # На закладке «Экраны» формат всегда «Видеоэкран» (задание,
@@ -901,6 +979,28 @@ def import_addresses(
                             WHERE address_id = %s
                             """,
                             (value_city, address_id),
+                        )
+                    updated_row = True
+
+                # Закладка кнопки: считается по тем же графам файла (город,
+                # формат) и уже действующей закладке справочника. Пустая ячейка
+                # города не стирает записанный город, поэтому берём итоговые
+                # значения, а не только то, что пришло из файла.
+                group_of_row = address_tab(
+                    current_scope or "",
+                    value_city or current_city or "",
+                    value_format or current_format or "",
+                )
+
+                if group_of_row != (current_group or ""):
+                    if not dry_run:
+                        cur.execute(
+                            """
+                            UPDATE public.address_directory
+                            SET panel_group = %s, updated_at = CURRENT_TIMESTAMP
+                            WHERE address_id = %s
+                            """,
+                            (group_of_row, address_id),
                         )
                     updated_row = True
 

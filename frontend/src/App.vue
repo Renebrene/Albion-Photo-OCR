@@ -387,6 +387,10 @@ function toggleDark() {
   <q-layout view="hHh lpR fFf">
     <q-header ref="headerRef" elevated class="bg-primary text-white">
       <q-toolbar>
+        <!-- Логотип — в самом начале шапки. Картинка та же, что в проектах
+             «Сайт» и «Файл-сервер» (`frontend/public/logo.png`), поэтому она
+             на белой плашке: на синей шапке иначе не читается тёмная подпись. -->
+        <img src="/logo.png" alt="АЛЬБИОН" class="header-logo" />
         <q-toolbar-title>АЛЬБИОН: Фотобаза</q-toolbar-title>
 
         <!-- Обновление базы: запускает/ведёт полный прогон. Виден, только
@@ -455,6 +459,8 @@ function toggleDark() {
             <span class="header-group-label">Видео</span>
             <q-tooltip>Видеогалерея: отдельный раздел с роликами</q-tooltip>
           </q-btn>
+
+          <span class="header-divider" />
         </template>
 
         <!-- Тема: сразу за кнопкой «Видео», чтобы блок подборок остался между
@@ -781,9 +787,19 @@ function toggleDark() {
   padding: 2px 14px 2px 6px;
 }
 
-/* Разделители по краям блока подборок: слева «Обновление базы», справа
-   «Видео». Высота задана явно — в тулбаре вертикальный разделитель иначе
-   растягивается на всю высоту шапки. */
+/* Логотип из проектов «Сайт»/«Файл-сервер» — той же картинкой (201×70). */
+.header-logo {
+  flex: none;
+  height: 34px;
+  width: auto;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #fff;
+}
+
+/* Разделители вокруг блока подборок с «Видео»: слева «Обновление базы»,
+   справа — остальные кнопки шапки. Высота задана явно: в тулбаре
+   вертикальный разделитель иначе растягивается на всю высоту шапки. */
 .header-divider {
   display: inline-block;
   width: 1px;

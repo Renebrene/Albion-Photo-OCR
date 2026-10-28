@@ -912,11 +912,18 @@ describe('оболочка приложения', () => {
       'Видео',
     ])
 
-    // Разделители по краям блока подборок: слева «Обновление базы», справа «Видео».
-    expect(wrapper.findAll('.header-divider').length).toBe(2)
+    // Логотип — в самом начале шапки, той же картинкой, что в «Сайта».
+    const logo = wrapper.find('img.header-logo')
+    expect(logo.exists()).toBe(true)
+    expect(logo.attributes('src')).toBe('/logo.png')
+    expect(html.indexOf('header-logo')).toBeLessThan(html.indexOf('АЛЬБИОН: Фотобаза'))
+
+    // Разделители: слева от подборок «Обновление базы», справа «Видео» и
+    // ещё один после «Видео» — перед остальными кнопками шапки.
+    expect(wrapper.findAll('.header-divider').length).toBe(3)
+    expect(html.indexOf('Обновление базы')).toBeLessThan(html.indexOf('header-divider'))
     expect(html.indexOf('header-divider')).toBeLessThan(html.indexOf('header-groups'))
     expect(html.indexOf('header-groups')).toBeLessThan(html.lastIndexOf('header-divider'))
-    expect(html.indexOf('Обновление базы')).toBeLessThan(html.indexOf('header-divider'))
 
     wrapper.unmount()
   })

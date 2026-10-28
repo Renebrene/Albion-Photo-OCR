@@ -1384,11 +1384,12 @@ def review_count(
 
 def list_addresses(
     *,
-    limit: int = 1000,
+    limit: int | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     date_mode: str = "upload",
     clients: list[str] | None = None,
+    group: str | None = None,
 ) -> list[dict]:
     """
     The address filter of the photo page: one entry per legal address.
@@ -1403,6 +1404,12 @@ def list_addresses(
     ``address`` is the value the filter sends (``addr:<address_id>``); legacy
     fingerprint ids are still accepted for old collections and saved searches.
     ``fingerprints`` lists the active ids behind the address.
+
+    ``group`` — закладка кнопки верхней панели: фильтр идёт в SQL, до всякого
+    ограничения длины. Раньше он применялся в Python уже после `LIMIT`, и
+    список по кнопке обрезался по алфавиту (у «Экранов» терялось 34 адреса из
+    95). ``limit=None`` — весь список: адресов в справочнике больше тысячи, и
+    молчаливое усечение здесь показывало бы не то, что есть.
     """
 
     if date_mode not in {"upload", "capture"}:
@@ -1477,15 +1484,22 @@ def list_addresses(
                 FROM public.address_directory AS d
                 LEFT JOIN eff AS e ON e.address_id = d.address_id
                 WHERE d.active
+                  """ + ("AND d.panel_group = %s " if group else "") + """
                 GROUP BY d.address_id, d.simple_address, d.legal_address,
                          d.format, d.city
                 """ + ("HAVING count(e.photo_id) > 0 " if clients else "") + """
                 ORDER BY lower(COALESCE(NULLIF(btrim(d.simple_address), ''),
                                         d.legal_address)),
                          d.address_id
-                LIMIT %s
+                """ + ("LIMIT %s" if limit else "") + """
                 """,
-                client_params + period_params + [limit],
+                # Порядок плейсхолдеров — по тексту запроса: сначала отбор по
+                # клиентам в CTE `eff`, затем период в списке выборки, потом
+                # закладка в WHERE и только потом ограничение длины.
+                client_params
+                + period_params
+                + ([group] if group else [])
+                + ([limit] if limit else []),
             )
             rows = cur.fetchall()
 

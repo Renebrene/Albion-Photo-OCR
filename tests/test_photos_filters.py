@@ -142,11 +142,14 @@ def test_addresses_pass_the_selected_period(monkeypatch):
 
     assert response.status_code == 200
     assert seen == {
-        "limit": 1000,
+        # Длину списка адресов не ограничиваем (задание, 28.10.2026): усечение
+        # прятало адреса от панели. None — «отдать всё».
+        "limit": None,
         "date_from": "2026-10-01",
         "date_to": "2026-10-31",
         "date_mode": "capture",
         "clients": None,
+        "group": None,
     }
 
 

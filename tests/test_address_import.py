@@ -356,8 +356,9 @@ def test_dry_run_counts_without_writing(monkeypatch):
 def test_import_writes_when_it_is_not_a_dry_run(monkeypatch):
     """Обычный импорт по-прежнему обновляет формат существующего адреса."""
 
+    # Седьмое поле — закладка кнопки верхней панели (schema/056).
     statements = _recording_connection(
-        monkeypatch, existing=(5, "", "ООО «Тест»", "", "", "other")
+        monkeypatch, existing=(5, "", "ООО «Тест»", "", "", "other", "cities")
     )
 
     result = directory_mod.import_addresses(

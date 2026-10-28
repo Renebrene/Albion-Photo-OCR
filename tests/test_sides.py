@@ -191,12 +191,20 @@ def test_panel_can_be_narrowed_to_a_group(monkeypatch):
         _panel_row(2, "Таганрогская ул. 157/2, A", "Щит", 4, 0),
     ]
     rows[1]["city"] = "Таганрог"
+    seen: dict = {}
 
-    monkeypatch.setattr(routes.repository, "list_addresses", lambda **kwargs: rows)
+    def fake_list(**kwargs):
+        seen.update(kwargs)
+        # Фильтр по закладке идёт в SQL (`panel_group`, schema/056): сюда
+        # приходят только адреса выбранной кнопки.
+        return [row for row in rows if row["city"] == "Таганрог"]
+
+    monkeypatch.setattr(routes.repository, "list_addresses", fake_list)
 
     items = routes.list_addresses(
         limit=100, date_from=None, date_to=None, date_mode="upload", client=None, group="cities"
     )["items"]
 
+    assert seen["group"] == "cities"
     assert len(items) == 1
     assert items[0]["city"] == "Таганрог"
