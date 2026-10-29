@@ -1361,6 +1361,14 @@ def _dino_message(prefix: str | None, failed: int, skipped: int) -> str | None:
 
 
 def _photos_without_qwen(cutoff: str | None) -> list[str]:
+    """
+    Фото без УСПЕШНОГО описания — включая те, что в прошлый раз упали.
+
+    Строка `photo_qwen` со статусом FAILED больше не исключает фото из
+    следующего прогона: ошибку модели (таймаут, битый кроп) владелец хочет
+    видеть исправленной на следующем запуске, а не исключённой навсегда.
+    Исключить фото вручную можно там же, где оно видно (карточка «Описание»).
+    """
     clause, params = _cutoff_clause(cutoff)
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -1371,6 +1379,7 @@ def _photos_without_qwen(cutoff: str | None) -> list[str]:
                 WHERE NOT EXISTS (
                     SELECT 1 FROM public.photo_qwen AS q
                     WHERE q.photo_id = p.photo_id
+                      AND q.status IN ('DONE', 'RUNNING')
                 )
                 """ + clause + " ORDER BY p.photo_id",
                 params,

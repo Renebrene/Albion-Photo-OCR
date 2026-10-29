@@ -612,6 +612,39 @@ def decode_cursor(cursor: str):
     return data.get("v"), str(data["id"])
 
 
+def _address_ids_clause(address_ref: str) -> str:
+    """
+    Фото относятся к одному из юридических адресов (по id).
+
+    Ручное переопределение сильнее распознанного слепка; архивные слепки не
+    участвуют. Один и тот же текст нужен и выбранным адресам, и области группы
+    верхней панели, поэтому он вынесен сюда.
+    """
+
+    return (
+        "(EXISTS ("
+        "   SELECT 1 FROM public.photo_address_overrides AS ov"
+        "   JOIN public.address_directory AS od"
+        "     ON od.address_id = ov.address_id AND od.active"
+        "   WHERE ov.photo_id = t.photo_id"
+        "     AND ov.address_id = ANY(%s))"
+        " OR (NOT EXISTS ("
+        "   SELECT 1 FROM public.photo_address_overrides AS ov2"
+        "   JOIN public.address_directory AS od2"
+        "     ON od2.address_id = ov2.address_id AND od2.active"
+        "   WHERE ov2.photo_id = t.photo_id)"
+        "  AND EXISTS ("
+        "   SELECT 1 FROM public.address_fingerprints AS af"
+        "   JOIN public.fingerprints AS reg"
+        "     ON reg.fingerprint_id = af.fingerprint_id"
+        "    AND reg.active"
+        "   JOIN public.address_directory AS d"
+        "     ON d.address_id = af.address_id AND d.active"
+        "   WHERE af.address_id = ANY(%s) AND af.active"
+        "     AND LOWER(af.fingerprint_id) = LOWER(" + address_ref + "))))"
+    )
+
+
 def _photo_where(
     *,
     cursor: str | None = None,
@@ -631,6 +664,7 @@ def _photo_where(
     recognized_only: bool = False,
     combine: str = "union",
     address_expr: str | None = None,
+    group_addresses: list[str] | None = None,
 ) -> tuple[str, list[object]]:
     """
     WHERE-часть запроса фото и её параметры.
@@ -639,6 +673,11 @@ def _photo_where(
     ровно те же условия, что и сам грид: иначе подпись и выдача расходятся.
     Курсор сюда передаётся только для постраничного продолжения; счётчик
     вызывает функцию с `cursor=None`.
+
+    ``group_addresses`` — адреса закладки верхней панели. Это ОБЛАСТЬ (AND), а
+    не выбранное значение: иначе в режиме объединения группа складывалась по
+    ИЛИ с брендом и тегом, и любой структурный фильтр при активной подборке
+    показывал всю подборку (владелец, 29.10.2026).
     """
 
     if date_mode not in {"upload", "capture"}:
@@ -762,28 +801,7 @@ def _photo_where(
             fingerprint_values.append(text.lower())
 
         if numeric_ids:
-            address_parts.append(
-                "(EXISTS ("
-                "   SELECT 1 FROM public.photo_address_overrides AS ov"
-                "   JOIN public.address_directory AS od"
-                "     ON od.address_id = ov.address_id AND od.active"
-                "   WHERE ov.photo_id = t.photo_id"
-                "     AND ov.address_id = ANY(%s))"
-                " OR (NOT EXISTS ("
-                "   SELECT 1 FROM public.photo_address_overrides AS ov2"
-                "   JOIN public.address_directory AS od2"
-                "     ON od2.address_id = ov2.address_id AND od2.active"
-                "   WHERE ov2.photo_id = t.photo_id)"
-                "  AND EXISTS ("
-                "   SELECT 1 FROM public.address_fingerprints AS af"
-                "   JOIN public.fingerprints AS reg"
-                "     ON reg.fingerprint_id = af.fingerprint_id"
-                "    AND reg.active"
-                "   JOIN public.address_directory AS d"
-                "     ON d.address_id = af.address_id AND d.active"
-                "   WHERE af.address_id = ANY(%s) AND af.active"
-                "     AND LOWER(af.fingerprint_id) = LOWER(" + address_ref + "))))"
-            )
+            address_parts.append(_address_ids_clause(address_ref))
             address_params.extend([numeric_ids, numeric_ids])
 
         if fingerprint_values:
@@ -815,6 +833,50 @@ def _photo_where(
                 "     AND LOWER(" + address_ref + ") = LOWER(af2.fingerprint_id))))"
             )
             address_params.extend([fingerprint_values, fingerprint_values])
+
+    # Область группы: фото должны принадлежать одному из её адресов. В отличие
+    # от выбранных адресов, это условие И, а не альтернатива тегам.
+    scope_parts: list[str] = []
+    scope_params: list[object] = []
+
+    if group_addresses:
+        scope_ids: list[int] = []
+        scope_fingerprints: list[str] = []
+
+        for value in group_addresses:
+            text = str(value).strip()
+
+            if not text:
+                continue
+
+            if text.lower().startswith("addr:"):
+                suffix = text.split(":", 1)[1].strip()
+
+                try:
+                    scope_ids.append(int(suffix))
+                except ValueError:
+                    # Мусор в области не должен превращаться в «всё подряд».
+                    scope_parts.append("FALSE")
+            else:
+                scope_fingerprints.append(text.lower())
+
+        if scope_ids:
+            scope_parts.append(_address_ids_clause(address_ref))
+            scope_params.extend([scope_ids, scope_ids])
+
+        if scope_fingerprints:
+            scope_parts.append(
+                "(EXISTS ("
+                "   SELECT 1 FROM public.address_fingerprints AS saf"
+                "   JOIN public.fingerprints AS sreg"
+                "     ON sreg.fingerprint_id = saf.fingerprint_id"
+                "    AND sreg.active"
+                "   JOIN public.address_directory AS sd"
+                "     ON sd.address_id = saf.address_id AND sd.active"
+                "   WHERE saf.active"
+                "     AND LOWER(saf.fingerprint_id) = ANY(%s)))"
+            )
+            scope_params.append(scope_fingerprints)
 
     client_parts: list[str] = []
     client_params: list[object] = []
@@ -908,6 +970,10 @@ def _photo_where(
             clauses.append("(" + " OR ".join(parts) + ")")
             params.extend(address_params + client_params + other_params)
 
+    if scope_parts:
+        clauses.append("(" + " OR ".join(scope_parts) + ")")
+        params.extend(scope_params)
+
     if date_from:
         clauses.append(f"{date_column} >= %s::date")
         params.append(date_from)
@@ -970,6 +1036,7 @@ def count_photos(
     category: str | None = None,
     recognized_only: bool = False,
     combine: str = "union",
+    group_addresses: list[str] | None = None,
 ) -> int:
     """Сколько фото подходит под те же фильтры, что и грид."""
 
@@ -987,6 +1054,7 @@ def count_photos(
         category=category,
         recognized_only=recognized_only,
         combine=combine,
+        group_addresses=group_addresses,
     )
     sql = "SELECT count(*) FROM (" + _PHOTO_SELECT + where + ") AS filtered"
 
@@ -1015,6 +1083,7 @@ def list_photos(
     category: str | None = None,
     recognized_only: bool = False,
     combine: str = "union",
+    group_addresses: list[str] | None = None,
 ) -> tuple[list[PhotoSummary], str | None]:
     """
     Return one page of registered photos ordered by photo_id.
@@ -1058,6 +1127,7 @@ def list_photos(
         category=category,
         recognized_only=recognized_only,
         combine=combine,
+        group_addresses=group_addresses,
     )
     sql = _PHOTO_SELECT + where
 
@@ -1144,6 +1214,25 @@ def qwen_status_counts() -> dict:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT status, count(*) FROM public.photo_qwen GROUP BY status"
+            )
+            return {row[0]: int(row[1]) for row in cur.fetchall()}
+
+
+def qwen_queue_counts() -> dict:
+    """
+    Состояние ОЧЕРЕДИ описаний (задания), а не статусов строк photo_qwen.
+
+    Разница важна: остановленный или убитый воркер оставляет в `photo_qwen`
+    строки в статусе RUNNING, хотя никакого задания больше нет. Окно раньше
+    считало «в работе» именно по ним — после остановки описания оно
+    показывало «2 в работе» и не давало поставить новый период (29.10.2026).
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT status, count(*) FROM public.job_queue "
+                "WHERE job_type = 'QWEN_PHOTO' GROUP BY status"
             )
             return {row[0]: int(row[1]) for row in cur.fetchall()}
 
@@ -1864,6 +1953,106 @@ def suggest_terms(term: str, *, limit: int = 8) -> list[dict]:
                 {"value": row[0], "kind": row[1], "uses": int(row[2])}
                 for row in cur.fetchall()
             ]
+
+
+def search_matches(
+    *,
+    query: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    date_mode: str = "upload",
+    group: str | None = None,
+) -> dict:
+    """
+    Где встречается поисковый запрос — для подсветки панелей (владелец, 29.10.2026).
+
+    Панель «Клиент/бренд» и список адресов остаются полными: подсветка не
+    фильтрует, а отмечает строки, у которых есть фото по текущему запросу.
+    Иначе, выбрав тег, человек не видел бы, к каким адресам он относится.
+
+    Поиск тот же, что у грида (`_photo_where`): подстрока по имени файла,
+    клиенту, бренду, категории, описанию, тегам и адресам, с учётом словаря
+    алиасов. Значения клиента и бренда подтягиваются к каноническому имени,
+    как в панели, иначе подсветка искала бы другое написание.
+
+    Возвращаются только два множества: имена (`names` — клиенты, бренды и
+    теги) и адресные слепки (`addresses`), по которым панель находит строки.
+    """
+
+    term = (query or "").strip()
+
+    if not term:
+        return {"names": [], "addresses": []}
+
+    # Группа верхней панели — та же область, что у грида: подсветка не должна
+    # показывать адреса из других закладок.
+    group_addresses = None
+
+    if group:
+        from app.api import directory as directory_mod
+
+        group_addresses = [
+            f"addr:{value}" for value in directory_mod.address_ids_for_tab(group)
+        ] or ["addr:-1"]
+
+    where, params = _photo_where(
+        query=term,
+        date_from=date_from,
+        date_to=date_to,
+        date_mode=date_mode,
+        group_addresses=group_addresses,
+    )
+
+    sql = (
+        "WITH matched AS MATERIALIZED ("
+        + _PHOTO_SELECT
+        + where
+        + "), values AS ("
+        "  SELECT 'client' AS kind, client AS value FROM matched"
+        "  WHERE client IS NOT NULL AND client <> ''"
+        "  UNION ALL "
+        "  SELECT 'brand', brand FROM matched"
+        "  WHERE brand IS NOT NULL AND brand <> ''"
+        "  UNION ALL "
+        "  SELECT 'tag', tag FROM public.photo_qwen AS q"
+        "  JOIN matched AS m ON m.photo_id = q.photo_id"
+        "  CROSS JOIN LATERAL jsonb_array_elements_text("
+        "    CASE WHEN jsonb_typeof(q.tags) = 'array' THEN q.tags END"
+        "  ) AS tag"
+        "  WHERE tag <> ''"
+        "), named AS ("
+        "  SELECT DISTINCT lower(COALESCE(a.canonical, v.value)) AS norm,"
+        "         COALESCE(a.canonical, v.value) AS value"
+        "  FROM values AS v"
+        "  LEFT JOIN public.client_aliases AS a"
+        "         ON LOWER(a.alias) = LOWER(v.value) AND a.kind = v.kind"
+        ") "
+        "SELECT 'name' AS kind, value FROM named"
+        " UNION ALL "
+        "SELECT 'address', address FROM matched"
+        " WHERE address IS NOT NULL"
+    )
+
+    names: dict[str, str] = {}
+    addresses: set[str] = set()
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+
+            for kind, value in cur.fetchall():
+                if kind == "name":
+                    key = str(value).strip().lower()
+
+                    if key:
+                        names.setdefault(key, str(value).strip())
+                else:
+                    addresses.add(str(value))
+
+    return {
+        "names": [names[key] for key in sorted(names)],
+        "addresses": sorted(addresses),
+    }
 
 
 # Общая часть запроса списка клиентов и брендов: одна строка на имя (с

@@ -193,4 +193,6 @@ def test_the_count_of_the_grid_is_cached(monkeypatch):
     client.get("/api/v1/photos?group=roads&limit=10")
 
     assert len(calls) == 2
-    assert calls[0]["addresses"] != calls[1]["addresses"]
+    # Группа — область выборки (AND), поэтому её адреса приходят отдельным
+    # аргументом, а не в списке выбранных адресов (владелец, 29.10.2026).
+    assert calls[0]["group_addresses"] != calls[1]["group_addresses"]

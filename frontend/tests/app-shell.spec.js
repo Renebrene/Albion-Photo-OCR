@@ -718,10 +718,17 @@ describe('оболочка приложения', () => {
     wrapper.unmount()
   })
 
-  it('Менеджер без техраздела, но с запуском обновления базы', async () => {
+  it('Менеджер видит «Обновление базы» только как неактивную кнопку', async () => {
     const wrapper = await mountShell({ role: 'Менеджер' })
 
+    // Кнопка видна, но запускать прогон может только Администратор
+    // (владелец, 29.10.2026): база обновляется автоматически.
     expect(wrapper.text()).toContain('Обновление базы')
+    expect(wrapper.find('.pipeline-readonly').exists()).toBe(true)
+    // Кнопки «Начать заново» рядом нет: в блоке прогона только одна кнопка.
+    expect(
+      wrapper.findAll('.pipeline-control button').length,
+    ).toBe(1)
     expect(wrapper.html()).not.toContain('/technical')
 
     wrapper.unmount()
@@ -757,8 +764,11 @@ describe('оболочка приложения', () => {
     expect(html).not.toContain('photo_camera')
     expect(wrapper.text()).not.toContain('Скачать')
     expect(wrapper.text()).not.toContain('В подборку')
-    expect(wrapper.text()).not.toContain('Обновление базы')
     expect(html).not.toContain('/technical')
+
+    // «Обновление базы» видно, но неактивно: прогон запускает Администратор.
+    expect(wrapper.text()).toContain('Обновление базы')
+    expect(wrapper.find('.pipeline-readonly').exists()).toBe(true)
 
     wrapper.unmount()
   })
@@ -959,6 +969,48 @@ describe('оболочка приложения', () => {
     wrapper.unmount()
   })
 
+  it('подсказки склеивают клиента, бренд и тег, адрес — отдельной строкой', async () => {
+    installFetch()
+
+    // Ответ сервера: одно слово встречается в трёх полях и как адрес.
+    const baseFetch = global.fetch
+    global.fetch = vi.fn(async (url, options) => {
+      if (String(url).includes('/v1/search/suggestions')) {
+        return json({
+          items: [
+            { value: 'Мегафон', kind: 'brand' },
+            { value: 'Мегафон', kind: 'client' },
+            { value: 'Мегафон', kind: 'tag' },
+            { value: 'Мегафон-М', kind: 'brand' },
+            { value: 'Мегафон, офис', kind: 'address' },
+          ],
+        })
+      }
+
+      return baseFetch(url, options)
+    })
+
+    const wrapper = await mountShell()
+
+    const searchInput = wrapper
+      .findAll('input')
+      .find((input) => (input.attributes('placeholder') || '').includes('Название файла'))
+
+    await searchInput.setValue('мега')
+    await new Promise((resolve) => setTimeout(resolve, 320))
+    await flushPromises()
+
+    const items = wrapper.findComponent(PhotosGrid).vm.suggestItems
+
+    // «Мегафон» встречается у бренда, клиента и тега — одна строка с перечнем
+    // типов; «Мегафон-М» и адрес остаются отдельными подсказками.
+    expect(items.map((item) => item.value)).toEqual(['Мегафон', 'Мегафон-М', 'Мегафон, офис'])
+    expect(items[0].kinds).toEqual(['brand', 'client', 'tag'])
+    expect(items[2].kind).toBe('address')
+
+    wrapper.unmount()
+  })
+
   it('переключает верхнюю кнопку на отдельную видеогалерею', async () => {
     const wrapper = await mountShell()
     // Вкладка фото теперь тоже начинается с «Видеоэкраны…» — отличаем по тексту.
@@ -1077,7 +1129,7 @@ describe('оболочка приложения', () => {
     wrapper.unmount()
   })
 
-  it('после последнего этапа в шапке остаётся только «База обновлена»', async () => {
+  it('без процесса не показывает общий прогресс описаний в шапке', async () => {
     installFetch()
     const baseFetch = global.fetch
     global.fetch = vi.fn(async (url, options) => {
@@ -1096,12 +1148,12 @@ describe('оболочка приложения', () => {
     const wrapper = await mountShell()
     await flushPromises()
 
-    // Очередь пуста — данных о процессах в шапке нет: ни «Описание 12050», ни
-    // мигающей точки. Остаётся состояние «База обновлена» с датой.
+    // Общий прогресс описаний (12050 из 56870) — данные корпуса: они в
+    // статус-баре, а не в шапке (владелец, 29.10.2026).
     const header = wrapper.find('header').text()
 
-    expect(header).not.toContain('12050')
     expect(header).not.toContain('Описание')
+    expect(wrapper.find('header .blink-dot').exists()).toBe(false)
 
     wrapper.unmount()
   })

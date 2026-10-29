@@ -89,11 +89,11 @@ const canWriteSettings = computed(
   () => !session.authEnabled || session.user?.role === 'Администратор',
 )
 
-// «Обновление базы» запускают обе рабочие роли (Администратор и Менеджер).
+// «Обновление базы» запускает только Администратор (владелец, 29.10.2026):
+// база обновляется автоматически несколько раз в день, а Менеджеру и Гостю
+// кнопка показывает неактивный вид и окно с объяснением.
 const canRunPipeline = computed(
-  () =>
-    !session.authEnabled ||
-    ['Администратор', 'Менеджер'].includes(session.user?.role),
+  () => !session.authEnabled || session.user?.role === 'Администратор',
 )
 
 // Счётчики подвала — только Администратору. Запрос считает по всему корпусу
@@ -403,13 +403,17 @@ function toggleDark() {
         <img src="/logo.png" alt="АЛЬБИОН" class="header-logo" />
         <q-toolbar-title>АЛЬБИОН: Фотобаза</q-toolbar-title>
 
-        <!-- Обновление базы: запускает/ведёт полный прогон. Виден, только
-             когда серверный супервизор уже развёрнут. -->
+        <!-- Обновление базы: запускает/ведёт полный прогон. Кнопку видят все
+             роли (прогон показывает и Гостю), но запускать может только
+             Администратор: остальным нажатие объясняет, почему нельзя
+             (владелец, 29.10.2026). Скрывается сама, если супервизор не
+             развёрнут. -->
         <PipelineUpdateButton
-          v-if="canRunPipeline"
           :can-run="canRunPipeline"
           :busy="pipeline.stageBusy"
           :can-write-settings="canWriteSettings"
+          :run-options="display.runOptions"
+          @update:run-options="display.setRunOptions"
           @finished="loadStats"
         />
 

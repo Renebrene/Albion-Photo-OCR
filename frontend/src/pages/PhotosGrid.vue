@@ -16,6 +16,7 @@ import {
   fetchPhotoDetails,
   fetchPhotos,
   fetchSearchSuggestions,
+  fetchSearchMatches,
   fetchRunActivity,
   fetchSortStatus,
   savePhotoQwenText,
@@ -272,7 +273,12 @@ watch(
 )
 
 // Grid presentation (mirrors the legacy list/tile toggle + sorting).
-const viewMode = ref('tiles')
+// Вид грида — личная настройка (задание, п. 2б): живёт в store, поэтому
+// переживает F5 и вход с другой машины. Раньше это был ref страницы.
+const viewMode = computed({
+  get: () => display.viewMode,
+  set: (value) => display.setViewMode(value),
+})
 // Сортировка задаётся на сервере (`sort`/`order` в /v1/photos): страницы
 // приходят уже в нужном порядке, и догруженная страница больше не встаёт в
 // середину списка. Клиентская пересортировка убрана.
@@ -1107,6 +1113,12 @@ onMounted(async () => {
     if (filters.combine) display.addressClientMode = filters.combine
     if (filters.sort) store.sortKey = filters.sort
     if (filters.order) store.sortDirection = filters.order
+
+    // Ссылка с поиском восстанавливает и подсветку панелей.
+    if (filters.q) {
+      const [from, to] = currentDates()
+      void refreshSearchMatches(filters.q, from, to)
+    }
   } else {
     // Адрес фильтров не задаёт (обычный вход в базу) — берём привычный срез
     // пользователя: период и сортировку, сохранённые его прошлым действием.
@@ -1249,6 +1261,61 @@ async function apply(overrideQuery = undefined) {
 
   // Адрес страницы повторяет фильтры: F5 и ссылка коллеге дают то же самое.
   writeFiltersToQuery()
+
+  // Подсветка панелей — отдельным запросом: он тяжелее страницы (счёт по
+  // корпусу), поэтому грид его не ждёт.
+  void refreshSearchMatches(query, dateFrom, dateTo)
+}
+
+// ---- подсветка панелей по текущему поиску (владелец, 29.10.2026) ----------
+// Списки адресов и клиентов/брендов остаются полными, но строки, у которых
+// есть фото по запросу, подсвечиваются. Тот же поиск считает сервер
+// (`/v1/search/matches`), поэтому подсветка не расходится с гридом.
+const matchNames = ref(new Set())
+const matchAddresses = ref(new Set())
+let matchRequest = 0
+
+async function refreshSearchMatches(term, from, to) {
+  const request = ++matchRequest
+  const value = String(term || '').trim()
+
+  if (value.length < 2) {
+    matchNames.value = new Set()
+    matchAddresses.value = new Set()
+    return
+  }
+
+  try {
+    const data = await fetchSearchMatches(value, {
+      from,
+      to,
+      dateMode: dateMode.value,
+      group: store.group || null,
+    })
+
+    // Пока шёл запрос, поиск уже сменился — старый ответ не применяем.
+    if (request !== matchRequest) return
+
+    matchNames.value = new Set(
+      (data.names || []).map((name) => String(name).trim().toLowerCase()),
+    )
+    matchAddresses.value = new Set(data.addresses || [])
+  } catch {
+    if (request !== matchRequest) return
+
+    matchNames.value = new Set()
+    matchAddresses.value = new Set()
+  }
+}
+
+function isClientMatched(item) {
+  return matchNames.value.has(String(item?.value || '').trim().toLowerCase())
+}
+
+function isAddressMatched(item) {
+  return (item?.fingerprints || []).some((fingerprint) =>
+    matchAddresses.value.has(String(fingerprint)),
+  )
 }
 
 // ---- очистка строки поиска ------------------------------------------------
@@ -1309,6 +1376,41 @@ const SUGGESTION_ICONS = {
 
 function suggestionKind(kind) {
   return SUGGESTION_KINDS[kind] || kind
+}
+
+/** Подпись подсказки: у склеенной строки — все типы («бренд · клиент · тег»). */
+function suggestionKinds(item) {
+  return (item.kinds || [item.kind]).map(suggestionKind).join(' · ')
+}
+
+/**
+ * Одна подсказка на слово: значения, встречающиеся и у клиента, и у бренда, и
+ * среди тегов, склеиваются в одну строку. Адрес — отдельная подсказка: у него
+ * свой смысл и своё действие (владелец, 29.10.2026).
+ */
+function mergeSuggestions(items) {
+  const merged = new Map()
+  const addresses = []
+
+  for (const item of items) {
+    if (item.kind === 'address') {
+      addresses.push({ ...item, kinds: ['address'] })
+      continue
+    }
+
+    const key = String(item.value || '').trim().toLowerCase()
+    const existing = merged.get(key)
+
+    if (existing) {
+      if (!existing.kinds.includes(item.kind)) existing.kinds.push(item.kind)
+      continue
+    }
+
+    merged.set(key, { ...item, kinds: [item.kind] })
+  }
+
+  // Адреса — в конец: сначала то, что относится к текстовым полям.
+  return [...merged.values(), ...addresses]
 }
 
 function suggestionIcon(kind) {
@@ -1385,8 +1487,9 @@ async function loadSuggestions(term) {
     // Пока шёл запрос, строку уже изменили — старые подсказки не показываем.
     if (String(q.value || '').trim() !== term) return
 
-    suggestItems.value = (data.items || [])
-      .filter((item) => !suggestionAlreadySelected(item))
+    suggestItems.value = mergeSuggestions(
+      (data.items || []).filter((item) => !suggestionAlreadySelected(item)),
+    )
     suggestLayout.value = data.layout || null
     suggestOpen.value = Boolean(suggestItems.value.length || suggestLayout.value)
   } catch {
@@ -1436,17 +1539,33 @@ async function pickSuggestion(item) {
     return
   }
 
-  if (kind === 'client') {
+  // Подсказка склеена по значению (п. 4): «Байков» может быть клиентом,
+  // брендом и тегом одновременно. Применяем ВСЕ роли, а не только первую —
+  // иначе строка «тег · бренд» на деле фильтровала по тегу, и часть фото
+  // пропадала (владелец, 29.10.2026).
+  const kinds = Array.isArray(item.kinds) && item.kinds.length
+    ? item.kinds
+    : [kind]
+
+  if (kinds.includes('client')) {
     if (!store.selectedClients.includes(value)) {
       store.selectedClients = [...store.selectedClients, value]
     }
-  } else if (kind === 'brand') {
+  }
+
+  if (kinds.includes('brand')) {
     selectedBrand.value = value
-  } else if (kind === 'tag') {
+  }
+
+  if (kinds.includes('tag')) {
     selectedTag.value = value
-  } else if (kind === 'category') {
+  }
+
+  if (kinds.includes('category')) {
     selectedCategory.value = value
-  } else if (kind === 'address') {
+  }
+
+  if (kinds.includes('address')) {
     const wanted = String(value || '').trim().toLowerCase()
     const found = addresses.value.find((entry) =>
       [entry.name, entry.address, entry.simple_address, entry.legal_address]
@@ -1468,7 +1587,11 @@ async function pickSuggestion(item) {
       await apply(value)
       return
     }
-  } else {
+  } else if (
+    !kinds.some((entry) =>
+      ['client', 'brand', 'tag', 'category'].includes(entry),
+    )
+  ) {
     // Unknown kind: keep the old substring behaviour.
     q.value = value
     await apply(value)
@@ -3041,6 +3164,7 @@ function tagList(meta) {
                 :key="item.address"
                 clickable
                 :active="isAddressItemActive(item)"
+                :class="{ 'panel-match': isAddressMatched(item) }"
                 active-class="bg-primary text-white"
                 @click="toggleAddressItem(item)"
               >
@@ -3175,7 +3299,7 @@ function tagList(meta) {
                   <q-item-section>
                     <q-item-label>{{ item.value }}</q-item-label>
                     <q-item-label caption>
-                      {{ suggestionKind(item.kind) }}
+                      {{ suggestionKinds(item) }}
                     </q-item-label>
                   </q-item-section>
                 </q-item>
@@ -3886,6 +4010,7 @@ function tagList(meta) {
                 :key="`${item.kind}:${item.value}`"
                 clickable
                 :active="isClientActive(item)"
+                :class="{ 'panel-match': isClientMatched(item) }"
                 active-class="bg-secondary text-white"
                 @click="pickClientEntry(item)"
               >
@@ -4925,5 +5050,12 @@ body.body--dark .grid-scroll {
   background: #f5f6f8;
   border-radius: 6px;
   padding: 8px;
+}
+
+/* Строка панели, у которой есть фото по текущему поиску. Не фильтр, а
+   подсветка: списки остаются полными (владелец, 29.10.2026). */
+.panel-match {
+  box-shadow: inset 3px 0 0 #ffb300;
+  background: rgba(255, 179, 0, 0.14);
 }
 </style>

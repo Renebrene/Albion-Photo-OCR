@@ -158,6 +158,48 @@ def test_addresses_pass_the_selected_period(monkeypatch):
     }
 
 
+def test_group_is_a_scope_not_an_alternative_to_tags(monkeypatch):
+    """
+    Закладка верхней панели — область выборки, а не ещё один тег.
+
+    Раньше группа уходила в тот же OR, что бренд и тег: при активной подборке
+    выбор тега из подсказок возвращал всю подборку (владелец, 29.10.2026).
+    Теперь группа передаётся отдельно и склеивается с остальными условиями
+    через И.
+    """
+
+    seen: dict = {}
+
+    def fake_list_photos(**kwargs):
+        seen.update(kwargs)
+        return [], None
+
+    monkeypatch.setattr(repository, "list_photos", fake_list_photos)
+    monkeypatch.setattr(repository, "count_photos", lambda **kwargs: 0)
+    monkeypatch.setattr(
+        "app.api.directory.address_ids_for_tab", lambda group: [140, 141]
+    )
+
+    response = client.get(
+        "/api/v1/photos", params={"limit": "50", "tag": "Байков", "group": "screens"}
+    )
+
+    assert response.status_code == 200
+    assert seen["tag"] == "Байков"
+    assert seen["group_addresses"] == ["addr:140", "addr:141"]
+    # Группа не подменяет выбранные адреса и не уходит в общий список.
+    assert seen["addresses"] is None
+
+    # И в SQL это отдельное условие И после условий-альтернатив.
+    where, _params = repository._photo_where(
+        tag="Байков", group_addresses=["addr:140", "addr:141"]
+    )
+    tag_at = where.index("jsonb_array_elements_text")
+    scope_at = where.index("public.photo_address_overrides AS ov")
+    assert tag_at < scope_at
+    assert ") AND ((" in where[tag_at:scope_at]
+
+
 def test_stats_pass_the_selected_period(monkeypatch):
     seen: dict = {}
 
@@ -501,3 +543,30 @@ def test_qwen_period_rescan_blocks_only_running_jobs(monkeypatch):
 
     assert running.status_code == 409
     assert "выполняется" in running.text
+
+
+def test_qwen_stats_report_the_queue_separately(monkeypatch):
+    """
+    «В работе» считается по заданиям, а не по статусам строк photo_qwen.
+
+    29.10.2026: убитый воркер оставил две строки photo_qwen в RUNNING без
+    заданий — окно показывало «2 в работе» и не давало поставить период.
+    """
+
+    monkeypatch.setattr(
+        repository,
+        "qwen_stats",
+        lambda: {"photos": 10, "counts": {"DONE": 5, "RUNNING": 2}},
+    )
+    monkeypatch.setattr(
+        repository,
+        "qwen_queue_counts",
+        lambda: {"PENDING": 7},
+    )
+    monkeypatch.setattr(repository, "photo_ids_with_qwen_status", lambda _status: [])
+
+    body = client.get("/api/v1/qwen/stats").json()
+
+    assert body["queue"] == {"PENDING": 7}
+    # Статусы строк остаются в ответе: по ним карточка показывает корпус.
+    assert body["counts"]["RUNNING"] == 2

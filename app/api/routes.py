@@ -228,9 +228,13 @@ def list_photos(
                 detail="collection scope must be photos",
             )
 
-    # Группа верхней панели сужает выборку до адресов своей закладки. Выбранные
-    # в панели адреса остаются фильтром внутри группы; если выбор пуст — берём
-    # всю группу. Выбор вне группы даёт пустой грид, а не «всё подряд».
+    # Группа верхней панели сужает выборку до адресов своей закладки. Это
+    # ОБЛАСТЬ фильтра (AND), а не выбранное значение: если положить её в общий
+    # OR, любой бренд или тег при активной подборке возвращал всю подборку —
+    # поиск по тегу «не работал». Выбранные в панели адреса остаются фильтром
+    # внутри группы; выбор вне группы даёт пустой грид, а не «всё подряд».
+    group_addresses = None
+
     if group:
         group_values = {
             f"addr:{value}" for value in directory_mod.address_ids_for_tab(group)
@@ -243,8 +247,7 @@ def list_photos(
                 if str(value).strip() in group_values
             ]
 
-        if not address:
-            address = sorted(group_values) or ["addr:-1"]
+        group_addresses = sorted(group_values) or ["addr:-1"]
 
     items, next_cursor = repository.list_photos(
         limit=limit,
@@ -266,6 +269,7 @@ def list_photos(
         combine=combine,
         sort=sort,
         order=order,
+        group_addresses=group_addresses,
     )
 
     if sort not in repository.SORT_KEYS:
@@ -304,6 +308,7 @@ def list_photos(
                 combine,
                 collection_id,
                 tuple(ids or []),
+                group,
             ),
             lambda: repository.count_photos(
                 query=q,
@@ -319,6 +324,7 @@ def list_photos(
                 category=category,
                 recognized_only=True,
                 combine=combine,
+                group_addresses=group_addresses,
             ),
         )
 
@@ -747,6 +753,45 @@ def search_suggestions(
                 layout = {"query": converted, "items": alt_items}
 
     return {"items": items, "layout": layout}
+
+
+@read_router.get("/v1/search/matches", response_model=None)
+def search_matches(
+    q: str = Query("", max_length=100),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    date_mode: str = Query("upload"),
+    group: str | None = Query(
+        None, pattern="^(screens|small|rostov|roads|cities)$"
+    ),
+):
+    """
+    Где встречается запрос: имена (клиент, бренд, тег) и адреса фото.
+
+    Нужно панелям грида: список адресов и клиентов остаётся полным, а строки,
+    у которых есть фото по текущему поиску, подсвечиваются. Считается по тем
+    же условиям, что и выдача (`_photo_where`), поэтому подсветка не
+    расходится с гридом.
+    """
+
+    term = q.strip()
+
+    if len(term) < 2:
+        return {"names": [], "addresses": []}
+
+    if date_mode not in {"upload", "capture"}:
+        raise HTTPException(status_code=422, detail="date_mode must be 'upload' or 'capture'")
+
+    return cache.cached(
+        ("search-matches", term, date_from, date_to, date_mode, group),
+        lambda: repository.search_matches(
+            query=term,
+            date_from=date_from,
+            date_to=date_to,
+            date_mode=date_mode,
+            group=group,
+        ),
+    )
 
 
 @read_router.get("/v1/photos/{photo_id}", response_model=None)
@@ -2608,6 +2653,9 @@ def qwen_stats():
     """
 
     result = repository.qwen_stats()
+    # Очередь — отдельно от статусов строк: «в работе» считается по заданиям
+    # (см. repository.qwen_queue_counts).
+    result["queue"] = repository.qwen_queue_counts()
     result["failed_photo_ids"] = repository.photo_ids_with_qwen_status("FAILED")
 
     return result

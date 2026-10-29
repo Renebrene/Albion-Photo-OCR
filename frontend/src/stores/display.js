@@ -131,6 +131,15 @@ export const useDisplayStore = defineStore('display', () => {
   const clamp = (value, { min, max }) =>
     Math.min(max, Math.max(min, Math.round(Number(value) || min)))
 
+  // Вид грида: «Плитка» или «Список». Личная настройка, переживает F5 и вход
+  // с другой машины (задание, п. 2б).
+  const viewMode = ref('tiles')
+
+  // Настройки окна «Обновление базы», которые раньше сбрасывались на каждый
+  // запуск: «Пропустить уточнение» и глубина сканирования (задание, п. 2в).
+  // Участие описания (QWEN) — общая настройка системы, живёт отдельно.
+  const runOptions = ref({ skipRefine: false, scanDays: 7 })
+
   const tileColumns = ref(DEFAULT_TILE_COLUMNS)
   const listFields = ref([...DEFAULT_LIST_FIELDS])
   const downloadNameMode = ref(DEFAULT_DOWNLOAD_NAME_MODE)
@@ -194,8 +203,39 @@ export const useDisplayStore = defineStore('display', () => {
     persist()
   }
 
+  function setViewMode(value) {
+    viewMode.value = value === 'list' ? 'list' : 'tiles'
+    persist()
+  }
+
+  function setRunOptions(partial) {
+    const next = { ...runOptions.value, ...(partial || {}) }
+    const scanDays = Number(next.scanDays)
+
+    runOptions.value = {
+      skipRefine: Boolean(next.skipRefine),
+      // 0 = «Все даты», 7 — неделя: любое число от 0 до 3650.
+      scanDays: Number.isFinite(scanDays) && scanDays >= 0 ? scanDays : 7,
+    }
+
+    persist()
+  }
+
   function applyState(source) {
     const saved = source && typeof source === 'object' ? source : {}
+
+    viewMode.value = saved.viewMode === 'list' ? 'list' : 'tiles'
+
+    const savedRun = saved.runOptions && typeof saved.runOptions === 'object'
+      ? saved.runOptions
+      : {}
+    const savedScanDays = Number(savedRun.scanDays)
+
+    runOptions.value = {
+      skipRefine: Boolean(savedRun.skipRefine),
+      scanDays:
+        Number.isFinite(savedScanDays) && savedScanDays >= 0 ? savedScanDays : 7,
+    }
 
     photoGroup.value =
       typeof saved.photoGroup === 'string' && saved.photoGroup
@@ -322,6 +362,8 @@ export const useDisplayStore = defineStore('display', () => {
 
   function snapshot() {
     return {
+      viewMode: viewMode.value,
+      runOptions: { ...runOptions.value },
       photoGroup: photoGroup.value,
       filters: { ...filters.value },
       tileColumns: tileColumns.value,
@@ -619,6 +661,10 @@ export const useDisplayStore = defineStore('display', () => {
   }
 
   return {
+    viewMode,
+    setViewMode,
+    runOptions,
+    setRunOptions,
     tileColumns,
     listFields,
     downloadNameMode,

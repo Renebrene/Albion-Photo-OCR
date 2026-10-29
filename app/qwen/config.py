@@ -31,7 +31,11 @@ QWEN_BASE_URL = os.getenv("QWEN_BASE_URL", "").strip()
 QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen3-vl:8b")
 
 # Seconds to wait for one image analysis.
-QWEN_TIMEOUT = float(os.getenv("QWEN_TIMEOUT", "300"))
+# Таймаут одного ответа модели. Замеры на корпусе: медиана 2,6 с, p90 3,2 с,
+# максимум 57 с — 300 с держали очередь на зависшем запросе пять минут.
+# Владелец (29.10.2026): таймаут меньше, чтобы сбойное фото падало быстро и
+# следующий запуск его повторил, а не ждал.
+QWEN_TIMEOUT = float(os.getenv("QWEN_TIMEOUT", "120"))
 
 # How long Ollama keeps the model resident after a request. A duration string
 # ("10m", "1h") keeps it warm between consecutive jobs; "0" unloads right after

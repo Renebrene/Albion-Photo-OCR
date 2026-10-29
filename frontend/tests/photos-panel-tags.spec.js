@@ -36,7 +36,7 @@ const photo = {
   size_bytes: 4194304,
 }
 
-function installFetch({ clientsNextCursor = null } = {}) {
+function installFetch({ clientsNextCursor = null, suggestions = null, matches = null } = {}) {
   global.fetch = vi.fn(async (url) => {
     const parsed = new URL(String(url), 'http://localhost')
     const path = parsed.pathname
@@ -92,12 +92,16 @@ function installFetch({ clientsNextCursor = null } = {}) {
 
     if (path.endsWith('/v1/search/suggestions')) {
       return json({
-        items: [
+        items: suggestions || [
           { value: 'СТС', kind: 'brand', uses: 6 },
           { value: 'Клиент А', kind: 'client', uses: 2 },
         ],
         layout: null,
       })
+    }
+
+    if (path.endsWith('/v1/search/matches')) {
+      return json(matches || { names: [], addresses: [] })
     }
 
     if (path.endsWith('/v1/runs/activity')) {
@@ -843,6 +847,83 @@ describe('строка тегов', () => {
     const tags = wrapper.find('.tags-row').text()
     expect(tags).toContain('Клиент: Клиент А')
     expect(tags).toContain('Бренд: СТС')
+    wrapper.unmount()
+  })
+
+  it('склеенная подсказка применяет все роли, а не только первую', async () => {
+    // «Байков» — и тег, и бренд: строка «тег · бренд» должна искать по обоим,
+    // иначе часть фото пропадает (владелец, 29.10.2026).
+    installFetch({
+      suggestions: [
+        { value: 'Байков', kind: 'tag', uses: 9 },
+        { value: 'Байков', kind: 'brand', uses: 3 },
+      ],
+    })
+
+    const wrapper = await mountGrid()
+
+    const input = wrapper
+      .findAll('input')
+      .find(
+        (item) =>
+          item.attributes('placeholder')
+          === 'Название файла, клиент, бренд, адрес',
+      )
+
+    await input.setValue('Бай')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    await nextTick()
+
+    const suggestion = Array.from(document.body.querySelectorAll('.q-item')).find(
+      (node) => node.textContent.includes('Байков'),
+    )
+
+    expect(suggestion.textContent).toContain('тег · бренд')
+
+    suggestion.click()
+    await flushPromises()
+    await nextTick()
+
+    const tags = wrapper.find('.tags-row').text()
+    expect(tags).toContain('Бренд: Байков')
+    expect(tags).toContain('Тег: Байков')
+
+    wrapper.unmount()
+  })
+
+  it('подсвечивает адреса и клиентов, где встречается запрос', async () => {
+    // Поиск по тегу не должен менять списки панелей: он только отмечает
+    // строки, у которых есть подходящие фото (владелец, 29.10.2026).
+    installFetch({
+      matches: { names: ['Клиент А'], addresses: ['78_v33'] },
+    })
+
+    const wrapper = await mountGrid()
+
+    const input = wrapper
+      .findAll('input')
+      .find(
+        (item) =>
+          item.attributes('placeholder')
+          === 'Название файла, клиент, бренд, адрес',
+      )
+
+    await input.setValue('Байков')
+    await input.trigger('keyup.enter')
+    await flushPromises()
+    await vi.runAllTimersAsync()
+    await nextTick()
+
+    const marked = wrapper.findAll('.panel-match')
+    expect(marked.length).toBeGreaterThan(0)
+
+    const text = marked.map((node) => node.text()).join(' | ')
+    expect(text).toContain('Комарова 13')
+    expect(text).toContain('Клиент А')
+    // Второй адрес под запрос не попал — он остаётся без подсветки.
+    expect(text).not.toContain('Ленина 5')
+
     wrapper.unmount()
   })
 })

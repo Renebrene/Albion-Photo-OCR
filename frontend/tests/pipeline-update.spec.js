@@ -76,6 +76,34 @@ describe('Обновление базы', () => {
     wrapper.unmount()
   })
 
+  it('Менеджеру и Гостю кнопка неактивна и объясняет, почему запуск закрыт', async () => {
+    setPipeline({ run: null })
+    const wrapper = await mountButton({ canRun: false })
+
+    const button = wrapper
+      .findAll('button')
+      .find((item) => item.text().includes('Обновление базы'))
+
+    expect(button.classes()).toContain('pipeline-readonly')
+
+    await button.trigger('click')
+    await flushPromises()
+
+    // Окно-подсказка вместо запуска (владелец, 29.10.2026).
+    expect(document.body.textContent).toContain(
+      'База обновляется автоматически несколько раз в день',
+    )
+    expect(document.body.textContent).toContain('обратитесь к Администратору')
+    // Ни запуска, ни паузы не отправлено.
+    expect(
+      calls.some(
+        (call) => /\/v1\/pipeline\/(start|stop|resume)/.test(call.url),
+      ),
+    ).toBe(false)
+
+    wrapper.unmount()
+  })
+
   it('числа этапов в кнопке не дублируются: их показывает строка шапки', async () => {
     setPipeline({
       run: {
@@ -281,7 +309,15 @@ describe('Обновление базы', () => {
       .findAll('button')
       .find((item) => item.text().includes('Обновление базы'))
 
-    expect(button.attributes('disabled')).toBeDefined()
+    // Кнопка не заблокирована наглухо: нажатие открывает окно с объяснением,
+    // но не запускает и не останавливает прогон.
+    await button.trigger('click')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('обратитесь к Администратору')
+    expect(
+      calls.some((call) => /\/v1\/pipeline\/(start|stop|resume)/.test(call.url)),
+    ).toBe(false)
     wrapper.unmount()
   })
 })

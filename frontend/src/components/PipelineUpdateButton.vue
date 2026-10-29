@@ -28,9 +28,13 @@ const props = defineProps({
   // Может ли пользователь писать настройки описаний (Администратор): тогда
   // выключатель в окне меняет общую настройку, а не только текущий прогон.
   canWriteSettings: { type: Boolean, default: false },
+  // Личные настройки запуска (п. 2в): «Пропустить уточнение» и глубина
+  // сканирования запоминаются за менеджером. Хранятся в display-сторе, сюда
+  // приходят пропом, наружу уходят событием — компонент остаётся без store.
+  runOptions: { type: Object, default: () => ({}) },
 })
 
-const emit = defineEmits(['finished'])
+const emit = defineEmits(['finished', 'update:runOptions'])
 
 const available = ref(false)
 const run = ref(null)
@@ -38,6 +42,8 @@ const run = ref(null)
 const pollError = ref('')
 const busy = ref(false)
 const dialogOpen = ref(false)
+// Окно-подсказка для Менеджера и Гостя: кнопка видна, но прогон не запускает.
+const infoOpen = ref(false)
 
 // Опрос прогона раз в 3 с: первый запрос сразу (immediate), скрытая вкладка
 // молчит, уход со страницы останавливает опрос.
@@ -67,9 +73,10 @@ const canWriteQwenSettings = computed(() => props.canWriteSettings)
 // Пропускать ли описание в этом прогоне — производная от настройки.
 const skipQwen = computed(() => !qwenInPipeline.value)
 
-// «Уточнение» — хвост этапа описаний. Выключается на конкретный прогон;
-// постоянный выключатель живёт в настройках этапа (техраздел → Описание).
-const skipRefine = ref(false)
+// «Уточнение» — хвост этапа описаний. Выбор запоминается за менеджером
+// (п. 2в): следующий запуск начнётся с тем же значением.
+const skipRefine = ref(Boolean(props.runOptions?.skipRefine))
+
 
 // Глубина сканирования новых фото (владелец, 29.10.2026): инспектор смотрит
 // файлы, изменённые за этот период. По умолчанию неделя — обходить весь том
@@ -81,7 +88,15 @@ const SCAN_DEPTHS = [
   { label: '3 месяца', value: 90 },
   { label: 'Все даты', value: 0 },
 ]
-const scanDays = ref(7)
+const scanDays = ref(Number(props.runOptions?.scanDays ?? 7))
+// Любое изменение этих двух настроек уходит в store — без сохранения
+// «по кнопке»: человек не должен помнить, что их надо ещё где-то запомнить.
+watch([scanDays, skipRefine], () => {
+  emit('update:runOptions', {
+    scanDays: scanDays.value,
+    skipRefine: skipRefine.value,
+  })
+})
 
 function stageRow(stage) {
   return (run.value?.stages || []).find((item) => item.stage === stage) || null
@@ -193,6 +208,13 @@ watch(dialogOpen, async (open) => {
 
 async function onClick() {
   if (busy.value) return
+
+  // Менеджеру и Гостю управление недоступно: база обновляется сама. Вместо
+  // паузы или запуска показываем объяснение (владелец, 29.10.2026).
+  if (!props.canRun) {
+    infoOpen.value = true
+    return
+  }
 
   // Первый клик — пауза, повторный — продолжение с того же места. Окно
   // открывается отдельной кнопкой: там «Начать заново» и выключатели этапов.
@@ -368,22 +390,29 @@ onMounted(() => {
 
 <template>
   <div v-if="available" class="pipeline-control row items-center no-wrap q-mr-sm">
+    <!-- Кнопка видна всем ролям, но запускать прогон может только
+         Администратор (владелец, 29.10.2026): база обновляется сама несколько
+         раз в день. Менеджер и Гость видят неактивный вид и окно-подсказку. -->
     <q-btn
       flat
       dense
       no-caps
+      :class="{ 'pipeline-readonly': !canRun }"
       :icon="isActive ? 'pause' : 'cloud_upload'"
       :label="'Обновление базы'"
-      :disable="busy || (!canRun && !isActive && !isStopped)"
+      :disable="busy"
+      :aria-disabled="!canRun ? 'true' : undefined"
       @click="onClick"
     >
       <q-tooltip>
         {{
-          isActive
-            ? 'Нажмите, чтобы приостановить. Повторный запуск продолжит с того же места.'
-            : isStopped
-              ? 'Нажмите, чтобы продолжить с того же места. «Начать заново» — в кнопке с галкой справа.'
-              : 'Инспекция → превью → сортировка (Дино, Гибрид) → описание → уточнение.'
+          !canRun
+            ? 'База обновляется автоматически несколько раз в день.'
+            : isActive
+              ? 'Нажмите, чтобы приостановить. Повторный запуск продолжит с того же места.'
+              : isStopped
+                ? 'Нажмите, чтобы продолжить с того же места. «Начать заново» — в кнопке с галкой справа.'
+                : 'Инспекция → превью → сортировка (Дино, Гибрид) → описание → уточнение.'
         }}
       </q-tooltip>
     </q-btn>
@@ -532,6 +561,23 @@ onMounted(() => {
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <!-- Менеджер и Гость: кнопка неактивна, по нажатию — объяснение. -->
+    <q-dialog v-model="infoOpen">
+      <q-card style="width: min(460px, 92vw)">
+        <q-card-section class="text-subtitle1">Обновление базы</q-card-section>
+        <q-separator />
+        <q-card-section class="q-gutter-sm">
+          <div>
+            База обновляется автоматически несколько раз в день. Для
+            специального обновления обратитесь к Администратору.
+          </div>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Понятно" color="primary" v-close-popup />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </div>
 </template>
 
@@ -540,6 +586,12 @@ onMounted(() => {
   font-size: 12px;
   white-space: nowrap;
   opacity: 0.9;
+}
+
+/* Неактивный вид для ролей без права запуска. Кнопка остаётся кликабельной:
+   нажатие открывает окно с объяснением, поэтому это не `disabled`. */
+.pipeline-readonly {
+  opacity: 0.55;
 }
 
 /* A calm pulse on a single dot instead of blinking text. */

@@ -82,13 +82,10 @@ describe('строка этапов в шапке', () => {
     const store = usePipelineStore()
     await store.refresh()
 
-    // В шапке — только текущий этап (владелец, 29.10.2026); порядок и
-    // остальные этапы видны в подсказке.
+    // Внутри прогона шапка показывает только его стадии: счётчики очереди
+    // описаний — это общие данные, они в статус-баре (владелец, 29.10.2026).
     expect(store.stageLine).toBe('Сортировка · Дино 13688 / 20904 (пропущено 2)')
-    expect(store.stageDetails).toEqual([
-      'Сортировка · Дино 13688 / 20904 (пропущено 2)',
-      'Описание 16596 / 16597 (пропущено 2)',
-    ])
+    expect(store.stageDetails).toEqual(['Сортировка · Дино 13688 / 20904 (пропущено 2)'])
     expect(store.qwenTitle).toBe('01.08–31.10')
   })
 
@@ -132,6 +129,25 @@ describe('строка этапов в шапке', () => {
     // строки прогона: очередь может быть пуста, но стадия ещё идёт.
     expect(store.stageLine).toBe('Описание 16757 / 57495 (пропущено 2)')
     expect(store.stageBusy).toBe(true)
+  })
+
+  it('без процесса не показывает общий прогресс описаний', async () => {
+    qwenStats = {
+      jobs: { pending: 0, running: 0, paused: 0 },
+      batch: null,
+      refine: null,
+      photos: 57495,
+      processed: 17082,
+      remaining: 40413,
+    }
+
+    const store = usePipelineStore()
+    await store.refresh()
+
+    // Общий прогресс описаний (17 082 из 57 495) — это данные корпуса, они в
+    // статус-баре. В шапке процесса нет — строки нет.
+    expect(store.stageLine).toBe('')
+    expect(store.stageBusy).toBe(false)
   })
 
   it('молчит, когда ничего не идёт', async () => {

@@ -776,11 +776,13 @@ def mark_cancelled(job_id: int) -> bool:
             return True
 
 
-# Сколько раз задание можно принять обратно после «зависания». Дальше оно
-# закрывается как пропущенное: очередь не должна стоять из-за одного файла, а
-# бесконечные повторы ничего не дают (владелец: при долгом таймауте или явной
-# ошибке — пропускать).
-STALE_MAX_ATTEMPTS = int(os.getenv("SCENE_STALE_MAX_ATTEMPTS", "3"))
+# Сколько раз задание можно принять обратно после «зависания». 0 — никогда не
+# закрывать автоматически: владелец (29.10.2026) решил, что сбойные задания
+# пропускаются и исключаются только вручную, а следующий запуск должен их
+# повторить. Раньше после трёх зависаний задание закрывалось как FAILED и фото
+# больше не попадало в очередь. `SCENE_STALE_MAX_ATTEMPTS=N` возвращает
+# старое поведение.
+STALE_MAX_ATTEMPTS = int(os.getenv("SCENE_STALE_MAX_ATTEMPTS", "0"))
 
 
 def requeue_stale(
@@ -795,9 +797,11 @@ def requeue_stale(
     recovers it so another worker pass can pick it up. Returns how many jobs
     were requeued.
 
-    Задание, которое «висело» уже `STALE_MAX_ATTEMPTS` раз, повторно не
-    берётся: оно закрывается как FAILED с понятной причиной (`attempts`
-    растёт при каждом взятии задания, см. claim_job).
+    Задание, которое «висело» уже `STALE_MAX_ATTEMPTS` раз, закрывается как
+    FAILED с понятной причиной (`attempts` растёт при каждом взятии задания,
+    см. claim_job). По умолчанию лимита нет (`STALE_MAX_ATTEMPTS=0`): владелец
+    (29.10.2026) решил, что сбойные задания пропускаются и исключаются только
+    вручную, а следующий запуск должен их повторить.
     """
 
     if older_than_minutes < 0:
@@ -811,24 +815,36 @@ def requeue_stale(
     with get_connection() as conn:
         with conn.cursor() as cur:
             # Сначала закрываем те, что зависают не первый раз: возвращать их
-            # в очередь бессмысленно.
-            cur.execute(
-                """
-                UPDATE public.job_queue
-                SET
-                    status = 'FAILED',
-                    finished_at = CURRENT_TIMESTAMP,
-                    error_message = COALESCE(error_message || ' | ', '')
-                        || 'пропущено: задание зависало '
-                        || attempts || ' раз(а)'
-                WHERE status = 'RUNNING'
-                  AND started_at IS NOT NULL
-                  AND started_at < CURRENT_TIMESTAMP
-                        - (%s || ' minutes')::interval
-                  AND attempts >= %s
-                """ + type_clause,
-                [params[0], str(int(STALE_MAX_ATTEMPTS)), *params[1:]],
-            )
+            # в очередь бессмысленно. При STALE_MAX_ATTEMPTS=0 шага нет.
+            if STALE_MAX_ATTEMPTS > 0:
+                cur.execute(
+                    """
+                    UPDATE public.job_queue
+                    SET
+                        status = 'FAILED',
+                        finished_at = CURRENT_TIMESTAMP,
+                        error_message = COALESCE(error_message || ' | ', '')
+                            || 'пропущено: задание зависало '
+                            || attempts || ' раз(а)'
+                    WHERE status = 'RUNNING'
+                      AND started_at IS NOT NULL
+                      AND started_at < CURRENT_TIMESTAMP
+                            - (%s || ' minutes')::interval
+                      AND attempts >= %s
+                    """ + type_clause,
+                    [params[0], str(int(STALE_MAX_ATTEMPTS)), *params[1:]],
+                )
+
+            # Остальные возвращаются в очередь. Без лимита попыток условие
+            # `attempts < %s` снимается: повторяем, пока задание не выполнится
+            # или пока его не снимут вручную.
+            attempts_clause = " AND attempts < %s" if STALE_MAX_ATTEMPTS > 0 else ""
+            requeue_params: list[object] = [params[0]]
+
+            if STALE_MAX_ATTEMPTS > 0:
+                requeue_params.append(str(int(STALE_MAX_ATTEMPTS)))
+
+            requeue_params.extend(params[1:])
 
             cur.execute(
                 """
@@ -842,9 +858,8 @@ def requeue_stale(
                   AND started_at IS NOT NULL
                   AND started_at < CURRENT_TIMESTAMP
                         - (%s || ' minutes')::interval
-                  AND attempts < %s
-                """ + type_clause,
-                [params[0], str(int(STALE_MAX_ATTEMPTS)), *params[1:]],
+                """ + attempts_clause + type_clause,
+                requeue_params,
             )
             return cur.rowcount
 

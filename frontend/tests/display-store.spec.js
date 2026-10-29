@@ -156,6 +156,9 @@ describe('display store', () => {
     await waitLocalWrite()
 
     expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY))).toEqual({
+      // Вид грида и настройки запуска — личные (п. 2б и 2в задания).
+      viewMode: 'tiles',
+      runOptions: { skipRefine: false, scanDays: 7 },
       // Группа верхней панели (задание, п. 7) — тоже личная настройка.
       photoGroup: 'screens',
       // Период и сортировка грида — такие же личные настройки.

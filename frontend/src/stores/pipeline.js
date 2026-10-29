@@ -134,10 +134,19 @@ export const usePipelineStore = defineStore('pipeline', {
       // прогона и своей очередью.
       const qwen = state.qwen
 
-      // Описание показываем, пока очередь работает: закончилось всё — строка
-      // этапов пропадает, и в шапке остаётся только «База обновлена».
-      // Постоянное «Описание 16268» висело бы там вечно и мешало читать
-      // состояние («данные о процессах» уходят вместе с процессами).
+      // Внутри прогона шапка показывает ТОЛЬКО его стадии (владелец,
+      // 29.10.2026): прогресс описаний и «Уточнения» — часть стадии прогона
+      // (строка QWEN выше), а их отдельные счётчики — это уже общие данные,
+      // они живут в статус-баре внизу.
+      if (state.active) {
+        return entries.sort(
+          (left, right) =>
+            STAGE_ORDER.indexOf(left.key) - STAGE_ORDER.indexOf(right.key),
+        )
+      }
+
+      // Прогона нет: описание и «Уточнение» идут своими очередями — это и есть
+      // текущий процесс.
       if (qwen && this.qwenBusy) {
         entries.push({
           key: 'QWEN',
@@ -248,6 +257,9 @@ export const usePipelineStore = defineStore('pipeline', {
           refine: stats?.refine || null,
           described: stats?.processed ?? 0,
           remaining: stats?.remaining ?? 0,
+          // Размер корпуса: по нему видно, сколько описано из всего (шапка
+          // показывает прогресс описаний, даже когда очередь молчит).
+          photosTotal: stats?.photos ?? 0,
           pending: jobs.pending ?? 0,
           running: jobs.running ?? 0,
           paused: jobs.paused ?? 0,

@@ -277,6 +277,9 @@ describe('Settings.vue', () => {
       processed: 250,
       remaining: 10,
       counts: { DONE: 250, FAILED: 3, PENDING: 4 },
+      // Очередь считается по заданиям (`queue`), а не по статусам строк:
+      // убитый воркер оставляет RUNNING без заданий (29.10.2026).
+      queue: { PENDING: 4 },
       runs: [
         { source: 'manual', jobs: 12, last_finished_at: '2026-10-16T09:05:00', failed: 1 },
         { source: 'pipeline', jobs: 260, last_finished_at: '2026-10-15T22:10:00', failed: 0 },

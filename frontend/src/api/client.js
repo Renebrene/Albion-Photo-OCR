@@ -481,6 +481,22 @@ export function fetchSearchSuggestions(q, limit = 8) {
   return getJson(`${BASE}/v1/search/suggestions?${params.toString()}`)
 }
 
+// Где встречается поисковый запрос: имена клиентов/брендов/тегов и адреса.
+// Нужен для подсветки панелей; считается по тем же условиям, что и грид.
+export function fetchSearchMatches(
+  q,
+  { from = null, to = null, dateMode = 'upload', group = null } = {},
+) {
+  const params = new URLSearchParams({ q })
+
+  if (from) params.set('date_from', from)
+  if (to) params.set('date_to', to)
+  if (dateMode) params.set('date_mode', dateMode)
+  if (group) params.set('group', group)
+
+  return getJson(`${BASE}/v1/search/matches?${params.toString()}`)
+}
+
 // Остановить активные задания QWEN и очистить список завершённых.
 export function stopQwenJobs() {
   return postJson(`${BASE}/v1/jobs/qwen/stop`, {})

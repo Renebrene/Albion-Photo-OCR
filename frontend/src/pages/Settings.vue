@@ -311,11 +311,14 @@ function fmtDate(value) {
   return String(value).replace('T', ' ').slice(0, 16)
 }
 
-// Очередь описаний: ждущие и работающие считаются отдельно. Блокирует только
-// работающая модель — очередь может ждать запуска воркера, и это не повод
-// запрещать постановку нового периода (29.10.2026).
-const qwenPending = computed(() => stats.value?.counts?.PENDING || 0)
-const qwenRunning = computed(() => stats.value?.counts?.RUNNING || 0)
+// Очередь описаний считается по ЗАДАНИЯМ (`queue`), а не по статусам строк
+// photo_qwen: остановленный воркер оставляет в них RUNNING, хотя заданий уже
+// нет — окно показывало «N в работе» и не давало поставить период
+// (29.10.2026). Блокирует только реально работающее задание.
+const qwenPending = computed(
+  () => (stats.value?.queue?.PENDING || 0) + (stats.value?.queue?.PAUSED || 0),
+)
+const qwenRunning = computed(() => stats.value?.queue?.RUNNING || 0)
 const qwenQueue = computed(() => qwenPending.value + qwenRunning.value)
 
 // Правый модуль «Распознавания»: сводка присвоения описаний.
