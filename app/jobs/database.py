@@ -328,6 +328,7 @@ def enqueue_fingerprint_build(
     replace: bool = True,
     batch_id: str | None = None,
     recalculate: bool = False,
+    upload_id: str | None = None,
 ) -> int | None:
     """
     Queue one fingerprint build (or rebuild).
@@ -355,6 +356,11 @@ def enqueue_fingerprint_build(
 
     if recalculate:
         payload["recalculate"] = True
+
+    if upload_id:
+        # Временная папка удалённой загрузки: по этому билету сборщик после
+        # задания уберёт её за собой (см. app/jobs/worker.py).
+        payload["upload_id"] = str(upload_id)
 
     with get_connection() as conn:
         with conn.cursor() as cur:

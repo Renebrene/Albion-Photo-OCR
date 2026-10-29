@@ -13,7 +13,9 @@ import {
   browseFolders,
   buildFingerprint,
   buildFingerprintBatch,
+  cancelFingerprintUpload,
   cancelJob,
+  createFingerprintUpload,
   deleteFingerprint,
   fetchAddressDirectory,
   fetchAddressSides,
@@ -28,6 +30,7 @@ import {
   setFingerprintAddress,
   syncFingerprints,
   updateFingerprint,
+  uploadFingerprintFile,
 } from '../api/client'
 import {
   FINGERPRINT_ID_RE,
@@ -170,6 +173,89 @@ const browseBusy = ref(false)
 const browsed = ref({ path: null, parent: null, dirs: [], photos: 0 })
 const browseError = ref('')
 
+// ---- откуда брать фотографии: сервер или компьютер менеджера -------------
+// Второй вариант — удалённая загрузка (задание, п. 5а/5б): браузер не может
+// отдать папку путём, поэтому файлы едут на сервер по одному в его временную
+// папку, а сборка идёт уже по её билету.
+const buildSource = ref('server')
+const localFiles = ref([])
+const localError = ref('')
+const localInput = ref(null)
+// Ход отправки: сколько файлов и байт уже ушло.
+const uploadProgress = ref(null)
+
+const LOCAL_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff']
+
+const localSummary = computed(() => {
+  const files = localFiles.value
+  const bytes = files.reduce((total, file) => total + (file.size || 0), 0)
+
+  return {
+    files: files.length,
+    megabytes: Math.round((bytes / (1024 * 1024)) * 10) / 10,
+  }
+})
+
+function pickLocalFolder() {
+  localError.value = ''
+  localInput.value?.click()
+}
+
+function onLocalFiles(event) {
+  const chosen = Array.from(event.target.files || [])
+  // Служебные файлы (`.DS_Store` и подобное) в папке не нужны.
+  const images = chosen.filter((file) => {
+    const name = file.name || ''
+
+    if (name.startsWith('.')) return false
+
+    return LOCAL_EXTENSIONS.some((suffix) => name.toLowerCase().endsWith(suffix))
+  })
+
+  if (!images.length) {
+    localFiles.value = []
+    localError.value = 'В выбранной папке нет фотографий'
+  } else {
+    localFiles.value = images
+    localError.value = ''
+  }
+
+  // Тот же файл можно выбрать повторно — сбрасываем значение поля.
+  event.target.value = ''
+}
+
+/** Отправить выбранную папку на сервер; возвращает билет загрузки. */
+async function uploadLocalFolder() {
+  const started = await createFingerprintUpload()
+  const uploadId = started.upload_id
+  const total = localFiles.value.length
+  let sent = 0
+
+  uploadProgress.value = { done: 0, total, bytes: 0, totalBytes: localSummary.value.megabytes }
+
+  try {
+    for (const file of localFiles.value) {
+      if (uploadProgress.value?.cancelled) throw new Error('Загрузка отменена')
+
+      await uploadFingerprintFile(uploadId, file)
+      sent += 1
+      uploadProgress.value = { done: sent, total, file: file.name }
+    }
+  } catch (err) {
+    // Не оставляем на сервере недособранную папку.
+    await cancelFingerprintUpload(uploadId).catch(() => {})
+    throw err
+  } finally {
+    uploadProgress.value = null
+  }
+
+  return uploadId
+}
+
+async function cancelLocalUpload() {
+  if (uploadProgress.value) uploadProgress.value.cancelled = true
+}
+
 // Сборка идёт прямо сейчас: показываем паузу/отмену вместо кнопки запуска.
 const runningBuild = computed(() =>
   ['PENDING', 'RUNNING', 'PAUSED'].includes(buildJob.value?.status),
@@ -281,7 +367,14 @@ async function startBuild() {
     return
   }
 
-  if (!form.folder.trim()) {
+  const fromLocal = buildSource.value === 'local'
+
+  if (fromLocal && !localFiles.value.length) {
+    Notify.create({ type: 'warning', message: 'Выберите папку с фотографиями на компьютере' })
+    return
+  }
+
+  if (!fromLocal && !form.folder.trim()) {
     Notify.create({ type: 'warning', message: 'Выберите папку с фотографиями' })
     return
   }
@@ -290,9 +383,13 @@ async function startBuild() {
   buildJob.value = null
 
   try {
+    // С компьютера менеджера: сначала отправляем папку, потом собираем по её
+    // билету. Путь по серверу не ходит — его строит сервер из билета.
+    const uploadId = fromLocal ? await uploadLocalFolder() : null
+
     const started = await buildFingerprint({
       fingerprint_id: form.fingerprint_id.trim(),
-      folder: form.folder.trim(),
+      ...(uploadId ? { upload_id: uploadId } : { folder: form.folder.trim() }),
       max_photos: form.max_photos || null,
       replace: form.replace,
     })
@@ -1136,7 +1233,21 @@ function day(value) {
             закладки («Экраны» — свой список, остальные — из загруженного XLS).
           </div>
 
-          <div class="row items-center q-gutter-sm">
+          <!-- Откуда брать фотографии: папка на сервере или папка на этом
+               компьютере (удалённая загрузка, задание п. 5а/5б). -->
+          <q-btn-toggle
+            v-model="buildSource"
+            dense
+            outline
+            no-caps
+            class="q-mt-xs"
+            :options="[
+              { label: 'Папка на сервере', value: 'server' },
+              { label: 'Папка на моём компьютере', value: 'local' },
+            ]"
+          />
+
+          <div v-if="buildSource === 'server'" class="row items-center q-gutter-sm">
             <q-input
               v-model="buildForm.folder"
               dense
@@ -1147,10 +1258,42 @@ function day(value) {
             <q-btn dense color="secondary" icon="folder_open" label="Выбрать папку"
               @click="openBrowser" />
           </div>
+
+          <div v-else class="row items-center q-gutter-sm">
+            <input
+              ref="localInput"
+              type="file"
+              webkitdirectory
+              multiple
+              accept="image/*"
+              class="hidden-input"
+              @change="onLocalFiles"
+            />
+            <q-btn
+              dense
+              color="secondary"
+              icon="folder_open"
+              label="Выбрать папку"
+              @click="pickLocalFolder"
+            />
+            <div v-if="localFiles.length" class="text-caption">
+              {{ localSummary.files }} файлов, {{ localSummary.megabytes }} МБ
+            </div>
+            <div v-else-if="localError" class="text-caption text-negative">
+              {{ localError }}
+            </div>
+          </div>
+
           <!-- Подсказка вне строки: внутри она поднимала кнопку над полем. -->
           <div class="text-caption text-grey-7 q-mt-xs q-mb-sm">
-            Папки по умолчанию нет — берутся файлы из выбранной; исходники
-            только читаются
+            <template v-if="buildSource === 'server'">
+              Папки по умолчанию нет — берутся файлы из выбранной; исходники
+              только читаются
+            </template>
+            <template v-else>
+              Фотографии отправятся на сервер во временную папку и будут удалены
+              после сборки. Не больше 150 файлов и 1 ГБ на один слепок.
+            </template>
           </div>
 
           <div class="row items-center q-gutter-sm">
@@ -1175,6 +1318,29 @@ function day(value) {
             можно выбрать явно — подвыборка идёт шагом по списку, файлы не
             копируются. После сборки оригиналы не нужны: сохраняются векторы,
             а в базе — имена фото и даты съёмок.
+          </div>
+
+          <!-- Ход отправки папки: файлы идут по одному, чтобы прогресс был
+               настоящим, а не «загружается». -->
+          <div v-if="uploadProgress" class="q-mt-sm">
+            <div class="text-caption">
+              Отправка: {{ uploadProgress.done }} из {{ uploadProgress.total }}
+              <span v-if="uploadProgress.file" class="text-grey-7">
+                · {{ uploadProgress.file }}
+              </span>
+            </div>
+            <q-linear-progress
+              :value="uploadProgress.total ? uploadProgress.done / uploadProgress.total : 0"
+              class="q-mt-xs"
+            />
+            <q-btn
+              dense
+              flat
+              color="negative"
+              label="Отменить отправку"
+              class="q-mt-xs"
+              @click="cancelLocalUpload"
+            />
           </div>
 
           <div v-if="buildJob" class="q-mt-md">
@@ -1284,7 +1450,11 @@ function day(value) {
             color="primary"
             label="Собрать"
             :loading="buildBusy"
-            :disable="runningBuild || !buildForm.fingerprint_id.trim() || !buildForm.folder.trim()"
+            :disable="
+              runningBuild
+              || !buildForm.fingerprint_id.trim()
+              || (buildSource === 'server' && !buildForm.folder.trim())
+            "
             @click="startBuild"
           />
         </q-card-actions>
@@ -1526,6 +1696,11 @@ function day(value) {
 </template>
 
 <style scoped>
+/* Скрытый выбор папки: системный диалог открывает кнопка «Выбрать папку». */
+.hidden-input {
+  display: none;
+}
+
 .skipped-files {
   margin: 4px 0 0 18px;
   padding: 0;

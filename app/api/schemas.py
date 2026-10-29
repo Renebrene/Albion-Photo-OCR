@@ -376,12 +376,26 @@ class FingerprintAddressRequest(BaseModel):
 
 
 class FingerprintBuildRequest(BaseModel):
-    """Build (or rebuild) a fingerprint from a folder of photos."""
+    """
+    Build (or rebuild) a fingerprint from a folder of photos.
+
+    Источник ровно один: папка на сервере (`folder`) или загруженная с другого
+    компьютера (`upload_id`, билет временной папки). Второй вариант — для
+    удалённой загрузки: браузер отдаёт файлы по одному, а сборщик получает
+    папку на сервере.
+    """
 
     fingerprint_id: str = Field(min_length=1, max_length=64)
-    folder: str = Field(min_length=1, max_length=4096)
+    folder: str | None = Field(default=None, min_length=1, max_length=4096)
+    upload_id: str | None = Field(default=None, min_length=32, max_length=32)
     max_photos: int | None = Field(default=None, ge=1, le=5000)
     replace: bool = True
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        if bool(self.folder) == bool(self.upload_id):
+            raise ValueError("укажите папку на сервере или загруженную папку")
+        return self
 
 
 class FingerprintUpdate(BaseModel):

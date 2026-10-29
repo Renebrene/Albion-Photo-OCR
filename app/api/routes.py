@@ -35,6 +35,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from app import settings_store
 from app.api import cache
 from app.api import directory as directory_mod
+from app.api import fingerprint_uploads
 from app.api import fingerprints as fingerprints_mod
 from app.api import file_access
 from app.api import repository
@@ -3408,6 +3409,62 @@ def get_fingerprint_preview(fingerprint_id: str) -> Response:
 
 
 @fingerprints_router.post(
+    "/v1/fingerprints/uploads",
+    status_code=201,
+    response_model=None,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def create_fingerprint_upload():
+    """
+    Начать удалённую загрузку фотографий для слепка.
+
+    Возвращает билет и лимиты (файлов, размер файла, общий объём). Файлы
+    отправляются по одному в `/v1/fingerprints/uploads/{upload_id}/files`;
+    сервер складывает их в свою временную папку.
+    """
+
+    return fingerprint_uploads.create_session()
+
+
+@fingerprints_router.post(
+    "/v1/fingerprints/uploads/{upload_id}/files",
+    status_code=201,
+    response_model=None,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def upload_fingerprint_file(
+    upload_id: str,
+    file: UploadFile = File(...),
+):
+    """
+    Один файл удалённой загрузки.
+
+    Имя очищается, содержимое проверяется декодером, лимиты — по числу файлов,
+    размеру файла и общему объёму. Путь строит сервер: папка загрузки задаётся
+    билетом, клиентский путь не используется.
+    """
+
+    try:
+        return fingerprint_uploads.store_file(upload_id, file.filename, file.file)
+    except fingerprint_uploads.UploadError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@fingerprints_router.delete(
+    "/v1/fingerprints/uploads/{upload_id}",
+    status_code=204,
+    response_model=None,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def cancel_fingerprint_upload(upload_id: str):
+    """Отменить загрузку и удалить временную папку."""
+
+    fingerprint_uploads.delete_session(upload_id)
+
+    return Response(status_code=204)
+
+
+@fingerprints_router.post(
     "/v1/fingerprints/build",
     status_code=202,
     response_model=None,
@@ -3415,13 +3472,16 @@ def get_fingerprint_preview(fingerprint_id: str) -> Response:
 )
 def build_fingerprint(request: FingerprintBuildRequest):
     """
-    Queue a fingerprint build from a server-side folder.
+    Queue a fingerprint build from a server-side folder or an upload.
 
     The folder is validated the same way as the INGEST working folder
     (existence, and SCENE_SOURCE_ROOTS when it is set). The build itself runs in
     the worker - it reads every photo and runs DINOv2, which must not happen in
     a request handler. Nothing is copied: the builder reads the folder and keeps
     only the result plus the names and capture dates of the photos used.
+
+    Для удалённой загрузки вместо `folder` передаётся `upload_id`: сервер сам
+    находит временную папку, а сборщик удаляет её после задания.
     """
 
     try:
@@ -3429,10 +3489,19 @@ def build_fingerprint(request: FingerprintBuildRequest):
     except fingerprints_mod.FingerprintError as exc:
         raise _fingerprint_error(exc) from exc
 
-    folder = sources.resolve_directory(request.folder)
-    stats = sources.folder_stats(folder)
+    if request.upload_id:
+        try:
+            folder = fingerprint_uploads.folder(request.upload_id)
+        except fingerprint_uploads.UploadError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    if not stats["files"]:
+        uploaded = fingerprint_uploads.stats(request.upload_id)
+        photos = uploaded["files"]
+    else:
+        folder = sources.resolve_directory(request.folder)
+        photos = sources.folder_stats(folder)["files"]
+
+    if not photos:
         raise HTTPException(
             status_code=400,
             detail="в папке нет фотографий",
@@ -3447,16 +3516,23 @@ def build_fingerprint(request: FingerprintBuildRequest):
         # stale; the builder queues one full DINO+HYBRID pass after publishing
         # the new vectors. A brand-new fingerprint ignores this flag.
         recalculate=True,
+        upload_id=request.upload_id,
     )
 
-    return {
+    response = {
         "job_id": job_id,
         "skipped": job_id is None,
         "fingerprint_id": fingerprint_id,
-        "folder": str(folder),
-        "photos": stats["files"],
+        "photos": photos,
         "max_photos": request.max_photos,
     }
+
+    # Путь серверной папки окно показывает как выбранный; временную папку
+    # удалённой загрузки наружу не отдаём — её адрес ничего не значит.
+    if not request.upload_id:
+        response["folder"] = str(folder)
+
+    return response
 
 
 def _direct_photo_count(directory: Path) -> int:

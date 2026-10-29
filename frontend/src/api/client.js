@@ -726,6 +726,70 @@ export function buildFingerprint(payload) {
   return postJson(`${BASE}/v1/fingerprints/build`, payload)
 }
 
+// ---- удалённая загрузка папки для слепка -------------------------------
+// Браузер не может отдать папку путём: файлы едут по одному в собственную
+// временную папку сервера, сборка потом идёт по её билету.
+
+export function createFingerprintUpload() {
+  return postJson(`${BASE}/v1/fingerprints/uploads`, {})
+}
+
+export function cancelFingerprintUpload(uploadId) {
+  return requestJson(`${BASE}/v1/fingerprints/uploads/${encodeURIComponent(uploadId)}`, {
+    method: 'DELETE',
+  })
+}
+
+/**
+ * Один файл загрузки с прогрессом.
+ *
+ * XHR, а не fetch: у fetch нет прогресса отправки, а папка слепка — это
+ * десятки мегабайт, и человек должен видеть, что процесс идёт.
+ */
+export function uploadFingerprintFile(uploadId, file, onProgress = null) {
+  return new Promise((resolve, reject) => {
+    const form = new FormData()
+    form.append('file', file, file.name)
+
+    const request = new XMLHttpRequest()
+    request.open(
+      'POST',
+      `${BASE}/v1/fingerprints/uploads/${encodeURIComponent(uploadId)}/files`,
+    )
+
+    for (const [name, value] of Object.entries(authHeaders())) {
+      request.setRequestHeader(name, value)
+    }
+
+    request.upload.onprogress = (event) => {
+      if (onProgress && event.lengthComputable) {
+        onProgress(event.loaded, event.total)
+      }
+    }
+
+    request.onerror = () => reject(new Error('не удалось отправить файл'))
+    request.onabort = () => reject(new Error('загрузка отменена'))
+    request.onload = () => {
+      let body = null
+
+      try {
+        body = JSON.parse(request.responseText)
+      } catch {
+        body = null
+      }
+
+      if (request.status >= 200 && request.status < 300) {
+        resolve(body)
+        return
+      }
+
+      reject(new Error(body?.detail || `ошибка загрузки (${request.status})`))
+    }
+
+    request.send(form)
+  })
+}
+
 export function browseFolders(path = null) {
   const suffix = path ? `?path=${encodeURIComponent(path)}` : ''
   return getJson(`${BASE}/v1/fingerprints/browse${suffix}`)

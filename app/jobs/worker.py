@@ -259,7 +259,7 @@ def _execute(job: dict) -> dict:
     if job_type == "FINGERPRINT_BUILD":
         from app.pipeline.build import build_fingerprint
 
-        return build_fingerprint(
+        result = build_fingerprint(
             str(payload["fingerprint_id"]),
             str(payload["folder"]),
             max_photos=payload.get("max_photos"),
@@ -269,6 +269,16 @@ def _execute(job: dict) -> dict:
             job_id=int(job["id"]),
             progress=job_control(int(job["id"])),
         )
+
+        # Временная папка удалённой загрузки убирается после успешной сборки.
+        # При ошибке она остаётся до общей уборки (24 ч): повтор не должен
+        # требовать новой отправки фотографий с другого компьютера.
+        if payload.get("upload_id"):
+            from app.api import fingerprint_uploads
+
+            fingerprint_uploads.delete_session(str(payload["upload_id"]))
+
+        return result
 
     if job_type == "MEDIA_SEARCH":
         from app.api.media_search import delete_query
