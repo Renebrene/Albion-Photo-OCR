@@ -496,6 +496,9 @@ class PipelineStartRequest(BaseModel):
 
     folder: str | None = Field(default=None, max_length=4096)
     mode: str = Field(default="manual", pattern="^(manual|schedule|outofqueue)$")
+    # Глубина сканирования новых фото: инспектор берёт файлы, изменённые за
+    # столько суток. 7 — по умолчанию (неделя); None — все даты.
+    scan_days: int | None = Field(default=7, ge=1, le=3650)
     # Skip the QWEN stage: run it later for a chosen period
     # (POST /v1/jobs/qwen/scan). INGEST/PREVIEW/DINO/HYBRID still run.
     skip_qwen: bool = False

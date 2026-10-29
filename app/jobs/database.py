@@ -100,6 +100,25 @@ def active_count(job_type: str) -> int:
             return int(cur.fetchone()[0])
 
 
+def running_count(job_type: str) -> int:
+    """
+    Сколько заданий этого вида прямо сейчас выполняется.
+
+    Нужно там, где важно «модель занята», а не «в очереди есть задания»:
+    очередь может ждать запуска воркера сколько угодно, и это не повод
+    запрещать постановку новых заданий (постановка дедуплицируется по фото).
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) FROM public.job_queue "
+                "WHERE job_type=%s AND status='RUNNING'",
+                (job_type,),
+            )
+            return int(cur.fetchone()[0])
+
+
 def enqueue(
     job_type: str,
     payload: dict[str, Any],

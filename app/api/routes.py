@@ -1445,10 +1445,15 @@ def rescan_qwen_period(request: QwenRescanRequest):
     Current QWEN rows of the selected photos are copied to
     photo_qwen_history and removed before new QWEN jobs are enqueued.
     """
-    if jobs_db.active_count("QWEN_PHOTO"):
+    # Блокирует только работающая модель. Задания, ждущие в очереди, — не
+    # повод отказывать: они обработаются, когда запустится воркер, а повторная
+    # постановка по тем же фото дедуплицируется. Раньше ожидание в очереди
+    # считалось «активным описанием», и после остановки процесса нельзя было
+    # поставить новый период, пока очередь не опустеет (29.10.2026).
+    if jobs_db.running_count("QWEN_PHOTO"):
         raise HTTPException(
             status_code=409,
-            detail="Сначала остановите активное распознавание QWEN",
+            detail="Сейчас описание QWEN выполняется — дождитесь или остановите его",
         )
 
     photo_ids = qwen_db.photo_ids_in_period(
@@ -2928,6 +2933,7 @@ def start_pipeline_run(request: PipelineStartRequest):
                 folder=folder,
                 skip_qwen=request.skip_qwen,
                 skip_refine=request.skip_refine,
+                scan_days=request.scan_days,
             )
     except coordination.OperationBusy as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

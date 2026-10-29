@@ -108,7 +108,10 @@ export const usePipelineStore = defineStore('pipeline', {
       const entries = []
 
       for (const row of state.stages || []) {
-        if (!row?.stage || row.stage === 'QWEN') continue
+        // «Описание» показываем из строки прогона только когда прогон стоит
+        // именно на этой стадии; в остальное время его счётчик берётся из
+        // очереди — иначе числа путаются (владелец, 29.10.2026).
+        if (!row?.stage || (row.stage === 'QWEN' && row.stage !== state.stage)) continue
 
         const done = Number(row.done_count || 0)
         const failed = Number(row.failed_count || 0)
@@ -163,9 +166,33 @@ export const usePipelineStore = defineStore('pipeline', {
       )
     },
 
-    // Строка шапки: «Превью 340 / 3000 · Описание 16594 / 16597».
+    /**
+     * Что идёт прямо сейчас — одна запись для шапки.
+     *
+     * Владелец (29.10.2026): в шапке нужен только текущий процесс и его
+     * статус, а не весь конвейер. Порядок поиска: стадия, на которой стоит
+     * прогон; иначе (стадия переключается или прогон не активен) — первый
+     * незавершённый этап: это и есть текущая работа.
+     */
+    currentStage(state) {
+      const stages = this.liveStages || []
+
+      if (!stages.length) return null
+
+      return stages.find((entry) => entry.key === state.stage) || stages[0]
+    },
+
+    // Строка шапки: «Превью 340 / 3000».
     stageLine(state) {
-      return (this.liveStages || []).map(stageText).join(' · ')
+      const entry = this.currentStage
+
+      return entry ? stageText(entry) : ''
+    },
+
+    // Полная картина этапов — для подсказки: она появляется по наведению,
+    // поэтому подробности не занимают место в шапке.
+    stageDetails(state) {
+      return (this.liveStages || []).map(stageText)
     },
   },
 

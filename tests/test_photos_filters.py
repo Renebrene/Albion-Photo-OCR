@@ -456,3 +456,48 @@ def test_pipeline_history_is_read_without_the_manifest(monkeypatch):
     client.get("/api/v1/pipeline?limit=5")
 
     assert seen["with_manifest"] is False
+
+
+def test_qwen_period_rescan_blocks_only_running_jobs(monkeypatch):
+    """
+    Постановка периода в очередь не должна зависеть от ждущих заданий.
+
+    29.10.2026: после остановки описания в очереди остались десятки тысяч
+    PENDING-заданий, и «Поставить в очередь» было заблокировано — хотя модель
+    не работала. Блокирует только работающая модель; ждущие задания
+    обработаются, когда запустится воркер.
+    """
+
+    from app.jobs import database as jobs_db
+
+    monkeypatch.setattr(jobs_db, "running_count", lambda _type: 0)
+    monkeypatch.setattr(
+        jobs_db,
+        "active_count",
+        lambda _type: (_ for _ in ()).throw(AssertionError("проверять очередь незачем")),
+    )
+    monkeypatch.setattr(
+        "app.api.routes.qwen_db.photo_ids_in_period",
+        lambda **_kwargs: [],
+    )
+
+    # Гард пройден — отказ будет по другой причине (нет фото за период), а не
+    # «остановите описание».
+    response = client.post(
+        "/api/v1/jobs/qwen/rescan",
+        json={"date_from": "2026-10-01", "date_to": "2026-10-02"},
+    )
+
+    assert response.status_code == 422
+    assert "остановите" not in response.text.lower()
+
+    # А работающая модель по-прежнему блокирует.
+    monkeypatch.setattr(jobs_db, "running_count", lambda _type: 1)
+
+    running = client.post(
+        "/api/v1/jobs/qwen/rescan",
+        json={"date_from": "2026-10-01", "date_to": "2026-10-02"},
+    )
+
+    assert running.status_code == 409
+    assert "выполняется" in running.text

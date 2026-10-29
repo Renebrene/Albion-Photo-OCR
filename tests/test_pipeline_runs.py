@@ -500,3 +500,66 @@ def test_preview_stage_resets_the_stall_counter_on_progress(monkeypatch):
     )
 
     assert result["outcome"] == "WAIT"
+
+
+def test_start_passes_the_scan_depth(monkeypatch):
+    """
+    Глубина сканирования новых фото: по умолчанию неделя (29.10.2026).
+
+    Инспектор смотрит файлы, изменённые за период; «Все даты» — явный выбор
+    (scan_days=None), он не должен превращаться в неделю.
+    """
+
+    seen: dict = {}
+
+    def fake_create_run(**kwargs):
+        seen.update(kwargs)
+        return {"run_id": 42, "status": "RUNNING", "stage": "INGEST"}
+
+    _noop_launch_gate(monkeypatch)
+    monkeypatch.setattr(pipeline_runs, "create_run", fake_create_run)
+    monkeypatch.setattr(api_routes.sources, "current_folder", lambda: "/tmp")
+
+    client.post("/api/v1/pipeline/start", json={})
+    assert seen["scan_days"] == 7
+
+    client.post("/api/v1/pipeline/start", json={"scan_days": 30})
+    assert seen["scan_days"] == 30
+
+    client.post("/api/v1/pipeline/start", json={"scan_days": None})
+    assert seen["scan_days"] is None
+
+
+def test_the_snapshot_respects_the_scan_window(tmp_path, monkeypatch):
+    """Файлы старше окна в снимок прогона не попадают."""
+
+    import os
+    import time
+
+    from app.supervisor import runs as supervisor
+
+    old = tmp_path / "old.jpg"
+    fresh = tmp_path / "fresh.jpg"
+
+    for path in (old, fresh):
+        path.write_bytes(b"x")
+
+    # Старый файл: изменён 30 дней назад.
+    month_ago = time.time() - 30 * 24 * 3600
+    os.utime(old, (month_ago, month_ago))
+
+    monkeypatch.setattr(
+        "app.ingest.integrity.discover_files",
+        lambda _folder, recursive=True: [str(old), str(fresh)],
+    )
+    monkeypatch.setattr(
+        "app.ingest.video_integrity.discover_video_files",
+        lambda _folder, recursive=True: [],
+    )
+
+    from datetime import date, timedelta
+
+    week_ago = (date.today() - timedelta(days=7)).isoformat()
+
+    assert supervisor._snapshot_files(str(tmp_path)) == ["fresh.jpg", "old.jpg"]
+    assert supervisor._snapshot_files(str(tmp_path), week_ago) == ["fresh.jpg"]

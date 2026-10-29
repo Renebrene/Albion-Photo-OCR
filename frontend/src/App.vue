@@ -83,6 +83,12 @@ const canUseTech = computed(
   () => !session.authEnabled || session.user?.role === 'Администратор',
 )
 
+// Настройки (включая участие QWEN в прогоне) пишет Администратор. Выключатель
+// в окне запуска синхронизирован с этим же флагом (владелец, 29.10.2026).
+const canWriteSettings = computed(
+  () => !session.authEnabled || session.user?.role === 'Администратор',
+)
+
 // «Обновление базы» запускают обе рабочие роли (Администратор и Менеджер).
 const canRunPipeline = computed(
   () =>
@@ -403,14 +409,14 @@ function toggleDark() {
           v-if="canRunPipeline"
           :can-run="canRunPipeline"
           :busy="pipeline.stageBusy"
+          :can-write-settings="canWriteSettings"
           @finished="loadStats"
         />
 
-        <!-- Этапы со счётчиками — рядом с кнопкой, которая их запускает:
-             Инспекция → Превью → Сортировка (Дино, Гибрид) → Описание →
-             Уточнение. Описание и Уточнение идут своими очередями и часто вне
-             прогона, поэтому показываются здесь же, а не только на странице
-             обработки. Видно с любой страницы. -->
+        <!-- Только текущий этап конвейера и его счётчик (владелец, 29.10.2026):
+             раньше здесь перечислялись все незавершённые этапы и длинный
+             хвост «(пропущено …)», из-за чего не было видно, что идёт сейчас.
+             Полный список этапов — в подсказке по наведению. -->
         <div
           v-if="pipeline.stageLine"
           class="row items-center no-wrap text-caption q-ml-md q-mr-sm header-pipeline-live"
@@ -419,11 +425,16 @@ function toggleDark() {
           <span class="ellipsis">
             {{ pipeline.stageLine }}
             <q-tooltip>
-              Этапы конвейера: сделано / всего. Пропущенные (битый файл,
-              таймаут модели) считаются сделанными и показаны отдельно.
-              <template v-if="pipeline.qwenTitle">
+              <div v-for="line in pipeline.stageDetails" :key="line">
+                {{ line }}
+              </div>
+              <div class="q-mt-xs">
+                Сделано / всего; пропущенные (битый файл, таймаут модели)
+                считаются сделанными и показаны отдельно.
+              </div>
+              <div v-if="pipeline.qwenTitle">
                 Описание за период: {{ pipeline.qwenTitle }}
-              </template>
+              </div>
             </q-tooltip>
           </span>
         </div>

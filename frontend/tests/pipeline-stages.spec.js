@@ -82,9 +82,13 @@ describe('строка этапов в шапке', () => {
     const store = usePipelineStore()
     await store.refresh()
 
-    expect(store.stageLine).toBe(
-      'Сортировка · Дино 13688 / 20904 (пропущено 2) · Описание 16596 / 16597 (пропущено 2)',
-    )
+    // В шапке — только текущий этап (владелец, 29.10.2026); порядок и
+    // остальные этапы видны в подсказке.
+    expect(store.stageLine).toBe('Сортировка · Дино 13688 / 20904 (пропущено 2)')
+    expect(store.stageDetails).toEqual([
+      'Сортировка · Дино 13688 / 20904 (пропущено 2)',
+      'Описание 16596 / 16597 (пропущено 2)',
+    ])
     expect(store.qwenTitle).toBe('01.08–31.10')
   })
 
@@ -101,7 +105,32 @@ describe('строка этапов в шапке', () => {
     await store.refresh()
 
     expect(store.active).toBe(false)
-    expect(store.stageLine).toBe('Описание 120 / 500 · Уточнение 40 / 480')
+    // Шапка — текущий процесс; очередь «Уточнения» — в подсказке.
+    expect(store.stageLine).toBe('Описание 120 / 500')
+    expect(store.stageDetails).toEqual(['Описание 120 / 500', 'Уточнение 40 / 480'])
+    expect(store.stageBusy).toBe(true)
+  })
+
+  it('когда прогон стоит на «Описании», показывает его счётчик из прогона', async () => {
+    activity = { active: { kind: 'pipeline', run_id: 1, stage: 'QWEN' }, message: 'идёт обновление' }
+    pipeline = {
+      run: {
+        run_id: 1,
+        status: 'RUNNING',
+        stage: 'QWEN',
+        stages: [
+          { stage: 'DINO', done_count: 559, failed_count: 0, total_count: 559 },
+          { stage: 'QWEN', done_count: 16755, failed_count: 2, total_count: 57495 },
+        ],
+      },
+    }
+
+    const store = usePipelineStore()
+    await store.refresh()
+
+    // Завершённая «Сортировка» в шапку не попадает, а «Описание» берётся из
+    // строки прогона: очередь может быть пуста, но стадия ещё идёт.
+    expect(store.stageLine).toBe('Описание 16757 / 57495 (пропущено 2)')
     expect(store.stageBusy).toBe(true)
   })
 

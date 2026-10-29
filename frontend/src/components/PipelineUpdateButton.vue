@@ -16,6 +16,7 @@ import {
   resumePipeline,
   startPipeline,
   stopPipeline,
+  updateQwenSettings,
 } from '../api/client'
 
 const props = defineProps({
@@ -24,6 +25,9 @@ const props = defineProps({
   // Идёт другой процесс (очередь описаний или уточнение): «База обновлена»
   // показывать рано, хотя прогон и завершён.
   busy: { type: Boolean, default: false },
+  // Может ли пользователь писать настройки описаний (Администратор): тогда
+  // выключатель в окне меняет общую настройку, а не только текущий прогон.
+  canWriteSettings: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['finished'])
@@ -47,16 +51,37 @@ const isStopped = computed(() => run.value?.status === 'STOPPED')
 const isDone = computed(() => run.value?.status === 'DONE')
 const isIdle = computed(() => !isActive.value && !isStopped.value)
 
-// Skip the QWEN stage and run it later for a chosen period
-// (Техраздел → Описание → «Дозаполнить за период»).
-const skipQwen = ref(false)
-// QWEN может быть выключен не на этот раз, а в настройках описаний:
-// тогда и галочка, и сам прогон идут без описаний.
-const qwenOffInSettings = ref(false)
+// Описание (QWEN) — ОДНА настройка с техразделом (владелец, 29.10.2026):
+// выключатель здесь и переключатель «QWEN участвует в обновлении базы» в
+// Техразделе → Описание — это один и тот же флаг `in_pipeline`. Раньше галочка
+// была разовой и не связанной с настройкой: выключенное описание запускалось
+// снова, и приходилось останавливать прогон.
+const qwenInPipeline = ref(true)
+const qwenSaving = ref(false)
+
+// Настройки описаний пишет Администратор (scope settings:write). Менеджеру
+// выключатель остаётся разовым: прогон пойдёт без описаний, общая настройка
+// не изменится.
+const canWriteQwenSettings = computed(() => props.canWriteSettings)
+
+// Пропускать ли описание в этом прогоне — производная от настройки.
+const skipQwen = computed(() => !qwenInPipeline.value)
 
 // «Уточнение» — хвост этапа описаний. Выключается на конкретный прогон;
 // постоянный выключатель живёт в настройках этапа (техраздел → Описание).
 const skipRefine = ref(false)
+
+// Глубина сканирования новых фото (владелец, 29.10.2026): инспектор смотрит
+// файлы, изменённые за этот период. По умолчанию неделя — обходить весь том
+// на каждом запуске незачем, уже зарегистрированные файлы он всё равно
+// пропускает. «Все даты» нужны, когда в папке появился старый архив.
+const SCAN_DEPTHS = [
+  { label: '1 неделя', value: 7 },
+  { label: '1 месяц', value: 30 },
+  { label: '3 месяца', value: 90 },
+  { label: 'Все даты', value: 0 },
+]
+const scanDays = ref(7)
 
 function stageRow(stage) {
   return (run.value?.stages || []).find((item) => item.stage === stage) || null
@@ -158,11 +183,11 @@ watch(dialogOpen, async (open) => {
 
   try {
     const data = await fetchQwenSettings()
-    qwenOffInSettings.value = data?.in_pipeline === false
-    if (qwenOffInSettings.value) skipQwen.value = true
+    qwenInPipeline.value = data?.in_pipeline !== false
+
   } catch {
-    // Настройки недоступны — решает сервер, галочка остаётся свободной.
-    qwenOffInSettings.value = false
+    // Настройки недоступны — решает сервер, выключатель остаётся включённым.
+    qwenInPipeline.value = true
   }
 })
 
@@ -219,6 +244,50 @@ async function continueRun() {
   }
 }
 
+/**
+ * Переключить описание: меняет общую настройку (как в техразделе).
+ *
+ * У Администратора это тот же флаг, что в «Техраздел → Описание», поэтому
+ * следующее «Обновление базы» уже пойдёт без описаний; у Менеджера настройка
+ * не пишется — выключается только текущий запуск.
+ */
+async function setQwenInPipeline(value) {
+  const next = Boolean(value)
+  const previous = qwenInPipeline.value
+  qwenInPipeline.value = next
+
+  if (!canWriteQwenSettings.value) {
+    Notify.create({
+      type: 'info',
+      message: next
+        ? 'Описание пойдёт в этом прогоне; общая настройка — в техническом разделе'
+        : 'Этот прогон без описаний; общая настройка — в техническом разделе',
+    })
+    return
+  }
+
+  qwenSaving.value = true
+
+  try {
+    const data = await updateQwenSettings({ in_pipeline: next })
+    qwenInPipeline.value = data?.in_pipeline !== false
+    Notify.create({
+      type: 'positive',
+      message: qwenInPipeline.value
+        ? 'QWEN участвует в «Обновлении базы»'
+        : 'QWEN выключен из прогона; «Уточнение» тоже остановлено',
+    })
+  } catch (err) {
+    qwenInPipeline.value = previous
+    Notify.create({
+      type: 'negative',
+      message: err.message || 'Не удалось сохранить настройку QWEN',
+    })
+  } finally {
+    qwenSaving.value = false
+  }
+}
+
 async function startNew() {
   if (!props.canRun) {
     Notify.create({ type: 'warning', message: 'Запуск обновления недоступен этой роли' })
@@ -227,7 +296,11 @@ async function startNew() {
 
   busy.value = true
   try {
-    await startPipeline({ skip_qwen: skipQwen.value, skip_refine: skipRefine.value })
+    await startPipeline({
+      skip_qwen: skipQwen.value,
+      skip_refine: skipRefine.value,
+      scan_days: scanDays.value || null,
+    })
     dialogOpen.value = false
     Notify.create({ type: 'info', message: 'Обновление базы запущено' })
     await poll()
@@ -256,7 +329,11 @@ async function doRestart() {
   if (busy.value) return
   busy.value = true
   try {
-    await startPipeline({ skip_qwen: skipQwen.value, skip_refine: skipRefine.value })
+    await startPipeline({
+      skip_qwen: skipQwen.value,
+      skip_refine: skipRefine.value,
+      scan_days: scanDays.value || null,
+    })
     dialogOpen.value = false
     await poll()
   } catch (err) {
@@ -367,12 +444,36 @@ onMounted(() => {
             запущенные задачи доиграют, состояние сохранится.
           </div>
 
+          <!-- Глубина сканирования новых фото: сколько назад смотреть по дате
+               изменения файла. По умолчанию неделя (владелец, 29.10.2026). -->
+          <q-select
+            v-if="!isActive"
+            v-model="scanDays"
+            :options="SCAN_DEPTHS"
+            dense
+            outlined
+            emit-value
+            map-options
+            option-label="label"
+            option-value="value"
+            label="Сканировать новые фото за"
+            style="max-width: 320px"
+          />
+          <div v-if="!isActive" class="text-caption text-grey-7">
+            Инспектор смотрит только файлы, изменённые за этот период;
+            зарегистрированные пропускаются. «Все даты» — когда в папке появился
+            старый архив.
+          </div>
+
+          <!-- Тот же выключатель, что в техразделе («Описание»): один флаг
+               in_pipeline на всю систему (владелец, 29.10.2026). -->
           <q-toggle
             v-if="!isActive"
-            v-model="skipQwen"
-            label="Пропустить описание — запущу отдельно за период"
+            :model-value="qwenInPipeline"
+            label="Описание (QWEN) в обновлении базы"
             dense
-            :disable="qwenOffInSettings"
+            :loading="qwenSaving"
+            @update:model-value="setQwenInPipeline"
           />
           <!-- Второй выключатель этапа: «Уточнение» можно не запускать в этом
                прогоне, не меняя постоянную настройку этапа. -->
@@ -388,14 +489,19 @@ onMounted(() => {
             «Описание».
           </div>
           <div v-if="!isActive" class="text-caption text-grey-7">
-            <template v-if="qwenOffInSettings">
-              Описание выключено в настройках: прогон пойдёт без описаний и
-              без «Уточнения». Включается там же одним переключателем.
+            <template v-if="!qwenInPipeline">
+              Описание выключено: прогон пойдёт без описаний и без
+              «Уточнения». Дозаполнить позже — Технический раздел → «Описание»
+              → «Дозаполнить за период».
+              <template v-if="!canWriteQwenSettings">
+                Общая настройка меняется Администратором; сейчас выключен
+                только этот запуск.
+              </template>
             </template>
             <template v-else>
-              Без описания прогон завершится быстрее. Затем в Техническом
-              разделе → «Описание» → «Дозаполнить за период» можно поставить в
-              очередь только выбранные даты.
+              Без описания прогон завершится быстрее (на вашем корпусе описание
+              — около 87 % времени прогона). Выключатель здесь — тот же, что в
+              техразделе: следующее «Обновление базы» пойдёт без описаний.
             </template>
           </div>
         </q-card-section>

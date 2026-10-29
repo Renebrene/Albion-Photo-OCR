@@ -244,7 +244,8 @@ async function loadHistoryLog() {
 }
 
 function canRescan() {
-  return !qwenQueue.value
+  // Мешает только работающая модель; ждущие задания — не повод (29.10.2026).
+  return !qwenRunning.value
     && Boolean(rescanFrom.value)
     && Boolean(rescanTo.value)
     && rescanTo.value >= rescanFrom.value
@@ -310,9 +311,12 @@ function fmtDate(value) {
   return String(value).replace('T', ' ').slice(0, 16)
 }
 
-const qwenQueue = computed(
-  () => (stats.value?.counts?.PENDING || 0) + (stats.value?.counts?.RUNNING || 0),
-)
+// Очередь описаний: ждущие и работающие считаются отдельно. Блокирует только
+// работающая модель — очередь может ждать запуска воркера, и это не повод
+// запрещать постановку нового периода (29.10.2026).
+const qwenPending = computed(() => stats.value?.counts?.PENDING || 0)
+const qwenRunning = computed(() => stats.value?.counts?.RUNNING || 0)
+const qwenQueue = computed(() => qwenPending.value + qwenRunning.value)
 
 // Правый модуль «Распознавания»: сводка присвоения описаний.
 const assignmentStats = computed(() => {
@@ -1024,8 +1028,14 @@ onBeforeUnmount(stopStatsPolling)
               <q-input v-model="rescanTo" type="date" dense outlined label="По дату" />
             </div>
           </div>
-          <div v-if="qwenQueue" class="text-negative text-caption">
-            Сначала остановите активное описание QWEN.
+          <div v-if="qwenRunning" class="text-negative text-caption">
+            Модель сейчас занята ({{ qwenRunning }} в работе) — дождитесь или
+            нажмите «Остановить описание».
+          </div>
+          <div v-else-if="qwenPending" class="text-caption text-grey-7">
+            В очереди уже ждут {{ qwenPending }} заданий описания: они
+            обработаются, когда запустится воркер, а в очередь попадут только
+            фото из выбранного периода. Снять их — кнопка «Остановить описание».
           </div>
           <div v-if="rescanError" class="text-negative text-caption">{{ rescanError }}</div>
         </q-card-section>

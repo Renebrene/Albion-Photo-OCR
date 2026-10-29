@@ -40,6 +40,11 @@ logger = logging.getLogger(__name__)
 from app.preview.queue import enqueue_missing_previews
 
 STAGES: tuple[str, ...] = ("INGEST", "PREVIEW", "DINO", "HYBRID", "QWEN")
+
+# Глубина сканирования новых фото по умолчанию — неделя. Инспектор не обходит
+# весь том заново: уже зарегистрированные файлы он и так пропускает, но сам
+# обход большого дерева на каждом запуске стоит времени.
+DEFAULT_SCAN_DAYS = 7
 MODES = ("manual", "schedule", "outofqueue")
 _ACTIVE = ("PENDING", "RUNNING")
 
@@ -231,9 +236,15 @@ def create_run(
     created_by: str | None = None,
     skip_qwen: bool = False,
     skip_refine: bool = False,
+    scan_days: int | None = DEFAULT_SCAN_DAYS,
 ) -> dict:
     """
     Start a new run, superseding any stopped run.
+
+    *scan_days* — глубина сканирования новых фото: инспектор берёт только файлы,
+    изменённые за этот период (по дате файла). По умолчанию неделя: повторный
+    обход всего тома на каждом запуске не нужен, старые копии подхватываются
+    явным выбором «Все даты» (None).
 
     Raises PipelineBusy when a PENDING/RUNNING run already exists (enforced by
     the partial unique index as well, so two concurrent callers cannot both
@@ -274,6 +285,7 @@ def create_run(
                             {
                                 **({"skip_qwen": True} if skip_qwen else {}),
                                 **({"skip_refine": True} if skip_refine else {}),
+                                **({"scan_days": int(scan_days)} if scan_days else {}),
                             }
                         ),
                     ),
@@ -564,13 +576,29 @@ def _stage_ingest(run: dict, stage: dict) -> dict:
     manifest = dict(run["manifest"] or {})
 
     if stage["status"] == "PENDING":
+        # Окно сканирования фиксируется в манифесте при первом заходе: продолжение
+        # прогона через день не должно расширять глубину само.
+        scan_days = manifest.get("scan_days")
+
+        if scan_days and "scan_from" not in manifest:
+            from datetime import date as date_type
+            from datetime import timedelta
+
+            manifest["scan_from"] = (
+                date_type.today() - timedelta(days=int(scan_days))
+            ).isoformat()
+
         if "files" not in manifest:
             try:
-                manifest["files"] = _snapshot_files(folder)
+                manifest["files"] = _snapshot_files(folder, manifest.get("scan_from"))
             except OSError as exc:
                 return {"outcome": "FAILED", "message": f"не удалось прочитать папку: {exc}"}
 
-        job_id = jobs_db.enqueue_ingest(folder, only_files=manifest.get("files"))
+        job_id = jobs_db.enqueue_ingest(
+            folder,
+            only_files=manifest.get("files"),
+            date_from=manifest.get("scan_from"),
+        )
 
         if job_id is None:
             job_id = _find_active_job("INGEST_DIR", "directory", folder)
@@ -1148,17 +1176,38 @@ def _db_now() -> str:
     return value.isoformat(sep=" ")
 
 
-def _snapshot_files(folder: str) -> list[str]:
+def _snapshot_files(folder: str, scan_from: str | None = None) -> list[str]:
+    """
+    Снимок файлов прогона.
+
+    *scan_from* (YYYY-MM-DD) — глубина сканирования: файлы старше этой даты по
+    собственному времени изменения в снимок не попадают. Так «Обновление базы»
+    с глубиной «1 неделя» не обходит и не проверяет весь том.
+    """
+
+    from datetime import date as date_type
+    from datetime import datetime as datetime_type
+
     from app.ingest.integrity import discover_files
     from app.ingest.video_integrity import discover_video_files
     from pathlib import Path
 
     root = Path(folder)
     names: list[str] = []
+    since = date_type.fromisoformat(scan_from) if scan_from else None
 
     for path in list(discover_files(folder, recursive=True)) + list(
         discover_video_files(folder, recursive=True)
     ):
+        if since is not None:
+            try:
+                changed = datetime_type.fromtimestamp(Path(path).stat().st_mtime).date()
+            except OSError:
+                continue
+
+            if changed < since:
+                continue
+
         try:
             names.append(str(Path(path).relative_to(root)))
         except ValueError:
