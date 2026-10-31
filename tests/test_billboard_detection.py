@@ -171,7 +171,7 @@ def test_run_detect_writes_region(monkeypatch, tmp_path):
 
     def fake_replace(pid, rows):
         saved.append((pid, rows))
-        return [7]
+        return [7 + index for index in range(len(rows))]
 
     monkeypatch.setattr(billboard_db, "replace_regions", fake_replace)
 
@@ -210,13 +210,14 @@ def test_run_detect_writes_two_crops_for_two_billboards(monkeypatch, tmp_path):
     saved = []
     monkeypatch.setattr(
         billboard_db, "replace_regions",
-        lambda pid, rows: saved.append((pid, rows)) or [7],
+        lambda pid, rows: saved.append((pid, rows)) or [7 + index for index in range(len(rows))],
     )
 
     result = pipeline.run_detect(photo_id)
 
-    assert result["regions"] == 1
-    assert len(saved[0][1]) == 1  # DB keeps the primary region only
+    assert result["regions"] == 2
+    assert len(saved[0][1]) == 2
+    assert [row["crop_index"] for row in saved[0][1]] == [0, 1]
     directory = tmp_path / "crops" / photo_id
     assert (directory / "crop_01.jpg").is_file()
     assert (directory / "crop_02.jpg").is_file()

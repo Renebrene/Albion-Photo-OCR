@@ -439,42 +439,73 @@ def save_manual(
 
 def apply_refined_values(
     photo_id: str,
-    changes: dict[str, str],
+    changes: dict[str, Any],
     *,
     reason: str = "refine",
+    expected_description: str | None = None,
+    expected_tags: list[str] | None = None,
+    expected_status: str | None = None,
 ) -> bool:
     """
     Обновить отдельные поля описания после этапа «Уточнение».
 
     Прежняя строка уходит в историю (`photo_qwen_history`) с пометкой причины,
-    поэтому результат обратим и виден в истории распознавания фото. Меняются
-    только переданные поля; описание, теги и токены не трогаются.
+    поэтому результат обратим и виден в истории распознавания фото. Поля строго
+    allowlist: client/brand/description/tags. Optional expected values protect
+    against applying stale proposals after a newer QWEN/manual update.
 
     Возвращает True, если строка действительно обновлена.
     """
 
-    fields = {
-        key: value
-        for key, value in changes.items()
-        if key in {"client", "brand"} and value
-    }
-
+    allowed = {"client", "brand", "description", "tags"}
+    fields = {key: value for key, value in changes.items() if key in allowed}
     if not fields:
         return False
 
+    assignments: list[str] = []
+    values: list[object] = []
+    for key, value in fields.items():
+        assignments.append(f"{key} = %s")
+        values.append(Json(value) if key == "tags" else value)
+
     with get_connection() as conn:
         with conn.cursor() as cur:
-            _archive_previous(cur, photo_id, reason)
-
-            assignments = ", ".join(f"{key} = %s" for key in fields)
-            params = list(fields.values()) + [photo_id]
-
             cur.execute(
-                f"UPDATE public.photo_qwen SET {assignments} "  # noqa: S608 - ключи из фиксированного набора
-                "WHERE photo_id = %s AND status = 'DONE'",
-                params,
+                "SELECT description, tags, status FROM public.photo_qwen "
+                "WHERE photo_id = %s FOR UPDATE",
+                (photo_id,),
             )
+            current = cur.fetchone()
+            if current is None:
+                return False
+            if expected_description is not None and current[0] != expected_description:
+                return False
+            if current[2] != "DONE":
+                return False
+            if expected_description is not None and current[0] != expected_description:
+                return False
+            if expected_tags is not None and current[1] != expected_tags:
+                return False
+            if expected_status is not None and current[2] != expected_status:
+                return False
 
+            # The previous complete QWEN row is archived before any update.
+            cur.execute(
+                "INSERT INTO public.photo_qwen_history ("
+                "photo_id, status, description, address, client, brand, category, tags, raw, "
+                "qwen_model, qwen_time_sec, error_message, prompt_tokens, completion_tokens, "
+                "total_tokens, finished_at, replaced_by_model) "
+                "SELECT photo_id, status, description, address, client, brand, category, tags, raw, "
+                "qwen_model, qwen_time_sec, error_message, prompt_tokens, completion_tokens, "
+                "total_tokens, finished_at, %s FROM public.photo_qwen WHERE photo_id = %s",
+                (reason, photo_id),
+            )
+            cur.execute(
+                "UPDATE public.photo_qwen SET "
+                + ", ".join(assignments)
+                + " WHERE photo_id = %s AND status = 'DONE'",
+                values + [photo_id],
+            )
             return cur.rowcount == 1
 
 

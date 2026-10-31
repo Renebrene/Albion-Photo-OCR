@@ -237,6 +237,15 @@ def test_stats_pass_the_selected_period(monkeypatch):
     assert response.json()["period_videos"] == 4
 
 
+def test_tag_filter_matches_partial_phrase():
+    """Подсказка «Байков» находит тег «А.М. Байков» и похожие варианты."""
+
+    where, params = repository._photo_where(tag="Байков")
+
+    assert "item ILIKE %s" in where
+    assert params == ["%Байков%"]
+
+
 def test_tag_facets_combine_with_or():
     """
     Клиенты, бренд, тег и категория — альтернативы, а не уточнения:
@@ -252,7 +261,8 @@ def test_tag_facets_combine_with_or():
     assert "LOWER(t.brand) = LOWER(%s)" in where
     assert "ca.kind = 'brand'" in where
     assert " OR EXISTS (" in where
-    assert params == ["Клиент", "Клиент", "СТС", "СТС", "канал СТС"]
+    assert "item ILIKE %s" in where
+    assert params == ["Клиент", "Клиент", "СТС", "СТС", "%канал СТС%"]
 
 
 def test_combine_union_ors_all_tag_facets():

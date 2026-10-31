@@ -347,7 +347,7 @@ def test_client_list_pages_by_name(monkeypatch):
     repository.list_clients(limit=10, cursor=cursor)
 
     sql, params = captured["queries"][0]
-    assert "WHERE sort_key > %s" in sql
+    assert "sort_key > %s" in sql
     assert params[-2:] == ["мира", 11]
     # Одно имя — одна строка: клиент и бренд с одним названием не дублируются.
     assert "DISTINCT ON (lower(name))" in sql

@@ -351,6 +351,34 @@ def test_worker_passes_a_one_off_provider_override(monkeypatch):
     }
 
 
+def test_worker_does_not_enqueue_global_refine_for_scoped_qwen(monkeypatch):
+    from app.jobs import worker
+
+    monkeypatch.setattr(processor, "run_photo", lambda *a, **k: {})
+    monkeypatch.setattr(worker, "_maybe_enqueue_refine", lambda: pytest.fail("global REFINE must be skipped"))
+
+    worker._execute({
+        "id": 3,
+        "job_type": "QWEN_PHOTO",
+        "payload": {"photo_id": PROBE_PHOTO_ID, "skip_refine": True},
+    })
+
+
+def test_worker_preserves_auto_refine_for_unscoped_qwen(monkeypatch):
+    from app.jobs import worker
+
+    called = []
+    monkeypatch.setattr(processor, "run_photo", lambda *a, **k: {})
+    monkeypatch.setattr(worker, "_maybe_enqueue_refine", lambda: called.append(True))
+
+    worker._execute({
+        "id": 4,
+        "job_type": "QWEN_PHOTO",
+        "payload": {"photo_id": PROBE_PHOTO_ID},
+    })
+    assert called == [True]
+
+
 def test_worker_keeps_the_current_settings_without_an_override(monkeypatch):
     from app.jobs import worker
 
@@ -424,7 +452,12 @@ def test_run_photo_analyses_billboard_crop_when_present(monkeypatch, tmp_path):
     assert seen["config"]["max_image_side"] > 1280
     assert "бренд" in seen["config"]["prompt"].lower()
     assert "client" in seen["config"]["prompt"]
-    assert saved["fields"] == {"brand": "X", "client": "Y"}
+    fields = saved["fields"]
+    assert fields["brand"] == "X"
+    assert fields["client"] == "Y"
+    # Новый агрегат также фиксирует объединённые описания/теги и категорию.
+    assert fields["tags"] == []
+    assert fields["description"] is None
     # Кроп — временный: после успешного сохранения он удаляется.
     # Кропы больше не удаляются после успешного описания: по ним идёт
     # прогон серий (docs/series_merge.md), удаление — по возрасту.

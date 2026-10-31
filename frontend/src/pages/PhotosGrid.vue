@@ -1264,7 +1264,13 @@ async function apply(overrideQuery = undefined) {
 
   // Подсветка панелей — отдельным запросом: он тяжелее страницы (счёт по
   // корпусу), поэтому грид его не ждёт.
-  void refreshSearchMatches(query, dateFrom, dateTo)
+  // Структурные подсказки очищают свободную строку, но подсветка адресов
+  // должна следовать за выбранным тегом/брендом.
+  void refreshSearchMatches(
+    query || selectedTag.value || selectedBrand.value || selectedCategory.value,
+    dateFrom,
+    dateTo,
+  )
 }
 
 // ---- подсветка панелей по текущему поиску (владелец, 29.10.2026) ----------
@@ -1296,9 +1302,14 @@ async function refreshSearchMatches(term, from, to) {
     // Пока шёл запрос, поиск уже сменился — старый ответ не применяем.
     if (request !== matchRequest) return
 
-    matchNames.value = new Set(
-      (data.names || []).map((name) => String(name).trim().toLowerCase()),
-    )
+    // По теговому запросу подсвечиваем адреса, но не клиент/бренд: они не
+    // являются результатом фильтра по тегу. Для запросов клиента/бренда
+    // подсветка остаётся полезной и совпадает с типом выбранного фильтра.
+    matchNames.value = selectedTag.value
+      ? new Set()
+      : new Set(
+          (data.names || []).map((name) => String(name).trim().toLowerCase()),
+        )
     matchAddresses.value = new Set(data.addresses || [])
   } catch {
     if (request !== matchRequest) return
@@ -2351,9 +2362,20 @@ function tileMeta(photo) {
  * Категория подставляется только когда не распознаны ОБА: если известен
  * клиент или бренд, прочерк на месте второго честнее подмены.
  */
+function clientBrandDuplicates(photo) {
+  const client = String(photo?.client || '').trim()
+  const brand = String(photo?.brand || '').trim()
+  return Boolean(client && brand && client.toLocaleLowerCase() === brand.toLocaleLowerCase())
+}
+
 function clientBrand(photo) {
   if (photo?.client || photo?.brand) {
-    return [photo?.client, photo?.brand].filter(Boolean).join(', ')
+    const client = String(photo?.client || '').trim()
+    const brand = String(photo?.brand || '').trim()
+    if (client && brand && client.toLocaleLowerCase() === brand.toLocaleLowerCase()) {
+      return client
+    }
+    return [client, brand].filter(Boolean).join(', ')
   }
 
   return photo?.category || ''
@@ -4377,7 +4399,7 @@ function tagList(meta) {
                       </span>
                     </div>
                   </div>
-                  <div class="col-12 col-sm-6">
+                  <div v-if="!clientBrandDuplicates(qwen)" class="col-12 col-sm-6">
                     <div class="text-caption text-grey">Бренд</div>
                     <div class="ellipsis" :title="qwen?.brand || ''">
                       {{ qwen?.brand || (categoryInsteadOfClientBrand(qwen) ? qwen.category : '') || '—' }}

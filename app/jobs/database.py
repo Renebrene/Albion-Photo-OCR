@@ -174,6 +174,7 @@ def enqueue_qwen(
     model: str | None = None,
     run_history_id: int | None = None,
     priority: bool = False,
+    skip_refine: bool = False,
 ) -> int | None:
     """
     Enqueue a QWEN job for one photo, deduplicated while active.
@@ -194,6 +195,8 @@ def enqueue_qwen(
 
     if model:
         payload["model"] = model
+    if skip_refine:
+        payload["skip_refine"] = True
     if run_history_id is not None:
         payload["run_history_id"] = int(run_history_id)
     if priority:

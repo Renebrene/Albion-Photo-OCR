@@ -1,0 +1,232 @@
+{
+  "checked": 56936,
+  "available": 55418,
+  "missing": 0,
+  "outside_roots": 1518,
+  "root_unavailable": 0,
+  "roots": [
+    {
+      "path": "/media/alexice/Win10",
+      "label": "Win10",
+      "available": false
+    },
+    {
+      "path": "/media/alexice/TEST",
+      "label": "TEST",
+      "available": true
+    },
+    {
+      "path": "/home/alexice/Desktop/test",
+      "label": "test",
+      "available": true
+    },
+    {
+      "path": "/home/alexice/projects/albion-photobase/data/input",
+      "label": "input",
+      "available": true
+    }
+  ],
+  "samples": [
+    {
+      "photo_id": "PH_000077dd924a6295fc0faeee",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_001cb37dc3bc164da015cbe9",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_002ba0720cdaffb0de0b8d3e",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_0073f6c7cb41cf67d03720a0",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_007b1215cd0bc98aa092ba5e",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_00d3391347683a984d80a344",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_00ef9e995ce89078741869b5",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_00fe8ebd34696ac89a507a92",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_0146503969dfd7864d00fb08",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_0174a56271d8d2c19bc8e71c",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_0175352375d9da6c8331bbe3",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_019a46d3386d2354a8917e1f",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_019ab814bc8071b330cb9ddc",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_019ad7f5086c72874f675f0d",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_01b7b3c2b06b15086c81d8b6",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_01befc2b512638eb8cdec392",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_01dc13b33f12fffec3535d58",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_01fa1dc32e30c2291e575ccd",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_02242951b53518070923573d",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_022866d28e4fcd6fc970a0cb",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_0275f6d7138e93f21865f3f0",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_0291a1779bcef9b3410d7366",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_02a2041c6ebd3cec3dcf6bd5",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_02bf8641f8f18a267979d108",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_02f3b336299048ff1414921a",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_03694273aaeb73b37daff588",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_039bc7a94c4ac1bd01fccaaf",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_03c6f6574371cc34a860829c",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_0408a4e79f07e54744bdcca8",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_041121a741efe54b34527ad2",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_043dba6f3d89c9a4877e74bb",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_0444b5264287409c21bd2be9",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_04a7ac612c2172a15ceda6d0",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_04e3d5245feaa9713336d93c",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_04e6f7b2d736b00589169286",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_04f8fbbae2fb7b131438adad",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_05379c56931a6174c40da29c",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_05a8d4548b5061fe172b87af",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_05afd4183654e10be7a2c952",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_05ce29a6a6571ad61504799d",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_05d62ff4c06db3cfc7467b66",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_05e21dd1f68198db216ae7da",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_05eb071a280e3abbaffa453b",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_063098acb365b0798a7b7c1b",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_0653bac81222057ed7412001",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_06d1815daaeed45a5c15d2b5",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_06e46a4d26453293957f6cb5",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_06ff9e0bd2f280c891465185",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_071b3cf1b930929e7282ff92",
+      "reason": "путь вне разрешённых корней"
+    },
+    {
+      "photo_id": "PH_072f3884104e04124e0b37d3",
+      "reason": "путь вне разрешённых корней"
+    }
+  ],
+  "generated_at": "2026-10-27T21:26:21.344409+00:00"
+}

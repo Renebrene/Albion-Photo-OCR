@@ -966,6 +966,26 @@ export function saveRefineSettings(payload) {
   return putJson(`${BASE}/v1/refine/settings`, payload)
 }
 
+export function fetchRefineRules() {
+  return getJson(`${BASE}/v1/refine/rules`)
+}
+
+export function saveRefineRules(rules) {
+  return putJson(`${BASE}/v1/refine/rules`, { rules })
+}
+
+export function previewRefine(payload) {
+  return postJson(`${BASE}/v1/refine/preview`, payload)
+}
+
+export function applyRefinePreview(payload) {
+  return postJson(`${BASE}/v1/refine/apply`, payload)
+}
+
+export function previewQwenRescan(payload) {
+  return postJson(`${BASE}/v1/jobs/qwen/rescan/preview`, payload)
+}
+
 // Порог уверенности распознавания: ниже него фото уходит в «Требуют проверки».
 export function fetchHybridSettings() {
   return getJson(`${BASE}/v1/hybrid/settings`)

@@ -1237,6 +1237,85 @@ def qwen_queue_counts() -> dict:
             return {row[0]: int(row[1]) for row in cur.fetchall()}
 
 
+def qwen_period_preview(*, date_from, date_to) -> dict:
+    """Read-only counts for capture-date QWEN rescan preview."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SET TRANSACTION READ ONLY")
+            cur.execute(
+                """
+                SELECT count(*) AS photos,
+                       count(q.photo_id) AS rows,
+                       count(q.photo_id) FILTER (WHERE q.status = 'DONE') AS done,
+                       count(q.photo_id) FILTER (WHERE q.status = 'FAILED') AS failed,
+                       count(q.photo_id) FILTER (WHERE q.status = 'RUNNING') AS running,
+                       count(q.photo_id) FILTER (WHERE q.status = 'PENDING') AS pending
+                FROM public.photos AS p
+                LEFT JOIN public.photo_qwen AS q ON q.photo_id = p.photo_id
+                WHERE p.taken_at >= %s::date
+                  AND p.taken_at < (%s::date + interval '1 day')
+                """,
+                (date_from, date_to),
+            )
+            photos, rows, done, failed, running, pending = map(int, cur.fetchone())
+            cur.execute("SELECT count(*) FROM public.photo_qwen")
+            all_active = int(cur.fetchone()[0])
+            cur.execute("SELECT count(*) FROM public.photo_qwen_history")
+            history = int(cur.fetchone()[0])
+            cur.execute(
+                "SELECT status, count(*) FROM public.job_queue "
+                "WHERE job_type='QWEN_PHOTO' GROUP BY status"
+            )
+            queue = {row[0]: int(row[1]) for row in cur.fetchall()}
+            # crop_index появляется только после migration 057; до её применения
+            # preview обязан работать на текущей схеме и честно сообщать пробел.
+            try:
+                cur.execute(
+                    """
+                    SELECT count(DISTINCT p.photo_id),
+                           count(DISTINCT p.photo_id) FILTER (WHERE r.photo_id IS NOT NULL),
+                           count(*) FILTER (WHERE r.qwen_status='DONE'),
+                           count(*) FILTER (WHERE r.qwen_status IS NULL OR r.qwen_status<>'DONE'),
+                           count(DISTINCT p.photo_id) FILTER (WHERE r.crop_index > 0)
+                    FROM public.photos p
+                    LEFT JOIN public.photo_regions r
+                      ON r.photo_id=p.photo_id AND r.kind='billboard'
+                    WHERE p.taken_at >= %s::date
+                      AND p.taken_at < (%s::date + interval '1 day')
+                    """,
+                    (date_from, date_to),
+                )
+                crops = cur.fetchone()
+                multi_crop_schema = True
+            except Exception:  # noqa: BLE001 - старая схема до migration 057
+                conn.rollback()
+                crops = (photos, 0, 0, 0, 0)
+                multi_crop_schema = False
+
+    return {
+        "date_from": date_from,
+        "date_to_inclusive": date_to,
+        "photos_in_period": photos,
+        "qwen_rows_in_period": rows,
+        "done_in_period": done,
+        "failed_in_period": failed,
+        "running_in_period": running,
+        "pending_in_period": pending,
+        "active_qwen_rows_all_time": all_active,
+        "history_rows_all_time": history,
+        "qwen_queue": queue,
+        "crop_coverage": {
+            "multi_crop_schema": multi_crop_schema,
+            "photos_in_scope": int(crops[0]),
+            "photos_with_billboard_regions": int(crops[1]),
+            "crop_rows": int(crops[2]),
+            "crop_rows_missing_qwen": int(crops[3]),
+            "photos_with_secondary_crops": int(crops[4]),
+        },
+    }
+
+
 def qwen_stats() -> dict:
     """
     One snapshot for the QWEN card: base size, statuses and last runs.
@@ -2133,14 +2212,22 @@ def list_clients(
     )
 
     decoded = decode_cursor(cursor) if cursor else None
-    paging_sql = ""
+    # Скрытые пункты не должны потреблять слоты страницы или попадать в курсор.
+    # Фильтр действует только на список client/brand; raw значения QWEN и tags
+    # остаются нетронутыми, а возвращаемое name сохраняет точное значение для выбора.
+    paging_sql = (
+        "WHERE name !~ '[0-9]' "
+        "AND btrim(regexp_replace(lower(name), "
+        "'(^|[[:space:][:punct:]])(ооо|оао|зао|пао|ао|ип|ано|нко|мкп|гуп|муп|ao|llc|ltd|inc|[а-яёa-z]\\.?)"
+        "([[:space:][:punct:]]|$)', ' ', 'g')) <> ''"
+    )
     paging_params: list[object] = []
 
     if decoded is not None:
         # Имена уникальны, поэтому для продолжения достаточно имени.
         name_key = decoded[0] if isinstance(decoded, tuple) else decoded
-        paging_sql = "WHERE sort_key > %s"
-        paging_params = [str(name_key)]
+        paging_sql += " AND sort_key > %s"
+        paging_params.append(str(name_key))
 
     # На страницу запрашиваем на одну строку больше: если она пришла, значит
     # есть продолжение, и её курсор отдаём клиенту как «дальше».

@@ -92,4 +92,12 @@ describe('категория вместо клиента и бренда', () =>
     expect(wrapper.text()).not.toContain('Автосалоны')
     wrapper.unmount()
   })
+
+  it('показывает одно значение в подписи, когда клиент и бренд совпадают', async () => {
+    const wrapper = await mountGrid(photo({ client: 'Ozon', brand: 'ozon', category: 'Магазин' }))
+    const card = wrapper.find('.photo-card')
+
+    expect(card.text().match(/Ozon/gi)).toHaveLength(1)
+    wrapper.unmount()
+  })
 })

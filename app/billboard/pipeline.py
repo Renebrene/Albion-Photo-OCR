@@ -153,12 +153,11 @@ def write_crop(
 
 def _detect_and_store(photo_id: str, cfg: dict) -> dict:
     """
-    Detect billboards, cut one crop per billboard, persist the primary region.
+    Detect billboards, cut one crop per billboard, persist every region.
 
-    The database keeps one ``kind='billboard'`` row per photo (the largest
-    box); extra crops are derived files in the same managed directory. They
-    are all analysed by QWEN, and the results are merged into one photo_qwen
-    row.
+    One region row is stored per detected crop; the primary/largest region is
+    ordered first for the legacy photo-level view. QWEN can persist each crop's
+    own parsed result and also create a one-row photo-level aggregate.
 
     Returns {"detected", "regions", "region_ids", "crop_path", "crops",
     "billboards", "score"}; never enqueues anything (the caller decides what
@@ -198,6 +197,7 @@ def _detect_and_store(photo_id: str, cfg: dict) -> dict:
         crops.append(
             {
                 **region,
+                "crop_index": index - 1,
                 "kind": "billboard",
                 "detector": cfg["detector"],
                 "crop_path": str(output_path),
@@ -215,10 +215,10 @@ def _detect_and_store(photo_id: str, cfg: dict) -> dict:
 
     _write_marker(out_dir, len(crops))
 
-    # Only the largest box has a DB row today; the unique index enforces one
-    # billboard region per photo. Extra crops stay as derived files.
+    # Persist every detected billboard; crop_index zero remains the primary
+    # (largest) one for photo-level compatibility.
     primary = crops[0]
-    region_ids = database.replace_regions(photo_id, [primary])
+    region_ids = database.replace_regions(photo_id, crops)
 
     return {
         "detected": True,
@@ -269,11 +269,17 @@ def ensure_crops(photo_id: str) -> list[str]:
         return []
 
     try:
-        region = database.get_billboard_region(photo_id)
+        regions = database.get_billboard_regions(photo_id)
     except Exception:  # noqa: BLE001 - a DB hiccup must not break QWEN
-        region = None
+        try:
+            primary_region = database.get_billboard_region(photo_id)
+        except Exception:  # noqa: BLE001 - a DB hiccup must not break QWEN
+            primary_region = None
+        regions = [primary_region] if primary_region else []
 
-    if region is not None:
+    if regions:
+        region = regions[0]
+
         existing = _existing_crops(photo_id)
 
         if existing and _marker_present(crop_dir(photo_id)):

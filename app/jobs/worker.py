@@ -211,7 +211,8 @@ def _execute(job: dict) -> dict:
         # «Уточнение» идёт только после того, как QWEN закончил целиком:
         # иначе сравнивать нечего. Ставится здесь, после каждого описания —
         # когда очередь QWEN опустеет, задание появится одно.
-        _maybe_enqueue_refine()
+        if not payload.get("skip_refine"):
+            _maybe_enqueue_refine()
 
         return result
 

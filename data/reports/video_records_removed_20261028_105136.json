@@ -1,0 +1,108 @@
+{
+  "checked_at": "2026-10-28T07:51:36.553572+00:00",
+  "total": 37,
+  "missing": 10,
+  "records": [
+    {
+      "video_id": "VI_049388176dd92b13344357b9",
+      "filename": "Mark_576x288_5s.mp4",
+      "source_path": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/test/Mark_576x288_5s.mp4",
+      "parent_video_id": null,
+      "display_title": "",
+      "size_bytes": 4348078,
+      "duration_seconds": 5.0,
+      "created_at": "2026-10-23T20:54:22.401165+03:00"
+    },
+    {
+      "video_id": "VI_1aec5bc22c70696fa830ef87",
+      "filename": "Efremov_576x288_5s.mp4",
+      "source_path": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/test/Efremov_576x288_5s.mp4",
+      "parent_video_id": null,
+      "display_title": "",
+      "size_bytes": 4806879,
+      "duration_seconds": 5.0,
+      "created_at": "2026-10-23T20:54:22.401165+03:00"
+    },
+    {
+      "video_id": "VI_1e7794ef3a62317ff5ab1247",
+      "filename": "5sek_Ozon_fresh_app_1440x720 (2).mp4",
+      "source_path": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/test/5sek_Ozon_fresh_app_1440x720 (2).mp4",
+      "parent_video_id": null,
+      "display_title": "",
+      "size_bytes": 4053209,
+      "duration_seconds": 5.0,
+      "created_at": "2026-10-23T20:54:22.401165+03:00"
+    },
+    {
+      "video_id": "VI_420f1ddeed80b33256cb1447",
+      "filename": "5G static DOOH Evremov 576x288 5sec (1).mp4",
+      "source_path": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/test/5G static DOOH Evremov 576x288 5sec (1).mp4",
+      "parent_video_id": null,
+      "display_title": "",
+      "size_bytes": 2540795,
+      "duration_seconds": 5.0,
+      "created_at": "2026-10-23T20:54:22.401165+03:00"
+    },
+    {
+      "video_id": "VI_679fee57cab530b81f68b20d",
+      "filename": "5G static DOOH Mark 576x288 5sec (1).mp4",
+      "source_path": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/test/5G static DOOH Mark 576x288 5sec (1).mp4",
+      "parent_video_id": null,
+      "display_title": "",
+      "size_bytes": 3198320,
+      "duration_seconds": 5.0,
+      "created_at": "2026-10-23T20:54:22.401165+03:00"
+    },
+    {
+      "video_id": "VI_95e3c21bcb1b8c07d7f8a4e9",
+      "filename": "MTS_RIIL DOOH 576x288 5sec.mp4",
+      "source_path": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/test/MTS_RIIL DOOH 576x288 5sec.mp4",
+      "parent_video_id": null,
+      "display_title": "",
+      "size_bytes": 3139681,
+      "duration_seconds": 5.0,
+      "created_at": "2026-10-23T20:54:22.401165+03:00"
+    },
+    {
+      "video_id": "VI_9a7315181a609f84487868ad",
+      "filename": "фарш.mp4",
+      "source_path": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/test/фарш.mp4",
+      "parent_video_id": null,
+      "display_title": "",
+      "size_bytes": 2520160,
+      "duration_seconds": 5.0,
+      "created_at": "2026-10-23T20:54:22.401165+03:00"
+    },
+    {
+      "video_id": "VI_b8b4fb7fff3a9dac6ef105a0",
+      "filename": "MVI_6762_копия.mp4",
+      "source_path": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/video_derivatives/VI_1c54e45c531f03ae856d4b6f/MVI_6762_копия.mp4",
+      "parent_video_id": "VI_1c54e45c531f03ae856d4b6f",
+      "display_title": "",
+      "size_bytes": 5039316,
+      "duration_seconds": 10.0,
+      "created_at": "2026-10-24T05:25:43.842209+03:00"
+    },
+    {
+      "video_id": "VI_d536e8f13409783efffe7b62",
+      "filename": "еда.mp4",
+      "source_path": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/test/еда.mp4",
+      "parent_video_id": null,
+      "display_title": "",
+      "size_bytes": 4113454,
+      "duration_seconds": 5.0,
+      "created_at": "2026-10-23T20:54:22.401165+03:00"
+    },
+    {
+      "video_id": "VI_fd52ad28e71a3d0d10ec3d30",
+      "filename": "30процентов.mp4",
+      "source_path": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/test/30процентов.mp4",
+      "parent_video_id": null,
+      "display_title": "",
+      "size_bytes": 4135357,
+      "duration_seconds": 5.0,
+      "created_at": "2026-10-23T20:54:22.401165+03:00"
+    }
+  ],
+  "derivatives": []
+}

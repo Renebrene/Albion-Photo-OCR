@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS public.photo_regions (
                     ON DELETE CASCADE,
 
     kind            TEXT NOT NULL DEFAULT 'billboard',
+    crop_index      INTEGER NOT NULL DEFAULT 0 CHECK (crop_index >= 0),
 
     -- Bbox in ORIGINAL image coordinates (not the downscaled detection copy).
     bbox_x          INTEGER NOT NULL CHECK (bbox_x >= 0),
@@ -82,8 +83,8 @@ CREATE TABLE IF NOT EXISTS public.photo_regions (
 CREATE INDEX IF NOT EXISTS ix_photo_regions_photo
     ON public.photo_regions (photo_id);
 
--- Current contract: one billboard per photo (the largest detected box).
--- Dropping this index is enough to allow several regions per photo later.
-CREATE UNIQUE INDEX IF NOT EXISTS ux_photo_regions_one_billboard
-    ON public.photo_regions (photo_id, kind)
+-- Each detected billboard crop has one ordered region row per photo.
+-- A unique crop index keeps a photo's crop-to-result mapping deterministic.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_photo_regions_photo_crop
+    ON public.photo_regions (photo_id, kind, crop_index)
     WHERE kind = 'billboard';

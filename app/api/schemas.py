@@ -224,6 +224,18 @@ class QwenRescanRequest(BaseModel):
         return self
 
 
+class QwenPeriodPreviewRequest(BaseModel):
+    date_from: date
+    date_to: date
+    date_mode: str = Field(default="capture", pattern="^(upload|capture)$")
+
+    @model_validator(mode="after")
+    def validate_range(self):
+        if self.date_to < self.date_from:
+            raise ValueError("date_to must not be earlier than date_from")
+        return self
+
+
 class QwenPeriodScanRequest(BaseModel):
     """
     Non-destructive QWEN catch-up for one upload/capture date range.
@@ -489,6 +501,26 @@ class RefineSettingsUpdate(BaseModel):
     enabled: bool | None = None
     gap_seconds: float | None = Field(default=None, ge=0, le=600)
     crop_retention_days: int | None = Field(default=None, ge=1, le=90)
+
+
+class RefineRulesUpdate(BaseModel):
+    rules: dict | str
+
+
+class RefinePreviewRequest(BaseModel):
+    date_from: date
+    date_to: date
+    scope: str = Field(default="capture", pattern="^capture$")
+
+    @model_validator(mode="after")
+    def validate_range(self):
+        if self.date_to < self.date_from:
+            raise ValueError("date_to must not be earlier than date_from")
+        return self
+
+
+class RefineApplyRequest(BaseModel):
+    preview_token: str = Field(min_length=16, max_length=128)
 
 
 class PipelineStartRequest(BaseModel):

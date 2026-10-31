@@ -78,6 +78,11 @@ from app.api.schemas import (
     QwenRescanRequest,
     QwenSettingsUpdate,
     RefineSettingsUpdate,
+    RefineRulesUpdate,
+    RefinePreviewRequest,
+    RefineApplyRequest,
+    QwenPeriodScanRequest,
+    QwenPeriodPreviewRequest,
     SavedSearchCreate,
     PipelineStartRequest,
     SearchQueryRequest,
@@ -1478,6 +1483,25 @@ def enqueue_qwen(request: QwenJobRequest):
     }
 
 
+@read_router.post("/v1/jobs/qwen/rescan/preview", response_model=None)
+def preview_qwen_rescan(request: QwenPeriodPreviewRequest):
+    """Read-only impact preview; does not clear rows or enqueue jobs."""
+
+    from app.refine import config as refine_config
+
+    result = repository.qwen_period_preview(
+        date_from=request.date_from,
+        date_to=request.date_to,
+    )
+    result["date_mode"] = request.date_mode
+    result["provider_model"] = qwen.public_settings()
+    result["refine_enabled"] = refine_config.enabled()
+    result["rescan_is_destructive_for_period"] = True
+    result["history_is_preserved"] = True
+    result["queued_job_count_estimate"] = result["photos_in_period"]
+    return result
+
+
 @jobs_router.post(
     "/v1/jobs/qwen/rescan",
     status_code=202,
@@ -1547,6 +1571,7 @@ def rescan_qwen_period(request: QwenRescanRequest):
                 provider=config["provider"],
                 model=config["model"],
                 run_history_id=history_id,
+                skip_refine=True,
             )
             if job_id is None:
                 skipped += 1
@@ -2683,6 +2708,154 @@ def refine_settings():
     from app.refine.runner import ready_count
 
     return {**refine_config.resolve_settings(), "photos_ready": ready_count()}
+
+
+@read_router.get("/v1/refine/rules", response_model=None)
+def get_refine_rules():
+    from app.refine.rules import get_rules
+
+    return get_rules()
+
+
+@jobs_router.put(
+    "/v1/refine/rules",
+    dependencies=[Depends(require_scope("settings:write"))],
+)
+def update_refine_rules(request: RefineRulesUpdate):
+    from app.refine.rules import save_rules
+
+    try:
+        return save_rules(request.rules)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@read_router.post("/v1/refine/preview", response_model=None)
+def preview_refine(request: RefinePreviewRequest):
+    """Read-only preview of date-scoped description/tag proposals."""
+
+    from collections import Counter
+
+    from app.billboard.phash import from_db
+    from app.ingest.database import get_connection
+    from app.refine.preview_store import create_preview
+    from app.refine.rules import get_rules
+    from app.refine.scoped_proposals import EnrichmentFrame, propose_enrichment
+
+    current = get_rules()
+    # Одна строка на фото: при нескольких billboard-регионах берём первичный
+    # (минимальный region_id), иначе одна карточка дублировалась бы в серии.
+    query = """
+        SELECT p.photo_id,
+               COALESCE(r.photo_taken_at, p.taken_at) AS taken_at,
+               r.crop_phash,
+               COALESCE((
+                   SELECT h.hybrid_final_id
+                   FROM public.hybrid_results AS h
+                   WHERE h.photo_id = p.photo_id AND h.status = 'DONE'
+                   ORDER BY h.finished_at DESC NULLS LAST, h.hybrid_run_id DESC
+                   LIMIT 1
+               ), '') AS screen,
+               q.description, q.tags
+        FROM public.photo_regions AS r
+        JOIN public.photos AS p ON p.photo_id = r.photo_id
+        JOIN public.photo_qwen AS q
+          ON q.photo_id = p.photo_id AND q.status = 'DONE'
+        WHERE r.kind = 'billboard'
+          AND r.region_id = (
+              SELECT MIN(r2.region_id)
+              FROM public.photo_regions AS r2
+              WHERE r2.photo_id = p.photo_id AND r2.kind = 'billboard'
+          )
+          AND COALESCE(r.photo_taken_at, p.taken_at) >= %s::date
+          AND COALESCE(r.photo_taken_at, p.taken_at) < (%s::date + interval '1 day')
+        ORDER BY screen, taken_at, p.photo_id
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SET TRANSACTION READ ONLY")
+            cur.execute(query, (request.date_from, request.date_to))
+            rows = cur.fetchall()
+
+    frames = [
+        EnrichmentFrame(
+            photo_id=str(row[0]), taken_at=row[1], crop_dhash=from_db(row[2]),
+            screen=row[3], description=row[4], tags=tuple(row[5] or []),
+        )
+        for row in rows
+    ]
+    report = propose_enrichment(
+        frames,
+        max_gap_seconds=current["rules"]["max_gap_seconds"],
+        max_dhash_distance=current["rules"]["max_crop_dhash_distance"],
+    )
+    counts = Counter(key for proposal in report.proposals for key in proposal.changes)
+    proposal_source = {frame.photo_id: frame for frame in frames}
+    proposals = [
+        {
+            "photo_id": item.photo_id,
+            "changes": item.changes,
+            "expected_description": proposal_source[item.photo_id].description,
+            "expected_tags": list(proposal_source[item.photo_id].tags),
+            "expected_status": "DONE",
+        }
+        for item in report.proposals
+    ]
+    token = create_preview(
+        proposals=proposals,
+        scope={"date_from": request.date_from.isoformat(), "date_to": request.date_to.isoformat()},
+        rules_version=current["version"],
+    )
+    return {
+        "rules_version": current["version"],
+        **token,
+        "date_from": request.date_from,
+        "date_to": request.date_to,
+        "rows_scanned": len(rows),
+        "proposal_photos": len(report.proposals),
+        "description_fills": counts["description"],
+        "tag_updates": counts["tags"],
+        "description_variant_groups": len(report.description_variants),
+        "ineligible_pairs": dict(Counter(item["reason"] for item in report.ineligible_pairs)),
+        "description_variants": list(report.description_variants[:25]),
+        "samples": [
+            {"photo_id": item.photo_id, "changes": item.changes}
+            for item in report.proposals[:50]
+        ],
+        "writes_performed": False,
+    }
+
+
+@jobs_router.post(
+    "/v1/refine/apply",
+    dependencies=[Depends(require_scope("settings:write"))],
+)
+def apply_refine_preview(request: RefineApplyRequest):
+    from app.refine.preview_store import consume_preview
+
+    preview = consume_preview(request.preview_token)
+    if preview is None:
+        raise HTTPException(status_code=410, detail="preview expired or already used")
+
+    from app.refine.rules import get_rules
+
+    if get_rules()["version"] != preview["rules_version"]:
+        raise HTTPException(status_code=409, detail="rules changed; preview again")
+
+    applied = stale = 0
+    for proposal in preview["proposals"]:
+        if qwen_db.apply_refined_values(
+            proposal["photo_id"],
+            proposal["changes"],
+            reason=f"refine-v{preview['rules_version']}",
+            expected_description=proposal["expected_description"],
+            expected_tags=proposal["expected_tags"],
+        ):
+            applied += 1
+        else:
+            stale += 1
+
+    return {"applied_photos": applied, "stale_skipped": stale, "writes_performed": applied > 0}
 
 
 @jobs_router.put(

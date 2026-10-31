@@ -996,64 +996,40 @@ def _merge_raw(raws: list) -> dict:
     return combined
 
 
-def merge_crop_results(results: list[tuple[dict, dict, float]]) -> tuple[dict, dict, float]:
+def merge_crop_results(
+    results: list[tuple[dict, dict, float]],
+    *,
+    alias_rows: list[dict[str, str]] | None = None,
+    frequencies: dict[str, dict[str, int]] | None = None,
+    primary_index: int = 0,
+    global_frequency: bool = True,
+) -> tuple[dict, dict, float]:
     """
     Merge QWEN results of several billboard crops of ONE photo.
 
-    Scalar fields (client/brand/category/address) keep the primary (largest)
-    billboard so exact filters keep working. Additional advertisers are added
-    to `tags`, and all descriptions are joined — the photo remains one row in
-    photo_qwen. Elapsed time is summed; token usage is summed in raw.
+    Client/brand use the period-wide frequency snapshot when supplied; ties
+    prefer the primary/largest crop. All descriptions and crop tags are kept in
+    one photo_qwen row.
     """
 
-    primary = dict(results[0][0] or {})
-    tags: list[str] = []
-    seen_tags: set[str] = set()
-    descriptions: list[str] = []
+    from app.qwen.crop_aggregation import aggregate_crop_fields
 
-    for fields, _, _ in results:
-        for tag in (fields or {}).get("tags") or []:
-            text = str(tag).strip()
-            key = text.casefold()
-
-            if text and key not in seen_tags:
-                seen_tags.add(key)
-                tags.append(text)
-
-        description = (fields or {}).get("description")
-
-        if description and description not in descriptions:
-            descriptions.append(description)
-
-    for key in ("description", "address", "client", "brand", "category"):
-        if primary.get(key):
-            continue
-
-        for fields, _, _ in results[1:]:
-            value = (fields or {}).get(key)
-
-            if value:
-                primary[key] = value
-                break
-
-    for fields, _, _ in results[1:]:
-        for key in ("client", "brand"):
-            value = (fields or {}).get(key)
-
-            if not value:
-                continue
-
-            text = str(value).strip()
-            folded = text.casefold()
-
-            if text and folded not in seen_tags:
-                seen_tags.add(folded)
-                tags.append(text)
-
-    if len(descriptions) > 1:
-        primary["description"] = " | ".join(descriptions)[:MERGE_DESCRIPTION_LIMIT]
-
-    primary["tags"] = tags[:MERGE_TAGS_LIMIT]
+    observations = [
+        {"crop_index": index, "fields": fields, "status": "DONE"}
+        for index, (fields, _raw, _time_sec) in enumerate(results)
+    ]
+    aggregate = aggregate_crop_fields(
+        observations,
+        alias_rows=alias_rows,
+        frequencies=frequencies,
+        primary_index=primary_index,
+        global_frequency=global_frequency,
+    )
+    primary = {
+        key: aggregate[key]
+        for key in ("client", "brand", "description", "category", "tags")
+    }
+    primary["address"] = (results[0][0] or {}).get("address")
 
     raw = _merge_raw([raw for _, raw, _ in results])
     elapsed = sum(float(time_sec) for _, _, time_sec in results)
@@ -1066,6 +1042,7 @@ def run_photo(
     *,
     provider: str | None = None,
     model: str | None = None,
+    crop_aggregation: dict | None = None,
 ) -> dict:
     """
     Full pipeline for one photo: load source, analyze, persist.
@@ -1120,12 +1097,9 @@ def run_photo(
         discard_crops = None
 
     if crop_paths:
-        # Most photos need only the largest billboard. The second crop is kept
-        # for addresses where two different banners stand side by side
-        # (SCENE_QWEN_MULTI_CROP_ADDRESSES); empty list = old behaviour.
-        from app.qwen.crop_policy import select_crops
-
-        crop_paths = select_crops(photo_id, crop_paths)
+        # Analyze every detected billboard so no sign disappears from the
+        # photo-level aggregate or from the per-region observation ledger.
+        crop_paths = list(crop_paths)
 
     if crop_paths:
         image_path = crop_paths[0]
@@ -1133,37 +1107,69 @@ def run_photo(
 
     db.mark_running(photo_id)
 
-    try:
-        fields, raw, elapsed = analyze_image(
-            image_path,
-            config=config,
-        )
-    except urllib.error.URLError as exc:
-        db.save_failure(
-            photo_id,
-            redact_absolute_paths(f"provider unavailable: {exc.reason}"),
-        )
-        raise
-    except Exception as exc:
-        db.save_failure(photo_id, redact_absolute_paths(str(exc)))
-        raise
-
+    per_crop_results: list[tuple[dict, dict, float]] = []
     crop_errors: list[str] = []
+    per_crop_regions = []
+    if crop_paths:
+        try:
+            from app.billboard import database as billboard_db
 
-    if len(crop_paths) > 1:
-        results = [(fields, raw, elapsed)]
+            per_crop_regions = billboard_db.get_billboard_regions(photo_id)
+        except Exception:  # noqa: BLE001 - legacy deployments can lack multi-crop schema
+            per_crop_regions = []
 
-        for extra_path in crop_paths[1:]:
+    if crop_paths:
+        for crop_index, crop_path in enumerate(crop_paths):
+            region = per_crop_regions[crop_index] if crop_index < len(per_crop_regions) else None
+            if region is not None:
+                from app.billboard import database as billboard_db
+
+                billboard_db.mark_qwen_running(region["region_id"])
             try:
-                extra = analyze_image(extra_path, config=config)
-            except Exception as exc:  # noqa: BLE001 - keep the primary result
-                crop_errors.append(redact_absolute_paths(str(exc)))
+                result = analyze_image(crop_path, config=config)
+            except Exception as exc:  # noqa: BLE001 - preserve sibling crop results
+                error = redact_absolute_paths(str(exc))
+                crop_errors.append(error)
+                if region is not None:
+                    from app.billboard import database as billboard_db
+
+                    billboard_db.save_qwen_failure(region["region_id"], error)
                 continue
+            per_crop_results.append(result)
+            if region is not None:
+                from app.billboard import database as billboard_db
 
-            results.append(extra)
+                billboard_db.save_qwen_success(
+                    region["region_id"], fields=result[0], model=model, time_sec=result[2]
+                )
+        if not per_crop_results:
+            error = "; ".join(crop_errors) or "all billboard crops failed"
+            db.save_failure(photo_id, error)
+            raise RuntimeError(error)
+    else:
+        try:
+            per_crop_results.append(analyze_image(image_path, config=config))
+        except urllib.error.URLError as exc:
+            db.save_failure(
+                photo_id,
+                redact_absolute_paths(f"provider unavailable: {exc.reason}"),
+            )
+            raise
+        except Exception as exc:
+            db.save_failure(photo_id, redact_absolute_paths(str(exc)))
+            raise
 
-        if len(results) > 1:
-            fields, raw, elapsed = merge_crop_results(results)
+    alias_rows = []
+    if crop_aggregation and crop_aggregation.get("use_client_aliases", True):
+        from app.api.repository import list_client_aliases
+
+        alias_rows = list_client_aliases("client") + list_client_aliases("brand")
+    fields, raw, elapsed = merge_crop_results(
+        per_crop_results,
+        alias_rows=alias_rows,
+        frequencies=(crop_aggregation or {}).get("frequencies"),
+        global_frequency=bool((crop_aggregation or {}).get("global_frequency", True)),
+    )
 
     db.save_success(
         photo_id,
