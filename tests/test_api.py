@@ -368,11 +368,12 @@ def test_qwen_rescan_passes_the_provider_override(monkeypatch):
     seen = {}
 
     def fake_enqueue(photo_id, *, source="manual", provider=None, model=None,
-                     run_history_id=None, priority=False):
+                     run_history_id=None, priority=False, full_frame=False):
         seen.update(
             {"photo_id": photo_id, "source": source,
              "provider": provider, "model": model,
-             "run_history_id": run_history_id, "priority": priority}
+             "run_history_id": run_history_id, "priority": priority,
+             "full_frame": full_frame}
         )
         return None
 
@@ -385,16 +386,18 @@ def test_qwen_rescan_passes_the_provider_override(monkeypatch):
             "photo_ids": [photo_id],
             "provider": "openai",
             "model": "ling-3.0-flash-vl",
+            "full_frame": True,
         },
         headers={"Authorization": "Bearer tok"},
     )
 
     assert response.status_code == 202
-    assert {key: seen[key] for key in ("photo_id", "source", "provider", "model")} == {
+    assert {key: seen[key] for key in ("photo_id", "source", "provider", "model", "full_frame")} == {
         "photo_id": photo_id,
         "source": "manual",
         "provider": "openai",
         "model": "ling-3.0-flash-vl",
+        "full_frame": True,
     }
     assert "run_history_id" in seen
 
