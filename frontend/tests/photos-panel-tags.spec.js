@@ -186,7 +186,7 @@ describe('строка тегов', () => {
 
     const tags = wrapper.find('.tags-row')
     expect(tags.exists()).toBe(true)
-    expect(tags.text()).toContain('Клиент: Клиент А')
+    expect(tags.text()).toContain('Клиент А')
     expect(tags.text()).toContain('Комарова 13')
     expect(tags.text()).not.toContain('Адрес:')
     expect(wrapper.find('.client-summary').text()).toBe('(1)')
@@ -203,8 +203,8 @@ describe('строка тегов', () => {
     const tags = wrapper.find('.tags-row').text()
     // «Все» больше не отдельное состояние клиентов: пустой выбор уже
     // означает «все клиенты базы».
-    expect(tags).toContain('Клиент: Клиент А')
-    expect(tags).toContain('Клиент: Клиент Б')
+    expect(tags).toContain('Клиент А')
+    expect(tags).toContain('Клиент Б')
     expect(tags).not.toContain('Все')
     wrapper.unmount()
   })
@@ -230,7 +230,7 @@ describe('строка тегов', () => {
     const tags = wrapper.find('.tags-row')
     expect(tags.text()).toContain('Смена 1')
     expect(tags.text()).toContain('Мой район')
-    expect(tags.text()).not.toContain('Клиент: Клиент А')
+    expect(tags.text()).not.toContain('Клиент А')
 
     // Подборки подсвечиваются цветом своей панели: адреса — primary,
     // клиенты — secondary.
@@ -261,11 +261,11 @@ describe('строка тегов', () => {
     const tags = wrapper.find('.tags-row').text()
     expect(tags).toContain('Смена 1')
     expect(tags).toContain('Смена 2')
-    expect(tags).not.toContain('Клиент: Клиент А')
+    expect(tags).not.toContain('Клиент А')
     wrapper.unmount()
   })
 
-  it('поиск по клиенту/бренду идёт по всей базе и даёт тег «Бренд:»', async () => {
+  it('поиск по клиенту/бренду идёт по всей базе и даёт тег бренда', async () => {
     const wrapper = await mountGrid()
 
     const input = wrapper
@@ -288,7 +288,7 @@ describe('строка тегов', () => {
     await flushPromises()
     await nextTick()
 
-    expect(wrapper.find('.tags-row').text()).toContain('Бренд: СТС')
+    expect(wrapper.find('.tags-row').text()).toContain('СТС')
     wrapper.unmount()
   })
 
@@ -318,7 +318,7 @@ describe('строка тегов', () => {
 
     const tags = wrapper.find('.tags-row').text()
     expect(tags).toContain('Комарова 13')
-    expect(tags).toContain('Клиент: Клиент А')
+    expect(tags).toContain('Клиент А')
     // «Все» больше нет ни у адресов, ни у клиентов.
     expect(tags).not.toContain('Все')
     wrapper.unmount()
@@ -378,8 +378,8 @@ describe('строка тегов', () => {
     expect(store.combine).toBe('client')
 
     const tags = wrapper.find('.tags-row').text()
-    expect(tags).toContain('Клиент: Клиент А')
-    expect(tags).toContain('Клиент: Клиент Б')
+    expect(tags).toContain('Клиент А')
+    expect(tags).toContain('Клиент Б')
 
     wrapper.unmount()
   })
@@ -409,7 +409,7 @@ describe('строка тегов', () => {
     expect(store.selectedAddresses).toEqual(['addr:78'])
     const tags = wrapper.find('.tags-row').text()
     expect(tags).toContain('Комарова 13')
-    expect(tags).toContain('Клиент: Клиент А')
+    expect(tags).toContain('Клиент А')
     wrapper.unmount()
   })
 
@@ -476,7 +476,7 @@ describe('строка тегов', () => {
 
     expect(store.selectedClients).toEqual(['Клиент А'])
     expect(store.clientCollectionId).toBe(5)
-    expect(wrapper.find('.tags-row').text()).toContain('Клиент: Клиент А')
+    expect(wrapper.find('.tags-row').text()).toContain('Клиент А')
 
     await store.loadAddresses()
     await flushPromises()
@@ -626,7 +626,7 @@ describe('строка тегов', () => {
     await nextTick()
 
     expect(wrapper.text()).toContain('Активные фильтры')
-    expect(wrapper.text()).toContain('Бренд: СТС')
+    expect(wrapper.text()).toContain('СТС')
 
     const clear = wrapper
       .findAll('button')
@@ -637,7 +637,7 @@ describe('строка тегов', () => {
     await flushPromises()
     await nextTick()
 
-    expect(wrapper.text()).not.toContain('Бренд: СТС')
+    expect(wrapper.text()).not.toContain('СТС')
     wrapper.unmount()
   })
 
@@ -723,8 +723,8 @@ describe('строка тегов', () => {
     // Бренд добавляется к клиенту (OR), а не заменяет его.
     expect(store.selectedClients).toEqual(['Клиент А'])
     let tags = wrapper.find('.tags-row').text()
-    expect(tags).toContain('Клиент: Клиент А')
-    expect(tags).toContain('Бренд: СТС')
+    expect(tags).toContain('Клиент А')
+    expect(tags).toContain('СТС')
 
     // Сброс убирает и клиента, и бренд: пустой выбор = все клиенты базы.
     await wrapper.find('.client-reset').trigger('click')
@@ -845,8 +845,8 @@ describe('строка тегов', () => {
     await nextTick()
 
     const tags = wrapper.find('.tags-row').text()
-    expect(tags).toContain('Клиент: Клиент А')
-    expect(tags).toContain('Бренд: СТС')
+    expect(tags).toContain('Клиент А')
+    expect(tags).toContain('СТС')
     wrapper.unmount()
   })
 
@@ -885,9 +885,12 @@ describe('строка тегов', () => {
     await flushPromises()
     await nextTick()
 
-    const tags = wrapper.find('.tags-row').text()
-    expect(tags).toContain('Бренд: Байков')
-    expect(tags).toContain('Тег: Байков')
+    // Один и тот же текст как бренд и тег — один тег без пометки категории.
+    const chips = wrapper.findAll('.tags-row .q-chip')
+    expect(chips).toHaveLength(1)
+    expect(chips[0].text()).toContain('Байков')
+    expect(wrapper.find('.tags-row').text()).not.toContain('Бренд:')
+    expect(wrapper.find('.tags-row').text()).not.toContain('Тег:')
 
     wrapper.unmount()
   })

@@ -1453,6 +1453,7 @@ def enqueue_qwen(request: QwenJobRequest):
                 # «Пересканировать» в карточке — одно фото: не ждём массовый
                 # прогон, который может стоять в очереди часами.
                 priority=bool(request.photo_ids and len(request.photo_ids) == 1),
+                full_frame=request.full_frame,
             )
 
             if job_id is None:

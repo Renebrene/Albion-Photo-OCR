@@ -22,7 +22,11 @@ DEFAULT_RULES: dict[str, Any] = {
     "crop_primary_tie_break": "largest_crop",
     "advertiser_dictionary": "client_aliases",
     "advertiser_alias_import_enabled": False,
-    "crop_frequency_enabled": False,
+    # Предпочтение частого рекламодателя при двух щитах в кадре.
+    "crop_frequency_enabled": True,
+    # При нескольких кропах дополнительно читать полный кадр: детектор может
+    # пропустить щит (например, Бигфест рядом с Sunlight и автобусом).
+    "multi_crop_full_frame_enabled": True,
 }
 
 
@@ -63,6 +67,8 @@ def validate_rules(value: object) -> dict[str, Any]:
         raise ValueError("advertiser_alias_import_enabled must be boolean")
     if type(value["crop_frequency_enabled"]) is not bool:
         raise ValueError("crop_frequency_enabled must be boolean")
+    if type(value["multi_crop_full_frame_enabled"]) is not bool:
+        raise ValueError("multi_crop_full_frame_enabled must be boolean")
     for key in ("crop_frequency_date_from", "crop_frequency_date_to"):
         item = value[key]
         if not isinstance(item, str) or len(item) != 10:
@@ -114,4 +120,9 @@ def save_rules(value: object) -> dict[str, Any]:
     history.append({"version": version, "rules": rules})
     result["history"] = history[-20:]
     settings_store.set_value(RULES_KEY, result)
+
+    # Частотный снапшот кэшируется; новые правила могут изменить источник.
+    from app.refine import crop_frequency
+
+    crop_frequency.clear_cache()
     return result

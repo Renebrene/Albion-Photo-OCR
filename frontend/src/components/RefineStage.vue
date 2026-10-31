@@ -99,6 +99,32 @@ async function saveRules() {
   }
 }
 
+// Частотное предпочтение хранится в JSON-правилах; тумблер пишет новую
+// версию сразу, чтобы настройка не потерялась при переключении вкладки.
+async function setCropFrequency(value) {
+  const previous = cropFrequencyEnabled.value
+  cropFrequencyEnabled.value = Boolean(value)
+  rulesSaving.value = true
+
+  try {
+    const rules = JSON.parse(rulesText.value)
+    rules.crop_frequency_enabled = cropFrequencyEnabled.value
+    const saved = await saveRefineRules(rules)
+    rulesVersion.value = saved.version
+    rulesText.value = JSON.stringify(saved.rules, null, 2)
+    preview.value = null
+    Notify.create({
+      type: 'positive',
+      message: `Предпочтение по частоте ${cropFrequencyEnabled.value ? 'включено' : 'выключено'}, версия ${saved.version}`,
+    })
+  } catch (err) {
+    cropFrequencyEnabled.value = previous
+    Notify.create({ type: 'negative', message: err.message || 'Не удалось сохранить правило' })
+  } finally {
+    rulesSaving.value = false
+  }
+}
+
 function loadRulesFile(event) {
   const file = event.target.files?.[0]
   if (!file) return
@@ -250,14 +276,15 @@ onMounted(load)
       <q-separator class="q-my-md" />
       <div class="text-subtitle2 q-mb-sm">Распознавание нескольких щитов на фото</div>
       <div class="text-caption q-mb-sm">
-        Архитектурная настройка: хранить crop-level client/brand/description/tags,
-        считать частоты по кропам за выбранный период и собирать одну photo-level карточку.
-        QWEN здесь пока не запускается; для будущего пересчёта уже распознанных кропов будет отдельный preview/apply.
+        Если в кадре несколько щитов, для полей client/brand выбирается рекламодатель,
+        который чаще встречается во всей базе QWEN. Оба чтения сохраняются в
+        описании и тегах; без этой настройки побеждает основной (крупнейший) кроп.
       </div>
       <q-toggle
-        v-model="cropFrequencyEnabled"
-        label="Использовать частоты advertiser по billboard crops"
-        disable
+        :model-value="cropFrequencyEnabled"
+        label="Предпочитать частого рекламодателя при нескольких щитах"
+        :disable="rulesSaving"
+        @update:model-value="setCropFrequency"
       />
       <div class="text-subtitle2 q-mt-md q-mb-sm">Предпочтительные названия рекламодателей</div>
       <div class="text-caption q-mb-sm">

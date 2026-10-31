@@ -12,6 +12,123 @@ from psycopg.types.json import Json
 
 from app.ingest.database import get_connection
 
+
+def base_value_frequencies(*, use_aliases: bool = True) -> dict[str, Any]:
+    """
+    How often each client/brand/tag occurs in the whole QWEN base.
+
+    One photo card is one vote per value, so a photo with two billboards does
+    not count twice. ``any`` is the union of the three kinds: an advertiser
+    mentioned as a tag is still popular. Keys are compact (case, spaces and
+    punctuation ignored), ready for crop aggregation weighting.
+    """
+
+    from app.qwen.crop_aggregation import _compact
+
+    alias_map: dict[str, dict[str, str]] = {"client": {}, "brand": {}}
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SET TRANSACTION READ ONLY")
+            if use_aliases:
+                cur.execute(
+                    "SELECT kind, alias, canonical FROM public.client_aliases"
+                )
+                for kind, alias, canonical in cur.fetchall():
+                    if kind in alias_map and alias and canonical:
+                        alias_map[kind][str(alias).casefold()] = str(canonical).strip()
+            cur.execute(
+                "SELECT photo_id, client, brand, tags "
+                "FROM public.photo_qwen WHERE status='DONE'"
+            )
+            rows = cur.fetchall()
+
+    result: dict[str, dict[str, int]] = {
+        "client": {}, "brand": {}, "tag": {}, "any": {},
+    }
+    display: dict[str, str] = {}
+
+    for photo_id, client, brand, tags in rows:
+        values: dict[str, set[str]] = {"client": set(), "brand": set(), "tag": set()}
+
+        for kind, raw in (("client", client), ("brand", brand)):
+            text = str(raw or "").strip()
+            if text:
+                if use_aliases:
+                    text = alias_map[kind].get(text.casefold(), text)
+                values[kind].add(text)
+
+        for raw in tags or []:
+            text = str(raw or "").strip()
+            if text:
+                values["tag"].add(text)
+
+        for kind, items in values.items():
+            for text in items:
+                key = _compact(text)
+                result[kind][key] = result[kind].get(key, 0) + 1
+                if key not in display or (display[key].isupper() and not text.isupper()):
+                    display[key] = text
+
+        for text in values["client"] | values["brand"] | values["tag"]:
+            key = _compact(text)
+            result["any"][key] = result["any"].get(key, 0) + 1
+            if key not in display or (display[key].isupper() and not text.isupper()):
+                display[key] = text
+
+    result["display"] = display
+    return result
+
+
+def stored_value_frequencies() -> dict[str, Any] | None:
+    """
+    Read the precomputed frequency table (schema/058).
+
+    Returns ``None`` when the table has not been created yet so callers can
+    fall back to a live calculation.
+    """
+
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET TRANSACTION READ ONLY")
+                cur.execute(
+                    "SELECT kind, value_key, value, photo_count "
+                    "FROM public.qwen_value_frequencies"
+                )
+                rows = cur.fetchall()
+    except Exception:  # noqa: BLE001 - table may not exist before migration 058
+        return None
+
+    result: dict[str, dict[str, int]] = {
+        "client": {}, "brand": {}, "tag": {}, "any": {},
+    }
+    raw: dict[str, dict[str, int]] = {
+        "client": {}, "brand": {}, "tag": {}, "any": {},
+    }
+
+    display: dict[str, str] = {}
+
+    for kind, key, value, count in rows:
+        text = str(key)
+        if kind in raw:
+            raw[kind][text] = int(count)
+        if kind in {"client", "brand", "tag"}:
+            shown = str(value or "").strip()
+            if shown and (
+                text not in display
+                or (display[text].isupper() and not shown.isupper())
+            ):
+                display[text] = shown
+
+    # Advertiser preference uses the union of all mentions.
+    result["client"] = dict(raw["any"])
+    result["brand"] = dict(raw["any"])
+    result["tag"] = dict(raw["tag"])
+    result["any"] = dict(raw["any"])
+    result["display"] = display
+    return result
+
 _COLUMNS = (
     "photo_id, status, description, address, client, brand, category, "
     "tags, raw, qwen_model, qwen_time_sec, error_message, "

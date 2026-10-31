@@ -290,6 +290,33 @@ describe('оболочка приложения', () => {
     wrapper.unmount()
   })
 
+  it('шестерёнка технического раздела снимает выделение группы адресов', async () => {
+    const wrapper = await mountShell()
+    const store = usePhotosStore()
+
+    store.group = 'small'
+    await flushPromises()
+    expect(wrapper.findAll('.header-group--active').length).toBeGreaterThan(0)
+
+    const gear = wrapper
+      .findAll('a')
+      .find((link) => link.attributes('href') === '/technical')
+    expect(gear).toBeTruthy()
+
+    await gear.trigger('click')
+    await flushPromises()
+
+    expect(store.group).toBe(null)
+    expect(wrapper.findAll('.header-group--active').length).toBe(0)
+    expect(wrapper.vm.$router.currentRoute.value.path).toBe('/technical')
+    // Шестерёнка подсвечена, пока открыт технический раздел.
+    expect(
+      wrapper.find('a[href="/technical"]').classes(),
+    ).toContain('header-icon--active')
+
+    wrapper.unmount()
+  })
+
   it('в списке подпись идёт двумя строками', async () => {
     const wrapper = await mountShell()
 

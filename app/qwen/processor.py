@@ -1043,13 +1043,15 @@ def run_photo(
     provider: str | None = None,
     model: str | None = None,
     crop_aggregation: dict | None = None,
+    full_frame: bool = False,
 ) -> dict:
     """
     Full pipeline for one photo: load source, analyze, persist.
 
     `provider`/`model` — разовый обход настроек: кнопка «Пересканировать» в
     карточке фото умеет прогнать один снимок локально или в облаке, не меняя
-    провайдера для всей очереди.
+    провайдера для всей очереди. `full_frame` — та же кнопка читает фото
+    целиком, без кропов: это ручная проверка сцены при ошибке детектора.
     """
 
     source_path = db.get_photo_source(photo_id)
@@ -1083,23 +1085,35 @@ def run_photo(
     crop_paths: list[str] = []
     discard_crops = None
 
-    try:
-        from app.billboard.pipeline import (
-            discard_crops as discard_crop_set,
-            ensure_crops,
-            qwen_crop_config,
-        )
-
-        crop_paths = ensure_crops(photo_id)
-        discard_crops = discard_crop_set
-    except Exception:  # noqa: BLE001 - fall back to the full frame
+    if full_frame:
+        # Ручное «Пересканировать» в карточке: читаем сцену целиком, даже если
+        # детектор нашёл кропы. Нужно, когда кроп оказался автобусом или
+        # другим объектом вместо щита.
         crop_paths = []
         discard_crops = None
+    else:
+        try:
+            from app.billboard.pipeline import (
+                discard_crops as discard_crop_set,
+                ensure_crops,
+                qwen_crop_config,
+            )
+
+            crop_paths = ensure_crops(photo_id)
+            discard_crops = discard_crop_set
+        except Exception:  # noqa: BLE001 - fall back to the full frame
+            crop_paths = []
+            discard_crops = None
 
     if crop_paths:
         # Analyze every detected billboard so no sign disappears from the
         # photo-level aggregate or from the per-region observation ledger.
         crop_paths = list(crop_paths)
+
+    # Полный кадр нужен как дополнительное чтение, когда кропов несколько:
+    # детектор может пропустить щит, который виден на всём фото.
+    full_frame_image = image_path
+    full_frame_config = config
 
     if crop_paths:
         image_path = crop_paths[0]
@@ -1142,6 +1156,27 @@ def run_photo(
                 billboard_db.save_qwen_success(
                     region["region_id"], fields=result[0], model=model, time_sec=result[2]
                 )
+        # Детектор иногда находит не все щиты (например, Бигфест рядом с
+        # Sunlight и автобусом). При нескольких кропах читаем ещё и полный
+        # кадр; его чтение участвует в частотном выборе наравне с кропами.
+        full_frame_enabled = True
+        try:
+            from app.refine.rules import get_rules
+
+            full_frame_enabled = bool(
+                get_rules()["rules"].get("multi_crop_full_frame_enabled", True)
+            )
+        except Exception:  # noqa: BLE001 - правило не должно ломать QWEN
+            pass
+
+        if len(crop_paths) > 1 and full_frame_enabled:
+            try:
+                per_crop_results.append(
+                    analyze_image(full_frame_image, config=full_frame_config)
+                )
+            except Exception as exc:  # noqa: BLE001 - кропы уже дали результат
+                crop_errors.append(redact_absolute_paths(str(exc)))
+
         if not per_crop_results:
             error = "; ".join(crop_errors) or "all billboard crops failed"
             db.save_failure(photo_id, error)
@@ -1158,6 +1193,17 @@ def run_photo(
         except Exception as exc:
             db.save_failure(photo_id, redact_absolute_paths(str(exc)))
             raise
+
+    # Два щита в кадре: один бренд для карточки выбирается по частоте в
+    # общей базе, а не по размеру кропа. Настройка живёт в правилах
+    # «Уточнения»; при выключенном флаге остаётся прежний tie-break.
+    if crop_aggregation is None and len(crop_paths) > 1:
+        try:
+            from app.refine.crop_frequency import aggregation_context
+
+            crop_aggregation = aggregation_context()
+        except Exception:  # noqa: BLE001 - частота не должна ломать QWEN
+            crop_aggregation = None
 
     alias_rows = []
     if crop_aggregation and crop_aggregation.get("use_client_aliases", True):

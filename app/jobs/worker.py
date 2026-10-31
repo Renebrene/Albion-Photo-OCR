@@ -206,6 +206,7 @@ def _execute(job: dict) -> dict:
             str(payload["photo_id"]),
             provider=payload.get("provider"),
             model=payload.get("model"),
+            full_frame=bool(payload.get("full_frame")),
         )
 
         # «Уточнение» идёт только после того, как QWEN закончил целиком:

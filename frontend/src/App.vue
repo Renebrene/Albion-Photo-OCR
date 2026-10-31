@@ -54,6 +54,17 @@ const GROUP_BUTTONS = [
 // На видеогалерее ни одна подборка не активна: там свой раздел. Кнопка
 // «Видео» подсвечивается вместо подборок.
 const onVideosRoute = computed(() => router.currentRoute.value.path === '/videos')
+const onTechnicalRoute = computed(
+  () => router.currentRoute.value.path === '/technical',
+)
+
+/**
+ * Шестерёнка уводит из грида в технический раздел: активная группа адресов
+ * (подсвеченная закладка в шапке) при этом снимается.
+ */
+function openTechnicalSection() {
+  photos.clearGroup()
+}
 
 /** Выбрать группу: грид и списки перерисовываются, выбор запоминается. */
 async function pickGroup(value) {
@@ -504,7 +515,9 @@ function toggleDark() {
           dense
           icon="settings"
           class="q-ml-md"
+          :class="{ 'header-icon--active': onTechnicalRoute }"
           to="/technical"
+          @click="openTechnicalSection"
         >
           <q-tooltip>Технический раздел</q-tooltip>
         </q-btn>
@@ -844,6 +857,12 @@ function toggleDark() {
   color: #fff;
 }
 
+/* Шестерёнка техраздела подсвечивается, как активная закладка. */
+.header-icon--active {
+  background: rgba(255, 255, 255, 0.28);
+  color: #fff;
+}
+
 .header-group-label {
   display: block;
   white-space: pre-line;
@@ -852,16 +871,34 @@ function toggleDark() {
   text-align: center;
 }
 
-/* Подвал-статусбар. */
+/* Подвал-статусбар: узкая полоса, чтобы не отнимать высоту у грида. */
 .app-footer {
-  min-height: 34px;
+  min-height: 26px;
+  height: 26px;
+  overflow: hidden;
   background: #f4f5f7;
   color: #4b5563;
   border-top: 1px solid rgba(0, 0, 0, 0.08);
 }
 
+.app-footer > .row {
+  height: 26px;
+  min-height: 26px;
+}
+
+.app-footer :deep(.q-btn) {
+  min-height: 22px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.app-footer :deep(.q-btn__content) {
+  font-size: 11px;
+  line-height: 1;
+}
+
 .footer-item {
-  font-size: 12px;
+  font-size: 11px;
   white-space: nowrap;
 }
 
@@ -869,20 +906,20 @@ function toggleDark() {
    одинаковыми квадратными кнопками-символами. */
 .footer-mode {
   background: rgba(0, 0, 0, 0.10);
-  border-radius: 8px;
-  padding: 2px;
-  gap: 2px;
+  border-radius: 6px;
+  padding: 1px;
+  gap: 1px;
 }
 
 .mode-btn {
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
-  min-height: 26px;
+  width: 21px;
+  height: 21px;
+  min-width: 21px;
+  min-height: 21px;
   padding: 0;
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1;
-  border-radius: 6px;
+  border-radius: 5px;
 }
 
 .mode-btn :deep(.q-btn__content) {

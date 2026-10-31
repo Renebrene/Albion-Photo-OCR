@@ -8,7 +8,14 @@ photo_regions for occurrence counts and future replay.
 from __future__ import annotations
 
 from collections import Counter
+import re
 from typing import Any
+
+
+def _compact(value: str) -> str:
+    """Case/punctuation-insensitive key so «Big Fest» = «bigfest»."""
+
+    return re.sub(r"[\s\-_«»\"'.,]+", "", value.casefold())
 
 
 def _canonical(value: object, kind: str, aliases: dict[tuple[str, str], str]) -> str | None:
@@ -22,7 +29,7 @@ def aggregate_crop_fields(
     observations: list[dict[str, Any]],
     *,
     alias_rows: list[dict[str, str]] | None = None,
-    frequencies: dict[str, dict[str, int]] | None = None,
+    frequencies: dict[str, Any] | None = None,
     primary_index: int = 0,
     global_frequency: bool = True,
 ) -> dict[str, Any]:
@@ -57,11 +64,29 @@ def aggregate_crop_fields(
             crop_values.append(normalized)
             if normalized:
                 counts[normalized] += 1
+            # Полный кадр иногда кладёт того же рекламодателя в client,
+            # а не в brand. При частотном выборе это тоже голос за бренд,
+            # иначе Бигфест терялся бы из-за поля, в которое его записала модель.
+            if (
+                field == "brand"
+                and global_frequency
+                and frequencies
+                and frequencies.get("brand")
+            ):
+                other = _canonical(fields.get("client"), "client", aliases)
+                if other:
+                    counts.setdefault(other, 0)
         if global_frequency and counts and frequencies and frequencies.get(kind):
             # Crop observations in this photo vote only among their candidates,
-            # weighted by the occurrence frequency for this capture period.
+            # weighted by the occurrence frequency in the whole QWEN base.
+            # Variants without a dictionary alias («Big Fest» / «bigfest»)
+            # still share one vote through the compact key.
+            index: dict[str, int] = {}
+            for name, vote in frequencies[kind].items():
+                key = _compact(str(name))
+                index[key] = index.get(key, 0) + int(vote)
             for value in list(counts):
-                counts[value] = int(frequencies[kind].get(value.casefold(), 0))
+                counts[value] = index.get(_compact(value), 0)
         if counts:
             highest = max(counts.values())
             winners = {value for value, count in counts.items() if count == highest}
@@ -71,9 +96,16 @@ def aggregate_crop_fields(
             )
             primary_fields = primary_crop.get("fields") or primary_crop.get("qwen_fields") or {}
             primary_value = _canonical(primary_fields.get(field), kind, aliases)
-            result[field] = primary_value if primary_value in winners else min(winners, key=str.casefold)
+            selected = primary_value if primary_value in winners else min(winners, key=str.casefold)
         else:
-            result[field] = None
+            selected = None
+
+        # Показывать предпочтительное написание из частотного справочника,
+        # а не случайный регистр из конкретного чтения («БИГФЕСТ»).
+        display = (frequencies or {}).get("display") or {}
+        if selected and isinstance(display, dict):
+            selected = display.get(_compact(selected), selected)
+        result[field] = selected
 
     descriptions: list[str] = []
     tags: list[str] = []

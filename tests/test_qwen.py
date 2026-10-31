@@ -325,8 +325,13 @@ def test_worker_passes_a_one_off_provider_override(monkeypatch):
 
     seen = {}
 
-    def fake_run_photo(photo_id, *, provider=None, model=None):
-        seen.update({"photo_id": photo_id, "provider": provider, "model": model})
+    def fake_run_photo(photo_id, *, provider=None, model=None, full_frame=False):
+        seen.update({
+            "photo_id": photo_id,
+            "provider": provider,
+            "model": model,
+            "full_frame": full_frame,
+        })
         return {"photo_id": photo_id}
 
     monkeypatch.setattr(processor, "run_photo", fake_run_photo)
@@ -348,6 +353,7 @@ def test_worker_passes_a_one_off_provider_override(monkeypatch):
         "photo_id": PROBE_PHOTO_ID,
         "provider": "openai",
         "model": "ling-3.0-flash-vl",
+        "full_frame": False,
     }
 
 
@@ -384,8 +390,8 @@ def test_worker_keeps_the_current_settings_without_an_override(monkeypatch):
 
     seen = {}
 
-    def fake_run_photo(photo_id, *, provider=None, model=None):
-        seen.update({"provider": provider, "model": model})
+    def fake_run_photo(photo_id, *, provider=None, model=None, full_frame=False):
+        seen.update({"provider": provider, "model": model, "full_frame": full_frame})
         return {}
 
     monkeypatch.setattr(processor, "run_photo", fake_run_photo)
@@ -398,7 +404,7 @@ def test_worker_keeps_the_current_settings_without_an_override(monkeypatch):
         }
     )
 
-    assert seen == {"provider": None, "model": None}
+    assert seen == {"provider": None, "model": None, "full_frame": False}
 
 
 def _qwen_base_settings():
@@ -464,10 +470,51 @@ def test_run_photo_analyses_billboard_crop_when_present(monkeypatch, tmp_path):
     assert discarded == []
 
 
+def test_run_photo_full_frame_ignores_crops(monkeypatch):
+    """Кнопка «Пересканировать» читает фото целиком, даже если кроп есть."""
+
+    from app.billboard import pipeline as billboard_pipeline
+
+    monkeypatch.setattr(processor.db, "get_photo_source", lambda pid: "/tmp/source.jpg")
+    monkeypatch.setattr(processor.db, "mark_running", lambda pid: None)
+    saved = {}
+    monkeypatch.setattr(
+        processor.db, "save_success",
+        lambda pid, **kw: saved.update(kw),
+    )
+    monkeypatch.setattr(processor, "resolve_settings", _qwen_base_settings)
+    monkeypatch.setattr(processor, "analysis_input", lambda pid, src: "full.jpg")
+
+    crop_called = {"value": False}
+
+    def fake_ensure(pid):
+        crop_called["value"] = True
+        return ["crop.jpg"]
+
+    monkeypatch.setattr(billboard_pipeline, "ensure_crops", fake_ensure)
+
+    calls = []
+
+    def fake_analyze(path, config=None):
+        calls.append(str(path))
+        return ({"description": "Сцена", "brand": "Бигфест", "tags": ["Бигфест"]}, {}, 1.0)
+
+    monkeypatch.setattr(processor, "analyze_image", fake_analyze)
+
+    result = processor.run_photo("PH_" + "9a" * 12, full_frame=True)
+
+    assert crop_called["value"] is False
+    assert calls == ["full.jpg"]
+    assert result["billboards"] == 0
+    assert saved["fields"]["brand"] == "Бигфест"
+    assert saved["fields"]["description"] == "Сцена"
+
+
 def test_run_photo_merges_two_billboard_crops(monkeypatch, tmp_path):
     """Два щита на фото: два кропа, один результат, второй клиент — в тегах."""
 
     from app.billboard import pipeline as billboard_pipeline
+    from app.refine import rules as refine_rules
 
     first = tmp_path / "crop_01.jpg"
     second = tmp_path / "crop_02.jpg"
@@ -482,6 +529,11 @@ def test_run_photo_merges_two_billboard_crops(monkeypatch, tmp_path):
         lambda pid, **kw: saved.update(kw),
     )
     monkeypatch.setattr(processor, "resolve_settings", _qwen_base_settings)
+    # Этот тест про слияние двух кропов; полный кадр проверяется отдельно.
+    monkeypatch.setattr(
+        refine_rules, "get_rules",
+        lambda: {"rules": {"multi_crop_full_frame_enabled": False}},
+    )
     monkeypatch.setattr(
         billboard_pipeline, "ensure_crops",
         lambda pid: [str(first), str(second)],
@@ -550,6 +602,131 @@ def test_run_photo_merges_two_billboard_crops(monkeypatch, tmp_path):
     assert discarded == []
 
 
+def test_run_photo_prefers_frequent_brand_across_billboard_crops(monkeypatch, tmp_path):
+    """При двух щитах бренд выбирается по частоте в базе, а не по размеру кропа."""
+
+    from app.api import repository
+    from app.billboard import database as billboard_db
+    from app.billboard import pipeline as billboard_pipeline
+    from app.refine import crop_frequency
+
+    first = tmp_path / "crop_01.jpg"
+    second = tmp_path / "crop_02.jpg"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+
+    monkeypatch.setattr(processor.db, "get_photo_source", lambda pid: "/tmp/source.jpg")
+    monkeypatch.setattr(processor.db, "mark_running", lambda pid: None)
+    saved = {}
+    monkeypatch.setattr(
+        processor.db, "save_success",
+        lambda pid, **kw: saved.update(kw),
+    )
+    monkeypatch.setattr(processor, "resolve_settings", _qwen_base_settings)
+    monkeypatch.setattr(
+        billboard_pipeline, "ensure_crops",
+        lambda pid: [str(first), str(second)],
+    )
+    monkeypatch.setattr(billboard_pipeline, "discard_crops", lambda paths: None)
+    monkeypatch.setattr(billboard_db, "get_billboard_regions", lambda pid: [])
+    monkeypatch.setattr(repository, "list_client_aliases", lambda kind="client": [])
+    monkeypatch.setattr(
+        crop_frequency, "aggregation_context",
+        lambda: {
+            "use_client_aliases": True,
+            "global_frequency": True,
+            "frequencies": {
+                "client": {},
+                "brand": {"sunlight": 95, "бигфест": 159},
+            },
+        },
+    )
+
+    def fake_analyze(path, config=None):
+        if str(path) == str(first):
+            return ({"description": "Sunlight", "brand": "Sunlight", "tags": []}, {}, 1.0)
+        return ({"description": "Бигфест", "brand": "Бигфест", "tags": []}, {}, 1.0)
+
+    monkeypatch.setattr(processor, "analyze_image", fake_analyze)
+
+    processor.run_photo("PH_" + "34" * 12)
+
+    assert saved["fields"]["brand"] == "Бигфест"
+    assert "Sunlight" in saved["fields"]["tags"]
+
+
+def test_run_photo_reads_full_frame_when_several_crops(monkeypatch, tmp_path):
+    """Два кропа: третий проход по полному кадру ловит пропущенный щит."""
+
+    from app.api import repository
+    from app.billboard import database as billboard_db
+    from app.billboard import pipeline as billboard_pipeline
+    from app.refine import crop_frequency
+
+    first = tmp_path / "crop_01.jpg"
+    second = tmp_path / "crop_02.jpg"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+
+    monkeypatch.setattr(processor.db, "get_photo_source", lambda pid: "/tmp/source.jpg")
+    monkeypatch.setattr(processor.db, "mark_running", lambda pid: None)
+    saved = {}
+    monkeypatch.setattr(
+        processor.db, "save_success",
+        lambda pid, **kw: saved.update(kw),
+    )
+    monkeypatch.setattr(processor, "resolve_settings", _qwen_base_settings)
+    monkeypatch.setattr(processor, "analysis_input", lambda pid, src: "full.jpg")
+    monkeypatch.setattr(
+        billboard_pipeline, "ensure_crops",
+        lambda pid: [str(first), str(second)],
+    )
+    monkeypatch.setattr(billboard_pipeline, "discard_crops", lambda paths: None)
+    monkeypatch.setattr(billboard_db, "get_billboard_regions", lambda pid: [])
+    monkeypatch.setattr(repository, "list_client_aliases", lambda kind="client": [])
+    monkeypatch.setattr(
+        crop_frequency, "aggregation_context",
+        lambda: {
+            "use_client_aliases": True,
+            "global_frequency": True,
+            "frequencies": {
+                "client": {},
+                "brand": {"sunlight": 98, "бигфест": 232, "ск10": 155},
+                "display": {
+                    "sunlight": "Sunlight",
+                    "бигфест": "Бигфест",
+                    "ск10": "СК10",
+                },
+            },
+        },
+    )
+
+    calls = []
+
+    def fake_analyze(path, config=None):
+        calls.append(str(path))
+        if str(path) == str(first):
+            return ({"description": "Sunlight", "brand": "Sunlight", "tags": []}, {}, 1.0)
+        if str(path) == str(second):
+            return ({"description": "Автобус", "brand": "СК10", "tags": []}, {}, 1.0)
+        # Как в реальном ответе: рекламодатель попал в client, а brand — Sunlight.
+        return (
+            {"description": "Городская улица", "client": "БИГФЕСТ",
+             "brand": "SUNLIGHT", "tags": ["реклама"]},
+            {},
+            1.0,
+        )
+
+    monkeypatch.setattr(processor, "analyze_image", fake_analyze)
+
+    processor.run_photo("PH_" + "56" * 12)
+
+    assert calls == [str(first), str(second), "full.jpg"]
+    assert saved["fields"]["brand"] == "Бигфест"
+    assert "Sunlight" in saved["fields"]["tags"]
+    assert "СК10" in saved["fields"]["tags"]
+
+
 def test_run_photo_persists_each_crop_result_on_its_region(monkeypatch, tmp_path):
     """Результат каждого кропа пишется в свою строку photo_regions."""
 
@@ -603,6 +780,7 @@ def test_run_photo_persists_each_crop_result_on_its_region(monkeypatch, tmp_path
 
 def test_run_photo_keeps_primary_result_when_second_crop_fails(monkeypatch, tmp_path):
     from app.billboard import pipeline as billboard_pipeline
+    from app.refine import rules as refine_rules
 
     first = tmp_path / "crop_01.jpg"
     second = tmp_path / "crop_02.jpg"
@@ -617,6 +795,10 @@ def test_run_photo_keeps_primary_result_when_second_crop_fails(monkeypatch, tmp_
         lambda pid, **kw: saved.update(kw),
     )
     monkeypatch.setattr(processor, "resolve_settings", _qwen_base_settings)
+    monkeypatch.setattr(
+        refine_rules, "get_rules",
+        lambda: {"rules": {"multi_crop_full_frame_enabled": False}},
+    )
     monkeypatch.setattr(
         billboard_pipeline, "ensure_crops",
         lambda pid: [str(first), str(second)],

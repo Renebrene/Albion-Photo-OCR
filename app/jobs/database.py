@@ -175,6 +175,7 @@ def enqueue_qwen(
     run_history_id: int | None = None,
     priority: bool = False,
     skip_refine: bool = False,
+    full_frame: bool = False,
 ) -> int | None:
     """
     Enqueue a QWEN job for one photo, deduplicated while active.
@@ -197,6 +198,9 @@ def enqueue_qwen(
         payload["model"] = model
     if skip_refine:
         payload["skip_refine"] = True
+    if full_frame:
+        # Кнопка «Пересканировать» в карточке: читать фото целиком, без кропов.
+        payload["full_frame"] = True
     if run_history_id is not None:
         payload["run_history_id"] = int(run_history_id)
     if priority:

@@ -393,7 +393,10 @@ async function rescanPhoto(provider) {
   const photoId = current.value.photo_id
 
   try {
-    const result = await enqueueQwen([photoId], false, provider ? { provider } : {})
+    const result = await enqueueQwen([photoId], false, {
+      full_frame: true,
+      ...(provider ? { provider } : {}),
+    })
 
     if (!result.first_job_id) {
       Notify.create({
@@ -844,31 +847,73 @@ const clientTags = computed(() => {
 
   return store.selectedClients.map((value) => ({
     key: `client:${value}`,
-    label: `Клиент: ${value}`,
+    label: value,
     type: 'client',
     value,
   }))
 })
 
-const activeTags = computed(() => [
-  ...addressTags.value,
-  ...clientTags.value,
-  ...(selectedBrand.value
-    ? [{ key: 'brand', label: `Бренд: ${selectedBrand.value}`, type: 'brand' }]
-    : []),
-  ...(selectedTag.value
-    ? [{ key: 'tag', label: `Тег: ${selectedTag.value}`, type: 'tag' }]
-    : []),
-  ...(selectedCategory.value
-    ? [
-        {
-          key: 'category',
-          label: `Категория: ${selectedCategory.value}`,
-          type: 'category',
-        },
-      ]
-    : []),
-])
+/** Ключ схлопывания: один и тот же текст в client/brand/tag — один тег. */
+function tagMergeKey(value) {
+  return String(value ?? '')
+    .toLocaleLowerCase('ru')
+    .replace(/ё/g, 'е')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function mergeValueTags(items) {
+  const result = []
+  const merged = new Map()
+
+  for (const item of items) {
+    if (!['client', 'brand', 'tag'].includes(item.type)) {
+      result.push(item)
+      continue
+    }
+
+    const key = tagMergeKey(item.value)
+    const existing = merged.get(key)
+
+    if (existing) {
+      existing.parts.push({ type: item.type, value: item.value })
+      continue
+    }
+
+    const tag = {
+      ...item,
+      key: `value:${key}`,
+      label: item.value,
+      parts: [{ type: item.type, value: item.value }],
+    }
+    merged.set(key, tag)
+    result.push(tag)
+  }
+
+  return result
+}
+
+const activeTags = computed(() =>
+  mergeValueTags([
+    ...addressTags.value,
+    ...clientTags.value,
+    ...(selectedBrand.value
+      ? [{ key: 'brand', label: selectedBrand.value, type: 'brand', value: selectedBrand.value }]
+      : []),
+    ...(selectedTag.value
+      ? [{ key: 'tag', label: selectedTag.value, type: 'tag', value: selectedTag.value }]
+      : []),
+    ...(selectedCategory.value
+      ? [
+          {
+            key: 'category',
+            label: `Категория: ${selectedCategory.value}`,
+            type: 'category',
+          },
+        ]
+      : []),
+  ]),
+)
 
 // В заголовке панели клиентов: выбранные в списке + бренд из тега.
 const clientSelectionCount = computed(
@@ -881,6 +926,28 @@ function tagColor(type) {
 }
 
 async function removeTag(tag) {
+  // Схлопнутый тег может обозначать сразу client, brand и tag: снимаем все.
+  if (tag.parts?.length) {
+    for (const part of tag.parts) {
+      if (part.type === 'client') {
+        toggleValue(store.selectedClients, part.value)
+      } else if (
+        part.type === 'brand'
+        && tagMergeKey(selectedBrand.value) === tagMergeKey(part.value)
+      ) {
+        selectedBrand.value = null
+      } else if (
+        part.type === 'tag'
+        && tagMergeKey(selectedTag.value) === tagMergeKey(part.value)
+      ) {
+        selectedTag.value = null
+      }
+    }
+
+    await apply()
+    return
+  }
+
   switch (tag.type) {
     case 'address': {
       // Тег — сторона: снимаем все её поверхности, иначе от выбора остался бы
@@ -4368,9 +4435,9 @@ function tagList(meta) {
                         <q-separator />
                         <q-item>
                           <q-item-section class="text-caption text-grey-7">
-                            Пересканируется только это фото. Прежнее описание
-                            сохранится в истории. Облако отправляет кадр на
-                            внешний сервис.
+                            Пересканируется только это фото целиком, без
+                            кропов. Прежнее описание сохранится в истории.
+                            Облако отправляет кадр на внешний сервис.
                           </q-item-section>
                         </q-item>
                       </q-list>

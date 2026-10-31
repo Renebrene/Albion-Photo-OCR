@@ -208,6 +208,8 @@ class QwenJobRequest(BaseModel):
     # эти фото конкретным провайдером/моделью, не меняя общие настройки.
     provider: str | None = Field(default=None, pattern="^(ollama|openai)$")
     model: str | None = Field(default=None, max_length=200)
+    # «Пересканировать» в карточке фото: читать полный кадр, а не кропы.
+    full_frame: bool = False
 
 
 class QwenRescanRequest(BaseModel):
