@@ -34,12 +34,13 @@ async function mountHelp() {
 }
 
 describe('руководство пользователя', () => {
-  it('описывает кроп рекламного щита', async () => {
+  it('описывает кропы рекламных щитов', async () => {
     const wrapper = await mountHelp()
     const text = wrapper.text()
 
-    expect(text).toContain('Поиск рекламного щита')
+    expect(text).toContain('Поиск рекламных щитов')
     expect(text).toContain('crop рекламного щита для QWEN')
+    expect(text).toContain('дополнительно читается полный кадр')
     wrapper.unmount()
   })
 
@@ -47,9 +48,11 @@ describe('руководство пользователя', () => {
     const wrapper = await mountHelp()
     const text = wrapper.text()
 
-    expect(text).toContain('Описание: кроп щита и облако')
+    expect(text).toContain('Описание: щиты, частота и облако')
     expect(text).toContain('Облако (OpenAI-совместимый)')
     expect(text).toContain('отправляется на внешний сервис')
+    expect(text).toContain('полный кадр')
+    expect(text).toContain('по частоте во всей базе')
     wrapper.unmount()
   })
 
