@@ -550,6 +550,57 @@ def test_run_photo_merges_two_billboard_crops(monkeypatch, tmp_path):
     assert discarded == []
 
 
+def test_run_photo_persists_each_crop_result_on_its_region(monkeypatch, tmp_path):
+    """Результат каждого кропа пишется в свою строку photo_regions."""
+
+    from app.billboard import database as billboard_db
+    from app.billboard import pipeline as billboard_pipeline
+
+    first = tmp_path / "crop_01.jpg"
+    second = tmp_path / "crop_02.jpg"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+
+    monkeypatch.setattr(processor.db, "get_photo_source", lambda pid: "/tmp/source.jpg")
+    monkeypatch.setattr(processor.db, "mark_running", lambda pid: None)
+    monkeypatch.setattr(processor.db, "save_success", lambda pid, **kw: None)
+    monkeypatch.setattr(processor, "resolve_settings", _qwen_base_settings)
+    monkeypatch.setattr(
+        billboard_pipeline, "ensure_crops",
+        lambda pid: [str(first), str(second)],
+    )
+    monkeypatch.setattr(billboard_pipeline, "discard_crops", lambda paths: None)
+    monkeypatch.setattr(
+        billboard_db, "get_billboard_regions",
+        lambda pid: [
+            {"region_id": 101, "crop_index": 0},
+            {"region_id": 102, "crop_index": 1},
+        ],
+    )
+
+    running: list[int] = []
+    saved: list[tuple[int, dict]] = []
+    monkeypatch.setattr(billboard_db, "mark_qwen_running", running.append)
+    monkeypatch.setattr(
+        billboard_db, "save_qwen_success",
+        lambda region_id, **kw: saved.append((region_id, kw["fields"])),
+    )
+
+    def fake_analyze(path, config=None):
+        if str(path) == str(first):
+            return ({"description": "Первый", "client": "A", "brand": "A", "tags": []}, {}, 1.0)
+        return ({"description": "Второй", "client": "B", "brand": "B", "tags": []}, {}, 1.0)
+
+    monkeypatch.setattr(processor, "analyze_image", fake_analyze)
+
+    processor.run_photo("PH_" + "12" * 12)
+
+    assert running == [101, 102]
+    assert [region_id for region_id, _fields in saved] == [101, 102]
+    assert saved[0][1]["brand"] == "A"
+    assert saved[1][1]["brand"] == "B"
+
+
 def test_run_photo_keeps_primary_result_when_second_crop_fails(monkeypatch, tmp_path):
     from app.billboard import pipeline as billboard_pipeline
 
