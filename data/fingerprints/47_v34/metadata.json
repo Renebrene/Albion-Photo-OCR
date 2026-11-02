@@ -1,0 +1,69 @@
+{
+  "id": "47_v34",
+  "version": "3.3",
+  "source_folder": "/media/alexice/TEST/Go/а/курчатова б2",
+  "image_meta": [
+    {
+      "name": "Курчатова Хасанкая Б (5).JPG",
+      "taken_at": "2026-04-23 10:14:49"
+    },
+    {
+      "name": "Курчатова Хасанкая Б (6).JPG",
+      "taken_at": "2026-04-23 10:14:50"
+    },
+    {
+      "name": "Курчатова ул. 1А  Хасанская ул., B (1).JPG",
+      "taken_at": "2026-07-02 09:49:52"
+    },
+    {
+      "name": "Курчатова ул. 1А  Хасанская ул., B (2).JPG",
+      "taken_at": "2026-07-02 09:49:52"
+    },
+    {
+      "name": "Курчатова ул. 1А  Хасанская ул., B (3).JPG",
+      "taken_at": "2026-07-02 09:49:53"
+    },
+    {
+      "name": "Курчатова ул. 1А  Хасанская ул., B (4).JPG",
+      "taken_at": "2026-07-02 09:49:49"
+    },
+    {
+      "name": "Курчатова ул. 1А  Хасанская ул., B (5).JPG",
+      "taken_at": "2026-07-02 09:49:50"
+    },
+    {
+      "name": "Курчатова ул. 1А  Хасанская ул., B (6).JPG",
+      "taken_at": "2026-07-02 09:49:51"
+    }
+  ],
+  "model": "facebook/dinov2-base",
+  "images": 8,
+  "dimension": 768,
+  "representatives": 8,
+  "patch_tokens": 0,
+  "patch_storage": false,
+  "environment_descriptor": "compact_v1",
+  "environment_dimension": 640,
+  "color_descriptor": "hsv_histogram_v1",
+  "color_dimension": 48,
+  "spatial_descriptor": "gray_grid_v1",
+  "spatial_dimension": 32,
+  "weights": {
+    "global": 0.7,
+    "environment": 0.2,
+    "color": 0.07,
+    "spatial": 0.03
+  },
+  "image_names": [
+    "Курчатова Хасанкая Б (5).JPG",
+    "Курчатова Хасанкая Б (6).JPG",
+    "Курчатова ул. 1А  Хасанская ул., B (1).JPG",
+    "Курчатова ул. 1А  Хасанская ул., B (2).JPG",
+    "Курчатова ул. 1А  Хасанская ул., B (3).JPG",
+    "Курчатова ул. 1А  Хасанская ул., B (4).JPG",
+    "Курчатова ул. 1А  Хасанская ул., B (5).JPG",
+    "Курчатова ул. 1А  Хасанская ул., B (6).JPG"
+  ],
+  "preview": "preview.jpg",
+  "skipped_images": []
+}
