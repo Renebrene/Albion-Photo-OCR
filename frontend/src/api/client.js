@@ -815,6 +815,10 @@ export function pickFolderNative() {
   return postJson(`${BASE}/v1/fingerprints/pick-folder`, {})
 }
 
+export function fetchFingerprintPickerCapability() {
+  return getJson(`${BASE}/v1/fingerprints/picker-capability`)
+}
+
 export function pauseJob(jobId) {
   return postJson(`${BASE}/v1/jobs/${jobId}/pause`, {})
 }
@@ -1236,6 +1240,18 @@ export function createDinoBatch({
     photo_ids,
     auto_hybrid,
   })
+}
+
+export function resetSorting() {
+  return postJson(`${BASE}/v1/sort/reset`, {})
+}
+
+export function stopSorting() {
+  return postJson(`${BASE}/v1/sort/stop`, {})
+}
+
+export function continueSorting() {
+  return postJson(`${BASE}/v1/sort/continue`, {})
 }
 
 export function createHybridRun(dinoBatchId) {

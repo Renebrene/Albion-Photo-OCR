@@ -188,7 +188,10 @@ def _execute(job: dict) -> dict:
         from app.hybrid.runner import run as hybrid_run
 
         hybrid_run_id = int(payload["hybrid_run_id"])
-        hybrid_run(hybrid_run_id)
+        hybrid_run(
+            hybrid_run_id,
+            control=job_control(int(job["id"])),
+        )
         final = get_run(hybrid_run_id)
         return {
             "hybrid_run_id": final.hybrid_run_id,

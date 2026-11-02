@@ -402,6 +402,90 @@ def test_qwen_rescan_passes_the_provider_override(monkeypatch):
     assert "run_history_id" in seen
 
 
+def test_sort_reset_creates_force_rerun_for_all_photos(monkeypatch):
+    """Сброс сортировки пересчитывает все фото, а не только новые."""
+
+    from contextlib import contextmanager
+
+    from app.api import routes as api_routes
+    from app.runs import coordination
+
+    monkeypatch.setenv("SCENE_API_TOKENS", "tok:jobs:write")
+
+    photo_ids = ["PH_" + "a" * 24, "PH_" + "b" * 24]
+    monkeypatch.setattr(api_routes.repository, "all_photo_ids", lambda: photo_ids)
+
+    @contextmanager
+    def fake_guard():
+        yield
+
+    monkeypatch.setattr(coordination, "launch_guard", fake_guard)
+    monkeypatch.setattr(coordination, "active_operation", lambda: None)
+
+    seen = {}
+
+    def fake_impl(request):
+        seen.update(
+            {
+                "run_type": request.run_type,
+                "photo_ids": list(request.photo_ids or []),
+                "auto_hybrid": request.auto_hybrid,
+                "mode": request.mode,
+            }
+        )
+        return {
+            "job_id": 1,
+            "batch_id": 2,
+            "batch_status": "PENDING",
+            "total_count": len(photo_ids),
+        }
+
+    monkeypatch.setattr(api_routes, "_enqueue_dino_batch_impl", fake_impl)
+    monkeypatch.setattr(
+        api_routes.hybrid_db, "supersede_done_results", lambda: 7
+    )
+    monkeypatch.setattr(
+        api_routes.dino_db, "supersede_done_runs", lambda **_kw: 9
+    )
+    from app.runs import sort_resume
+
+    monkeypatch.setattr(sort_resume, "clear", lambda: None)
+
+    response = client.post(
+        "/api/v1/sort/reset",
+        headers={"Authorization": "Bearer tok"},
+    )
+
+    assert response.status_code == 202
+    assert seen == {
+        "run_type": "FORCE_RERUN",
+        "photo_ids": photo_ids,
+        "auto_hybrid": True,
+        "mode": "outofqueue",
+    }
+    assert response.json()["superseded_hybrid_results"] == 7
+    assert response.json()["superseded_dino_runs"] == 9
+
+
+def test_fingerprint_picker_capability_requires_a_display(monkeypatch):
+    from app.api import routes as api_routes
+
+    monkeypatch.setenv("SCENE_API_TOKENS", "tok:read")
+    monkeypatch.setattr(api_routes, "NATIVE_PICKER", True)
+    monkeypatch.setattr(api_routes.shutil, "which", lambda name: "/usr/bin/zenity")
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+
+    response = client.get(
+        "/api/v1/fingerprints/picker-capability",
+        headers={"Authorization": "Bearer tok"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["available"] is False
+    assert "графической сессии" in response.json()["reason"]
+
+
 def test_qwen_job_rejects_an_unknown_provider():
     response = client.post(
         "/api/v1/jobs/qwen",

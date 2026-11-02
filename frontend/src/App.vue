@@ -422,6 +422,8 @@ function toggleDark() {
         <PipelineUpdateButton
           :can-run="canRunPipeline"
           :busy="pipeline.stageBusy"
+          :activity-label="pipeline.label"
+          :description-busy="pipeline.qwenBusy || pipeline.refineBusy"
           :can-write-settings="canWriteSettings"
           :run-options="display.runOptions"
           @update:run-options="display.setRunOptions"
@@ -452,6 +454,16 @@ function toggleDark() {
               </div>
             </q-tooltip>
           </span>
+        </div>
+
+        <!-- Ручная сортировка DINO/HYBRID: показываем текущий этап и сколько
+             фото уже пройдено, даже если прогон «Обновление базы» завершён. -->
+        <div
+          v-if="pipeline.sortLine"
+          class="row items-center no-wrap text-caption q-ml-md q-mr-sm header-pipeline-live"
+        >
+          <span class="blink-dot q-mr-xs" />
+          <span class="ellipsis">{{ pipeline.sortLine }}</span>
         </div>
 
         <!-- Подборки (задание, 28.10.2026): блок с разделителями по краям.

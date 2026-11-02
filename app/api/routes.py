@@ -1264,6 +1264,164 @@ def enqueue_dino_batch(request: DinoBatchRequest):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+@jobs_router.post(
+    "/v1/sort/reset",
+    status_code=202,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def reset_sorting():
+    """
+    Recalculate DINO/HYBRID for every photo against the current fingerprints.
+
+    NORMAL only picks photos without a successful DINO run, so a newly added
+    fingerprint never affects photos that were sorted before it. This endpoint
+    creates an explicit FORCE_RERUN batch over all registered photos. Existing
+    runs are kept; new rows become the latest verdict.
+    """
+
+    from app.runs import coordination
+
+    try:
+        with coordination.launch_guard():
+            active = coordination.active_operation()
+
+            if active:
+                raise HTTPException(
+                    status_code=409,
+                    detail=coordination.busy_message(active),
+                )
+
+            photo_ids = repository.all_photo_ids()
+
+            if not photo_ids:
+                raise HTTPException(status_code=422, detail="no photos to sort")
+
+            result = _enqueue_dino_batch_impl(
+                DinoBatchRequest(
+                    run_type="FORCE_RERUN",
+                    photo_ids=photo_ids,
+                    mode="outofqueue",
+                    auto_hybrid=True,
+                )
+            )
+            # Адреса и текущие вердикты очищаются сразу: пока идёт новый
+            # пересчёт, колонка адреса пустая, затем заполняется заново.
+            # Строки не удаляются — они остаются историей со статусом
+            # SUPERSEDED.
+            result["superseded_hybrid_results"] = hybrid_db.supersede_done_results()
+            # DINO — запасной источник адреса, пока нет вердикта HYBRID.
+            # Помечаем и его, иначе адрес сразу вернётся из старого DINO.
+            result["superseded_dino_runs"] = dino_db.supersede_done_runs(
+                exclude_batch_id=int(result.get("batch_id") or 0) or None
+            )
+            from app.runs import sort_resume
+
+            sort_resume.clear()
+            return result
+    except coordination.OperationBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@jobs_router.post(
+    "/v1/sort/stop",
+    status_code=202,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def stop_sorting():
+    """Stop the running manual sort and remember where it stopped."""
+
+    from app.runs import coordination, sort_resume
+
+    active = coordination.active_operation()
+
+    if not active or active.get("kind") != "sort":
+        raise HTTPException(status_code=409, detail="сортировка сейчас не идёт")
+
+    job = jobs_db.get_job(int(active["job_id"]))
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+
+    payload = job.get("payload") or {}
+    job_type = job.get("job_type")
+
+    if job_type == "HYBRID_RUN":
+        hybrid_run = hybrid_db.get_run(int(payload["hybrid_run_id"]))
+        batch_id = int(hybrid_run.dino_batch_id)
+        stage = "HYBRID"
+    else:
+        batch_id = int(payload["batch_id"])
+        stage = "DINO"
+
+    if not jobs_db.mark_cancelled(int(job["id"])):
+        raise HTTPException(status_code=409, detail="job is already finished")
+
+    saved = sort_resume.save(batch_id, stage)
+    return {"stopped": True, **saved}
+
+
+@jobs_router.post(
+    "/v1/sort/continue",
+    status_code=202,
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def continue_sorting():
+    """Continue a stopped sort: only unfinished photos, then HYBRID."""
+
+    from app.ingest.database import get_connection
+    from app.runs import coordination, sort_resume
+
+    state = sort_resume.load()
+    if state is None:
+        raise HTTPException(status_code=409, detail="нет остановленной сортировки")
+
+    try:
+        with coordination.launch_guard():
+            active = coordination.active_operation()
+            if active:
+                raise HTTPException(
+                    status_code=409,
+                    detail=coordination.busy_message(active),
+                )
+
+            batch_id = int(state["batch_id"])
+
+            if state["stage"] == "DINO":
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT photo_id, status FROM public.dino_runs "
+                            "WHERE batch_id = %s",
+                            (batch_id,),
+                        )
+                        rows = cur.fetchall()
+
+                all_ids = {str(row[0]) for row in rows}
+                done_ids = {str(row[0]) for row in rows if row[1] == "DONE"}
+                missing = sorted(all_ids - done_ids)
+
+                if missing:
+                    sort_resume.clear()
+                    return _enqueue_dino_batch_impl(
+                        DinoBatchRequest(
+                            run_type="FORCE_RERUN",
+                            photo_ids=missing,
+                            mode="outofqueue",
+                            auto_hybrid=True,
+                        )
+                    )
+
+            hybrid, job_id, _history_id = hybrid_db.create_and_enqueue_run(batch_id)
+            sort_resume.clear()
+            return {
+                "job_id": job_id,
+                "hybrid_run_id": hybrid.hybrid_run_id,
+                "status": hybrid.status,
+                "total_count": hybrid.total_count,
+            }
+    except coordination.OperationBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 def _enqueue_dino_batch_impl(request: DinoBatchRequest):
     if request.run_type == "FORCE_RERUN" and not request.photo_ids:
         raise HTTPException(
@@ -3862,6 +4020,27 @@ NATIVE_PICKER = os.getenv("SCENE_NATIVE_PICKER", "0").strip().lower() in {
     "true",
     "yes",
 }
+
+
+@read_router.get("/v1/fingerprints/picker-capability", response_model=None)
+def fingerprint_picker_capability():
+    """Whether the server-side system folder dialog can actually open."""
+
+    zenity = shutil.which("zenity")
+    has_display = bool(
+        os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY")
+    )
+    available = bool(NATIVE_PICKER and zenity and has_display)
+    reason = ""
+
+    if not NATIVE_PICKER:
+        reason = "системный выбор папки выключен (SCENE_NATIVE_PICKER=1)"
+    elif not zenity:
+        reason = "zenity не найден на сервере"
+    elif not has_display:
+        reason = "у службы API нет графической сессии (DISPLAY/WAYLAND_DISPLAY)"
+
+    return {"available": available, "reason": reason}
 
 
 @fingerprints_router.post(

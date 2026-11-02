@@ -14,6 +14,7 @@ import { defineStore } from 'pinia'
 
 import {
   fetchCurrentPipeline,
+  fetchJob,
   fetchQwenStats,
   fetchRunActivity,
 } from '../api/client'
@@ -66,6 +67,9 @@ export const usePipelineStore = defineStore('pipeline', {
     // базы», поэтому его прогресс показывается отдельно — вместе с
     // «Уточнением», которое идёт хвостом за ним.
     qwen: null,
+    // Ручная DINO/HYBRID-сортировка: задание и его прогресс. Прогон
+    // «Обновление базы» сюда не входит — у него свои стадии.
+    sort: null,
     // Строки стадий текущего прогона: отсюда берётся «сделано / всего» для
     // Инспекции, Превью и Сортировки.
     stages: [],
@@ -95,6 +99,20 @@ export const usePipelineStore = defineStore('pipeline', {
     // шапка показывает мигающую точку, а кнопка — паузу.
     stageBusy(state) {
       return Boolean(state.active || this.qwenBusy || this.refineBusy)
+    },
+
+    // Текущий ручной прогон DINO/HYBRID: «Сортировка DINO: 1200 / 57495».
+    sortLine(state) {
+      const sort = state.sort
+      if (!sort) return ''
+
+      const name = sort.stage === 'hybrid' ? 'HYBRID' : 'DINO'
+      const progress = sort.total
+        ? `${sort.done} / ${sort.total}`
+        : `${sort.done}`
+      const paused = sort.status === 'PAUSED' ? ' · пауза' : ''
+
+      return `Сортировка ${name}: ${progress}${paused}`
     },
 
     // Этапы со счётчиками: прогон (Инспекция, Превью, Сортировка), Описание и
@@ -221,10 +239,34 @@ export const usePipelineStore = defineStore('pipeline', {
           this.label = activity.message || 'идёт обновление базы'
           this.stage = activity.active?.stage || ''
 
-          if (withMatched) {
+          const isSort = activity.active?.kind === 'sort'
+
+          // При ручной сортировке старые стадии завершённого «Обновления
+          // базы» не показываем: иначе в шапке остаётся, например, «Описание»
+          // с нулевым счётчиком, хотя описаний сейчас нет.
+          if (withMatched && !isSort) {
             await this._loadProgress()
           } else {
             this.stages = []
+          }
+
+          // Ручная сортировка: прогресс берём из очереди задания, а не из
+          // стадий прогона — у неё своего pipeline_runs нет.
+          this.sort = null
+          if (withMatched && isSort && activity.active?.job_id) {
+            try {
+              const job = await fetchJob(activity.active.job_id)
+              const progress = job.progress || {}
+              this.sort = {
+                stage: progress.stage
+                  || (job.job_type === 'HYBRID_RUN' ? 'hybrid' : 'dino'),
+                done: Number(progress.done || 0),
+                total: Number(progress.total || 0),
+                status: job.status,
+              }
+            } catch {
+              this.sort = null
+            }
           }
         }
 
@@ -295,6 +337,7 @@ export const usePipelineStore = defineStore('pipeline', {
       this.active = false
       this.label = ''
       this.stage = ''
+      this.sort = null
       this.stages = []
     },
 

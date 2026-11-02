@@ -104,7 +104,7 @@ def active_operation() -> dict | None:
             if has_queue is not None:
                 cur.execute(
                     """
-                    SELECT id, job_type, started_at
+                    SELECT id, job_type, status, started_at
                     FROM public.job_queue
                     WHERE job_type IN ('DINO_BATCH', 'HYBRID_RUN')
                       AND status IN ('PENDING', 'RUNNING', 'PAUSED')
@@ -118,7 +118,8 @@ def active_operation() -> dict | None:
                         "kind": "sort",
                         "job_id": int(row[0]),
                         "job_type": row[1],
-                        "started_at": row[2],
+                        "status": row[2],
+                        "started_at": row[3],
                     }
 
     return None

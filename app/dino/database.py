@@ -933,3 +933,28 @@ def has_active_batch() -> bool:
                 "WHERE status IN ('PENDING', 'RUNNING') LIMIT 1"
             )
             return cur.fetchone() is not None
+
+
+def supersede_done_runs(*, exclude_batch_id: int | None = None) -> int:
+    """
+    Hide current DINO results before a full recalculation.
+
+    The address column falls back to the latest DONE DINO run when HYBRID has
+    no verdict, so superseding only HYBRID rows is not enough: the old address
+    would reappear from DINO. Rows stay as history.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            if exclude_batch_id is None:
+                cur.execute(
+                    "UPDATE public.dino_runs SET status = 'SUPERSEDED' "
+                    "WHERE status = 'DONE'"
+                )
+            else:
+                cur.execute(
+                    "UPDATE public.dino_runs SET status = 'SUPERSEDED' "
+                    "WHERE status = 'DONE' AND batch_id <> %s",
+                    (int(exclude_batch_id),),
+                )
+            return cur.rowcount

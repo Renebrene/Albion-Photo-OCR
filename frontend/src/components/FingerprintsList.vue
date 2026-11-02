@@ -20,6 +20,7 @@ import {
   fetchAddressDirectory,
   fetchAddressSides,
   fetchFingerprintBatch,
+  fetchFingerprintPickerCapability,
   fetchFingerprintRegistry,
   fetchFingerprintVersions,
   fetchJob,
@@ -172,6 +173,19 @@ const browseOpen = ref(false)
 const browseBusy = ref(false)
 const browsed = ref({ path: null, parent: null, dirs: [], photos: 0 })
 const browseError = ref('')
+const nativePicker = reactive({ available: false, reason: '' })
+// Куда вернуть выбранную папку: в одиночную сборку или в пакетную.
+const browseTarget = ref('build')
+
+async function loadNativePicker() {
+  try {
+    nativePicker.available = Boolean(
+      (await fetchFingerprintPickerCapability()).available,
+    )
+  } catch {
+    nativePicker.available = false
+  }
+}
 
 // ---- откуда брать фотографии: сервер или компьютер менеджера -------------
 // Второй вариант — удалённая загрузка (задание, п. 5а/5б): браузер не может
@@ -283,9 +297,15 @@ const buildAddressOptions = computed(() => {
         (group.count > 1 ? ` · поверхностей: ${group.count}` : ''),
       value: group.surfaces[0]?.address_id ?? null,
       format: group.format,
+      caption: group.format || '',
     }))
     .filter((option) => option.value !== null)
-    .filter((option) => !needle || option.label.toLowerCase().includes(needle))
+    .filter(
+      (option) =>
+        !needle
+        || option.label.toLowerCase().includes(needle)
+        || String(option.caption || '').toLowerCase().includes(needle),
+    )
 })
 
 const buildFormat = computed(
@@ -335,14 +355,31 @@ async function loadBrowse(path) {
   }
 }
 
-function openBrowser() {
+function openBrowser(target = 'build') {
+  browseTarget.value = target
   browseOpen.value = true
-  loadBrowse(buildForm.value.folder || null)
+  loadBrowse(
+    target === 'batch'
+      ? batchParent.value || null
+      : buildForm.value.folder || null,
+  )
 }
 
-function chooseFolder(path) {
+async function chooseFolder(path) {
+  if (browseTarget.value === 'batch') {
+    browseOpen.value = false
+    await loadBatchDirs(path)
+    return
+  }
+
   buildForm.value.folder = path
   browseOpen.value = false
+}
+
+function pickerUnavailable(message) {
+  return /системный диалог|SCENE_NATIVE_PICKER|zenity|графической сессии/i.test(
+    String(message || ''),
+  )
 }
 
 async function pickNative() {
@@ -353,7 +390,13 @@ async function pickNative() {
     buildForm.value.folder = result.path
     browseOpen.value = false
   } catch (err) {
-    browseError.value = err.message
+    if (pickerUnavailable(err.message)) {
+      nativePicker.available = false
+      browseError.value =
+        'Системный диалог недоступен — выберите папку встроенным браузером.'
+    } else {
+      browseError.value = err.message
+    }
   } finally {
     browseBusy.value = false
   }
@@ -536,7 +579,17 @@ async function pickBatchParent() {
     const result = await pickFolderNative()
     await loadBatchDirs(result.path)
   } catch (err) {
-    Notify.create({ type: 'negative', message: err.message })
+    if (pickerUnavailable(err.message)) {
+      nativePicker.available = false
+      Notify.create({
+        type: 'info',
+        message:
+          'Системный диалог недоступен — укажите папку в поле и нажмите '
+          + '«Показать подпапки» (встроенный браузер).',
+      })
+    } else {
+      Notify.create({ type: 'negative', message: err.message })
+    }
   }
 }
 
@@ -686,7 +739,10 @@ async function pollBuild(jobId) {
   Notify.create({ type: 'negative', message: `Сборка: ${buildJob.value.error}` })
 }
 
-onMounted(load)
+onMounted(async () => {
+  await load()
+  await loadNativePicker()
+})
 
 async function sync() {
   syncing.value = true
@@ -709,6 +765,24 @@ async function sync() {
 // Адреса для выпадающего списка: берутся из справочника (вкладка «Адреса»).
 const addressOptions = ref([])
 const editAddressId = ref(null)
+const editAddressFilter = ref('')
+
+const filteredEditAddressOptions = computed(() => {
+  const needle = editAddressFilter.value.trim().toLowerCase()
+  if (!needle) return addressOptions.value
+
+  return addressOptions.value.filter(
+    (item) =>
+      item.label.toLowerCase().includes(needle)
+      || String(item.caption || '').toLowerCase().includes(needle),
+  )
+})
+
+function filterEditAddresses(value, update) {
+  update(() => {
+    editAddressFilter.value = value || ''
+  })
+}
 
 // Справочник перечитывается при каждом открытии окна: раньше кэш был вечным,
 // и адрес, заведённый на вкладке «Адреса», не появлялся в списке до F5.
@@ -731,6 +805,7 @@ async function loadAddressOptions() {
 async function openEdit(item) {
   editTarget.value = { ...item }
   editAddressId.value = item.address?.address_id ?? null
+  editAddressFilter.value = ''
   editOpen.value = true
   await loadAddressOptions()
 }
@@ -1057,7 +1132,7 @@ function day(value) {
           />
           <q-select
             v-model="editAddressId"
-            :options="addressOptions"
+            :options="filteredEditAddressOptions"
             dense
             outlined
             clearable
@@ -1066,7 +1141,10 @@ function day(value) {
             option-label="label"
             option-value="value"
             label="Юридический адрес (из справочника)"
-            hint="Список ведётся во вкладке «Адреса»; можно очистить, чтобы снять привязку"
+            hint="Начните вводить адрес — список отфильтруется. Список ведётся во вкладке «Адреса»; можно очистить, чтобы снять привязку"
+            use-input
+            input-debounce="0"
+            @filter="filterEditAddresses"
           >
             <template #option="scope">
               <q-item v-bind="scope.itemProps">
@@ -1218,7 +1296,18 @@ function day(value) {
               use-input
               input-debounce="0"
               @filter="filterAddresses"
-            />
+            >
+              <template #option="scope">
+                <q-item v-bind="scope.itemProps">
+                  <q-item-section>
+                    <q-item-label>{{ scope.opt.label }}</q-item-label>
+                    <q-item-label v-if="scope.opt.caption" caption>
+                      Формат: {{ scope.opt.caption }}
+                    </q-item-label>
+                  </q-item-section>
+                </q-item>
+              </template>
+            </q-select>
             <q-input
               :model-value="buildFormat || '—'"
               dense
@@ -1468,7 +1557,7 @@ function day(value) {
           <div class="text-subtitle1 col">
             Выбор папки на сервере
           </div>
-          <q-btn dense flat icon="desktop_windows" label="Системный диалог"
+          <q-btn v-if="nativePicker.available" dense flat icon="desktop_windows" label="Системный диалог"
             :loading="browseBusy" @click="pickNative">
             <q-tooltip>
               Открыть окно выбора папки на машине сервера
@@ -1478,6 +1567,12 @@ function day(value) {
         </q-card-section>
         <q-separator />
         <q-card-section style="max-height: 60vh; overflow: auto">
+          <div
+            v-if="!nativePicker.available"
+            class="text-caption text-grey-7 q-mb-sm"
+          >
+            Системный диалог недоступен — выберите папку встроенным браузером.
+          </div>
           <div v-if="browseError" class="text-negative text-caption q-mb-sm">
             {{ browseError }}
           </div>
@@ -1533,10 +1628,19 @@ function day(value) {
       <q-card style="min-width: 620px; max-width: 94vw; max-height: 90vh">
         <q-card-section class="row items-center">
           <div class="text-subtitle1 col">Пакетная сборка слепков</div>
-          <q-btn dense flat icon="desktop_windows" label="Системный диалог"
+          <q-btn dense color="secondary" icon="folder_open" label="Выбрать папку"
+            @click="openBrowser('batch')" />
+          <q-btn v-if="nativePicker.available" dense flat icon="desktop_windows" label="Системный диалог"
             :loading="batchBusy" @click="pickBatchParent" />
         </q-card-section>
         <q-separator />
+        <div
+          v-if="!nativePicker.available"
+          class="text-caption text-grey-7 q-px-md q-pt-sm"
+        >
+          Системный диалог недоступен: у службы API нет графической сессии.
+          Укажите папку в поле ниже и нажмите «Показать подпапки».
+        </div>
 
         <q-card-section style="max-height: 60vh; overflow: auto">
           <div class="row items-center q-gutter-sm">

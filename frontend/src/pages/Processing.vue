@@ -18,8 +18,14 @@ import {
   fetchRunActivity,
   fetchRunLog,
   fetchSortStatus,
+  continueSorting,
+  pauseJob,
+  resetSorting,
+  resumeJob,
+  stopSorting,
 } from '../api/client'
 import { useAsyncAction } from '../composables/useAsyncAction'
+import { confirmDialog } from '../composables/confirmDialog'
 
 const tab = ref('dino')
 
@@ -93,6 +99,17 @@ async function loadReviewSettings() {
 // счётчик для нового (пользователь печатает быстрее, чем отвечает сервер).
 let previewRequest = 0
 
+// Практические значения по текущему корпусу (57 493 вердикта):
+// медиана сходства 0.87, медиана отрыва 0.016. Порог 0.85 отправляет на
+// проверку ~37% базы, поэтому начинать лучше ниже.
+const RECOMMENDED = { lowScore: 0.70, minMargin: 0.002 }
+
+function applyRecommendedThresholds() {
+  lowScore.value = RECOMMENDED.lowScore
+  minMargin.value = RECOMMENDED.minMargin
+  schedulePreview()
+}
+
 function schedulePreview() {
   if (previewTimer !== null) window.clearTimeout(previewTimer)
 
@@ -146,6 +163,84 @@ async function saveReviewSettings() {
 
 // Сводка последней виртуальной сортировки.
 const sortStatus = ref(null)
+const sortPauseBusy = ref(false)
+const sortJob = computed(() =>
+  sortStatus.value?.active?.kind === 'sort' ? sortStatus.value.active : null,
+)
+const sortPaused = computed(() => sortJob.value?.status === 'PAUSED')
+
+async function toggleSortPause() {
+  if (!sortJob.value || sortPauseBusy.value) return
+
+  sortPauseBusy.value = true
+  try {
+    if (sortPaused.value) {
+      await resumeJob(sortJob.value.job_id)
+      Notify.create({ type: 'positive', message: 'Сортировка продолжена' })
+    } else {
+      await pauseJob(sortJob.value.job_id)
+      Notify.create({ type: 'info', message: 'Сортировка поставлена на паузу' })
+    }
+    await Promise.all([loadSortStatus(), loadActivity()])
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    sortPauseBusy.value = false
+  }
+}
+
+const stoppingSort = ref(false)
+const continuingSort = ref(false)
+
+async function stopSort() {
+  if (!sortJob.value || stoppingSort.value) return
+
+  const confirmed = await confirmDialog({
+    title: 'Остановить сортировку?',
+    message:
+      'Текущий DINO/HYBRID-прогон остановится после текущей пачки фото. '
+      + 'Уже обработанные результаты сохранятся. Потом можно продолжить '
+      + 'с недоделанных фото или запустить всё заново.',
+    okLabel: 'Остановить',
+    color: 'negative',
+  })
+  if (!confirmed) return
+
+  stoppingSort.value = true
+  try {
+    await stopSorting()
+    Notify.create({
+      type: 'info',
+      message: 'Сортировка остановлена. Доступны «Продолжить» и «Заново».',
+    })
+    await Promise.all([loadSortStatus(), loadActivity()])
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    stoppingSort.value = false
+  }
+}
+
+async function continueSort() {
+  if (continuingSort.value) return
+
+  continuingSort.value = true
+  try {
+    const result = await continueSorting()
+    Notify.create({
+      type: 'positive',
+      message: result.job_id
+        ? `Сортировка продолжена: ${result.total_count || ''} фото`
+        : 'Сортировка продолжена',
+    })
+    await Promise.all([loadSortStatus(), loadActivity()])
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    continuingSort.value = false
+  }
+}
+
 const sortLogOpen = ref(false)
 const sortLogText = ref('')
 const sortLogLoading = ref(false)
@@ -343,6 +438,49 @@ async function startNormalBatch() {
   }
 }
 
+// Полный пересчёт: обычная «виртуальная сортировка» берёт только фото без
+// DINO-прогона, поэтому новые слепки не влияют на уже отсортированные кадры.
+const resetting = ref(false)
+
+async function resetSort() {
+  if (resetting.value || operationActive.value) return
+
+  const confirmed = await confirmDialog({
+    title: 'Сбросить сортировку и пересчитать?',
+    message:
+      'Текущие результаты сортировки и адресная колонка будут очищены, '
+      + 'затем все фотографии заново сопоставятся со всеми активными слепками '
+      + 'и выполнится HYBRID. Пока идёт пересчёт, адрес может быть пустым. '
+      + 'Это может занять длительное время. Оригиналы и история прошлых '
+      + 'прогонов сохраняются.',
+    okLabel: 'Пересчитать',
+    color: 'negative',
+  })
+
+  if (!confirmed) return
+
+  resetting.value = true
+  try {
+    const result = await resetSorting()
+
+    if (result.job_id) {
+      Notify.create({
+        type: 'positive',
+        message: `Пересчёт запущен: ${result.total_count} фото, задание ${result.job_id}`,
+      })
+    } else {
+      Notify.create({ type: 'info', message: 'Нет фотографий для пересчёта' })
+    }
+
+    await loadDino()
+    await loadActivity()
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    resetting.value = false
+  }
+}
+
 const { busy: hybridBusy, run: hybridRun } = useAsyncAction()
 
 async function startHybrid(batch) {
@@ -428,6 +566,62 @@ onBeforeUnmount(() => {
           </template>
         </q-tooltip>
       </q-btn>
+      <q-btn
+        color="negative"
+        outline
+        icon="restart_alt"
+        label="Сбросить сортировку и пересчитать"
+        :loading="resetting"
+        :disable="resetting || operationActive"
+        @click="resetSort"
+      >
+        <q-tooltip>
+          Заново сопоставляет все фотографии со всеми активными слепками и
+          запускает HYBRID. Нужно после добавления новых слепков: обычная
+          сортировка не трогает фото, у которых уже есть DINO-результат.
+        </q-tooltip>
+      </q-btn>
+      <q-btn
+        v-if="sortJob"
+        :icon="sortPaused ? 'play_arrow' : 'pause'"
+        :label="sortPaused ? 'Продолжить сортировку' : 'Пауза сортировки'"
+        color="orange-9"
+        outline
+        :loading="sortPauseBusy"
+        @click="toggleSortPause"
+      >
+        <q-tooltip>
+          Останавливает DINO/HYBRID после текущей пачки фото. Продолжение —
+          той же кнопкой; завершённые результаты сохраняются.
+        </q-tooltip>
+      </q-btn>
+      <q-btn
+        v-if="sortJob"
+        icon="stop_circle"
+        label="Остановить сортировку"
+        color="negative"
+        flat
+        :loading="stoppingSort"
+        @click="stopSort"
+      >
+        <q-tooltip>
+          Остановить прогон и запомнить точку. Потом можно продолжить с
+          недоделанных фото или запустить всё заново.
+        </q-tooltip>
+      </q-btn>
+      <q-btn
+        v-if="sortStatus?.resume && !sortJob"
+        icon="play_circle"
+        label="Продолжить сортировку"
+        color="primary"
+        outline
+        :loading="continuingSort"
+        @click="continueSort"
+      >
+        <q-tooltip>
+          Продолжить с недоделанных фото остановленного прогона.
+        </q-tooltip>
+      </q-btn>
       <q-btn icon="refresh" flat dense @click="reload" />
       <q-space />
     </div>
@@ -509,6 +703,25 @@ onBeforeUnmount(() => {
           Порог применяется при чтении: данные не пересчитываются, значение
           можно менять и смотреть, сколько фото требует ручного разбора.
           Переопределение адреса в карточке фото выводит его из корзины.
+        </div>
+        <div class="confidence-hint q-mt-sm">
+          <b>Ориентиры по текущей базе (57 493 фото):</b> медиана сходства
+          кандидата 0,87, медиана отрыва 0,016. Порог 0,85 отправляет на
+          проверку около 37% базы — для ежедневной работы это много.
+          <br />
+          <b>Экономный:</b> 0,70 / 0,002 — около 17% базы;
+          <b>сбалансированный:</b> 0,75 / 0,002 — около 22%;
+          <b>полный контроль:</b> 0,70 / 0,005 — около 29%.
+          Начните с 0,70 и 0,002, затем подстройте по числу «Требуют проверки».
+          <q-btn
+            dense
+            flat
+            no-caps
+            color="primary"
+            label="Подставить 0,70 / 0,002"
+            class="q-ml-xs"
+            @click="applyRecommendedThresholds"
+          />
         </div>
       </q-card-section>
     </q-card>
@@ -704,6 +917,15 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.confidence-hint {
+  background: #eef5ff;
+  border: 1px solid rgba(25, 118, 210, 0.18);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .sort-log {
   margin: 0;
   font-size: 12px;

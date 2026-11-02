@@ -196,14 +196,39 @@ describe('Обновление базы', () => {
     }
 
     setPipeline(finished)
-    let wrapper = await mountButton({ busy: true })
+    let wrapper = await mountButton({ busy: true, descriptionBusy: true })
     expect(wrapper.text()).toContain('База обновлена 24.10.2026 11:19')
     expect(wrapper.text()).toContain('описание и уточнение идут')
+    wrapper.unmount()
+
+    // Занята только сортировка: про описание не пишем.
+    setPipeline(finished)
+    wrapper = await mountButton({ busy: true, descriptionBusy: false })
+    expect(wrapper.text()).toContain('База обновлена 24.10.2026 11:19')
+    expect(wrapper.text()).not.toContain('описание и уточнение идут')
     wrapper.unmount()
 
     setPipeline(finished)
     wrapper = await mountButton({ busy: false })
     expect(wrapper.text()).toContain('База обновлена 24.10.2026 11:19')
+    expect(wrapper.text()).not.toContain('описание и уточнение идут')
+    wrapper.unmount()
+  })
+
+  it('показывает текущий процесс, если идёт сортировка', async () => {
+    setPipeline({
+      run: {
+        run_id: 1, status: 'DONE', stage: 'QWEN', finished_at: '2026-11-02 23:17',
+        manifest: {}, stages: [],
+      },
+    })
+    const wrapper = await mountButton({
+      busy: true,
+      activityLabel: 'идёт сортировка DINO/HYBRID',
+    })
+
+    expect(wrapper.text()).toContain('База обновлена 02.11.2026 23:17')
+    expect(wrapper.text()).toContain('идёт сортировка DINO/HYBRID')
     expect(wrapper.text()).not.toContain('описание и уточнение идут')
     wrapper.unmount()
   })

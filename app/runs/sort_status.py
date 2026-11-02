@@ -274,6 +274,8 @@ def status() -> dict:
         if stats is not None:
             last = {**last, "stats": stats}
 
+    from app.runs import sort_resume
+
     return {
         "last": last,
         "modes": {
@@ -284,4 +286,5 @@ def status() -> dict:
         },
         "current": _active_batch(),
         "active": coordination.active_operation(),
+        "resume": sort_resume.load(),
     }

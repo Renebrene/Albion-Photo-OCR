@@ -25,6 +25,12 @@ const props = defineProps({
   // Идёт другой процесс (очередь описаний или уточнение): «База обновлена»
   // показывать рано, хотя прогон и завершён.
   busy: { type: Boolean, default: false },
+  // Что именно идёт после завершения прогона: «идёт сортировка DINO/HYBRID»,
+  // «описание и уточнение идут» и т.п. Пустая строка — текст по умолчанию.
+  activityLabel: { type: String, default: '' },
+  // Идёт именно описание/уточнение (а не любая фоновая работа, например
+  // сортировка). Нужно, чтобы не писать «описание и уточнение идут» зря.
+  descriptionBusy: { type: Boolean, default: false },
   // Может ли пользователь писать настройки описаний (Администратор): тогда
   // выключатель в окне меняет общую настройку, а не только текущий прогон.
   canWriteSettings: { type: Boolean, default: false },
@@ -128,8 +134,11 @@ const statusText = computed(() => {
     // Прогон закончился — сообщение показываем всегда, с датой и временем.
     // Если очереди описаний и уточнения ещё идут, это сказано прямо: прогон
     // завершён, но работа продолжается.
-    return props.busy
-      ? `База обновлена ${fmtHuman(current.finished_at)} · описание и уточнение идут`
+    const suffix = props.activityLabel
+      || (props.descriptionBusy ? 'описание и уточнение идут' : '')
+
+    return props.busy && suffix
+      ? `База обновлена ${fmtHuman(current.finished_at)} · ${suffix}`
       : `База обновлена ${fmtHuman(current.finished_at)}`
   }
 
@@ -166,7 +175,7 @@ async function poll() {
       Notify.create({
         type: 'positive',
         icon: 'check_circle',
-        message: props.busy
+        message: props.busy && props.descriptionBusy
           ? `База обновлена ${fmtHuman(next.finished_at)} · описание и уточнение продолжаются`
           : `База обновлена ${fmtHuman(next.finished_at)}`,
         timeout: 8000,

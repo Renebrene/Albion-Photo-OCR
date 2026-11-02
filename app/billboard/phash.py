@@ -89,3 +89,22 @@ def same_frame(left: int | None, right: int | None, max_distance: int = DEFAULT_
         return False
 
     return distance(left, right) <= max_distance
+
+
+def image_phash(image: Image.Image, hash_size: int = DEFAULT_SIZE) -> int:
+    """64-битный pHash (DCT) готового изображения."""
+
+    import imagehash
+
+    value = imagehash.phash(image, hash_size=hash_size)
+    return int(str(value), 16)
+
+
+def file_phash(path: str | Path, hash_size: int = DEFAULT_SIZE) -> int | None:
+    """pHash файла; None, если файл не читается."""
+
+    try:
+        with Image.open(path) as image:
+            return image_phash(image, hash_size=hash_size)
+    except Exception:  # noqa: BLE001 - хеш вспомогательный
+        return None

@@ -18,11 +18,13 @@ the worker calls describe() and run().
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
 from pathlib import Path
 
+from app.api.crop_search import search_by_hash
 from app.api.nl_search import MAX_PER_TERM, MAX_TOTAL
 
 # The raw answer may still carry a literal <think> block; it is not a search
@@ -635,6 +637,9 @@ def run(
     frame_fields: list[dict] = []
     per_frame: list[dict] = []
     photo_ids: dict[str, None] = {}
+    hash_matches: dict[tuple[str, int], dict] = {}
+    hash_query = None
+    hash_query_phash = None
     seconds_total = 0.0
     truncated = False
     fallback = False
@@ -665,6 +670,22 @@ def run(
         for photo_id in found["photo_ids"]:
             photo_ids.setdefault(photo_id, None)
 
+        # Hash search is an independent candidate source (OR with QWEN):
+        # metadata can differ for the same creative, while the crop hash
+        # still finds the same banner.
+        hash_found = (
+            search_by_hash(source["path"]) if mode == "auto" else None
+        )
+        if hash_found is not None:
+            hash_query = hash_found.get("query_hash")
+            hash_query_phash = hash_found.get("query_phash")
+            for match in hash_found.get("matches") or []:
+                photo_ids.setdefault(match["photo_id"], None)
+                key = (match["photo_id"], match["region_id"])
+                previous = hash_matches.get(key)
+                if previous is None or match["distance"] < previous["distance"]:
+                    hash_matches[key] = {**match, "sec": source["sec"]}
+
         per_frame.append(
             {
                 "sec": source["sec"],
@@ -674,6 +695,7 @@ def run(
                 "category": fields.get("category"),
                 "tags": list(fields.get("tags") or []),
                 "count": found["count"],
+                "hash_count": len(hash_found.get("matches") or []) if hash_found else 0,
             }
         )
 
@@ -687,7 +709,27 @@ def run(
 
     merged = _merge_fields(frame_fields)
 
-    return {
+    # OR, not AND: a hash-near crop is a hit even when QWEN described the
+    # layout differently. Hash-near photos go first (and carry a distance),
+    # then the remaining metadata matches.
+    ordered_hash = sorted(
+        hash_matches.values(),
+        key=lambda item: (item["distance"], item["photo_id"], item["crop_index"]),
+    )
+    ordered_ids: list[str] = []
+    seen: set[str] = set()
+
+    for match in ordered_hash:
+        if match["photo_id"] not in seen:
+            seen.add(match["photo_id"])
+            ordered_ids.append(match["photo_id"])
+
+    for photo_id in photo_ids:
+        if photo_id not in seen:
+            seen.add(photo_id)
+            ordered_ids.append(photo_id)
+
+    result = {
         "kind": kind,
         "mode": mode,
         "frames_count": total,
@@ -698,7 +740,48 @@ def run(
         # True when the model answered with prose and the text itself became
         # the search phrase.
         "fallback": fallback,
-        "photo_ids": list(photo_ids),
-        "count": len(photo_ids),
+        "photo_ids": ordered_ids,
+        "count": len(ordered_ids),
         "truncated": truncated,
+        "hash_query": hash_query,
+        "hash_query_phash": hash_query_phash,
+        "hash_matches": [
+            {key: value for key, value in match.items() if key != "sec"}
+            for match in ordered_hash[:50]
+        ],
     }
+
+    _write_search_log(path, kind, result)
+    return result
+
+
+def _write_search_log(path: str | Path, kind: str, result: dict) -> None:
+    """Append one JSON line per search: distances, photo and address."""
+    try:
+        log_path = Path(
+            os.getenv("SCENE_SEARCH_LOG", "data/logs/media_search.log")
+        )
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        line = {
+            "at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "kind": kind,
+            "query": Path(path).name,
+            "photo_ids": len(result.get("photo_ids") or []),
+            "hash_matches": [
+                {
+                    "photo_id": item["photo_id"],
+                    "crop_index": item["crop_index"],
+                    "distance": item["distance"],
+                    "dhash_distance": item.get("dhash_distance"),
+                    "phash_distance": item.get("phash_distance"),
+                    "address": item.get("address"),
+                }
+                for item in result.get("hash_matches") or []
+            ],
+            "truncated": bool(result.get("truncated")),
+        }
+        with log_path.open("a", encoding="utf-8") as sink:
+            sink.write(json.dumps(line, ensure_ascii=False) + "\n")
+    except OSError:
+        # The search result must not fail because the log file is unwritable.
+        pass

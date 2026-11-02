@@ -191,6 +191,16 @@ def _dino_fallback_address_sql(photo_ref: str) -> str:
         "(CASE WHEN NOT EXISTS ("
         "     SELECT 1 FROM public.hybrid_results AS hx "
         f"     WHERE hx.photo_id = {photo_ref}.photo_id AND hx.status = 'DONE'"
+        ")"
+        # Во время полного пересчёта адресная колонка должна быть пустой:
+        # иначе старый/частичный DINO снова показал бы адрес до HYBRID.
+        " AND NOT EXISTS ("
+        "     SELECT 1 FROM public.dino_batches AS b "
+        "     WHERE b.status IN ('PENDING', 'RUNNING')"
+        ")"
+        " AND NOT EXISTS ("
+        "     SELECT 1 FROM public.hybrid_runs AS hr "
+        "     WHERE hr.status IN ('PENDING', 'RUNNING')"
         ") THEN ("
         "     SELECT r.dino_best_id FROM public.dino_runs AS r "
         f"     WHERE r.photo_id = {photo_ref}.photo_id AND r.status = 'DONE' "

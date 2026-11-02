@@ -201,6 +201,8 @@ const selectedCategory = ref(null)
 const mediaInput = ref(null)
 const mediaFile = ref(null) // the chosen File, kept in memory until ПОИСК
 const mediaJobId = ref(null)
+const mediaHashMatches = ref([])
+const hashMatchesOpen = ref(false)
 const mediaStage = ref('')
 const mediaBusy = ref(false)
 const qwenElapsedSeconds = ref(0)
@@ -1853,6 +1855,7 @@ async function reset() {
   suggestMuted = false
   hadSearchTerm = false
   mediaFile.value = null
+  mediaHashMatches.value = []
   // «Сбросить фильтры» не трогает корзину выделенных фото: она живёт
   // отдельно от фильтров. Снять выделение можно кнопкой «Обновить».
   await apply()
@@ -2123,6 +2126,7 @@ async function clearMedia() {
   mediaBusy.value = false
   mediaStage.value = ''
   mediaFile.value = null
+  mediaHashMatches.value = []
   stopQwenElapsed()
 
   if (jobId) {
@@ -2190,6 +2194,7 @@ async function runMediaSearch() {
     const ids = result.photo_ids || []
     const truncated = result.truncated
     const described = result.qwen && result.qwen.description
+    mediaHashMatches.value = result.hash_matches || []
 
     const shown = Math.min(ids.length, 200)
 
@@ -3442,6 +3447,19 @@ function tagList(meta) {
           />
 
           <!-- ПОИСК turns into ИИ-поиск for an image, and into СТОП while it runs -->
+          <q-btn
+            v-if="mediaHashMatches.length"
+            dense
+            flat
+            color="teal"
+            icon="grid_on"
+            :label="`Кропы: ${mediaHashMatches.length}`"
+            @click="hashMatchesOpen = true"
+          >
+            <q-tooltip>
+              Совпадения по dHash: расстояние, фото, кроп и адрес.
+            </q-tooltip>
+          </q-btn>
           <q-btn
             v-if="mediaBusy"
             dense
@@ -4731,6 +4749,47 @@ function tagList(meta) {
           <div v-if="canUseCollective" class="col-12 col-md-6">
             <ClientNormalization compact />
           </div>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Закрыть" v-close-popup />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Совпадения по dHash загруженного макета. -->
+    <q-dialog v-model="hashMatchesOpen">
+      <q-card style="width: min(920px, 95vw); max-height: 84vh">
+        <q-card-section class="text-subtitle1">
+          Совпадения кропов по dHash
+        </q-card-section>
+        <q-separator />
+        <q-card-section style="max-height: 64vh; overflow: auto">
+          <q-markup-table dense flat bordered>
+            <thead>
+              <tr>
+                <th class="text-left">Фото</th>
+                <th class="text-right">Кроп</th>
+                <th class="text-right">dHash</th>
+                <th class="text-right">pHash</th>
+                <th class="text-right">Итог</th>
+                <th class="text-left">Адрес</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in mediaHashMatches" :key="`${item.photo_id}:${item.region_id || item.crop_index}`">
+                <td class="text-left">{{ item.photo_id }}</td>
+                <td class="text-right">{{ Number(item.crop_index) + 1 }}</td>
+                <td class="text-right">{{ item.dhash_distance ?? '—' }}</td>
+                <td class="text-right">{{ item.phash_distance ?? '—' }}</td>
+                <td class="text-right">
+                  <q-badge :color="item.same_frame ? 'positive' : 'grey-7'">
+                    {{ item.distance }}
+                  </q-badge>
+                </td>
+                <td class="text-left">{{ item.address || '—' }}</td>
+              </tr>
+            </tbody>
+          </q-markup-table>
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Закрыть" v-close-popup />

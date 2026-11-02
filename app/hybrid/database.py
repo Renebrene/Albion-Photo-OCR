@@ -864,3 +864,46 @@ def requeue_stale_runs(*, older_than_minutes: int = 30) -> int:
                 (str(int(older_than_minutes)),),
             )
             return cur.rowcount
+
+
+def supersede_done_results() -> int:
+    """
+    Hide every current DONE verdict before a full recalculation.
+
+    Rows are kept (history is not deleted), but address lookups only use
+    ``status='DONE'``, so the address column becomes empty until the new
+    HYBRID run writes fresh verdicts.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE public.hybrid_results SET status = 'SUPERSEDED' "
+                "WHERE status = 'DONE'"
+            )
+            return cur.rowcount
+
+
+def abort_run(hybrid_run_id: int, message: str) -> HybridRun:
+    """
+    Finalize a run interrupted by pause timeout or cancellation.
+
+    Unfinished results become FAILED so the run cannot stay RUNNING forever
+    without a worker; completed results are kept.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.hybrid_results
+                SET status = 'FAILED',
+                    error_message = %s,
+                    finished_at = CURRENT_TIMESTAMP
+                WHERE hybrid_run_id = %s
+                  AND status IN ('PENDING', 'RUNNING')
+                """,
+                (str(message), int(hybrid_run_id)),
+            )
+
+    return finish_run(hybrid_run_id)

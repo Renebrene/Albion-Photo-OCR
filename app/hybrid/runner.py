@@ -164,6 +164,7 @@ def _process_item(
 def run(
     hybrid_run_id: int,
     workers: int | None = None,
+    control=None,
 ) -> None:
     workers = default_workers() if workers is None else max(1, int(workers))
 
@@ -217,6 +218,25 @@ def run(
     completed = 0
     failed = 0
 
+    def tick() -> None:
+        """Report progress and honour cancel/pause from the queue."""
+        if control is None:
+            return
+
+        try:
+            control(completed + failed, len(pending_indexes), "hybrid")
+        except Exception as exc:  # noqa: BLE001 - pause/cancel finalizes the run
+            try:
+                from app.hybrid import database as hybrid_db
+
+                hybrid_db.abort_run(
+                    hybrid_run_id,
+                    f"HYBRID interrupted: {type(exc).__name__}",
+                )
+            except Exception:
+                pass
+            raise
+
     if workers == 1:
         for index in pending_indexes:
             photo_id, ok = _process_item(
@@ -235,6 +255,7 @@ def run(
                 f"photo={photo_id} "
                 f"status={'DONE' if ok else 'FAILED'}"
             )
+            tick()
 
     else:
         worker = partial(_process_item, hybrid_run_id, items)
@@ -258,6 +279,7 @@ def run(
                     f"photo={photo_id} "
                     f"status={'DONE' if ok else 'FAILED'}"
                 )
+                tick()
 
     final_run = finish_run(hybrid_run_id)
 

@@ -68,9 +68,9 @@ def replace_regions(photo_id: str, regions: list[dict]) -> list[int]:
                     INSERT INTO public.photo_regions (
                         photo_id, kind, crop_index, bbox_x, bbox_y, bbox_w, bbox_h,
                         score, detector, crop_path, crop_width, crop_height,
-                        crop_phash, photo_taken_at
+                        crop_phash, crop_phash_p, photo_taken_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING region_id
                     """,
                     (
@@ -87,6 +87,7 @@ def replace_regions(photo_id: str, regions: list[dict]) -> list[int]:
                         int(region["crop_width"]),
                         int(region["crop_height"]),
                         region.get("crop_phash"),
+                        region.get("crop_phash_p"),
                         region.get("photo_taken_at"),
                     ),
                 )
