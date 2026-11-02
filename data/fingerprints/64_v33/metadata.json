@@ -1,7 +1,7 @@
 {
   "id": "64_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/F819-A20B/178",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "Стачки 178 Тружеников А (1).JPG",
@@ -140,5 +140,6 @@
     "Тружеников Стачки 178 (2).jpg"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "178"
 }

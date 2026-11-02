@@ -1,7 +1,7 @@
 {
   "id": "72_v33",
   "version": "3.3",
-  "source_folder": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/input/72",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "Малиновского Еременко А (1) (2).JPG",
@@ -390,5 +390,6 @@
     "Малиновского Еременко А (9).JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "72"
 }

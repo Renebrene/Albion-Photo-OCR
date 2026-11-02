@@ -1,7 +1,7 @@
 {
   "id": "54_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/TEST/Go/а/171",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "Ларина 17 А (1)_3.JPG",
@@ -65,5 +65,6 @@
     "Ларина 17 А (4)_3.JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "171"
 }

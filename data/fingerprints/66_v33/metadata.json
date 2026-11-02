@@ -1,7 +1,7 @@
 {
   "id": "66_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/TEST/Go/ОРБИТАЛЬНАЯ",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "Беляева Орбитальная А (1).JPG",
@@ -425,5 +425,6 @@
     "Беляева, ул. 28 - Орбитальная ул., 60, A (9)_4.JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "ОРБИТАЛЬНАЯ"
 }

@@ -1,7 +1,7 @@
 {
   "id": "57_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/F819-A20B/00/righr",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "Стачки Вагулевского правый (7).JPG",
@@ -225,5 +225,6 @@
     "Стачки Вагулевского правый в центр А (9).JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "righr"
 }

@@ -1,7 +1,7 @@
 {
   "id": "69_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/TEST/Go/ЕВДОКИМОВА",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "Ольховский Евдокимова А (1).JPG",
@@ -390,5 +390,6 @@
     "Ольховский пер. 66 - Евдокимова ул. 126 (через дорогу, позиция 1 в сторону пр-кт Космонавтов), A (6).JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "ЕВДОКИМОВА"
 }

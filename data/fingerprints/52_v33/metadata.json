@@ -1,7 +1,7 @@
 {
   "id": "52_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/TEST/Go/а/г. Таганрог ,Ленина ул.,",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "IMG_3807.JPG",
@@ -395,5 +395,6 @@
     "г. Таганрог ,Ленина ул., 217-1Железнодорожная ул..JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "г. Таганрог ,Ленина ул.,"
 }

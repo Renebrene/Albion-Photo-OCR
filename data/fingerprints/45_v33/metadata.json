@@ -1,7 +1,7 @@
 {
   "id": "45_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/TEST/Go/а/ПОГОДИНА",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "Ларина 18.JPG",
@@ -120,5 +120,6 @@
     "Ларина Погодина А (9).JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "ПОГОДИНА"
 }

@@ -1,7 +1,7 @@
 {
   "id": "59_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/F819-A20B/00/25",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "001 (1).JPG",
@@ -225,5 +225,6 @@
     "Малиновского 25 к Стачки А (9).JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "25"
 }

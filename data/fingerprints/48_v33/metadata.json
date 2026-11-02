@@ -1,7 +1,7 @@
 {
   "id": "48_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/TEST/Go/а/КУЙБЫШЕВА139",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "1161.JPG",
@@ -100,5 +100,6 @@
     "1169.JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "КУЙБЫШЕВА139"
 }

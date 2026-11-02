@@ -1,7 +1,7 @@
 {
   "id": "71_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/TEST/Go/БОРКО",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "Капустина Борко А (1).JPG",
@@ -370,5 +370,6 @@
     "Капустина ул., 8-ул. Борко, A (3).JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "БОРКО"
 }

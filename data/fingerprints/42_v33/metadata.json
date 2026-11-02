@@ -1,7 +1,7 @@
 {
   "id": "42_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/TEST/Go/а/УРИЦКОГО",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "Батайск, Урицкого (2).JPG",
@@ -265,5 +265,6 @@
     "г. Батайск, ул. Урицкого 7, по ул. Энгельса, A (7).JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "УРИЦКОГО"
 }

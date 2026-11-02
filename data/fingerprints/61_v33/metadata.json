@@ -1,7 +1,7 @@
 {
   "id": "61_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/F819-A20B/00/239",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "IMG_4542.JPG",
@@ -95,5 +95,6 @@
     "IMG_4555.JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "239"
 }

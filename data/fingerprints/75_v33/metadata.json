@@ -1,7 +1,7 @@
 {
   "id": "75_v33",
   "version": "3.3",
-  "source_folder": "/home/alexice/projects/PhotoBAse/scene_fingerprint_RELEASE_v38_1_v33_20260815_1912 (2)/data/input/75",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "40 Лет Победы 154 А (1).JPG",
@@ -190,5 +190,6 @@
     "40 лет победы 154 в Александровку (132).JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "75"
 }

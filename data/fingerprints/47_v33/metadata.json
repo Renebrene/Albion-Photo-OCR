@@ -1,7 +1,7 @@
 {
   "id": "47_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/TEST/Go/а/Курчатова Б1",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "КУрчатова Хасанская Б (1).JPG",
@@ -410,5 +410,6 @@
     "Курчатова Хасанский Б (9).JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "Курчатова Б1"
 }

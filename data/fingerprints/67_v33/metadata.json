@@ -1,7 +1,7 @@
 {
   "id": "67_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/TEST/Go/КОРОЛЕВА МОСТ",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "Королева мост А (1)_10.JPG",
@@ -320,5 +320,6 @@
     "Королева пр-кт (рядом с мостом), A (6)_2.JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "КОРОЛЕВА МОСТ"
 }

@@ -1,7 +1,7 @@
 {
   "id": "47_v34",
   "version": "3.3",
-  "source_folder": "/media/alexice/TEST/Go/а/курчатова б2",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "Курчатова Хасанкая Б (5).JPG",
@@ -65,5 +65,6 @@
     "Курчатова ул. 1А  Хасанская ул., B (6).JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "курчатова б2"
 }

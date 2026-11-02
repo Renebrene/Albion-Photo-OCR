@@ -1,7 +1,7 @@
 {
   "id": "55_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/TEST/Go/SMIRN",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "003смирновский.JPG",
@@ -780,5 +780,6 @@
     "Таганрог Александровский Смирновский А (9).JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "SMIRN"
 }

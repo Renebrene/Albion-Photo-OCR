@@ -1,7 +1,7 @@
 {
   "id": "58_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/F819-A20B/00/left",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "Стачки  Bагулевского - пл. Стачки 1902 года (позиция 1 по ходу движения) левый, A(1).JPG",
@@ -245,5 +245,6 @@
     "Стачки-Вагулевского левый А (5).JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "left"
 }

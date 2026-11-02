@@ -1,7 +1,7 @@
 {
   "id": "50_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/TEST/Go/а/Дзержинского Воскова А (",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "IMG_3733.JPG",
@@ -395,5 +395,6 @@
     "Дзержинского ул., 186-1Воскова ул, A (7).JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "Дзержинского Воскова А ("
 }

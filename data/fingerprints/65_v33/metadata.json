@@ -1,7 +1,7 @@
 {
   "id": "65_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/F819-A20B/127",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "00 (1).JPG",
@@ -280,5 +280,6 @@
     "Шолохова 127 А (97).JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "127"
 }

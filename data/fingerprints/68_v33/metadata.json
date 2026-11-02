@@ -1,7 +1,7 @@
 {
   "id": "68_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/TEST/Go/КАЗАХСКАЯ",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "Казахская Раздорская А (1)_15.JPG",
@@ -485,5 +485,6 @@
     "Казахская ул. 153  Раздорская ул., A (5)_2.JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "КАЗАХСКАЯ"
 }

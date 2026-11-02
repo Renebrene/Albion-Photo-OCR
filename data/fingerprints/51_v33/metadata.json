@@ -1,7 +1,7 @@
 {
   "id": "51_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/TEST/Go/а/дачная",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "Вавилова Дачная А (1).JPG",
@@ -1010,5 +1010,6 @@
     "Вавилова ул. - Дачная ул., A (9)_2.JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "дачная"
 }

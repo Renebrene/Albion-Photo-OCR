@@ -1,7 +1,7 @@
 {
   "id": "70_v33",
   "version": "3.3",
-  "source_folder": "/media/alexice/TEST/Go/ДОБРОВОЛЬСКОГО ПОЗ 3",
+  "source_folder": null,
   "image_meta": [
     {
       "name": "_Комарова-Добровольского А (1).JPG",
@@ -420,5 +420,6 @@
     "Комарова б-р 20В  Добровольского 9А п. 3, A(9).JPG"
   ],
   "preview": "preview.jpg",
-  "skipped_images": []
+  "skipped_images": [],
+  "source_folder_name": "ДОБРОВОЛЬСКОГО ПОЗ 3"
 }
