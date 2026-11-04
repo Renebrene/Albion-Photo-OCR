@@ -8,6 +8,11 @@ from typing import Any, Iterable
 from app.ingest.database import get_connection  # noqa: F401
 
 
+# HYBRID reranks the saved candidates. 15 keeps the correct address visible
+# for low-margin cases, where it often sits below the historical top-5.
+MAX_CANDIDATES = 15
+
+
 @dataclass(frozen=True)
 class DinoWorkItem:
     run_id: int
@@ -396,7 +401,7 @@ def save_success(
             "DINO success requires at least one candidate."
         )
 
-    candidates = candidates[:5]
+    candidates = candidates[:MAX_CANDIDATES]
 
     with get_connection() as conn:
         with conn.cursor() as cur:

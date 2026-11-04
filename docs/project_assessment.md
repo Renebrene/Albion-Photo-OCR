@@ -65,7 +65,7 @@
 | INSPECT | Обнаружить JPG/JPEG, проверить, вычислить SHA-256, сформировать идентичность и результат | `app/ingest/*`, подробная спецификация `docs/ingest.md` |
 | PostgreSQL INSPECT | Проверка `NEW`/`EXISTING`/`CONFLICT`, регистрация | `app/ingest/database.py`, `schema/001_ingest.sql`; отдельно от `pipeline.run()` |
 | PREVIEW | SMALL/MIDDLE JPEG, валидатор, DB upsert | `app/preview/*`, `docs/preview.txt`, `schema/002_preview.sql` |
-| DINO | Неизменяемый batch, inference, TOP-5 и per-image results | `app/dino/*`, `docs/dino.txt`, схемы `003`–`004` |
+| DINO | Неизменяемый batch, inference, TOP-15 и per-image results | `app/dino/*`, `docs/dino.txt`, схемы `003`–`004` |
 | HYBRID | Финальный выбор по DINO результатам и последовательному контексту | `app/hybrid/*`, `docs/hybrid.txt`, `schema/005_hybrid.sql` |
 | REST API | Целевая интеграция UI/сервисов | На момент анализа endpoints не подтверждены; **реализовано позже** (`app/api/`, см. актуализацию) |
 | Vue/Quasar UI | Целевой интерфейс к API | На момент анализа в checkout не обнаружено; **реализовано позже** (`frontend/`, см. актуализацию) |
@@ -98,7 +98,7 @@ Fingerprint v3.3 использует `facebook/dinov2-base` через Transfor
 
 По `docs/dino.txt`, PostgreSQL фиксирует состав DINO batch; новые фото не меняют уже созданный batch, результаты записываются на элемент и сохраняют историю rerun. HYBRID должен читать только сохранённые DINO результаты, не читать original, не выполнять повторный DINO и принимать только полностью успешный batch. Ранее `finish_batch` переводил batch в `DONE` при отсутствии активных задач даже при `failed_count > 0`, что противоречило `docs/dino.txt` §18/§26 и позволяло HYBRID запуск на неполном наборе. **Исправлено**: batch становится `FAILED` при любом провале, а `hybrid.create_run` дополнительно требует `failed_count == 0` и `completed_count == total_count`; покрыто интеграционными тестами на PostgreSQL.
 
-В HYBRID runner зафиксирована эвристика: TOP-5 DINO candidates, соседская корректировка; конкретные веса — DINO score ×10 и neighbor bonus 3, switch gain 1.5. Это эвристика, а не вероятностно откалиброванная confidence; требуется benchmark на размеченных последовательностях и версия алгоритма в истории запуска.
+В HYBRID runner зафиксирована эвристика: TOP-15 DINO candidates, соседская корректировка; конкретные веса — DINO score ×10 и neighbor bonus 3, switch gain 1.5. Это эвристика, а не вероятностно откалиброванная confidence; требуется benchmark на размеченных последовательностях и версия алгоритма в истории запуска.
 
 ## 5. API, модели, доступ и ошибки
 

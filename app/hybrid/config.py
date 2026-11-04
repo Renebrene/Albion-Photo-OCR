@@ -25,10 +25,12 @@ from app import settings_store
 LOW_SCORE_KEY = "hybrid_low_score"
 MIN_MARGIN_KEY = "hybrid_min_margin"
 
-DEFAULT_LOW_SCORE = float(os.getenv("SCENE_HYBRID_LOW_SCORE", "0.85"))
+# Рекомендованное значение по текущему корпусу 57 541 фото: точность на
+# подписанных фото 96,8 %, в «Требуют проверки» уходит 37,8 %.
+DEFAULT_LOW_SCORE = float(os.getenv("SCENE_HYBRID_LOW_SCORE", "0.80"))
 # Отрыв лучшего адреса от второго. 0 — проверка выключена.
-# Замер: медиана по корпусу 0.070, у всех ручных исправлений 0.005–0.014.
-DEFAULT_MIN_MARGIN = float(os.getenv("SCENE_HYBRID_MIN_MARGIN", "0"))
+# Замер: медиана по корпусу 0.034, у всех ручных исправлений 0.002–0.008.
+DEFAULT_MIN_MARGIN = float(os.getenv("SCENE_HYBRID_MIN_MARGIN", "0.015"))
 
 MIN_LOW_SCORE = 0.0
 MAX_LOW_SCORE = 1.0

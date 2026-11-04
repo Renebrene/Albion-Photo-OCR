@@ -1,4 +1,6 @@
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, replace
+from datetime import datetime
 from typing import Any
 
 # Same database/credentials as INGEST, including the bounded connection pool.
@@ -16,6 +18,11 @@ class HybridWorkItem:
     dino_confidence: str | None
     dino_status: str | None
     candidates: list[dict[str, Any]]
+    # Series consensus (capture time + source folder), computed once per run.
+    taken_at: datetime | None = None
+    source_dir: str | None = None
+    previous_final_id: str | None = None
+    series_fp: str | None = None
 
 
 def filter_active_candidates(
@@ -347,10 +354,22 @@ def get_run_items(
                     r.dino_second_score,
                     r.dino_margin,
                     r.dino_confidence,
-                    r.dino_status
+                    r.dino_status,
+                    p.taken_at,
+                    p.source_path,
+                    previous.hybrid_final_id
                 FROM public.dino_runs AS r
                 JOIN public.photos AS p
                   ON p.photo_id = r.photo_id
+                LEFT JOIN LATERAL (
+                    SELECT h.hybrid_final_id
+                    FROM public.hybrid_results AS h
+                    WHERE h.photo_id = r.photo_id
+                      AND h.status = 'DONE'
+                    ORDER BY h.finished_at DESC NULLS LAST,
+                             h.hybrid_run_id DESC
+                    LIMIT 1
+                ) AS previous ON TRUE
                 WHERE r.batch_id = %s
                   AND r.status = 'DONE'
                 ORDER BY p.filename
@@ -433,8 +452,32 @@ def get_run_items(
                             str(run[7]) if run[7] is not None else None
                         ),
                         candidates=candidates,
+                        taken_at=run[8],
+                        source_dir=(
+                            os.path.dirname(run[9])
+                            if run[9]
+                            else None
+                        ),
+                        previous_final_id=(
+                            str(run[10])
+                            if run[10] is not None
+                            else None
+                        ),
                     )
                 )
+
+            from app.hybrid.series import series_consensus
+
+            consensus = series_consensus(items)
+
+            if consensus:
+                items = [
+                    replace(
+                        item,
+                        series_fp=consensus.get(item.photo_id),
+                    )
+                    for item in items
+                ]
 
             if len(items) != get_run(hybrid_run_id).total_count:
                 raise ValueError(

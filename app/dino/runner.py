@@ -16,6 +16,7 @@ from app.core.fingerprint import FingerprintManager
 from app.core.scene_analyzer import CompactDescriptor
 from app.dino.database import (
     DinoWorkItem,
+    MAX_CANDIDATES,
     abort_batch,
     finish_batch,
     get_batch,
@@ -271,7 +272,7 @@ class DinoRunner:
             key=lambda candidate: candidate["score"],
             reverse=True,
         )
-        ranked = ranked[:5]
+        ranked = ranked[:MAX_CANDIDATES]
 
         if not ranked:
             raise ValueError(

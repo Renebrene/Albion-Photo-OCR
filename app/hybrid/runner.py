@@ -23,6 +23,11 @@ GLOBAL_WEIGHT = 10.0
 NEIGHBOR_BONUS = 3.0
 SWITCH_GAIN = 1.5
 
+# When DINO's top two addresses are almost tied, the centroid score is not
+# decisive. The best individual representative (best_image_score) proved more
+# reliable on the corpus than the top-1 centroid score.
+BEST_IMAGE_MARGIN = 0.01
+
 
 def default_workers() -> int:
     return max(1, (os.cpu_count() or 1) // 2)
@@ -75,22 +80,66 @@ def hybrid_one(
         scores[left_fp] = scores.get(left_fp, 0.0) + NEIGHBOR_BONUS
 
     best = old
+    used_low_margin_rule = False
 
-    ranked = sorted(
-        scores.items(),
-        key=lambda pair: pair[1],
-        reverse=True,
-    )
+    # No DINO match means no address: HYBRID must not invent one from a weak
+    # candidate list. The photo stays in "Требуют проверки".
+    if old is not None and (
+        item.dino_margin is not None
+        and item.dino_margin < BEST_IMAGE_MARGIN
+    ):
+        candidate_ids = {
+            str(candidate["id"])
+            for candidate in item.candidates
+            if candidate.get("id") is not None
+        }
 
-    if ranked:
-        candidate = ranked[0][0]
-        candidate_score = scores[candidate]
-        old_score = scores.get(old, 0.0)
+        # Two identical neighbours outvote a nearly tied centroid. This is
+        # especially strong for series shot from the same folder.
+        consensus_fp = (
+            left_fp
+            if left_fp is not None and left_fp == right_fp
+            else None
+        )
 
-        gain = candidate_score - old_score
+        if item.series_fp is not None and item.series_fp in candidate_ids:
+            best = item.series_fp
+            used_low_margin_rule = True
+        elif consensus_fp is not None and consensus_fp in candidate_ids:
+            best = consensus_fp
+            used_low_margin_rule = True
+        else:
+            with_best_image = [
+                candidate
+                for candidate in item.candidates
+                if candidate.get("id") is not None
+                and candidate.get("best_image_score") is not None
+            ]
 
-        if candidate != old and gain > SWITCH_GAIN:
-            best = candidate
+            if with_best_image:
+                chosen = max(
+                    with_best_image,
+                    key=lambda candidate: float(candidate["best_image_score"]),
+                )
+                best = str(chosen["id"])
+                used_low_margin_rule = True
+
+    if old is not None and not used_low_margin_rule:
+        ranked = sorted(
+            scores.items(),
+            key=lambda pair: pair[1],
+            reverse=True,
+        )
+
+        if ranked:
+            candidate = ranked[0][0]
+            candidate_score = scores[candidate]
+            old_score = scores.get(old, 0.0)
+
+            gain = candidate_score - old_score
+
+            if candidate != old and gain > SWITCH_GAIN:
+                best = candidate
 
     old_score = scores.get(old, 0.0) if old is not None else 0.0
     new_score = scores.get(best, 0.0) if best is not None else 0.0

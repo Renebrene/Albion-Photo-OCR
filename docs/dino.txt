@@ -116,7 +116,7 @@ photo_id + source_path
    ещё нет — оригинал по source_path; модель всё равно уменьшает изображение
    до 518 px (глобальный эмбеддинг) и 128 px (компактные дескрипторы);
 2. выполняет существующий DINO v3.3 recognition core;
-3. получает TOP-1 ... TOP-5;
+3. получает TOP-1 ... TOP-15;
 4. получает scores и descriptor components;
 5. вычисляет dino_score;
 6. вычисляет dino_second_score;
@@ -176,7 +176,7 @@ dino_candidates:
 - best_image;
 - best_image_score.
 
-Сохраняется TOP-5.
+Сохраняется TOP-15: при почти равных кандидатах HYBRID может переранжировать их по `best_image_score`.
 
 ---
 
@@ -267,7 +267,7 @@ DINO завершает свою работу записью результат�
 HYBRID получает входные данные из PostgreSQL:
 
 - photo_id;
-- DINO TOP-1 ... TOP-5;
+- DINO TOP-1 ... TOP-15;
 - scores;
 - margin;
 - другие сохранённые DINO данные.
@@ -588,7 +588,7 @@ HYBRID получает результаты по конкретному `batch_
 Для каждого `dino_run` HYBRID использует:
 
 - `photo_id`;
-- TOP-1 … TOP-5;
+- TOP-1 … TOP-15;
 - оценки кандидатов;
 - `dino_score`;
 - `dino_second_score`;
@@ -622,7 +622,7 @@ HYBRID:
 
 - ждёт завершения соответствующего DINO BATCH;
 - читает результаты DINO из PostgreSQL;
-- анализирует TOP-5 и последовательность;
+- анализирует TOP-15 и последовательность;
 - формирует окончательный вердикт;
 - записывает вердикт в PostgreSQL.
 

@@ -33,7 +33,7 @@ FAISS `IndexFlatIP` рядом с `metadata.json` в `data/fingerprints/<id>`.
 1. **Не заменять одномоментно.** Сначала dual-write: DINO пишет и в FAISS,
    и в `photo_embeddings(photo_id, embedding vector(768))`.
 2. **Сравнить Recall@5** на текущем корпусе: pgvector-поиск должен находить
-   те же TOP-5, что FAISS. Только после этого переключать чтение.
+   те же TOP-15, что FAISS. Только после этого переключать чтение.
 3. **HNSW** (`vector_cosine_ops`) для скорости; на 583–57 000 векторов
    подходит и `ivfflat`, но HNSW проще настраивать.
 4. **Расширение** `CREATE EXTENSION vector` требует прав суперпользователя;

@@ -26,8 +26,9 @@ def reset_cache():
     hybrid_config.invalidate()
 
 
-def test_default_threshold_is_085():
-    assert hybrid_config.DEFAULT_LOW_SCORE == 0.85
+def test_default_threshold_is_080_and_margin_0015():
+    assert hybrid_config.DEFAULT_LOW_SCORE == 0.80
+    assert hybrid_config.DEFAULT_MIN_MARGIN == 0.015
 
 
 def test_threshold_can_be_switched_off():
@@ -61,6 +62,7 @@ def test_resolve_settings_shape(monkeypatch):
 
 def test_address_sql_is_plain_when_the_threshold_is_off(monkeypatch):
     monkeypatch.setattr(hybrid_config, "low_score", lambda: 0.0)
+    monkeypatch.setattr(hybrid_config, "min_margin", lambda: 0.0)
 
     sql = repository._address_sql("p")
 
@@ -70,6 +72,7 @@ def test_address_sql_is_plain_when_the_threshold_is_off(monkeypatch):
 
 def test_address_sql_gates_on_confidence(monkeypatch):
     monkeypatch.setattr(hybrid_config, "low_score", lambda: 0.85)
+    monkeypatch.setattr(hybrid_config, "min_margin", lambda: 0.0)
 
     sql = repository._address_sql("p")
 
