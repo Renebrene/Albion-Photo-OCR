@@ -38,11 +38,15 @@ import {
   VERSION_SUFFIX,
   assignBatchIds,
   slugifyName,
+  uniqueId,
 } from '../utils/fingerprint-id'
 import { useAsyncAction } from '../composables/useAsyncAction'
+import { confirmDialog } from '../composables/confirmDialog'
 import { useSessionStore } from '../stores/session'
+import { useDisplayStore } from '../stores/display'
 
 const session = useSessionStore()
+const display = useDisplayStore()
 const isAdmin = computed(() => session.user?.role === 'Администратор')
 
 // Сохранение правки шлёт два запроса и может запустить пересчёт базы —
@@ -63,25 +67,45 @@ const FINGERPRINT_TABS = [
   { value: 'roads', label: 'Районы и трассы 6х3' },
   { value: 'cities', label: 'Города области' },
   { value: '', label: 'Без адреса' },
+  // Архив общий: сюда попадают неактивные слепки из всех закладок.
+  { value: '__archive__', label: 'Архив' },
 ]
 
 const tab = ref('screens')
 
 const tabsWithCounts = computed(() => {
   const counts = {}
+  let archived = 0
 
   for (const row of items.value) {
+    if (!row.active) {
+      archived += 1
+      continue
+    }
+
     const key = row.tab || ''
     counts[key] = (counts[key] || 0) + 1
   }
 
   return FINGERPRINT_TABS
-    .map((option) => ({ ...option, count: counts[option.value] || 0 }))
-    .filter((option) => option.value !== '' || option.count > 0)
+    .map((option) => ({
+      ...option,
+      count: option.value === '__archive__' ? archived : (counts[option.value] || 0),
+    }))
+    .filter(
+      (option) =>
+        option.value === '__archive__'
+        || option.value !== ''
+        || option.count > 0,
+    )
 })
 
 const visibleItems = computed(() =>
-  items.value.filter((row) => (row.tab || '') === tab.value),
+  items.value.filter((row) =>
+    tab.value === '__archive__'
+      ? !row.active
+      : row.active && (row.tab || '') === tab.value,
+  ),
 )
 
 /** Формат слепка — из его адреса; на «Экранах» всегда «Видеоэкран». */
@@ -163,7 +187,7 @@ const buildForm = ref({
   folder: '',
   // 0 — «все фото в папке»: это значение по умолчанию (задание, п. 5а).
   max_photos: 0,
-  replace: true,
+  replace: false,
   // Юридический адрес выбирается при сборке; формат берётся из него.
   address_id: null,
 })
@@ -210,6 +234,24 @@ const localSummary = computed(() => {
   }
 })
 
+/**
+ * Подставить ID из имени папки, если пользователь его ещё не ввёл.
+ * Без ID кнопка «Собрать» остаётся неактивной, и выбор папки выглядел
+ * как поломка.
+ */
+function fillBuildIdFromFolder(path) {
+  if (buildForm.value.fingerprint_id.trim()) return
+
+  const name = String(path || '')
+    .split(/[\\/]/)
+    .filter(Boolean)
+    .pop()
+
+  if (name) {
+    buildForm.value.fingerprint_id = slugifyName(name, { suffix: VERSION_SUFFIX })
+  }
+}
+
 function pickLocalFolder() {
   localError.value = ''
   localInput.value?.click()
@@ -232,6 +274,10 @@ function onLocalFiles(event) {
   } else {
     localFiles.value = images
     localError.value = ''
+
+    const relative = images[0]?.webkitRelativePath || ''
+    const folderName = relative.split('/')[0]
+    if (folderName) fillBuildIdFromFolder(folderName)
   }
 
   // Тот же файл можно выбрать повторно — сбрасываем значение поля.
@@ -329,10 +375,10 @@ async function loadAddressGroups() {
 function openBuild(item = null) {
   buildForm.value = {
     fingerprint_id: item?.fingerprint_id || '',
-    folder: item?.source_folder || '',
+    folder: item?.source_folder || display.lastFolders.build || '',
     // По умолчанию — все фото в папке (задание, п. 5а).
     max_photos: 0,
-    replace: true,
+    replace: false,
     address_id: item?.address?.address_id ?? null,
   }
   addressFilter.value = ''
@@ -373,6 +419,8 @@ async function chooseFolder(path) {
   }
 
   buildForm.value.folder = path
+  display.rememberFolder('build', path)
+  fillBuildIdFromFolder(path)
   browseOpen.value = false
 }
 
@@ -388,6 +436,8 @@ async function pickNative() {
   try {
     const result = await pickFolderNative()
     buildForm.value.folder = result.path
+    display.rememberFolder('build', result.path)
+    fillBuildIdFromFolder(result.path)
     browseOpen.value = false
   } catch (err) {
     if (pickerUnavailable(err.message)) {
@@ -422,6 +472,42 @@ async function startBuild() {
     return
   }
 
+  // Конфликт ID: старый слепок не перезаписываем — архивируем и добавляем
+  // итерацию к ID (base_1, base_2 …).
+  let buildId = form.fingerprint_id.trim()
+  const existing = items.value.find(
+    (row) => row.fingerprint_id === buildId,
+  )
+
+  if (existing) {
+    const taken = items.value.map((row) => row.fingerprint_id)
+    const nextId = uniqueId(buildId, taken)
+    const confirmed = await confirmDialog({
+      title: 'Слепок с таким ID уже существует',
+      message:
+        `Слепок «${buildId}» уже есть. Он будет отправлен в архив, `
+        + `а новый соберётся с ID «${nextId}».`,
+      okLabel: 'В архив и собрать',
+      color: 'warning',
+    })
+
+    if (!confirmed) return
+
+    try {
+      await updateFingerprint(buildId, { active: false })
+      existing.active = false
+    } catch (err) {
+      Notify.create({
+        type: 'negative',
+        message: `Не удалось отправить старый слепок в архив: ${err.message}`,
+      })
+      return
+    }
+
+    buildId = nextId
+    form.fingerprint_id = buildId
+  }
+
   buildBusy.value = true
   buildJob.value = null
 
@@ -431,10 +517,12 @@ async function startBuild() {
     const uploadId = fromLocal ? await uploadLocalFolder() : null
 
     const started = await buildFingerprint({
-      fingerprint_id: form.fingerprint_id.trim(),
+      fingerprint_id: buildId,
       ...(uploadId ? { upload_id: uploadId } : { folder: form.folder.trim() }),
       max_photos: form.max_photos || null,
-      replace: form.replace,
+      // Существующий слепок не перезаписываем: UI архивирует его и
+      // собирает новую итерацию ID.
+      replace: false,
     })
 
     buildJob.value = started.skipped
@@ -455,7 +543,7 @@ async function startBuild() {
       // до неё строки реестра ещё нет, и привязывать не к чему.
       if (form.address_id) {
         try {
-          await setFingerprintAddress(form.fingerprint_id.trim(), form.address_id)
+          await setFingerprintAddress(buildId, form.address_id)
           await load()
         } catch (err) {
           Notify.create({
@@ -525,13 +613,15 @@ const batchMaxPhotos = ref(0)
 const batchState = ref(null) // агрегат от /v1/fingerprints/batch/{id}
 
 function openBatch() {
-  batchParent.value = ''
+  const last = display.lastFolders.batch || ''
+  batchParent.value = last
   batchParentPath.value = ''
   batchDirs.value = []
   batchSelected.value = []
   batchIds.value = {}
   batchState.value = null
   batchOpen.value = true
+  if (last) void loadBatchDirs(last)
 }
 
 function batchIdFor(path) {
@@ -549,6 +639,7 @@ async function loadBatchDirs(path) {
   try {
     const result = await browseFolders(path || null)
     batchParent.value = result.path || ''
+    if (result.path) display.rememberFolder('batch', result.path)
     batchParentPath.value = result.parent || ''
     // Every sub-folder is listed: folders without photos in them must stay
     // visible, otherwise there is no way down to data/input/78.
@@ -606,11 +697,16 @@ async function startBatch() {
     return
   }
 
-  const items = batchSelected.value.map((path) => ({
-    fingerprint_id: batchIdFor(path).trim(),
-    folder: path,
-  }))
-  const ids = items.map((item) => item.fingerprint_id)
+  // Существующие ID не перезаписываем: при совпадении добавляем итерацию.
+  const taken = new Set(items.value.map((row) => row.fingerprint_id))
+  const payloadItems = batchSelected.value.map((path) => {
+    const base = batchIdFor(path).trim()
+    const fingerprintId = uniqueId(base, taken)
+    taken.add(fingerprintId)
+    if (fingerprintId !== base) setBatchId(path, fingerprintId)
+    return { fingerprint_id: fingerprintId, folder: path }
+  })
+  const ids = payloadItems.map((item) => item.fingerprint_id)
 
   if (ids.some((id) => !FINGERPRINT_ID_RE.test(id))) {
     Notify.create({
@@ -632,9 +728,9 @@ async function startBatch() {
 
   try {
     const started = await buildFingerprintBatch({
-      items,
+      items: payloadItems,
       max_photos: batchMaxPhotos.value || null,
-      replace: true,
+      replace: false,
     })
 
     Notify.create({
@@ -975,7 +1071,7 @@ function day(value) {
       v-model="tab"
       dense
       align="left"
-      class="text-primary q-mb-sm"
+      class="text-primary q-mb-sm sticky-tabs"
       active-color="primary"
       indicator-color="primary"
     >
@@ -987,6 +1083,7 @@ function day(value) {
       />
     </q-tabs>
 
+    <div class="table-scroll">
     <q-table
       :rows="visibleItems"
       :loading="loading"
@@ -1079,6 +1176,7 @@ function day(value) {
         </q-td>
       </template>
     </q-table>
+    </div>
 
     <div class="text-caption text-grey q-mt-sm">
       Векторы слепков лежат в <code>data/fingerprints/&lt;id&gt;</code>; реестр
@@ -1398,8 +1496,10 @@ function day(value) {
               label="Сколько фото взять"
               style="min-width: 230px"
             />
-            <q-toggle v-model="buildForm.replace" dense
-              label="Пересобрать, если слепок уже есть" />
+            <span class="text-caption text-grey-7">
+              Существующий слепок не перезаписывается: он уходит в архив,
+              новый получает следующий ID.
+            </span>
           </div>
 
           <div class="text-caption text-grey">
@@ -1817,5 +1917,52 @@ function day(value) {
 .batch-id-input {
   max-width: 240px;
   min-width: 180px;
+}
+
+/* Закладки слепков остаются на месте; прокручивается только таблица. */
+.sticky-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: #ffffff;
+}
+
+:global(body.body--dark) .sticky-tabs {
+  background: #121212;
+}
+
+.sticky-tabs :deep(.q-tab) {
+  color: rgba(25, 118, 210, 0.55);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  margin-right: 2px;
+}
+
+.sticky-tabs :deep(.q-tab--active) {
+  color: var(--q-primary);
+  border-color: currentColor;
+  background: rgba(25, 118, 210, 0.07);
+}
+
+.table-scroll {
+  max-height: 65vh;
+  overflow: auto;
+}
+
+/* У Quasar .q-table__middle сам создаёт scroll-контейнер; при внешней
+   прокрутке он должен быть прозрачным, иначе sticky-заголовок не работает. */
+.table-scroll :deep(.q-table__middle) {
+  overflow: visible;
+}
+
+.table-scroll :deep(thead tr:first-child th) {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #ffffff;
+}
+
+:global(body.body--dark) .table-scroll :deep(thead tr:first-child th) {
+  background: #1d1d1f;
 }
 </style>

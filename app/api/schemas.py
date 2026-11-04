@@ -380,7 +380,9 @@ class FingerprintBatchRequest(BaseModel):
 
     items: list[FingerprintBatchItem] = Field(min_length=1, max_length=200)
     max_photos: int | None = Field(default=None, ge=1, le=5000)
-    replace: bool = True
+    # Never overwrite an existing fingerprint: the UI archives it and builds
+    # a new iteration instead.
+    replace: bool = False
 
 
 class FingerprintAddressRequest(BaseModel):
@@ -403,7 +405,8 @@ class FingerprintBuildRequest(BaseModel):
     folder: str | None = Field(default=None, min_length=1, max_length=4096)
     upload_id: str | None = Field(default=None, min_length=32, max_length=32)
     max_photos: int | None = Field(default=None, ge=1, le=5000)
-    replace: bool = True
+    # Never overwrite an existing fingerprint: see FingerprintBatchRequest.
+    replace: bool = False
 
     @model_validator(mode="after")
     def validate_source(self):

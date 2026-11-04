@@ -3893,6 +3893,19 @@ def build_fingerprint(request: FingerprintBuildRequest):
             detail="в папке нет фотографий",
         )
 
+    # A rebuild must never silently replace vectors. The UI archives the old
+    # fingerprint and builds a new id iteration; direct API callers get 409.
+    # Checked after the source so a bad folder still reports 400/404 even when
+    # the registry is unavailable.
+    if not request.replace and fingerprints_mod.get_fingerprint(fingerprint_id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"слепок {fingerprint_id} уже существует; "
+                "архивируйте его и выберите новый ID"
+            ),
+        )
+
     job_id = jobs_db.enqueue_fingerprint_build(
         fingerprint_id,
         str(folder),
@@ -4238,6 +4251,15 @@ def build_fingerprint_batch(request: FingerprintBatchRequest):
                 {
                     "fingerprint_id": fingerprint_id,
                     "error": "в папке нет фотографий",
+                }
+            )
+            continue
+
+        if not request.replace and fingerprints_mod.get_fingerprint(fingerprint_id):
+            errors.append(
+                {
+                    "fingerprint_id": fingerprint_id,
+                    "error": "ID уже существует; нужен новый ID",
                 }
             )
             continue

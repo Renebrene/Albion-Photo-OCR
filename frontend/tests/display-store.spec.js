@@ -181,6 +181,7 @@ describe('display store', () => {
       leftPanelWidth: 340,
       rightPanelWidth: 340,
       sideListHeight: 300,
+      lastFolders: {},
     })
 
     display.reset()

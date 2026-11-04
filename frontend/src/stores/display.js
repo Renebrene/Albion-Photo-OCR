@@ -172,6 +172,20 @@ export const useDisplayStore = defineStore('display', () => {
   // фильтр: она меняет весь смысл грида и списков.
   const photoGroup = ref('screens')
 
+  // Последние выбранные каталоги по местам: сборка слепка, пакетная сборка,
+  // инспектор и т.п. Личная настройка пользователя, синхронизируется с сервером.
+  const lastFolders = ref({})
+
+  function rememberFolder(scope, path) {
+    const key = String(scope || '').trim()
+    const value = String(path || '').trim()
+
+    if (!key || !value) return
+
+    lastFolders.value = { ...lastFolders.value, [key]: value }
+    persist()
+  }
+
   const filters = ref({
     period: 'week',
     from: null,
@@ -314,6 +328,16 @@ export const useDisplayStore = defineStore('display', () => {
 
     dateFilterMode.value =
       saved.dateFilterMode === 'upload' ? 'upload' : 'capture'
+
+    const savedFolders =
+      saved.lastFolders && typeof saved.lastFolders === 'object'
+        ? saved.lastFolders
+        : {}
+    lastFolders.value = Object.fromEntries(
+      Object.entries(savedFolders)
+        .filter(([key, value]) => typeof key === 'string' && typeof value === 'string' && value)
+        .slice(0, 30),
+    )
   }
 
   applyState(loadState())
@@ -378,6 +402,7 @@ export const useDisplayStore = defineStore('display', () => {
       leftPanelWidth: leftPanelWidth.value,
       rightPanelWidth: rightPanelWidth.value,
       sideListHeight: sideListHeight.value,
+      lastFolders: { ...lastFolders.value },
     }
   }
 
@@ -679,6 +704,9 @@ export const useDisplayStore = defineStore('display', () => {
     // Группа верхней панели: «Экраны» / «Р-н-Д 6х3» / «Города области» /
     // «Область и трассы 6х3» / «Р-н-Д малые форматы».
     photoGroup,
+    // Последние выбранные каталоги по местам (сборка слепка, пакет и т.п.).
+    lastFolders,
+    rememberFolder,
     leftPanelOpen,
     rightPanelOpen,
     leftPanelWidth,

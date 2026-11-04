@@ -1,0 +1,85 @@
+{
+  "id": "24_v33",
+  "version": "3.3",
+  "source_folder": null,
+  "image_meta": [
+    {
+      "name": "Стачки 190 А (1).JPG",
+      "taken_at": "2026-10-20 16:11:05"
+    },
+    {
+      "name": "Стачки 190 А (10).JPG",
+      "taken_at": "2026-10-20 16:19:33"
+    },
+    {
+      "name": "Стачки 190 А (11).JPG",
+      "taken_at": "2026-10-20 16:19:34"
+    },
+    {
+      "name": "Стачки 190 А (2).JPG",
+      "taken_at": "2026-10-20 16:11:06"
+    },
+    {
+      "name": "Стачки 190 А (3).JPG",
+      "taken_at": "2026-10-20 16:11:21"
+    },
+    {
+      "name": "Стачки 190 А (4).JPG",
+      "taken_at": "2026-10-20 16:11:21"
+    },
+    {
+      "name": "Стачки 190 А (5).JPG",
+      "taken_at": "2026-10-20 16:11:22"
+    },
+    {
+      "name": "Стачки 190 А (6).JPG",
+      "taken_at": "2026-10-20 16:11:48"
+    },
+    {
+      "name": "Стачки 190 А (7).JPG",
+      "taken_at": "2026-10-20 16:11:48"
+    },
+    {
+      "name": "Стачки 190 А (8).JPG",
+      "taken_at": "2026-10-20 16:11:49"
+    },
+    {
+      "name": "Стачки 190 А (9).JPG",
+      "taken_at": "2026-10-20 16:19:32"
+    }
+  ],
+  "model": "facebook/dinov2-base",
+  "images": 11,
+  "dimension": 768,
+  "representatives": 11,
+  "patch_tokens": 0,
+  "patch_storage": false,
+  "environment_descriptor": "compact_v1",
+  "environment_dimension": 640,
+  "color_descriptor": "hsv_histogram_v1",
+  "color_dimension": 48,
+  "spatial_descriptor": "gray_grid_v1",
+  "spatial_dimension": 32,
+  "weights": {
+    "global": 0.7,
+    "environment": 0.2,
+    "color": 0.07,
+    "spatial": 0.03
+  },
+  "image_names": [
+    "Стачки 190 А (1).JPG",
+    "Стачки 190 А (10).JPG",
+    "Стачки 190 А (11).JPG",
+    "Стачки 190 А (2).JPG",
+    "Стачки 190 А (3).JPG",
+    "Стачки 190 А (4).JPG",
+    "Стачки 190 А (5).JPG",
+    "Стачки 190 А (6).JPG",
+    "Стачки 190 А (7).JPG",
+    "Стачки 190 А (8).JPG",
+    "Стачки 190 А (9).JPG"
+  ],
+  "preview": "preview.jpg",
+  "skipped_images": [],
+  "source_folder_name": "190"
+}

@@ -327,7 +327,7 @@ async function saveMap() {
       v-model="scope"
       dense
       align="left"
-      class="text-primary"
+      class="text-primary sticky-tabs"
       active-color="primary"
       indicator-color="primary"
     >
@@ -414,6 +414,7 @@ async function saveMap() {
 
       <!-- Одна строка — одна сторона: A(1), A(2), A(3) сведены в A (правило
            «Сайта»); у щита и видеоэкрана A1/A2 остаются разными сторонами. -->
+      <div class="table-scroll">
       <q-table
         :rows="sideItems"
         :columns="columns"
@@ -486,6 +487,7 @@ async function saveMap() {
           </q-td>
         </template>
       </q-table>
+      </div>
     </q-card>
 
     <!-- У стороны несколько поверхностей — спрашиваем, к какой применить действие. -->
@@ -573,5 +575,51 @@ async function saveMap() {
 <style scoped>
 .hidden-input {
   display: none;
+}
+
+/* Закладки справочника остаются на месте при прокрутке таблицы. */
+.sticky-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: #ffffff;
+}
+
+:global(body.body--dark) .sticky-tabs {
+  background: #121212;
+}
+
+.sticky-tabs :deep(.q-tab) {
+  color: rgba(25, 118, 210, 0.55);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  margin-right: 2px;
+}
+
+.sticky-tabs :deep(.q-tab--active) {
+  color: var(--q-primary);
+  border-color: currentColor;
+  background: rgba(25, 118, 210, 0.07);
+}
+
+/* Прокручивается только таблица, её заголовок приклеен. */
+.table-scroll {
+  max-height: 65vh;
+  overflow: auto;
+}
+
+.table-scroll :deep(.q-table__middle) {
+  overflow: visible;
+}
+
+.table-scroll :deep(thead tr:first-child th) {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #ffffff;
+}
+
+:global(body.body--dark) .table-scroll :deep(thead tr:first-child th) {
+  background: #1d1d1f;
 }
 </style>

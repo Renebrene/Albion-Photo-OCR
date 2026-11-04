@@ -360,6 +360,24 @@ def test_build_rejects_a_missing_folder(tmp_path):
     assert response.status_code == 404
 
 
+def test_build_refuses_to_overwrite_an_existing_id(monkeypatch, photo_folder):
+    from app.api import routes as api_routes
+
+    monkeypatch.setattr(
+        api_routes.fingerprints_mod,
+        "get_fingerprint",
+        lambda fingerprint_id: {"fingerprint_id": fingerprint_id},
+    )
+
+    response = client.post(
+        "/api/v1/fingerprints/build",
+        json={"fingerprint_id": "existing_v33", "folder": str(photo_folder)},
+    )
+
+    assert response.status_code == 409
+    assert "уже существует" in response.json()["detail"]
+
+
 @requires_build_job
 def test_build_queues_a_job_and_can_be_cancelled(photo_folder):
     response = client.post(

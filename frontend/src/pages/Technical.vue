@@ -43,7 +43,12 @@ const canEditClients = computed(() =>
 
     <!-- Порядок задан владельцем: сначала работа с фотографиями, затем службы,
          затем слепки и адреса, в конце — пользователи и вид. -->
-    <q-tabs v-model="tab" dense align="left" class="text-primary q-mb-sm">
+    <q-tabs
+      v-model="tab"
+      dense
+      align="left"
+      class="text-primary q-mb-sm technical-tabs"
+    >
       <span class="tab-sep" />
       <q-tab name="ingest" icon="folder_open" label="Инспектор" />
       <q-tab name="processing" icon="play_circle" label="Сортировка" />
@@ -168,5 +173,34 @@ const canEditClients = computed(() =>
 
 body.body--dark .tab-sep {
   background: rgba(255, 255, 255, 0.24);
+}
+
+/* Меню технического раздела не уезжает при прокрутке содержимого. */
+.technical-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: #ffffff;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+:global(body.body--dark) .technical-tabs {
+  background: #121212;
+  border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Активная закладка — рамкой, остальные — на полтона светлее. */
+.technical-tabs :deep(.q-tab) {
+  color: rgba(25, 118, 210, 0.55);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  margin-right: 2px;
+}
+
+.technical-tabs :deep(.q-tab--active) {
+  color: var(--q-primary);
+  border-color: currentColor;
+  background: rgba(25, 118, 210, 0.07);
 }
 </style>
