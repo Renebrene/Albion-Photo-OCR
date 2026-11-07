@@ -67,6 +67,97 @@ def _latest_confidence_sql(photo_ref: str) -> str:
     )
 
 
+def _selected_similarity_scope(
+    addresses: list[str] | None,
+) -> tuple[list[int], list[str]]:
+    """
+    Разобрать выбранные адреса для сортировки по сходству со слепком.
+
+    Возвращает два набора: id адресов из панели (`addr:<id>`) и старые id
+    слепков. «Требуют проверки» и мусор пропускаются: у них нет слепка, с
+    которым можно сравнивать.
+    """
+
+    address_ids: list[int] = []
+    fingerprint_ids: list[str] = []
+
+    for value in addresses or []:
+        text = str(value).strip()
+
+        if not text:
+            continue
+
+        if text.lower().startswith("addr:"):
+            suffix = text.split(":", 1)[1].strip()
+
+            if suffix.lower() == REVIEW_ADDRESS_ID:
+                continue
+
+            try:
+                address_ids.append(int(suffix))
+            except ValueError:
+                continue
+        else:
+            fingerprint_ids.append(text.lower())
+
+    return address_ids, fingerprint_ids
+
+
+def _similarity_sql(
+    photo_ref: str,
+    address_ids: list[int],
+    fingerprint_ids: list[str],
+) -> tuple[str, list[object]]:
+    """
+    DINO-сходство фото с выбранным слепком (0…1).
+
+    Берётся максимальный `dino_candidates.score` среди кандидатов последнего
+    DONE-вердикта HYBRID, если кандидат принадлежит выбранному адресу. Это
+    именно сходство с выбранным слепком, а не ранг 1: фото может быть
+    отсортировано к адресу, который DINO поставил вторым.
+
+    Временный режим для проверки фильтра в панели адресов. При пустом выборе
+    выражение равно NULL — вызывающий не должен строить такой запрос.
+    """
+
+    matches: list[str] = []
+    params: list[object] = []
+
+    if address_ids:
+        matches.append("af.address_id = ANY(%s)")
+        params.append(address_ids)
+
+    if fingerprint_ids:
+        matches.append("LOWER(af.fingerprint_id) = ANY(%s)")
+        params.append(fingerprint_ids)
+
+    if not matches:
+        return "NULL::double precision", []
+
+    latest_run = (
+        "SELECT h2.hybrid_run_id FROM public.hybrid_results AS h2 "
+        f"WHERE h2.photo_id = {photo_ref}.photo_id AND h2.status = 'DONE' "
+        "ORDER BY h2.finished_at DESC NULLS LAST, h2.hybrid_run_id DESC "
+        "LIMIT 1"
+    )
+
+    sql = (
+        "(SELECT max(c.score) FROM public.hybrid_results AS h "
+        "JOIN public.dino_candidates AS c "
+        "  ON c.run_id = h.dino_run_id "
+        "JOIN public.address_fingerprints AS af "
+        "  ON af.fingerprint_id = c.fingerprint_id AND af.active "
+        "JOIN public.fingerprints AS f "
+        "  ON f.fingerprint_id = af.fingerprint_id AND f.active "
+        f"WHERE h.photo_id = {photo_ref}.photo_id "
+        "  AND h.status = 'DONE' "
+        f"  AND h.hybrid_run_id = ({latest_run}) "
+        "  AND (" + " OR ".join(matches) + "))"
+    )
+
+    return sql, params
+
+
 def _latest_margin_sql(photo_ref: str) -> str:
     """
     Отрыв лучшего адреса от второго в последнем вердикте HYBRID.
@@ -556,6 +647,13 @@ def _photo_row(row) -> PhotoSummary:
         margin=float(row[20]) if row[20] is not None else None,
         runner_up_address=row[21],
         runner_up_score=float(row[22]) if row[22] is not None else None,
+        # Дополнительный столбец есть только у временной сортировки по
+        # сходству с выбранным слепком; в остальных запросах его нет.
+        similarity=(
+            float(row[23])
+            if len(row) > 23 and row[23] is not None
+            else None
+        ),
     )
 
 
@@ -574,6 +672,10 @@ _SORT_EXPRESSIONS = {
     ),
     "client": "COALESCE(t.client, '')",
     "date": "COALESCE(t.taken_at, t.created_at)",
+    # Временный ключ: порядок задаётся отдельным выражением в list_photos,
+    # потому что сходство зависит от выбранного адреса. Здесь — безопасное
+    # значение на случай прямого вызова sort_expression().
+    "similarity": "t.confidence",
 }
 
 SORT_KEYS = tuple(_SORT_EXPRESSIONS)
@@ -710,7 +812,12 @@ def _photo_where(
     tag_clauses: list[str] = []
 
     if not ids and cursor:
-        if sort == "photo_id":
+        if sort == "similarity":
+            # У временной сортировки нет уникального значения в строке:
+            # страница продолжается смещением (`sim:N`), как у ранжированной
+            # выдачи. Сравнение по значению здесь не строится.
+            pass
+        elif sort == "photo_id":
             # По умолчанию страница продолжается по photo_id — как раньше.
             clauses.append(
                 "t.photo_id > %s" if order == "asc" else "t.photo_id < %s"
@@ -1155,12 +1262,53 @@ def list_photos(
             except ValueError:
                 offset = 0
 
+    if sort == "similarity" and cursor and cursor.startswith("sim:"):
+        # Временная сортировка по сходству: курсор — смещение, потому что
+        # само сходство вычисляется для выбранного адреса и не хранится в
+        # строке. Ограничение по размеру не даёт испорченному курсору
+        # запросить произвольно большую страницу.
+        try:
+            offset = max(0, min(int(cursor[len("sim:"):]), 1_000_000))
+        except ValueError:
+            offset = 0
+
     if order_param is not None:
         sql += (
             " ORDER BY array_position(%s::text[], t.photo_id) "
             "LIMIT %s OFFSET %s"
         )
         params.extend([order_param, limit + 1, offset])
+    elif sort == "similarity":
+        # Сортировка по сходству с выбранным слепком. Выражение зависит от
+        # набора адресов, поэтому строится здесь, а не в статической карте
+        # _SORT_EXPRESSIONS. Внешний SELECT нужен, чтобы ORDER BY мог
+        # ссылаться на вычисленный столбец.
+        address_ids, fingerprint_ids = _selected_similarity_scope(addresses)
+        similarity_expr, similarity_params = _similarity_sql(
+            "base",
+            address_ids,
+            fingerprint_ids,
+        )
+        direction = "DESC" if order == "desc" else "ASC"
+        sql = (
+            "SELECT base.*, "
+            + similarity_expr
+            + " AS similarity FROM ("
+            + _PHOTO_SELECT
+            + where
+            + ") AS base ORDER BY similarity "
+            + direction
+            + " NULLS LAST, base.photo_id "
+            + direction
+            + " LIMIT %s OFFSET %s"
+        )
+        # The similarity expression is in the OUTER SELECT, so its placeholders
+        # come before the inner WHERE placeholders in the SQL text. Keep the
+        # parameter list in the same order: otherwise a date range shifts one
+        # position and PostgreSQL tries to cast the similarity address array to
+        # date (500: cannot cast type smallint[] to date).
+        params = similarity_params + params
+        params.extend([limit + 1, offset])
     elif sort == "photo_id":
         sql += " ORDER BY t.photo_id%s LIMIT %%s" % (
             " DESC" if order == "desc" else ""
@@ -1191,6 +1339,10 @@ def list_photos(
         # Rank-based cursor: the offset of the next page inside the ranked list.
         next_cursor = (
             f"rank:{offset + len(items)}" if has_next and items else None
+        )
+    elif sort == "similarity":
+        next_cursor = (
+            f"sim:{offset + len(items)}" if has_next and items else None
         )
     elif sort == "photo_id":
         next_cursor = items[-1].photo_id if has_next and items else None

@@ -120,6 +120,7 @@ def build_fingerprint(
     batch_id: str | None = None,
     job_id: int | None = None,
     progress=None,
+    version: str | None = None,
 ) -> dict:
     """
     Build one fingerprint and refresh the registry.
@@ -130,6 +131,9 @@ def build_fingerprint(
     *recalculate* queues one full DINO+HYBRID pass when an existing fingerprint
     was actually replaced: the new vectors make every stored verdict stale.
     A brand-new fingerprint needs no recalculation.
+
+    *version* selects the optional profile: 3.3 (default) or 3.5, which also
+    stores whole-scene context descriptors in metadata.json.
 
     `progress(done, total, stage)` is handed to the builder; the worker uses it
     both for the progress bar and to notice a pause/cancel request.
@@ -162,6 +166,7 @@ def build_fingerprint(
         replace=replace,
         source_folder=str(folder_path),
         progress=progress,
+        version=version,
     )
 
     # The registry mirrors metadata.json; syncing here means the new version is

@@ -46,6 +46,10 @@ class PhotoSummary(BaseModel):
     # None — вердикта нет; ниже порога из настроек фото уходит в «Требуют проверки».
     confidence: float | None = None
 
+    # Временная сортировка «по схожести со слепком»: максимальный DINO-score
+    # выбранного адреса в последнем вердикте. None в обычных запросах.
+    similarity: float | None = None
+
     # Что предложил DINO/HYBRID без порога уверенности. Заполнено и для
     # фото из «Требуют проверки»: человек видит автоматический вариант и
     # решает, принять его (переопределением адреса) или нет.
@@ -173,6 +177,11 @@ class DinoBatchRequest(BaseModel):
     photo_ids: list[str] | None = None
     mode: str = Field(default="manual", pattern="^(manual|schedule|outofqueue)$")
     auto_hybrid: bool = False
+    # Optional period scope. NORMAL sorts only unprocessed photos in the
+    # period; FORCE_RERUN with dates recalculates the selected period.
+    date_from: date | None = None
+    date_to: date | None = None
+    date_mode: str = Field(default="upload", pattern="^(upload|capture)$")
 
 
 class HybridRequest(BaseModel):
@@ -383,6 +392,8 @@ class FingerprintBatchRequest(BaseModel):
     # Never overwrite an existing fingerprint: the UI archives it and builds
     # a new iteration instead.
     replace: bool = False
+    # 3.5 is the optional whole-scene-context profile.
+    version: str = Field(default="3.3", pattern=r"^(3\.3|3\.5)$")
 
 
 class FingerprintAddressRequest(BaseModel):
@@ -407,6 +418,8 @@ class FingerprintBuildRequest(BaseModel):
     max_photos: int | None = Field(default=None, ge=1, le=5000)
     # Never overwrite an existing fingerprint: see FingerprintBatchRequest.
     replace: bool = False
+    # 3.5 is the optional whole-scene-context profile.
+    version: str = Field(default="3.3", pattern=r"^(3\.3|3\.5)$")
 
     @model_validator(mode="after")
     def validate_source(self):

@@ -31,17 +31,27 @@ def _item(
         dino_margin=margin if best else None,
         dino_confidence="AMBIGUOUS",
         dino_status="AMBIGUOUS",
-        candidates=candidates
-        or [
-            _candidate("a", 0.90, 0.80),
-            _candidate("b", 0.89, 0.95),
-        ],
+        candidates=(
+            [
+                _candidate("a", 0.90, 0.80),
+                _candidate("b", 0.89, 0.95),
+            ]
+            if candidates is None
+            else candidates
+        ),
         series_fp=series_fp,
     )
 
 
-def test_no_dino_best_never_assigns_an_address():
+def test_no_dino_best_falls_back_to_top_candidate():
     result = hybrid_one([_item(best=None)], 0)
+
+    assert result["hybrid_final_id"] == "a"
+    assert result["hybrid_changed"] is True
+
+
+def test_no_dino_best_without_candidates_stays_unassigned():
+    result = hybrid_one([_item(best=None, candidates=[])], 0)
 
     assert result["hybrid_final_id"] is None
     assert result["hybrid_changed"] is False
@@ -99,4 +109,39 @@ def test_series_consensus_wins_over_neighbours_and_best_image():
     result = hybrid_one([left, target, right], 1)
 
     assert result["hybrid_final_id"] == "s"
+    assert result["hybrid_changed"] is True
+
+
+def test_no_dino_best_prefers_series_over_top_candidate():
+    target = _item(
+        best=None,
+        series_fp="s",
+        candidates=[
+            _candidate("a", 0.60, 0.90),
+            _candidate("s", 0.50, 0.40),
+        ],
+        photo_id="PH_target",
+    )
+
+    result = hybrid_one([target], 0)
+
+    assert result["hybrid_final_id"] == "s"
+    assert result["hybrid_changed"] is True
+
+
+def test_no_dino_best_prefers_two_neighbour_consensus():
+    target = _item(
+        best=None,
+        candidates=[
+            _candidate("a", 0.60, 0.90),
+            _candidate("n", 0.50, 0.40),
+        ],
+        photo_id="PH_target",
+    )
+    left = _item(best="n", photo_id="PH_left")
+    right = _item(best="n", photo_id="PH_right")
+
+    result = hybrid_one([left, target, right], 1)
+
+    assert result["hybrid_final_id"] == "n"
     assert result["hybrid_changed"] is True

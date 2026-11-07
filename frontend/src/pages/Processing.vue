@@ -44,6 +44,15 @@ const loading = ref(false)
 const error = ref(null)
 const starting = ref(false)
 
+// Сортировка отдельного периода: тот же DINO/HYBRID, но FORCE_RERUN
+// только по выбранным датам. Режим даты — загрузка или съёмка.
+const periodOpen = ref(false)
+const periodFrom = ref('')
+const periodTo = ref('')
+const periodMode = ref('capture')
+const periodBusy = ref(false)
+const periodError = ref('')
+
 // Ручной запуск сортировки запрещён, пока идёт любой процесс, меняющий
 // состояние описаний: полный прогон, тик планировщика или другая
 // DINO/HYBRID-сортировка.
@@ -414,6 +423,47 @@ function reload() {
   reloadTab()
 }
 
+async function startPeriodBatch() {
+  periodError.value = ''
+
+  if (!periodFrom.value || !periodTo.value) {
+    periodError.value = 'Укажите начало и конец периода'
+    return
+  }
+
+  periodBusy.value = true
+
+  try {
+    const result = await createDinoBatch({
+      run_type: 'FORCE_RERUN',
+      auto_hybrid: true,
+      date_from: periodFrom.value,
+      date_to: periodTo.value,
+      date_mode: periodMode.value,
+    })
+
+    if (result.job_id) {
+      Notify.create({
+        type: 'positive',
+        message: `Период поставлен в сортировку: batch ${result.batch_id}, фото ${result.total_count}`,
+      })
+      periodOpen.value = false
+    } else {
+      Notify.create({
+        type: 'info',
+        message: 'За выбранный период нет фотографий',
+      })
+    }
+
+    await loadDino()
+    await loadActivity()
+  } catch (err) {
+    periodError.value = err.message
+  } finally {
+    periodBusy.value = false
+  }
+}
+
 async function startNormalBatch() {
   starting.value = true
 
@@ -564,6 +614,19 @@ onBeforeUnmount(() => {
           <template v-if="operationActive">
             <br />Недоступно, пока идёт {{ operationText }}.
           </template>
+        </q-tooltip>
+      </q-btn>
+      <q-btn
+        color="secondary"
+        outline
+        icon="date_range"
+        label="Сортировать период"
+        :disable="operationActive"
+        @click="periodOpen = true; periodError = ''"
+      >
+        <q-tooltip>
+          Пересчитать DINO/HYBRID только для фото выбранного периода.
+          Остальные результаты не затрагиваются.
         </q-tooltip>
       </q-btn>
       <q-btn
@@ -911,6 +974,52 @@ onBeforeUnmount(() => {
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Закрыть" v-close-popup />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Сортировка отдельного периода: копия логики QWEN-пересканирования,
+         но для DINO/HYBRID. -->
+    <q-dialog v-model="periodOpen">
+      <q-card style="min-width: 520px; max-width: 94vw">
+        <q-card-section class="text-subtitle1">Сортировка периода</q-card-section>
+        <q-separator />
+        <q-card-section class="q-gutter-sm">
+          <div class="text-caption text-grey-8">
+            Будут пересчитаны DINO и HYBRID только для фотографий выбранного
+            периода. Остальные адреса и результаты не затрагиваются.
+          </div>
+          <q-select
+            v-model="periodMode"
+            :options="[
+              { label: 'По дате съёмки (EXIF)', value: 'capture' },
+              { label: 'По дате загрузки', value: 'upload' },
+            ]"
+            dense
+            outlined
+            emit-value
+            map-options
+            option-label="label"
+            option-value="value"
+            label="Дата периода"
+          />
+          <div class="row q-gutter-sm">
+            <q-input v-model="periodFrom" type="date" dense outlined label="С" />
+            <q-input v-model="periodTo" type="date" dense outlined label="По" />
+          </div>
+          <q-banner v-if="periodError" dense class="bg-red-1 text-negative">
+            {{ periodError }}
+          </q-banner>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Отмена" v-close-popup :disable="periodBusy" />
+          <q-btn
+            color="primary"
+            label="Запустить сортировку периода"
+            :loading="periodBusy"
+            :disable="!periodFrom || !periodTo || operationActive"
+            @click="startPeriodBatch"
+          />
         </q-card-actions>
       </q-card>
     </q-dialog>

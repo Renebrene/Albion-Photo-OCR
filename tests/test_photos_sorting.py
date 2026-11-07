@@ -21,6 +21,92 @@ def test_unknown_sort_key_falls_back_to_photo_id():
     assert "photo_id" in repo.SORT_KEYS
 
 
+def test_similarity_sort_key_is_temporary_and_address_aware():
+    """Ключ нужен API, но реальное выражение строится из выбранного адреса."""
+
+    assert "similarity" in repo.SORT_KEYS
+    assert repo.sort_expression("similarity") == "t.confidence"
+
+    address_ids, fingerprint_ids = repo._selected_similarity_scope(
+        ["addr:51", "addr:review", "92_v33", "bad"]
+    )
+
+    assert address_ids == [51]
+    assert fingerprint_ids == ["92_v33", "bad"]
+
+
+def test_similarity_sql_uses_latest_verdict_and_selected_address():
+    sql, params = repo._similarity_sql("base", [51], ["92_v33"])
+
+    assert "max(c.score)" in sql
+    assert "h.hybrid_run_id = (" in sql
+    assert "af.address_id = ANY(%s)" in sql
+    assert "LOWER(af.fingerprint_id) = ANY(%s)" in sql
+    assert params == [[51], ["92_v33"]]
+
+
+def test_similarity_cursor_is_offset_based():
+    """У сходства нет значения в строке, поэтому курсор — смещение."""
+
+    where, params = repo._photo_where(cursor="sim:50", sort="similarity")
+
+    assert "photo_id > %s" not in where
+    assert params == []
+
+
+def test_similarity_params_come_before_inner_date_params(monkeypatch):
+    """
+    Регрессия 500: similarity-выражение стоит в OUTER SELECT, поэтому его
+    placeholder идёт первым. При датном диапазоне сдвиг параметров давал
+    «cannot cast type smallint[] to date».
+    """
+
+    seen: dict = {}
+
+    class FakeCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, sql, params):
+            seen["sql"] = sql
+            seen["params"] = list(params)
+
+        def fetchall(self):
+            return []
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def cursor(self):
+            return FakeCursor()
+
+    monkeypatch.setattr(repo, "get_connection", lambda: FakeConnection())
+
+    items, cursor = repo.list_photos(
+        limit=10,
+        sort="similarity",
+        order="desc",
+        addresses=["addr:144"],
+        date_from="2026-10-01",
+        date_to="2026-10-31",
+        date_mode="capture",
+    )
+
+    assert items == []
+    assert cursor is None
+    # outer similarity -> inner address (2) -> dates (2) -> limit/offset
+    assert seen["params"][0] == [144]
+    assert seen["params"][3:5] == ["2026-10-01", "2026-10-31"]
+    assert seen["params"][-2:] == [11, 0]
+
+
 def test_cursor_roundtrip_keeps_value_and_id():
     photo_id = "PH_" + "a" * 24
     cursor = repo.encode_cursor("Мира 1", photo_id)

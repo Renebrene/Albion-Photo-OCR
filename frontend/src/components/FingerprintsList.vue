@@ -190,6 +190,9 @@ const buildForm = ref({
   replace: false,
   // Юридический адрес выбирается при сборке; формат берётся из него.
   address_id: null,
+  // v3.5 is optional and adds whole-scene context descriptors; v3.3 remains
+  // the default for every existing address.
+  version: '3.3',
 })
 
 // folder picker
@@ -380,6 +383,7 @@ function openBuild(item = null) {
     max_photos: 0,
     replace: false,
     address_id: item?.address?.address_id ?? null,
+    version: '3.3',
   }
   addressFilter.value = ''
   void loadAddressGroups()
@@ -523,6 +527,7 @@ async function startBuild() {
       // Существующий слепок не перезаписываем: UI архивирует его и
       // собирает новую итерацию ID.
       replace: false,
+      version: form.version,
     })
 
     buildJob.value = started.skipped
@@ -610,6 +615,7 @@ const batchSelected = ref([])
 const batchIds = ref({})
 // 0 — «все фото в папке», как и в одиночной сборке (задание, п. 5б).
 const batchMaxPhotos = ref(0)
+const batchVersion = ref('3.3')
 const batchState = ref(null) // агрегат от /v1/fingerprints/batch/{id}
 
 function openBatch() {
@@ -731,6 +737,7 @@ async function startBatch() {
       items: payloadItems,
       max_photos: batchMaxPhotos.value || null,
       replace: false,
+      version: batchVersion.value,
     })
 
     Notify.create({
@@ -1496,6 +1503,26 @@ function day(value) {
               label="Сколько фото взять"
               style="min-width: 230px"
             />
+            <q-select
+              v-model="buildForm.version"
+              :options="[
+                { label: '3.3 — базовый', value: '3.3' },
+                { label: '3.5 — контекст сцены', value: '3.5' },
+              ]"
+              dense
+              outlined
+              emit-value
+              map-options
+              option-label="label"
+              option-value="value"
+              label="Версия профиля"
+              style="min-width: 210px"
+            >
+              <q-tooltip>
+                3.5 сохраняет те же 768-мерные DINO-эмбеддинги и добавляет
+                whole-scene контекст: green_top, sky_top, gray_building.
+              </q-tooltip>
+            </q-select>
             <span class="text-caption text-grey-7">
               Существующий слепок не перезаписывается: он уходит в архив,
               новый получает следующий ID.
@@ -1780,6 +1807,21 @@ function day(value) {
               option-value="value"
               label="Фото на слепок"
               style="min-width: 220px"
+            />
+            <q-select
+              v-model="batchVersion"
+              :options="[
+                { label: '3.3 — базовый', value: '3.3' },
+                { label: '3.5 — контекст сцены', value: '3.5' },
+              ]"
+              dense
+              outlined
+              emit-value
+              map-options
+              option-label="label"
+              option-value="value"
+              label="Версия"
+              style="min-width: 170px"
             />
             <q-badge color="grey-7">
               отмечено: {{ batchSelected.length }} из {{ batchDirs.length }}

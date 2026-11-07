@@ -45,9 +45,152 @@ from app.refine.logic import skeleton  # noqa: E402
 # Имена адресов для читаемого отчёта заполняет load_addresses().
 ADDRESS_NAMES: dict[int, str] = {}
 
+# Адреса, у которых есть активный слепок.  При неоднозначном пересечении
+# (одна и та же улица с разными сторонами A/B) предпочитаем тот адрес,
+# который вообще можно предсказать.
+COVERED_ADDRESSES: set[int] = set()
+
+# Точечные соответствия, которые нельзя вывести из названия автоматически.
+# Порядок важен: проверяются до обычного префиксного поиска.
+_FILENAME_ADDRESS_ALIASES = (
+    (("шеболдаева", "риижт"), "Шеболдаева 8"),
+    (("королева", "мост"), "Королева возле моста"),
+    (("вавилова", "технологический"), "Технологический"),
+)
+ALIAS_ADDRESS_IDS: dict[tuple[str, ...], int] = {}
+
+_SIDE_RE = re.compile(
+    r"(?:^|[\s,./\-])([abаб])(?=\s|$|[\(\*])",
+    re.IGNORECASE,
+)
+
+
+def _side(value: object) -> str | None:
+    """Сторона A/B, если она явно указана отдельной буквой."""
+
+    text = str(value or "").lower().replace("ё", "е")
+    matches = _SIDE_RE.findall(text)
+    if not matches:
+        return None
+    side = matches[-1]
+    return {"а": "a", "б": "b"}.get(side, side)
+
+
+def _alias_match(
+    filename: str,
+    addresses: list[tuple[int, str]],
+) -> int | None:
+    known = {address_id for address_id, _normalized in addresses}
+    file_tokens = set(_address_tokens(filename))
+
+    for tokens, _name in _FILENAME_ADDRESS_ALIASES:
+        address_id = ALIAS_ADDRESS_IDS.get(tokens)
+        if address_id is None or address_id not in known:
+            continue
+        if all(token in file_tokens for token in tokens):
+            return address_id
+
+    return None
+
+# Служебные слова, которые не помогают отличить один адрес от другого.
+_ADDRESS_STOPWORDS = {
+    "ул",
+    "улица",
+    "пр",
+    "пркт",
+    "проспект",
+    "кт",
+    "пл",
+    "площадь",
+    "пер",
+    "переулок",
+    "д",
+    "дом",
+    "стр",
+    "корп",
+    "к",
+    "на",
+    "и",
+    "в",
+    "во",
+    "литер",
+}
+
+_ADDRESS_TOKEN_RE = re.compile(r"[a-zа-я0-9]+")
+
+
+def _address_tokens(value: object) -> list[str]:
+    """Значимые слова адреса/имени файла без служебных сокращений."""
+
+    text = str(value or "").lower().replace("ё", "е")
+    return [
+        word
+        for word in _ADDRESS_TOKEN_RE.findall(text)
+        if len(word) >= 2 and word not in _ADDRESS_STOPWORDS
+    ]
+
+
+def _intersection_match(
+    filename: str,
+    addresses: list[tuple[int, str]],
+) -> int | None:
+    """Сопоставление пересечений улиц без учёта порядка слов.
+
+    «Вавилова ул. - Дачная ул.» должно находить адрес «Дачная / Вавилова»,
+    а «Стачки пр-кт - Зорге ул.» — «Зорге / Стачки».  Обычный префиксный
+    поиск этого не умеет: части адреса идут в другом порядке.
+    """
+
+    file_tokens = _address_tokens(filename)
+    if len(file_tokens) < 2:
+        return None
+    file_set = set(file_tokens)
+    file_side = _side(filename)
+
+    matches: list[tuple[tuple[int, int, int, int, int], int]] = []
+
+    for address_id, normalized in addresses:
+        raw = ADDRESS_NAMES.get(address_id) or ""
+        address_tokens = _address_tokens(raw) or _address_tokens(normalized)
+        if len(address_tokens) < 2:
+            continue
+        address_set = set(address_tokens)
+
+        if file_set <= address_set or address_set <= file_set:
+            matched = len(file_set & address_set)
+            address_side = _side(raw or normalized)
+            if file_side and address_side:
+                side_score = 2 if file_side == address_side else 0
+            else:
+                side_score = 1
+            matches.append(
+                (
+                    (
+                        matched,
+                        int(address_id in COVERED_ADDRESSES),
+                        side_score,
+                        len(address_set),
+                        len(normalized),
+                    ),
+                    address_id,
+                )
+            )
+
+    if not matches:
+        return None
+
+    matches.sort(reverse=True)
+
+    if len(matches) > 1 and matches[0][0] == matches[1][0]:
+        return None
+
+    return matches[0][1]
+
 
 def load_addresses() -> list[tuple[int, str]]:
     """Активные адреса: (address_id, нормализованное имя)."""
+
+    global COVERED_ADDRESSES
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -69,6 +212,21 @@ def load_addresses() -> list[tuple[int, str]]:
             result.append((int(address_id), name))
 
         ADDRESS_NAMES[int(address_id)] = (simple or legal or "").strip()
+
+    ALIAS_ADDRESS_IDS.clear()
+    by_name = {
+        display.strip().lower(): address_id
+        for address_id, display in ADDRESS_NAMES.items()
+    }
+    for tokens, name in _FILENAME_ADDRESS_ALIASES:
+        address_id = by_name.get(name.strip().lower())
+        if address_id is not None:
+            ALIAS_ADDRESS_IDS[tokens] = address_id
+
+    try:
+        COVERED_ADDRESSES = set(fingerprint_addresses().values())
+    except Exception:  # noqa: BLE001 - evaluation can run without DB fingerprints
+        COVERED_ADDRESSES = set()
 
     return result
 
@@ -92,6 +250,10 @@ def expected_address(filename: str, addresses: list[tuple[int, str]]) -> int | N
     if len(name) < 4:
         return None
 
+    alias = _alias_match(filename, addresses)
+    if alias is not None:
+        return alias
+
     candidates: list[tuple[int, int]] = []
 
     for address_id, normalized in addresses:
@@ -103,15 +265,17 @@ def expected_address(filename: str, addresses: list[tuple[int, str]]) -> int | N
         elif normalized.startswith(name) and len(name) >= 5:
             candidates.append((len(name), address_id))
 
-    if not candidates:
-        return None
+    if candidates:
+        candidates.sort(reverse=True)
 
-    candidates.sort(reverse=True)
+        if not (
+            len(candidates) > 1
+            and candidates[0][0] == candidates[1][0]
+        ):
+            return candidates[0][1]
 
-    if len(candidates) > 1 and candidates[0][0] == candidates[1][0]:
-        return None  # одинаково длинные совпадения: не угадываем
-
-    return candidates[0][1]
+    # Префиксный поиск не сработал: пробуем пересечение улиц в любом порядке.
+    return _intersection_match(filename, addresses)
 
 
 def load_photos(

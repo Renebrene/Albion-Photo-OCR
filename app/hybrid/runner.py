@@ -80,34 +80,54 @@ def hybrid_one(
         scores[left_fp] = scores.get(left_fp, 0.0) + NEIGHBOR_BONUS
 
     best = old
-    used_low_margin_rule = False
+    used_custom_rule = False
 
-    # No DINO match means no address: HYBRID must not invent one from a weak
-    # candidate list. The photo stays in "Требуют проверки".
-    if old is not None and (
+    candidate_ids = {
+        str(candidate["id"])
+        for candidate in item.candidates
+        if candidate.get("id") is not None
+    }
+
+    # Two identical neighbours outvote a nearly tied centroid. This is
+    # especially strong for series shot from the same folder.
+    consensus_fp = (
+        left_fp
+        if left_fp is not None and left_fp == right_fp
+        else None
+    )
+
+    # DINO may have no best_id because its absolute score is below 0.65 even
+    # though the top candidate is the right scene. With zero review thresholds
+    # HYBRID must still produce an address: series/neighbour consensus first,
+    # then the best DINO candidate (rank 1). This is not a relaxation of the
+    # confidence label; the read-time confidence/margin thresholds still decide
+    # whether the verdict is shown as trusted or as "Требуют проверки".
+    if old is None:
+        if item.series_fp is not None and item.series_fp in candidate_ids:
+            best = item.series_fp
+        elif consensus_fp is not None and consensus_fp in candidate_ids:
+            best = consensus_fp
+        else:
+            ranked = sorted(
+                scores.items(),
+                key=lambda pair: pair[1],
+                reverse=True,
+            )
+            if ranked:
+                best = ranked[0][0]
+
+        used_custom_rule = True
+
+    elif (
         item.dino_margin is not None
         and item.dino_margin < BEST_IMAGE_MARGIN
     ):
-        candidate_ids = {
-            str(candidate["id"])
-            for candidate in item.candidates
-            if candidate.get("id") is not None
-        }
-
-        # Two identical neighbours outvote a nearly tied centroid. This is
-        # especially strong for series shot from the same folder.
-        consensus_fp = (
-            left_fp
-            if left_fp is not None and left_fp == right_fp
-            else None
-        )
-
         if item.series_fp is not None and item.series_fp in candidate_ids:
             best = item.series_fp
-            used_low_margin_rule = True
+            used_custom_rule = True
         elif consensus_fp is not None and consensus_fp in candidate_ids:
             best = consensus_fp
-            used_low_margin_rule = True
+            used_custom_rule = True
         else:
             with_best_image = [
                 candidate
@@ -122,9 +142,9 @@ def hybrid_one(
                     key=lambda candidate: float(candidate["best_image_score"]),
                 )
                 best = str(chosen["id"])
-                used_low_margin_rule = True
+                used_custom_rule = True
 
-    if old is not None and not used_low_margin_rule:
+    if old is not None and not used_custom_rule:
         ranked = sorted(
             scores.items(),
             key=lambda pair: pair[1],

@@ -137,6 +137,7 @@ def test_worker_maps_the_build_payload(monkeypatch):
         batch_id=None,
         job_id=None,
         progress=None,
+        version=None,
     ):
         seen.update(
             fingerprint_id=fingerprint_id,
@@ -147,6 +148,7 @@ def test_worker_maps_the_build_payload(monkeypatch):
             batch_id=batch_id,
             job_id=job_id,
             has_progress=callable(progress),
+            version=version,
         )
         return {"fingerprint_id": fingerprint_id, "images": 20}
 
@@ -178,6 +180,7 @@ def test_worker_maps_the_build_payload(monkeypatch):
         "job_id": 1,
         # The worker hands the builder a progress callback it can report with.
         "has_progress": True,
+        "version": None,
     }
     assert result["images"] == 20
 

@@ -186,6 +186,9 @@ class FingerprintManager:
     """
 
     VERSION = "3.3"
+    # v3.5 is an optional profile: it keeps the same 768-D DINO embeddings and
+    # may add whole-scene context metadata. v3.3 remains the default build.
+    SUPPORTED_VERSIONS = ("3.3", "3.5")
 
     def __init__(
         self,
@@ -316,6 +319,7 @@ class FingerprintManager:
         replace=False,
         source_folder=None,
         progress=None,
+        version=None,
     ):
         """
         Build one fingerprint from every image in *folder* (recursively).
@@ -331,11 +335,22 @@ class FingerprintManager:
                       published, so a failed rebuild leaves the old fingerprint
                       in place.
         source_folder - recorded in metadata.json for the registry.
+        version      - optional profile version; v3.3 default, v3.5 adds the
+                       whole-scene context descriptor.
         """
 
         fingerprint_id = str(
             fingerprint_id
         )
+
+        version = str(version or self.VERSION)
+
+        if version not in self.SUPPORTED_VERSIONS:
+            raise ValueError(
+                "unsupported fingerprint version: "
+                f"{version}; supported: "
+                f"{', '.join(self.SUPPORTED_VERSIONS)}"
+            )
 
         folder = Path(folder)
 
@@ -407,6 +422,7 @@ class FingerprintManager:
                 source_folder=source_folder,
                 progress=progress,
                 skipped=skipped,
+                version=version,
             )
 
             # Move the old vectors aside only now that the new ones exist.
@@ -447,9 +463,12 @@ class FingerprintManager:
         source_folder=None,
         progress=None,
         skipped=(),
+        version=None,
     ):
+        version = str(version or self.VERSION)
+
         print(
-            f"[Fingerprint v3.3] "
+            f"[Fingerprint v{version}] "
             f"Creating '{fingerprint_id}' "
             f"from {len(paths)} images"
         )
@@ -653,9 +672,24 @@ class FingerprintManager:
         # shows it for a fingerprint whose source folder is long gone).
         preview = build_preview(paths, output / PREVIEW_NAME)
 
+        if version == "3.5":
+            from app.core.scene_context import context_features, context_summary
+
+            context_values = np.stack(
+                [context_features(path) for path in paths]
+            )
+            np.save(
+                output / "context_embeddings.npy",
+                context_values,
+            )
+            context = context_summary(paths)
+        else:
+            context = {}
+
         metadata = {
             "id": fingerprint_id,
-            "version": self.VERSION,
+            "version": version,
+            **context,
             # Where the reference photos came from and what they were: the
             # originals are not stored, so the registry keeps their names
             # and capture dates here (schema/024).
@@ -809,14 +843,14 @@ class FingerprintManager:
             )
         )
 
-        if version != self.VERSION:
+        if version not in self.SUPPORTED_VERSIONS:
             raise ValueError(
                 f"Fingerprint "
                 f"'{fingerprint_id}' "
                 f"is version "
                 f"'{version}', "
-                f"expected "
-                f"'{self.VERSION}'"
+                f"supported: "
+                f"{', '.join(self.SUPPORTED_VERSIONS)}"
             )
 
         return {

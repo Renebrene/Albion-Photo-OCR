@@ -355,6 +355,7 @@ def enqueue_fingerprint_build(
     batch_id: str | None = None,
     recalculate: bool = False,
     upload_id: str | None = None,
+    version: str | None = None,
 ) -> int | None:
     """
     Queue one fingerprint build (or rebuild).
@@ -373,6 +374,9 @@ def enqueue_fingerprint_build(
         "folder": str(folder),
         "replace": bool(replace),
     }
+
+    if version:
+        payload["version"] = str(version)
 
     if max_photos:
         payload["max_photos"] = int(max_photos)

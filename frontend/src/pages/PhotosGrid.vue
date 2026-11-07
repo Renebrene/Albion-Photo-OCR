@@ -331,7 +331,61 @@ const sortOptions = [
   { label: 'По адресу', value: 'address' },
   { label: 'По клиенту', value: 'client' },
   { label: 'По дате съёмки', value: 'date' },
+  { label: 'По схожести со слепком (тест)', value: 'similarity' },
 ]
+
+// Временный тестовый режим в панели адресов: выбран ровно один настоящий
+// адрес, и грид можно упорядочить по DINO-сходству с его слепком.
+const similarityAddress = computed(() => {
+  if (store.selectedAddresses.length !== 1) return null
+
+  const value = String(store.selectedAddresses[0] || '')
+  const match = /^addr:(\d+)$/.exec(value)
+
+  return match ? value : null
+})
+
+const previousSimilaritySort = ref('date')
+const previousSimilarityDirection = ref('desc')
+
+const similaritySort = computed({
+  get: () => store.sortKey === 'similarity',
+  set: (enabled) => {
+    if (enabled) {
+      if (store.sortKey !== 'similarity') {
+        previousSimilaritySort.value = store.sortKey || 'date'
+        previousSimilarityDirection.value = store.sortDirection || 'desc'
+      }
+
+      store.sortKey = 'similarity'
+      store.sortDirection = 'desc'
+    } else {
+      store.sortKey = previousSimilaritySort.value || 'date'
+      store.sortDirection = previousSimilarityDirection.value || 'desc'
+    }
+
+    display.setFilters({
+      sortKey: store.sortKey,
+      sortDirection: store.sortDirection,
+    })
+    store.refresh()
+    writeFiltersToQuery()
+  },
+})
+
+// Сменили адрес или сняли выбор — тестовый порядок больше не имеет смысла.
+watch(similarityAddress, (value) => {
+  if (value || store.sortKey !== 'similarity') return
+
+  store.sortKey = previousSimilaritySort.value || 'date'
+  store.sortDirection = previousSimilarityDirection.value || 'desc'
+  display.setFilters({
+    sortKey: store.sortKey,
+    sortDirection: store.sortDirection,
+  })
+  store.refresh()
+  writeFiltersToQuery()
+})
 
 // Порядок строк уже серверный: этот computed оставлен, чтобы не менять
 // шаблон и навигацию по просмотрщику.
@@ -340,6 +394,11 @@ const sortedItems = computed(() => items.value)
 /** Уверенность распознавания строкой: 0.87. Пусто, если вердикта нет. */
 function confidenceText(value) {
   return typeof value === 'number' ? value.toFixed(2) : ''
+}
+
+/** Сходство с выбранным слепком: три знака, чтобы был виден отрыв. */
+function similarityText(value) {
+  return typeof value === 'number' ? value.toFixed(3) : ''
 }
 
 function toggleSortDirection() {
@@ -3249,6 +3308,23 @@ function tagList(meta) {
             <div v-if="addressHint" class="text-caption text-grey-7 q-mt-xs">
               {{ addressHint }}
             </div>
+            <!-- Временный тестовый режим: порядок по DINO-сходству с одним
+                 выбранным адресом. Виден только когда выбран ровно один
+                 настоящий адрес. -->
+            <div v-if="similarityAddress" class="q-mt-sm">
+              <q-toggle
+                v-model="similaritySort"
+                dense
+                color="primary"
+                label="По схожести со слепком"
+              >
+                <q-tooltip>
+                  Тестовый режим: фото сортируются по максимальному DINO-score
+                  выбранного слепка в последнем вердикте. Само число показано
+                  на плитке.
+                </q-tooltip>
+              </q-toggle>
+            </div>
           </q-card-section>
           <q-separator />
           <q-scroll-area class="col">
@@ -3784,6 +3860,12 @@ function tagList(meta) {
                     class="ellipsis text-caption text-weight-bold font-italic"
                   >
                     {{ tileCaption(photo).meta }}
+                  </div>
+                  <div
+                    v-if="similaritySort && similarityText(photo.similarity)"
+                    class="ellipsis text-caption text-primary"
+                  >
+                    Сходство {{ similarityText(photo.similarity) }}
                   </div>
                   <!-- Значок QWEN — внизу, перед строкой клиента/бренда/тегов. -->
                   <div class="ellipsis text-caption font-italic row items-center no-wrap">

@@ -211,7 +211,10 @@ class DinoRunner:
                 )
                 continue
 
-            if data.get("metadata", {}).get("version") != "3.3":
+            if (
+                data.get("metadata", {}).get("version")
+                not in FingerprintManager.SUPPORTED_VERSIONS
+            ):
                 continue
 
             if data["embeddings"].shape[1] != 768:
@@ -221,7 +224,7 @@ class DinoRunner:
 
         if not loaded:
             raise ValueError(
-                "No compatible v3.3 / 768D active fingerprints found."
+                "No compatible v3.3/v3.5 / 768D active fingerprints found."
             )
 
         print(

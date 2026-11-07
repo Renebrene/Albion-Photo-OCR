@@ -1241,10 +1241,14 @@ def list_hybrid_runs(
     dependencies=[Depends(require_scope("jobs:write"))],
 )
 def enqueue_dino_batch(request: DinoBatchRequest):
-    if request.run_type == "FORCE_RERUN" and not request.photo_ids:
+    if (
+        request.run_type == "FORCE_RERUN"
+        and not request.photo_ids
+        and not (request.date_from or request.date_to)
+    ):
         raise HTTPException(
             status_code=422,
-            detail="FORCE_RERUN requires photo_ids",
+            detail="FORCE_RERUN requires photo_ids or a date period",
         )
 
     from app.runs import coordination
@@ -1423,16 +1427,25 @@ def continue_sorting():
 
 
 def _enqueue_dino_batch_impl(request: DinoBatchRequest):
-    if request.run_type == "FORCE_RERUN" and not request.photo_ids:
+    if (
+        request.run_type == "FORCE_RERUN"
+        and not request.photo_ids
+        and not (request.date_from or request.date_to)
+    ):
         raise HTTPException(
             status_code=422,
-            detail="FORCE_RERUN requires photo_ids",
+            detail="FORCE_RERUN requires photo_ids or a date period",
         )
+
+    date_from, date_to = _date_params(request.date_from, request.date_to)
 
     try:
         batch = dino_db.create_batch(
             request.run_type,
             request.photo_ids,
+            date_from=date_from,
+            date_to=date_to,
+            date_mode=request.date_mode,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -3224,6 +3237,10 @@ def run_ingest(request: SourceRunRequest):
     The scan itself runs in the worker (hashing and decoding must not happen
     in a request handler). An active job for the same folder is not
     duplicated. The folder is optional: without it the configured one is used.
+
+    This endpoint only enqueues INGEST_DIR (photo registration + preview
+    queue). It never creates DINO/HYBRID batches: sorting is a separate,
+    explicit action in «Сортировке».
     """
 
     directory = sources.resolve_directory(
@@ -3916,6 +3933,7 @@ def build_fingerprint(request: FingerprintBuildRequest):
         # the new vectors. A brand-new fingerprint ignores this flag.
         recalculate=True,
         upload_id=request.upload_id,
+        version=request.version,
     )
 
     response = {
@@ -4271,6 +4289,7 @@ def build_fingerprint_batch(request: FingerprintBatchRequest):
             replace=request.replace,
             batch_id=batch_id,
             recalculate=True,
+            version=request.version,
         )
 
         jobs_out.append(

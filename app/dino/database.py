@@ -41,20 +41,29 @@ def _validate_run_type(run_type: str) -> None:
 def create_batch(
     run_type: str = "NORMAL",
     photo_ids: Iterable[str] | None = None,
+    *,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    date_mode: str = "upload",
 ) -> DinoBatch:
     """
     Create a fixed DINO batch snapshot.
 
     NORMAL:
-        Select all photos which do not yet have a successful DINO run.
+        Select photos without a successful DINO run. With date_from/date_to,
+        only photos in that period are selected.
 
     FORCE_RERUN:
-        Select only the explicitly supplied photo_ids.
+        Select explicitly supplied photo_ids and/or a date period. A period
+        rerun re-sorts a slice of the catalogue.
 
     The selected set is fixed by creating one PENDING dino_runs
     row for every selected photo.
     """
     _validate_run_type(run_type)
+
+    if date_mode not in {"upload", "capture"}:
+        raise ValueError("date_mode must be 'upload' or 'capture'")
 
     requested_ids = (
         [str(photo_id) for photo_id in photo_ids]
@@ -62,13 +71,30 @@ def create_batch(
         else None
     )
 
+    has_period = bool(date_from or date_to)
+
     if run_type == "FORCE_RERUN":
-        if not requested_ids:
+        if not requested_ids and not has_period:
             raise ValueError(
-                "FORCE_RERUN requires at least one photo_id."
+                "FORCE_RERUN requires photo_ids or a date period."
             )
 
-        requested_ids = list(dict.fromkeys(requested_ids))
+        if requested_ids:
+            requested_ids = list(dict.fromkeys(requested_ids))
+
+    date_column = "p.taken_at" if date_mode == "capture" else "p.created_at"
+    date_sql = []
+    date_params = []
+
+    if date_from:
+        date_sql.append(f"AND {date_column} >= %s")
+        date_params.append(date_from)
+
+    if date_to:
+        date_sql.append(f"AND {date_column} < (%s::date + 1)")
+        date_params.append(date_to)
+
+    date_where = "\n".join(date_sql)
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -77,7 +103,7 @@ def create_batch(
                     # Scoped NORMAL: only the supplied ids (a pipeline run's
                     # frozen photo set) that still lack a DONE DINO run.
                     cur.execute(
-                        """
+                        f"""
                         SELECT
                             p.photo_id,
                             p.source_path
@@ -89,13 +115,14 @@ def create_batch(
                             WHERE r.photo_id = p.photo_id
                               AND r.status = 'DONE'
                         )
+                          {date_where}
                         ORDER BY p.photo_id
                         """,
-                        (requested_ids,),
+                        [requested_ids, *date_params],
                     )
                 else:
                     cur.execute(
-                        """
+                        f"""
                         SELECT
                             p.photo_id,
                             p.source_path
@@ -106,25 +133,42 @@ def create_batch(
                             WHERE r.photo_id = p.photo_id
                               AND r.status = 'DONE'
                         )
+                          {date_where}
                         ORDER BY p.photo_id
-                        """
+                        """,
+                        date_params,
                     )
             else:
-                cur.execute(
-                    """
-                    SELECT
-                        p.photo_id,
-                        p.source_path
-                    FROM public.photos AS p
-                    WHERE p.photo_id = ANY(%s)
-                    ORDER BY p.photo_id
-                    """,
-                    (requested_ids,),
-                )
+                if requested_ids:
+                    cur.execute(
+                        f"""
+                        SELECT
+                            p.photo_id,
+                            p.source_path
+                        FROM public.photos AS p
+                        WHERE p.photo_id = ANY(%s)
+                          {date_where}
+                        ORDER BY p.photo_id
+                        """,
+                        [requested_ids, *date_params],
+                    )
+                else:
+                    cur.execute(
+                        f"""
+                        SELECT
+                            p.photo_id,
+                            p.source_path
+                        FROM public.photos AS p
+                        WHERE TRUE
+                          {date_where}
+                        ORDER BY p.photo_id
+                        """,
+                        date_params,
+                    )
 
             photos = cur.fetchall()
 
-            if run_type == "FORCE_RERUN":
+            if run_type == "FORCE_RERUN" and requested_ids and not has_period:
                 found_ids = {str(row[0]) for row in photos}
                 missing_ids = [
                     photo_id

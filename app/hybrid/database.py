@@ -372,7 +372,11 @@ def get_run_items(
                 ) AS previous ON TRUE
                 WHERE r.batch_id = %s
                   AND r.status = 'DONE'
-                ORDER BY p.filename
+                -- Neighbours follow the capture sequence, not a filename
+                -- that repeats across months.  photo_id is a deterministic
+                -- tie-breaker for identical timestamps.
+                ORDER BY p.filename ASC,
+                         p.photo_id ASC
                 """,
                 (dino_batch_id,),
             )

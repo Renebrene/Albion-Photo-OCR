@@ -273,6 +273,7 @@ def _execute(job: dict) -> dict:
             batch_id=payload.get("batch_id"),
             job_id=int(job["id"]),
             progress=job_control(int(job["id"])),
+            version=payload.get("version"),
         )
 
         # Временная папка удалённой загрузки убирается после успешной сборки.

@@ -252,20 +252,33 @@ export const usePipelineStore = defineStore('pipeline', {
 
           // Ручная сортировка: прогресс берём из очереди задания, а не из
           // стадий прогона — у неё своего pipeline_runs нет.
+          //
+          // Batch может быть запущен и напрямую (re-ingest): тогда job_id
+          // отсутствует, но coordination отдаёт stage/done/total из
+          // dino_batches/hybrid_runs. Это и есть текущий процесс в шапке.
           this.sort = null
-          if (withMatched && isSort && activity.active?.job_id) {
-            try {
-              const job = await fetchJob(activity.active.job_id)
-              const progress = job.progress || {}
-              this.sort = {
-                stage: progress.stage
-                  || (job.job_type === 'HYBRID_RUN' ? 'hybrid' : 'dino'),
-                done: Number(progress.done || 0),
-                total: Number(progress.total || 0),
-                status: job.status,
+          if (withMatched && isSort) {
+            if (activity.active?.job_id) {
+              try {
+                const job = await fetchJob(activity.active.job_id)
+                const progress = job.progress || {}
+                this.sort = {
+                  stage: progress.stage
+                    || (job.job_type === 'HYBRID_RUN' ? 'hybrid' : 'dino'),
+                  done: Number(progress.done || 0),
+                  total: Number(progress.total || 0),
+                  status: job.status,
+                }
+              } catch {
+                this.sort = null
               }
-            } catch {
-              this.sort = null
+            } else if (activity.active?.total !== undefined) {
+              this.sort = {
+                stage: String(activity.active.stage || 'dino').toLowerCase(),
+                done: Number(activity.active.done || 0),
+                total: Number(activity.active.total || 0),
+                status: activity.active.status || 'RUNNING',
+              }
             }
           }
         }

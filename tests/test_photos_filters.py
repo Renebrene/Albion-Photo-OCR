@@ -29,6 +29,28 @@ def test_many_client_filters_do_not_return_422(monkeypatch):
     assert response.json()["items"] == []
 
 
+def test_similarity_sort_is_accepted_for_an_address(monkeypatch):
+    """Временный ключ сортировки проходит API и доходит до репозитория."""
+
+    seen: dict = {}
+
+    def fake_list_photos(**kwargs):
+        seen.update(kwargs)
+        return [], None
+
+    monkeypatch.setattr(repository, "list_photos", fake_list_photos)
+    monkeypatch.setattr(repository, "count_photos", lambda **kwargs: 0)
+
+    response = client.get(
+        "/api/v1/photos",
+        params={"limit": "10", "sort": "similarity", "order": "desc", "address": "addr:51"},
+    )
+
+    assert response.status_code == 200
+    assert seen["sort"] == "similarity"
+    assert seen["addresses"] == ["addr:51"]
+
+
 def test_a_long_sort_cursor_is_accepted(monkeypatch):
     """
     Курсор страницы длиннее 64 символов не должен давать 422.
