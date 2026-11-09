@@ -28,6 +28,11 @@ PREVIEW_ROWS = 1
 PREVIEW_CELL = (160, 120)
 PREVIEW_QUALITY = 72
 
+# Analysis of the 2026-11 corpus: error rate drops sharply up to ~50-60
+# reference photos, then flattens. 60 is the recommended minimum shown in the
+# fingerprint UI; it is guidance, not a hard build limit.
+RECOMMENDED_IMAGES = 60
+
 
 def sample_paths(paths, count):
     """
@@ -703,6 +708,7 @@ class FingerprintManager:
                 )
             ),
             "images": len(paths),
+            "recommended_images": RECOMMENDED_IMAGES,
             "dimension": int(
                 embeddings.shape[1]
             ),

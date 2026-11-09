@@ -21,6 +21,7 @@ import shutil
 from pathlib import Path
 
 from app.api.config import FINGERPRINTS_ROOT, FINGERPRINT_PREVIEW_NAME
+from app.core.fingerprint import RECOMMENDED_IMAGES
 from app.ingest.database import get_connection
 
 FINGERPRINT_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
@@ -103,6 +104,9 @@ def _read_metadata(directory: Path) -> dict | None:
         "model": metadata.get("model"),
         "dimension": metadata.get("dimension"),
         "images_count": int(metadata.get("images") or len(names) or 0),
+        "recommended_images": int(
+            metadata.get("recommended_images") or RECOMMENDED_IMAGES
+        ),
         "image_names": names,
         "image_meta": cleaned_meta,
         "source_folder": metadata.get("source_folder"),
@@ -328,6 +332,7 @@ def _row_to_fingerprint(row) -> dict:
         "model": row[4],
         "dimension": row[5],
         "images_count": int(row[6]),
+        "recommended_images": RECOMMENDED_IMAGES,
         "source_folder": row[7],
         "active": bool(row[8]),
         "created_at": row[9],

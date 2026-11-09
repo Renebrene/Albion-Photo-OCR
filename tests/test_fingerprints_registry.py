@@ -96,6 +96,7 @@ def test_disk_inventory_reads_the_fingerprints_directory():
     first = items[0]
     assert first["fingerprint_id"]
     assert first["images_count"] > 0
+    assert first["recommended_images"] == 60
     assert isinstance(first["image_names"], list)
     assert first["algorithm_version"]
 
@@ -236,6 +237,7 @@ def test_registry_rows_carry_disk_and_version_state():
     for item in items:
         assert item["on_disk"] is True
         assert item["images_count"] > 0
+        assert item["recommended_images"] == 60
         assert item["current_version"] is not None
         assert item["current_version"]["images_count"] == item["images_count"]
         # No address is mapped by default; the directory fills this in.

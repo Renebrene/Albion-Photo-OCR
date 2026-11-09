@@ -49,6 +49,10 @@ const session = useSessionStore()
 const display = useDisplayStore()
 const isAdmin = computed(() => session.user?.role === 'Администратор')
 
+// Анализ корпуса 2026-11: доля ошибок резко падает до ~50-60 эталонов,
+// дальше кривая выполаживается. Это ориентир в UI, не жёсткий лимит сборки.
+const RECOMMENDED_IMAGES = 60
+
 // Сохранение правки шлёт два запроса и может запустить пересчёт базы —
 // повторный клик делал это дважды.
 const { busy: editBusy, run: editRun } = useAsyncAction()
@@ -325,10 +329,19 @@ const runningBuild = computed(() =>
 )
 
 const PHOTO_CHOICES = [
-  { label: 'все фото в папке (по умолчанию)', value: 0 },
-  { label: '30 фото', value: 30 },
-  { label: '20 фото', value: 20 },
+  { label: `все фото в папке (рекомендуется ≥${RECOMMENDED_IMAGES})`, value: 0 },
+  { label: `${RECOMMENDED_IMAGES} фото — рекомендуемый минимум`, value: RECOMMENDED_IMAGES },
+  { label: '30 фото — меньше рекомендуемого', value: 30 },
+  { label: '20 фото — меньше рекомендуемого', value: 20 },
 ]
+
+function recommendedImages(row) {
+  return Number(row?.recommended_images || RECOMMENDED_IMAGES)
+}
+
+function isSmallFingerprint(row) {
+  return Number(row?.images_count || 0) < recommendedImages(row)
+}
 
 // Адреса для окна сборки: стороны из справочника, только те, что относятся к
 // открытой закладке (у «Экранов» свой список, у остальных — адреса из XLS).
@@ -1133,6 +1146,26 @@ function day(value) {
         </q-td>
       </template>
 
+      <template #body-cell-images="props">
+        <q-td :props="props" class="text-right">
+          <span :class="isSmallFingerprint(props.row) ? 'text-warning text-weight-medium' : ''">
+            {{ props.row.images_count }}
+          </span>
+          <q-icon
+            v-if="isSmallFingerprint(props.row)"
+            name="warning"
+            color="warning"
+            size="15px"
+            class="q-ml-xs"
+          >
+            <q-tooltip>
+              Рекомендуется не меньше {{ recommendedImages(props.row) }} фото в слепке.
+              Сейчас {{ props.row.images_count }}: такой слепок хуже различает соседние адреса.
+            </q-tooltip>
+          </q-icon>
+        </q-td>
+      </template>
+
       <template #body-cell-disk="props">
         <q-td :props="props">
           <q-icon
@@ -1305,8 +1338,9 @@ function day(value) {
             </span>
           </div>
           <div class="text-caption text-grey">
-            Размер подборки: 20–30 фото (решение владельца); больше — только для
-            адресов, которые путаются с соседними.
+            Рекомендуемый минимум — {{ RECOMMENDED_IMAGES }} фото. Меньше — только
+            если адрес хорошо отличается от соседних; больше полезно прежде всего
+            для адресов, которые уже путаются.
           </div>
         </q-card-section>
         <q-card-actions align="right">
@@ -1530,10 +1564,10 @@ function day(value) {
           </div>
 
           <div class="text-caption text-grey">
-            По умолчанию берутся все фото из папки (задание, п. 5а); меньше
-            можно выбрать явно — подвыборка идёт шагом по списку, файлы не
-            копируются. После сборки оригиналы не нужны: сохраняются векторы,
-            а в базе — имена фото и даты съёмок.
+            Рекомендуемый минимум — {{ RECOMMENDED_IMAGES }} фото: на корпусе
+            2026-11 доля ошибок заметно падает до ~50–60 эталонов, дальше почти
+            не меняется. 20–30 фото оставлены для совместимости, но это ниже
+            рекомендуемого. По умолчанию берутся все фото из папки.
           </div>
 
           <!-- Ход отправки папки: файлы идут по одному, чтобы прогресс был
