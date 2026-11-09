@@ -25,7 +25,9 @@ import time
 from pathlib import Path
 
 from app.api.crop_search import search_by_hash
-from app.api.nl_search import MAX_PER_TERM, MAX_TOTAL
+from app.api.nl_search import MAX_TOTAL, PAGE_SIZE
+
+MAX_PER_TERM = PAGE_SIZE
 
 # The raw answer may still carry a literal <think> block; it is not a search
 # phrase, so it is dropped before the fallback text is used.
@@ -423,7 +425,7 @@ MAX_TAG_TERMS = 12
 MAX_TERM_CHARS = 60
 
 
-def search(filters: dict, *, limit: int = MAX_PER_TERM) -> dict:
+def search(filters: dict, *, limit: int = PAGE_SIZE) -> dict:
     """
     Run the photo search for already-built filters (read-only).
 
@@ -464,24 +466,27 @@ def search(filters: dict, *, limit: int = MAX_PER_TERM) -> dict:
     truncated = False
 
     for term, weight in weighted:
-        items, next_cursor = repository.list_photos(
-            limit=limit,
-            query=term,
-            recognized_only=True,
-        )
+        cursor = None
 
-        if next_cursor is not None:
-            truncated = True
+        while True:
+            items, next_cursor = repository.list_photos(
+                limit=limit,
+                cursor=cursor,
+                query=term,
+                recognized_only=True,
+            )
 
-        for item in items:
-            scores[item.photo_id] = scores.get(item.photo_id, 0) + weight
+            for item in items:
+                scores[item.photo_id] = scores.get(item.photo_id, 0) + weight
 
-            if len(scores) >= MAX_TOTAL:
-                truncated = True
+                if len(scores) >= MAX_TOTAL:
+                    truncated = True
+                    break
+
+            if len(scores) >= MAX_TOTAL or next_cursor is None:
                 break
 
-        if len(scores) >= MAX_TOTAL:
-            break
+            cursor = next_cursor
 
     # Stable sort: equal scores keep insertion order.
     ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)

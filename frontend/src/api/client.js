@@ -433,6 +433,7 @@ export function fetchPhotos({
   count = true,
   collection_id = null,
   ids = null,
+  nl_job_id = null,
   sort = null,
   order = null,
 } = {}) {
@@ -460,6 +461,7 @@ export function fetchPhotos({
   if (sort) params.set('sort', sort)
   if (order) params.set('order', order)
   if (collection_id) params.set('collection_id', String(collection_id))
+  if (nl_job_id) params.set('nl_job_id', String(nl_job_id))
   if (ids) [].concat(ids).forEach((v) => params.append('ids', v))
 
   return getJson(`${BASE}/v1/photos?${params.toString()}`)

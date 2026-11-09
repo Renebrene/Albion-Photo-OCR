@@ -77,6 +77,9 @@ function filterParams(state, { limit, cursor = null, count = true }) {
     // Подборка на фото не влияет: она восстанавливает выбор адресов или
     // клиентов, а грид фильтруется уже по нему.
     ids: state.nlIds.length ? state.nlIds : null,
+    // Полный результат ИИ-поиска остаётся на сервере; в URL едет только id
+    // задания, иначе десятки тысяч photo_id не помещаются в запрос.
+    nl_job_id: state.nlJobId || null,
   }
 }
 
@@ -210,6 +213,7 @@ export const usePhotosStore = defineStore('photos', {
     // вернуть выбор после сброса режима.
     selectionEpoch: 0,
     nlIds: [],
+    nlJobId: null,
     // Ключ и направление сортировки: живут в сторе, потому что уходят в запрос.
     sortKey: 'date',
     sortDirection: 'desc',
@@ -631,6 +635,7 @@ export const usePhotosStore = defineStore('photos', {
       // подборкой другой группы.
       this.resetSelectionFilters()
       this.nlIds = []
+      this.nlJobId = null
       await this.refresh()
       await Promise.allSettled([this.loadAddresses(), this.loadClients()])
     },
@@ -648,6 +653,7 @@ export const usePhotosStore = defineStore('photos', {
       combine = 'union',
       collectionId = null,
       ids = [],
+      nlJobId = null,
     } = {}) {
       // Любое новое действие с фильтром отменяет ещё не применённую подборку.
       addressCollectionRequest += 1
@@ -668,6 +674,7 @@ export const usePhotosStore = defineStore('photos', {
       this.combine = combine
       this.collectionId = collectionId
       this.nlIds = ids
+      this.nlJobId = nlJobId
       this._dropStaleCollections()
       await this.refresh()
 
@@ -890,9 +897,9 @@ export const usePhotosStore = defineStore('photos', {
 
     // ---- natural-language search ----
 
-    async applyNlResults(ids) {
-      // Сервер принимает не больше 200 ids за запрос, а ИИ-поиск отдаёт до
-      // 500: лишние значения давали 422 и пустой грид.
+    async applyNlResults(ids, jobId = null) {
+      // Полный список остаётся в результате задания; грид передаёт только
+      // nl_job_id. ids оставлен fallback'ом для старых вызовов.
       await this.applyFilters({
         q: this.query,
         addresses: this.selectedAddresses,
@@ -905,7 +912,8 @@ export const usePhotosStore = defineStore('photos', {
         dateMode: this.dateMode,
         combine: this.combine,
         collectionId: this.collectionId,
-        ids: Array.isArray(ids) ? ids.slice(0, 200) : ids,
+        ids: jobId ? [] : ids,
+        nlJobId: jobId,
       })
     },
 

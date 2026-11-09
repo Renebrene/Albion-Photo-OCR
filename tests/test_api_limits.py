@@ -78,7 +78,7 @@ def test_redact_absolute_paths():
 # --- item 9: NL search bounds ------------------------------------------------
 
 
-def test_nl_search_reports_truncation(monkeypatch):
+def test_nl_search_collects_all_pages(monkeypatch):
     from app.api import nl_search, repository
 
     class _Item:
@@ -91,14 +91,50 @@ def test_nl_search_reports_truncation(monkeypatch):
         lambda query: {key: None for key in nl_search._OUTPUT_KEYS},
     )
 
-    def fake_list_photos(*, limit, query=None, addresses=None, **kwargs):
-        # A non-null cursor means "there are more rows than this page".
-        return [_Item("PH_x")], "PH_x"
+    def fake_list_photos(*, limit, query=None, cursor=None, **kwargs):
+        # First page has a cursor, second page ends the result.
+        if cursor is None:
+            return [_Item("PH_a")], "next"
+        return [_Item("PH_b")], None
 
     monkeypatch.setattr(repository, "list_photos", fake_list_photos)
 
     result = nl_search.run("запрос")
 
-    assert result["truncated"] is True
-    assert result["count"] == 1
+    assert result["photo_ids"] == ["PH_a", "PH_b"]
+    assert result["truncated"] is False
+    assert result["count"] == 2
     assert MAX_PER_TERM >= 100
+
+
+def test_nl_job_id_applies_the_full_result_server_side(monkeypatch):
+    from app.api import repository
+    from app.jobs import database as jobs_db
+
+    monkeypatch.setenv("SCENE_API_TOKENS", "tok:read")
+    monkeypatch.setattr(
+        jobs_db,
+        "get_job",
+        lambda job_id: {
+            "id": job_id,
+            "job_type": "NL_SEARCH",
+            "status": "DONE",
+            "result": {"photo_ids": ["PH_a", "PH_b", "PH_c"]},
+        },
+    )
+
+    seen = {}
+
+    def fake_list_photos(**kwargs):
+        seen["ids"] = kwargs.get("ids")
+        return [], None
+
+    monkeypatch.setattr(repository, "list_photos", fake_list_photos)
+
+    response = client.get(
+        "/api/v1/photos?nl_job_id=7&count=0",
+        headers={"Authorization": "Bearer tok"},
+    )
+
+    assert response.status_code == 200
+    assert seen["ids"] == ["PH_a", "PH_b", "PH_c"]

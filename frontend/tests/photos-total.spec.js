@@ -123,8 +123,9 @@ describe('фоновая синхронизация и ИИ-поиск', () => {
     expect(seenLimit).toBe('50')
   })
 
-  it('applyNlResults обрезает ids до серверного лимита 200', async () => {
+  it('applyNlResults передаёт nl_job_id вместо тысяч ids', async () => {
     let seenIds = 0
+    let seenJob = null
 
     global.fetch = vi.fn(async (url) => {
       const text = String(url)
@@ -134,6 +135,7 @@ describe('фоновая синхронизация и ИИ-поиск', () => {
 
       const params = new URL(text, 'http://localhost').searchParams
       seenIds = params.getAll('ids').length
+      seenJob = params.get('nl_job_id')
       return json({ items: [], next_cursor: null, total: 0 })
     })
 
@@ -142,9 +144,11 @@ describe('фоновая синхронизация и ИИ-поиск', () => {
 
     await store.applyNlResults(
       Array.from({ length: 300 }, (_, index) => `PH_${index}`),
+      42,
     )
 
-    expect(seenIds).toBe(200)
+    expect(seenIds).toBe(0)
+    expect(seenJob).toBe('42')
   })
 })
 

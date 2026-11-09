@@ -17,10 +17,14 @@ from app.qwen.processor import chat_text
 
 _OUTPUT_KEYS = ("q", "client", "brand", "category", "address")
 
-# Result bounds: page size fetched per extracted term and the overall cap on
-# unioned photo_ids. Exceeding either sets `truncated` in the result.
-MAX_PER_TERM = 200
-MAX_TOTAL = 500
+# Page size for cursor pagination while collecting every match.  MAX_TOTAL is
+# only a runaway guard (the corpus is ~57k), not a product limit: the old
+# 200/500 caps silently hid matches.
+PAGE_SIZE = 1000
+MAX_TOTAL = 100_000
+# Backwards-compatible name used by callers/tests; this is a page size, not a
+# result cap.
+MAX_PER_TERM = PAGE_SIZE
 
 PROMPT = (
     "Ты помощник поиска по базе фотографий вывесок. "
@@ -77,14 +81,14 @@ def build_filters(query: str) -> dict:
     return filters
 
 
-def run(query: str, *, limit: int = MAX_PER_TERM) -> dict:
+def run(query: str, *, limit: int = PAGE_SIZE) -> dict:
     """
     Translate *query* and run the corresponding photo search.
 
-    Returns {"filters", "photo_ids", "count", "truncated"}. `truncated` is set
-    when the result hit the per-term page size or the overall cap, so callers
-    know the list is not exhaustive. Importing the repository here keeps this
-    module light at worker startup.
+    Returns {"filters", "photo_ids", "count", "truncated"}.  Every page of
+    every extracted term is collected; `truncated` is set only when the
+    runaway guard MAX_TOTAL is reached. Importing the repository here keeps
+    this module light at worker startup.
     """
 
     from app.api import repository
@@ -111,26 +115,29 @@ def run(query: str, *, limit: int = MAX_PER_TERM) -> dict:
     truncated = False
 
     for term in terms or [query]:
-        items, next_cursor = repository.list_photos(
-            limit=limit,
-            query=term,
-            # The grid shows only recognised photos; searching must use the
-            # same universe or "found N" and the result grid disagree.
-            recognized_only=True,
-        )
+        cursor = None
 
-        if next_cursor is not None:
-            truncated = True
+        while True:
+            items, next_cursor = repository.list_photos(
+                limit=limit,
+                cursor=cursor,
+                query=term,
+                # The grid shows only recognised photos; searching must use
+                # the same universe or "found N" and the result grid disagree.
+                recognized_only=True,
+            )
 
-        for item in items:
-            seen.setdefault(item.photo_id, None)
+            for item in items:
+                seen.setdefault(item.photo_id, None)
 
-            if len(seen) >= MAX_TOTAL:
-                truncated = True
+                if len(seen) >= MAX_TOTAL:
+                    truncated = True
+                    break
+
+            if len(seen) >= MAX_TOTAL or next_cursor is None:
                 break
 
-        if len(seen) >= MAX_TOTAL:
-            break
+            cursor = next_cursor
 
     return {
         "filters": filters,

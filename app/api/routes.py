@@ -201,6 +201,10 @@ def list_photos(
     combine: str = Query("union", pattern="^(union|address|client)$"),
     collection_id: int | None = Query(None, ge=1),
     ids: list[str] | None = Query(None, max_length=200),
+    # AI-поиск хранит полный список совпадений в результате задания. Грид
+    # передаёт только id задания: десятки тысяч photo_id не влезают в URL,
+    # а сервер сам подставляет их в фильтр.
+    nl_job_id: int | None = Query(None, ge=1),
     # Группа верхней панели (задание, п. 7): грид показывает только адреса
     # этой закладки. Значение короткое — ссылку можно передать коллеге.
     group: str | None = Query(
@@ -253,6 +257,25 @@ def list_photos(
             ]
 
         group_addresses = sorted(group_values) or ["addr:-1"]
+
+    if nl_job_id is not None:
+        job = jobs_db.get_job(int(nl_job_id))
+
+        if (
+            job is None
+            or job.get("job_type") not in {"NL_SEARCH", "MEDIA_SEARCH"}
+            or job.get("status") != "DONE"
+        ):
+            raise HTTPException(
+                status_code=404,
+                detail="результат ИИ-поиска не найден",
+            )
+
+        result_ids = (job.get("result") or {}).get("photo_ids") or []
+        ids = [str(value) for value in result_ids]
+
+        if not ids:
+            return {"items": [], "next_cursor": None, "total": 0}
 
     items, next_cursor = repository.list_photos(
         limit=limit,
@@ -312,7 +335,8 @@ def list_photos(
                 date_mode,
                 combine,
                 collection_id,
-                tuple(ids or []),
+                tuple(ids or []) if nl_job_id is None else (),
+                nl_job_id,
                 group,
             ),
             lambda: repository.count_photos(

@@ -2158,15 +2158,11 @@ async function runManualSearch() {
 
     if (run !== manualRun) return
     const ids = (job.result && job.result.photo_ids) || []
-    const shown = Math.min(ids.length, 200)
     Notify.create({
       type: 'info',
-      message:
-        ids.length > shown
-          ? `ИИ-поиск: найдено ${ids.length}, показаны первые ${shown}`
-          : `ИИ-поиск: найдено ${ids.length}`,
+      message: `ИИ-поиск: найдено ${ids.length}`,
     })
-    await store.applyNlResults(ids)
+    await store.applyNlResults(ids, jobId)
     closeManual({ cancel: false })
   } catch (err) {
     if (run !== manualRun) return
@@ -2255,19 +2251,17 @@ async function runMediaSearch() {
     const described = result.qwen && result.qwen.description
     mediaHashMatches.value = result.hash_matches || []
 
-    const shown = Math.min(ids.length, 200)
-
     Notify.create({
-      type: truncated || ids.length > shown ? 'warning' : 'info',
+      type: truncated ? 'warning' : 'info',
       message:
-        truncated || ids.length > shown
-          ? `ИИ-поиск: показаны первые ${shown} (есть ещё совпадения)`
+        truncated
+          ? `ИИ-поиск: найдено ${ids.length} (достигнут защитный предел)`
           : `ИИ-поиск: найдено ${ids.length}${
               described ? ` — «${described}»` : ''
             }`,
     })
 
-    await store.applyNlResults(ids)
+    await store.applyNlResults(ids, jobId)
   } catch (err) {
     if (run === mediaRun) {
       Notify.create({ type: 'negative', message: err.message })

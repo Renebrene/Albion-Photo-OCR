@@ -214,8 +214,8 @@ def test_description_filters_clean_and_deduplicate_tags():
     assert filters["tags"] == ["щит", "баннер"]
 
 
-def test_search_ranks_terms_and_reports_truncation(monkeypatch):
-    """The search asks the repository per term, de-duplicates and ranks."""
+def test_search_ranks_terms_and_walks_pages(monkeypatch):
+    """The search asks the repository per term, walks pages and ranks."""
 
     class Item:
         def __init__(self, photo_id: str):
@@ -223,11 +223,14 @@ def test_search_ranks_terms_and_reports_truncation(monkeypatch):
 
     calls: list[tuple] = []
 
-    def fake_list_photos(*, limit, query, **kwargs):
-        calls.append((limit, query))
+    def fake_list_photos(*, limit, query, cursor=None, **kwargs):
+        calls.append((limit, query, cursor))
+
+        if query == "KVAS" and cursor is None:
+            return [Item("PH_a"), Item("PH_b")], "cursor"
 
         if query == "KVAS":
-            return [Item("PH_a"), Item("PH_b")], "cursor"  # truncated
+            return [], None
 
         return [Item("PH_b"), Item("PH_c")], None
 
@@ -240,10 +243,11 @@ def test_search_ranks_terms_and_reports_truncation(monkeypatch):
     assert result["photo_ids"] == ["PH_b", "PH_a", "PH_c"]
     assert result["scores"] == {"PH_b": 3, "PH_a": 2, "PH_c": 1}
     assert result["count"] == 3
-    assert result["truncated"] is True
+    assert result["truncated"] is False
     assert calls == [
-        (media_search.MAX_PER_TERM, "щит"),
-        (media_search.MAX_PER_TERM, "KVAS"),
+        (media_search.MAX_PER_TERM, "щит", None),
+        (media_search.MAX_PER_TERM, "KVAS", None),
+        (media_search.MAX_PER_TERM, "KVAS", "cursor"),
     ]
 
 
