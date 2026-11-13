@@ -388,6 +388,15 @@ def get_stats(
     )
 
 
+@read_router.get("/v1/recognition-quality", response_model=None)
+def get_recognition_quality():
+    """Return the curated, versioned recognition-quality snapshot."""
+
+    from app.api.recognition_quality import load_snapshot
+
+    return load_snapshot()
+
+
 @read_router.get("/v1/system", response_model=None)
 def get_system_info():
     return sysinfo.system_info()
@@ -3713,8 +3722,6 @@ def update_fingerprint_registry(
 ):
     """Rename, describe, archive or point at a source folder."""
 
-    before = fingerprints_mod.get_fingerprint(fingerprint_id)
-
     try:
         updated = fingerprints_mod.update_fingerprint(
             fingerprint_id,
@@ -3729,30 +3736,10 @@ def update_fingerprint_registry(
     if updated is None:
         raise HTTPException(status_code=404, detail="fingerprint not found")
 
-    result = dict(updated)
-
-    active_changed = (
-        request.active is not None
-        and before is not None
-        and bool(before.get("active")) != bool(request.active)
-    )
-
-    if active_changed:
-        # Hiding or re-enabling a fingerprint changes the ranking for every
-        # photo, so the stored DINO/HYBRID verdicts must be recalculated.
-        try:
-            from app.dino.recalc import enqueue_recalculation
-
-            recalc = enqueue_recalculation(
-                reason="скрытия" if not request.active else "включения",
-                fingerprint_id=fingerprint_id,
-            )
-            if recalc is not None:
-                result["recalc"] = recalc
-        except Exception as exc:  # noqa: BLE001 - the toggle itself succeeded
-            result["recalc_error"] = type(exc).__name__
-
-    return result
+    # Registry edits (rename, archive, re-enable, source folder) never queue a
+    # recognition pass. A hidden or changed fingerprint makes stored verdicts
+    # stale, but DINO/HYBRID must be started by the operator from «Сортировка».
+    return dict(updated)
 
 
 @fingerprints_router.delete(
@@ -3952,10 +3939,10 @@ def build_fingerprint(request: FingerprintBuildRequest):
         str(folder),
         max_photos=request.max_photos,
         replace=request.replace,
-        # A replacement of an existing fingerprint makes every stored verdict
-        # stale; the builder queues one full DINO+HYBRID pass after publishing
-        # the new vectors. A brand-new fingerprint ignores this flag.
-        recalculate=True,
+        # Never queue a recognition pass from here: adding or changing a
+        # fingerprint must not start DINO/HYBRID. The operator runs the sort
+        # explicitly when ready.
+        recalculate=False,
         upload_id=request.upload_id,
         version=request.version,
     )
@@ -4312,7 +4299,7 @@ def build_fingerprint_batch(request: FingerprintBatchRequest):
             max_photos=request.max_photos,
             replace=request.replace,
             batch_id=batch_id,
-            recalculate=True,
+            recalculate=False,
             version=request.version,
         )
 

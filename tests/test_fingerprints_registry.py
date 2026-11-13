@@ -194,31 +194,25 @@ def test_rename_describe_archive_round_trip(probe_fingerprints):
 
 
 @requires_registry
-def test_active_toggle_queues_recalculation_only_when_it_changes(
+def test_registry_edits_never_queue_recalculation(
     probe_fingerprints, monkeypatch
 ):
     import app.dino.recalc as recalc
 
     calls: list[dict] = []
-
-    def fake_recalc(**kwargs):
-        calls.append(kwargs)
-        return {"batch_id": 2, "job_id": 3, "total": 4, "run_id": 5}
-
-    monkeypatch.setattr(recalc, "enqueue_recalculation", fake_recalc)
+    monkeypatch.setattr(
+        recalc,
+        "enqueue_recalculation",
+        lambda **kwargs: calls.append(kwargs),
+    )
 
     fingerprint_id = probe_fingerprints[0]
     url = f"/api/v1/fingerprints/registry/{fingerprint_id}"
 
     hidden = client.put(url, json={"active": False})
     assert hidden.status_code == 200
-    assert hidden.json()["recalc"]["job_id"] == 3
-    assert calls == [
-        {"reason": "скрытия", "fingerprint_id": fingerprint_id}
-    ]
+    assert "recalc" not in hidden.json()
 
-    # Renaming while `active` stays the same must not start a full pass.
-    calls.clear()
     renamed = client.put(
         url, json={"display_name": "Новое имя", "active": False}
     )

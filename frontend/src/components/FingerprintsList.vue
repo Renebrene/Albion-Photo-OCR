@@ -118,6 +118,162 @@ function formatOf(row) {
   if (row.address.scope === 'screens' || row.tab === 'screens') return 'Видеоэкран'
   return row.address.format || '—'
 }
+
+// --- колонки: порядок, ширина, новые поля ---------------------------------
+
+const COLUMN_DEFS = [
+  { name: 'id', label: 'ID', field: 'fingerprint_id', align: 'left', sortable: true },
+  { name: 'preview', label: 'Превью', field: 'fingerprint_id', align: 'center' },
+  { name: 'name', label: 'Имя', field: 'name', align: 'left', sortable: true },
+  { name: 'address', label: 'Адрес', field: (row) => addressLabel(row), align: 'left', sortable: true },
+  { name: 'format', label: 'Формат', field: (row) => formatOf(row), align: 'left', sortable: true },
+  {
+    name: 'dino',
+    label: 'Версия DINO',
+    field: (row) => dinoVersionLabel(row),
+    align: 'left',
+    sortable: true,
+  },
+  { name: 'images', label: 'Фото', field: 'images_count', align: 'right', sortable: true },
+  {
+    name: 'comment',
+    label: 'Комментарий',
+    field: (row) => row.description || '',
+    align: 'left',
+    sortable: true,
+  },
+  { name: 'updated', label: 'Версия обновлена', field: (row) => day(row.current_version && row.current_version.created_at), align: 'left' },
+  { name: 'active', label: 'Активен', field: 'active', align: 'center' },
+  { name: 'actions', label: '', field: 'fingerprint_id', align: 'right' },
+]
+const COLUMN_NAMES = COLUMN_DEFS.map((column) => column.name)
+const COLUMN_LAYOUT_KEY = 'fingerprints.table.layout.v1'
+const columnOrder = ref([...COLUMN_NAMES])
+const columnWidths = reactive({})
+const draggedColumn = ref(null)
+let resizeState = null
+
+const columns = computed(() =>
+  columnOrder.value.map((name) => {
+    const def = COLUMN_DEFS.find((column) => column.name === name)
+    if (!def) return null
+
+    const width = Number(columnWidths[name] || 0)
+    if (!width) return { ...def }
+
+    const size = { width: `${width}px`, minWidth: `${width}px` }
+    return { ...def, style: size, headerStyle: size }
+  }).filter(Boolean),
+)
+
+function dinoVersionLabel(row) {
+  const version = String(row?.algorithm_version || '').trim()
+  if (version === '3.5') return 'Контекст'
+  if (version === '3.3') return 'Базовый'
+  return version || '—'
+}
+
+function dinoVersionColor(row) {
+  const version = String(row?.algorithm_version || '').trim()
+  if (version === '3.5') return 'teal-6'
+  if (version === '3.3') return 'grey-6'
+  return 'orange-7'
+}
+
+function loadColumnLayout() {
+  try {
+    const raw = localStorage.getItem(COLUMN_LAYOUT_KEY)
+    if (!raw) return
+    const saved = JSON.parse(raw)
+    const known = new Set(COLUMN_NAMES)
+    const order = Array.isArray(saved.order)
+      ? saved.order.filter((name) => known.has(name))
+      : []
+    const missing = COLUMN_NAMES.filter((name) => !order.includes(name))
+    columnOrder.value = [...order, ...missing]
+
+    if (saved.widths && typeof saved.widths === 'object') {
+      for (const name of COLUMN_NAMES) {
+        const width = Number(saved.widths[name] || 0)
+        if (Number.isFinite(width) && width >= 48 && width <= 800) {
+          columnWidths[name] = width
+        }
+      }
+    }
+  } catch {
+    // Повреждённая настройка не должна ломать таблицу.
+  }
+}
+
+function saveColumnLayout() {
+  try {
+    localStorage.setItem(
+      COLUMN_LAYOUT_KEY,
+      JSON.stringify({ order: columnOrder.value, widths: { ...columnWidths } }),
+    )
+  } catch {
+    // localStorage может быть недоступен (приватный режим) — это не ошибка.
+  }
+}
+
+function startColumnDrag(event, name) {
+  draggedColumn.value = name
+  if (event?.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', name)
+  }
+}
+
+function dropColumn(event, target) {
+  const source = draggedColumn.value || event?.dataTransfer?.getData('text/plain')
+  draggedColumn.value = null
+  if (!source || source === target) return
+
+  const order = [...columnOrder.value]
+  const from = order.indexOf(source)
+  const to = order.indexOf(target)
+  if (from < 0 || to < 0) return
+
+  order.splice(from, 1)
+  order.splice(to, 0, source)
+  columnOrder.value = order
+  saveColumnLayout()
+}
+
+function endColumnDrag() {
+  draggedColumn.value = null
+}
+
+function startColumnResize(event, name) {
+  const header = event?.currentTarget?.closest?.('th')
+  const current = Number(columnWidths[name] || header?.getBoundingClientRect?.().width || 100)
+  resizeState = { name, startX: Number(event?.clientX || 0), startWidth: current }
+
+  window.addEventListener('mousemove', onColumnResize)
+  window.addEventListener('mouseup', stopColumnResize, { once: true })
+  if (document.body) document.body.style.userSelect = 'none'
+}
+
+function onColumnResize(event) {
+  if (!resizeState) return
+  const width = Math.max(
+    48,
+    Math.min(800, Math.round(resizeState.startWidth + Number(event.clientX || 0) - resizeState.startX)),
+  )
+  columnWidths[resizeState.name] = width
+}
+
+function stopColumnResize() {
+  if (!resizeState) return
+  resizeState = null
+  saveColumnLayout()
+
+  window.removeEventListener('mousemove', onColumnResize)
+  window.removeEventListener('mouseup', stopColumnResize)
+  if (document.body) document.body.style.userSelect = ''
+}
+
+onBeforeUnmount(stopColumnResize)
 const loading = ref(false)
 const syncing = ref(false)
 const error = ref(null)
@@ -856,6 +1012,7 @@ async function pollBuild(jobId) {
 }
 
 onMounted(async () => {
+  loadColumnLayout()
   await load()
   await loadNativePicker()
 })
@@ -948,13 +1105,6 @@ async function saveEdit() {
       editOpen.value = false
       Notify.create({ type: 'positive', message: 'Слепок сохранён' })
 
-      if (updated?.recalc?.job_id) {
-        Notify.create({
-          type: 'info',
-          message: `Запущен пересчёт базы (задание ${updated.recalc.job_id})`,
-        })
-      }
-
       await load()
     } catch (err) {
       Notify.create({ type: 'negative', message: err.message })
@@ -976,15 +1126,8 @@ async function toggleActive(item, value) {
   togglingIds.value = new Set([...togglingIds.value, item.fingerprint_id])
 
   try {
-    const updated = await updateFingerprint(item.fingerprint_id, { active: value })
+    await updateFingerprint(item.fingerprint_id, { active: value })
     await load()
-
-    if (updated?.recalc?.job_id) {
-      Notify.create({
-        type: 'info',
-        message: `Запущен пересчёт базы (задание ${updated.recalc.job_id})`,
-      })
-    }
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
     await load()
@@ -1103,6 +1246,10 @@ function day(value) {
       />
     </q-tabs>
 
+    <div class="text-caption text-grey q-mb-xs">
+      Колонки можно перетаскивать за заголовок и растягивать за правый край.
+    </div>
+
     <div class="table-scroll">
     <q-table
       :rows="visibleItems"
@@ -1112,19 +1259,35 @@ function day(value) {
       bordered
       dense
       :pagination="{ rowsPerPage: 0 }"
-      :columns="[
-        { name: 'id', label: 'ID', field: 'fingerprint_id', align: 'left', sortable: true },
-        { name: 'preview', label: 'Превью', field: 'fingerprint_id', align: 'center' },
-        { name: 'name', label: 'Имя', field: 'name', align: 'left', sortable: true },
-        { name: 'address', label: 'Адрес', field: (row) => addressLabel(row), align: 'left', sortable: true },
-        { name: 'format', label: 'Формат', field: (row) => formatOf(row), align: 'left', sortable: true },
-        { name: 'images', label: 'Фото', field: 'images_count', align: 'right', sortable: true },
-        { name: 'updated', label: 'Версия обновлена', field: (row) => day(row.current_version && row.current_version.created_at), align: 'left' },
-        { name: 'active', label: 'Активен', field: 'active', align: 'center' },
-        { name: 'actions', label: '', field: 'fingerprint_id', align: 'right' },
-      ]"
+      :columns="columns"
       no-data-label="Реестр пуст — нажмите «Синхронизировать с диском»"
     >
+      <template #header="props">
+        <q-tr :props="props">
+          <q-th
+            v-for="col in props.cols"
+            :key="col.name"
+            :props="props"
+            :col-name="col.name"
+            class="column-header"
+            :class="{ 'column-dragging': draggedColumn === col.name }"
+            draggable="true"
+            @dragstart="startColumnDrag($event, col.name)"
+            @dragover.prevent
+            @drop.prevent="dropColumn($event, col.name)"
+            @dragend="endColumnDrag"
+          >
+            {{ col.label }}
+            <span
+              class="column-resizer"
+              draggable="false"
+              aria-hidden="true"
+              @mousedown.stop.prevent="startColumnResize($event, col.name)"
+              @click.stop
+            />
+          </q-th>
+        </q-tr>
+      </template>
       <template #body-cell-preview="props">
         <q-td :props="props">
           <q-btn dense flat icon="photo_library" size="sm">
@@ -1143,6 +1306,28 @@ function day(value) {
               </div>
             </q-tooltip>
           </q-btn>
+        </q-td>
+      </template>
+
+      <template #body-cell-dino="props">
+        <q-td :props="props">
+          <q-badge
+            :color="dinoVersionColor(props.row)"
+            :label="dinoVersionLabel(props.row)"
+          />
+          <q-tooltip>
+            algorithm_version: {{ props.row.algorithm_version || '—' }}
+          </q-tooltip>
+        </q-td>
+      </template>
+
+      <template #body-cell-comment="props">
+        <q-td :props="props">
+          <div v-if="props.row.description" class="comment-cell">
+            {{ props.row.description }}
+            <q-tooltip max-width="400px">{{ props.row.description }}</q-tooltip>
+          </div>
+          <span v-else class="text-grey">—</span>
         </q-td>
       </template>
 
@@ -1302,7 +1487,7 @@ function day(value) {
             outlined
             type="textarea"
             autogrow
-            label="Описание"
+            label="Комментарий"
           />
           <q-input
             v-model="editTarget.source_folder"
@@ -1632,24 +1817,13 @@ function day(value) {
               </div>
 
               <q-banner
-                v-if="buildJob.result.recalc?.job_id"
+                v-if="buildJob.result.replaced_existing"
                 dense
                 rounded
                 class="bg-blue-1 text-primary q-mt-sm"
               >
-                Слепок заменён: запущен пересчёт базы
-                (задание {{ buildJob.result.recalc.job_id }}, фото:
-                {{ buildJob.result.recalc.total }}).
-              </q-banner>
-
-              <q-banner
-                v-else-if="buildJob.result.recalc_error"
-                dense
-                rounded
-                class="bg-orange-1 text-dark q-mt-sm"
-              >
-                Слепок заменён, но пересчёт базы не запустился:
-                {{ buildJob.result.recalc_error }}. Запустите сортировку вручную.
+                Слепок заменён. Распознавание автоматически не пересчитывается:
+                запустите сортировку вручную, когда будете готовы.
               </q-banner>
 
               <q-banner
@@ -2040,5 +2214,42 @@ function day(value) {
 
 :global(body.body--dark) .table-scroll :deep(thead tr:first-child th) {
   background: #1d1d1f;
+}
+
+/* Перетаскивание колонок и изменение ширины. */
+.column-header {
+  cursor: grab;
+  user-select: none;
+}
+
+.column-header:active {
+  cursor: grabbing;
+}
+
+.column-dragging {
+  opacity: 0.55;
+}
+
+.column-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  z-index: 3;
+  cursor: col-resize;
+}
+
+.column-resizer:hover {
+  background: var(--q-primary);
+  opacity: 0.3;
+}
+
+/* Комментарий в строке: полный текст — в подсказке. */
+.comment-cell {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

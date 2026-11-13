@@ -190,6 +190,11 @@ def test_build_from_an_upload_resolves_the_server_folder(monkeypatch):
 
     monkeypatch.setattr(routes.jobs_db, "enqueue_fingerprint_build", fake_enqueue)
     monkeypatch.setattr(routes.fingerprints_mod, "_check_id", lambda value: value)
+    # Проверка «ID уже существует» читает реестр из PostgreSQL; этот тест —
+    # про папку загрузки и не должен требовать рабочей БД.
+    monkeypatch.setattr(
+        routes.fingerprints_mod, "get_fingerprint", lambda _value: None
+    )
 
     response = client.post(
         "/api/v1/fingerprints/build",

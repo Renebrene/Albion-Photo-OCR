@@ -83,6 +83,7 @@ function mountWindow() {
 }
 
 beforeEach(() => {
+  localStorage.clear()
   syncCalls = []
   updates = []
   imageCalls = []
@@ -181,6 +182,60 @@ describe('FingerprintsList.vue', () => {
     expect(cells.at(0).text()).toContain('78_v33')
     expect(cells.at(2).text()).toBe('Мира 1')
     expect(cells.at(3).text()).toContain('ООО «Ромашка»')
+  })
+
+  it('adds DINO version and comment columns', async () => {
+    registry[0].description = 'Комментарий для проверки'
+    const wrapper = mountWindow()
+    await flushPromises()
+
+    const headers = wrapper.findAll('th').map((header) => header.text())
+    expect(headers.some((text) => text.includes('Версия DINO'))).toBe(true)
+    expect(headers.some((text) => text.includes('Комментарий'))).toBe(true)
+
+    const row = wrapper.findAll('tbody tr').at(0)
+    expect(row.text()).toContain('Базовый')
+    expect(row.text()).toContain('Комментарий для проверки')
+
+    wrapper.unmount()
+  })
+
+  it('reorders columns by dragging a header', async () => {
+    const wrapper = mountWindow()
+    await flushPromises()
+
+    const headers = () => wrapper.findAll('th')
+    const idHeader = headers().find((header) => header.text().includes('ID'))
+    const commentHeader = headers().find((header) => header.text().includes('Комментарий'))
+
+    expect(idHeader).toBeTruthy()
+    expect(commentHeader).toBeTruthy()
+
+    await commentHeader.trigger('dragstart')
+    await idHeader.trigger('drop')
+    await flushPromises()
+
+    expect(headers().at(0).text()).toContain('Комментарий')
+
+    wrapper.unmount()
+  })
+
+  it('resizes a column from its header edge', async () => {
+    const wrapper = mountWindow()
+    await flushPromises()
+
+    const handle = wrapper.find('.column-resizer')
+    expect(handle.exists()).toBe(true)
+
+    await handle.trigger('mousedown', { clientX: 100 })
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 170 }))
+    window.dispatchEvent(new MouseEvent('mouseup'))
+    await flushPromises()
+
+    const style = wrapper.findAll('th').at(0).attributes('style') || ''
+    expect(style).toContain('width:')
+
+    wrapper.unmount()
   })
 
   it('sorts by address up and down (both in one tab)', async () => {

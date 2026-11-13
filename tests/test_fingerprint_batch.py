@@ -179,6 +179,13 @@ def test_batch_queues_one_job_per_item(photo_folders):
     assert len(body["errors"]) == 1
     assert "фотограф" in body["errors"][0]["error"]
 
+    # Rebuilding or replacing fingerprints must not queue a recognition pass.
+    from app.jobs import database as jobs_db
+
+    for job in body["jobs"]:
+        payload = jobs_db.get_job(job["job_id"])["payload"]
+        assert not payload.get("recalculate")
+
     # Clean up: cancel the queued jobs so the worker never builds anything.
     for job in body["jobs"]:
         client.post(f"/api/v1/jobs/{job['job_id']}/cancel")

@@ -1,0 +1,1025 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-11-08",
+  "title": "Сравнение распознавания HYBRID run 4",
+  "source": {
+    "experiment": "comparison_combinations",
+    "run_id": 4,
+    "files": [
+      "data/experiments/comparison_combinations/report_run4.json",
+      "data/experiments/labeled_error_table/run4.csv"
+    ],
+    "sample_items": 56574,
+    "labelled_items": 31983,
+    "unlabelled_items": 24591,
+    "address_aggregate_items": 32021,
+    "address_aggregate_scored_items": 31983,
+    "address_aggregate_no_result": 38,
+    "label_method": "эвристическое сопоставление имени файла с текущим справочником адресов",
+    "label_normalization": "canonical address IDs and documented aliases",
+    "is_temporal_holdout": false,
+    "independent_manual_labels": false,
+    "notes": [
+      "Это снимок офлайн-эксперимента, не live-оценка production.",
+      "Эталонные адреса в основном выведены из имени файла; имена без однозначного адреса исключены.",
+      "Независимого temporal holdout в этом сравнении нет.",
+      "Агрегаты полного набора и таблица по адресам имеют немного различающиеся знаменатели; они показаны отдельно."
+    ]
+  },
+  "totals": {
+    "items": 56574,
+    "labelled": 31983,
+    "unlabelled": 24591
+  },
+  "variants": [
+    {
+      "id": "production",
+      "name": "Production baseline",
+      "family": "DINO + HYBRID",
+      "labelled": 31983,
+      "correct": 30383,
+      "wrong": 1600,
+      "review": 0,
+      "accuracy": 0.9499734233811713,
+      "delta_vs_production": 0,
+      "weights": null,
+      "wrong_pairs": [
+        {
+          "expected_id": 176,
+          "expected": "Космонавтов 15",
+          "predicted_id": 177,
+          "predicted": "Космонавтов 15-17",
+          "count": 208
+        },
+        {
+          "expected_id": 189,
+          "expected": "Ленина 52",
+          "predicted_id": 187,
+          "predicted": "Ленина 115",
+          "count": 28
+        },
+        {
+          "expected_id": 158,
+          "expected": "Зорге 46",
+          "predicted_id": 219,
+          "predicted": "Таганрогская 147 Б",
+          "count": 16
+        },
+        {
+          "expected_id": 176,
+          "expected": "Космонавтов 15",
+          "predicted_id": 233,
+          "predicted": "Стачки 190 А",
+          "count": 9
+        },
+        {
+          "expected_id": 176,
+          "expected": "Космонавтов 15",
+          "predicted_id": 171,
+          "predicted": "Королева 7",
+          "count": 9
+        }
+      ]
+    },
+    {
+      "id": "blend50_env_heavy_hybrid",
+      "name": "blend50 · environment heavy · HYBRID",
+      "family": "DINO + HYBRID rescore",
+      "labelled": 31983,
+      "correct": 30430,
+      "wrong": 1553,
+      "review": 0,
+      "accuracy": 0.9514429540693493,
+      "delta_vs_production": 47,
+      "weights": {
+        "global": 0.6,
+        "environment": 0.3,
+        "color": 0.07,
+        "spatial": 0.03
+      },
+      "wrong_pairs": [
+        {
+          "expected_id": 176,
+          "expected": "Космонавтов 15",
+          "predicted_id": 177,
+          "predicted": "Космонавтов 15-17",
+          "count": 212
+        },
+        {
+          "expected_id": 189,
+          "expected": "Ленина 52",
+          "predicted_id": 187,
+          "predicted": "Ленина 115",
+          "count": 27
+        },
+        {
+          "expected_id": 158,
+          "expected": "Зорге 46",
+          "predicted_id": 219,
+          "predicted": "Таганрогская 147 Б",
+          "count": 17
+        },
+        {
+          "expected_id": 176,
+          "expected": "Космонавтов 15",
+          "predicted_id": 233,
+          "predicted": "Стачки 190 А",
+          "count": 9
+        },
+        {
+          "expected_id": 176,
+          "expected": "Космонавтов 15",
+          "predicted_id": 171,
+          "predicted": "Королева 7",
+          "count": 9
+        }
+      ]
+    },
+    {
+      "id": "blend50_base_hybrid",
+      "name": "blend50 · base · HYBRID",
+      "family": "DINO + HYBRID rescore",
+      "labelled": 31983,
+      "correct": 30416,
+      "wrong": 1567,
+      "review": 0,
+      "accuracy": 0.9510052215239346,
+      "delta_vs_production": 33,
+      "weights": {
+        "global": 0.7,
+        "environment": 0.2,
+        "color": 0.07,
+        "spatial": 0.03
+      },
+      "wrong_pairs": [
+        {
+          "expected_id": 176,
+          "expected": "Космонавтов 15",
+          "predicted_id": 177,
+          "predicted": "Космонавтов 15-17",
+          "count": 214
+        },
+        {
+          "expected_id": 189,
+          "expected": "Ленина 52",
+          "predicted_id": 187,
+          "predicted": "Ленина 115",
+          "count": 28
+        },
+        {
+          "expected_id": 158,
+          "expected": "Зорге 46",
+          "predicted_id": 219,
+          "predicted": "Таганрогская 147 Б",
+          "count": 17
+        }
+      ]
+    },
+    {
+      "id": "best_image_env_heavy_hybrid",
+      "name": "best-image · environment heavy · HYBRID",
+      "family": "DINO + HYBRID rescore",
+      "labelled": 31983,
+      "correct": 30306,
+      "wrong": 1677,
+      "review": 0,
+      "accuracy": 0.9475658943813902,
+      "delta_vs_production": -77,
+      "weights": {
+        "global": 0.6,
+        "environment": 0.3,
+        "color": 0.07,
+        "spatial": 0.03
+      },
+      "wrong_pairs": [
+        {
+          "expected_id": 176,
+          "expected": "Космонавтов 15",
+          "predicted_id": 177,
+          "predicted": "Космонавтов 15-17",
+          "count": 205
+        },
+        {
+          "expected_id": 189,
+          "expected": "Ленина 52",
+          "predicted_id": 187,
+          "predicted": "Ленина 115",
+          "count": 28
+        },
+        {
+          "expected_id": 158,
+          "expected": "Зорге 46",
+          "predicted_id": 219,
+          "predicted": "Таганрогская 147 Б",
+          "count": 19
+        }
+      ]
+    }
+  ],
+  "address_metrics_source": {
+    "experiment": "labeled_error_table",
+    "run_id": 4,
+    "items": 32021,
+    "labelled": 32021,
+    "correct": 30376,
+    "wrong": 1607,
+    "unknown": 38,
+    "notes": "Address rows are filtered from the production HYBRID run 4 report to every address with error_rate > 5%; the aggregate denominator above covers all 109 rows.",
+    "selection": "error_rate > 5% of items",
+    "total_addresses": 109,
+    "selected_addresses": 39,
+    "selected_items": 2352,
+    "naming_variant_addresses": 17,
+    "naming_variant_items": 770,
+    "error_addresses": 21,
+    "error_items": 1557,
+    "label_error_addresses": 1,
+    "label_error_items": 25
+  },
+  "addresses": [
+    {
+      "address_id": 1892,
+      "name": "Комарова 13 В- Космонавтов, B",
+      "items": 242,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 242,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Комарова 13",
+          "count": 241,
+          "address_id": 164
+        }
+      ],
+      "is_naming_variant": true,
+      "canonical_address_id": 164,
+      "canonical_name": "Комарова 13",
+      "classification": "naming_variant"
+    },
+    {
+      "address_id": 1927,
+      "name": "Королева пр-кт (рядом с мостом), B",
+      "items": 94,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 94,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Королева возле моста",
+          "count": 94,
+          "address_id": 168
+        }
+      ],
+      "is_naming_variant": true,
+      "canonical_address_id": 168,
+      "canonical_name": "Королева возле моста",
+      "classification": "naming_variant"
+    },
+    {
+      "address_id": 2146,
+      "name": "Нагибина М. пр-кт 24А, B",
+      "items": 76,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 76,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Нагибина 24",
+          "count": 76,
+          "address_id": 199
+        }
+      ],
+      "is_naming_variant": true,
+      "canonical_address_id": 199,
+      "canonical_name": "Нагибина 24",
+      "classification": "naming_variant"
+    },
+    {
+      "address_id": 2522,
+      "name": "Транспортная ул./Сергея Шило ул. (поз. 2), A",
+      "items": 64,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 64,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Транспортная / Шило",
+          "count": 64,
+          "address_id": 222
+        }
+      ],
+      "is_naming_variant": true,
+      "canonical_address_id": 222,
+      "canonical_name": "Транспортная / Шило",
+      "classification": "naming_variant"
+    },
+    {
+      "address_id": 2050,
+      "name": "Лелюшенко ул. 1Б, B",
+      "items": 55,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 55,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Лелюшенко 1",
+          "count": 55,
+          "address_id": 185
+        }
+      ],
+      "is_naming_variant": true,
+      "canonical_address_id": 185,
+      "canonical_name": "Лелюшенко 1",
+      "classification": "naming_variant"
+    },
+    {
+      "address_id": 2079,
+      "name": "Ленина ул., 217-1/Железнодорожная ул., A",
+      "items": 53,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 53,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Ленина 217 / ЖД",
+          "count": 53,
+          "address_id": 190
+        }
+      ],
+      "is_naming_variant": true,
+      "canonical_address_id": 190,
+      "canonical_name": "Ленина 217 / ЖД",
+      "classification": "naming_variant"
+    },
+    {
+      "address_id": 1510,
+      "name": "Вавилова ул. 59, B",
+      "items": 47,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 47,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Вавилова 59/101",
+          "count": 30,
+          "address_id": 148
+        }
+      ],
+      "is_naming_variant": true,
+      "canonical_address_id": 148,
+      "canonical_name": "Вавилова 59/101",
+      "classification": "naming_variant"
+    },
+    {
+      "address_id": 2347,
+      "name": "Сельмаш пр-кт. 20 / Селиванова ул. 51, B*",
+      "items": 47,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 47,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Сельмаш 20",
+          "count": 47,
+          "address_id": 207
+        }
+      ],
+      "is_naming_variant": true,
+      "canonical_address_id": 207,
+      "canonical_name": "Сельмаш 20",
+      "classification": "naming_variant"
+    },
+    {
+      "address_id": 1932,
+      "name": "Космонавтов 11, A",
+      "items": 22,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 22,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Космонавтов 14-16 А на квадро",
+          "count": 12,
+          "address_id": 174
+        }
+      ],
+      "is_naming_variant": true,
+      "canonical_address_id": 174,
+      "canonical_name": "Космонавтов 14-16 А на квадро",
+      "classification": "naming_variant"
+    },
+    {
+      "address_id": 1624,
+      "name": "г. Батайск, ул. Урицкого 7, по ул. Энгельса, B",
+      "items": 16,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 16,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Урицкого 7",
+          "count": 16,
+          "address_id": 151
+        }
+      ],
+      "is_naming_variant": true,
+      "canonical_address_id": 151,
+      "canonical_name": "Урицкого 7",
+      "classification": "naming_variant"
+    },
+    {
+      "address_id": 2141,
+      "name": "Нагибина М. пр-кт / Нансена ул. 127 (в 50 м от моста), B*",
+      "items": 15,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 15,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Нагибина / Нансена",
+          "count": 15,
+          "address_id": 198
+        }
+      ],
+      "is_naming_variant": true,
+      "canonical_address_id": 198,
+      "canonical_name": "Нагибина / Нансена",
+      "classification": "naming_variant"
+    },
+    {
+      "address_id": 2612,
+      "name": "Шолохова пр., 83 - пер. Сборный, A",
+      "items": 14,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 14,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Шолохова 83",
+          "count": 14,
+          "address_id": 228
+        }
+      ],
+      "is_naming_variant": true,
+      "canonical_address_id": 228,
+      "canonical_name": "Шолохова 83",
+      "classification": "naming_variant"
+    },
+    {
+      "address_id": 1849,
+      "name": "Зорге - пл. 339 Cтрелковая дивизии, B*",
+      "items": 9,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 9,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "339 дивизии",
+          "count": 9,
+          "address_id": 156
+        }
+      ],
+      "is_naming_variant": true,
+      "canonical_address_id": 156,
+      "canonical_name": "339 дивизии",
+      "classification": "naming_variant"
+    },
+    {
+      "address_id": 2165,
+      "name": "Нансена ул. 239 (через дорогу), B",
+      "items": 8,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 8,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Нансена 239",
+          "count": 8,
+          "address_id": 202
+        }
+      ],
+      "is_naming_variant": true,
+      "canonical_address_id": 202,
+      "canonical_name": "Нансена 239",
+      "classification": "naming_variant"
+    },
+    {
+      "address_id": 190,
+      "name": "Ленина 217 / ЖД",
+      "items": 6,
+      "fingerprint_items": 74,
+      "correct": 0,
+      "wrong": 6,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Зорге / Стачки",
+          "count": 6,
+          "address_id": 211
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 1933,
+      "name": "Космонавтов 11, B",
+      "items": 6,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 6,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Космонавтов 2 АЗС",
+          "count": 6,
+          "address_id": 178
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 1928,
+      "name": "Королева пр-кт 10А-12Б, B*",
+      "items": 4,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 4,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Королева 10-12",
+          "count": 4,
+          "address_id": 169
+        }
+      ],
+      "is_naming_variant": true,
+      "classification": "naming_variant",
+      "canonical_address_id": 169,
+      "canonical_name": "Королева 10-12"
+    },
+    {
+      "address_id": 2157,
+      "name": "Нагибина М. пр-кт, 25, A",
+      "items": 2,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 2,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Нагибина 19 А",
+          "count": 1,
+          "address_id": 196
+        }
+      ],
+      "is_naming_variant": true,
+      "classification": "naming_variant",
+      "canonical_address_id": 196,
+      "canonical_name": "Нагибина 19 А"
+    },
+    {
+      "address_id": 2447,
+      "name": "Сызранова ул. 20 - Сергея Шило ул., A",
+      "items": 2,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 2,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Шило / Сызранова",
+          "count": 2,
+          "address_id": 208
+        }
+      ],
+      "is_naming_variant": true,
+      "classification": "naming_variant",
+      "canonical_address_id": 208,
+      "canonical_name": "Шило / Сызранова"
+    },
+    {
+      "address_id": 228,
+      "name": "Шолохова 83",
+      "items": 1,
+      "fingerprint_items": 16,
+      "correct": 0,
+      "wrong": 1,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Шолохова 127",
+          "count": 1,
+          "address_id": 229
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 2509,
+      "name": "Толстого пл. 2 / Свободы пл. 7, B",
+      "items": 1,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 1,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Стачки 190 А",
+          "count": 1,
+          "address_id": 233
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 2540,
+      "name": "Трасса М-23 (Ростов-Таганрог в сторону Таганрога) 15 км+050 м справа, A",
+      "items": 1,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 1,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Малиновского 25 на Стачки",
+          "count": 1,
+          "address_id": 192
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 2551,
+      "name": "Трасса М-4 1042 км+750 м справа по ходу километража, A",
+      "items": 1,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 1,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Нагибина / Нансена",
+          "count": 1,
+          "address_id": 198
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 2632,
+      "name": "Шолохова пр-кт 51, A",
+      "items": 1,
+      "fingerprint_items": 0,
+      "correct": 0,
+      "wrong": 1,
+      "unknown": 0,
+      "error_rate": 1.0,
+      "top_confusions": [
+        {
+          "name": "Шолохова 127",
+          "count": 1,
+          "address_id": 229
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 176,
+      "name": "Космонавтов 15",
+      "items": 329,
+      "fingerprint_items": 46,
+      "correct": 47,
+      "wrong": 282,
+      "unknown": 0,
+      "error_rate": 0.8571428571428571,
+      "top_confusions": [
+        {
+          "name": "Космонавтов 15-17",
+          "count": 192,
+          "address_id": 177
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 173,
+      "name": "Космонавтов 14а",
+      "items": 104,
+      "fingerprint_items": 12,
+      "correct": 32,
+      "wrong": 72,
+      "unknown": 0,
+      "error_rate": 0.6923076923076923,
+      "top_confusions": [
+        {
+          "name": "Космонавтов 14-16 А на квадро",
+          "count": 55,
+          "address_id": 174
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 222,
+      "name": "Транспортная / Шило",
+      "items": 35,
+      "fingerprint_items": 37,
+      "correct": 23,
+      "wrong": 12,
+      "unknown": 0,
+      "error_rate": 0.34285714285714286,
+      "top_confusions": [
+        {
+          "name": "Шолохова 127",
+          "count": 9,
+          "address_id": 229
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 175,
+      "name": "Космонавтов 14-16 Б в центр",
+      "items": 27,
+      "fingerprint_items": 10,
+      "correct": 18,
+      "wrong": 9,
+      "unknown": 0,
+      "error_rate": 0.3333333333333333,
+      "top_confusions": [
+        {
+          "name": "Космонавтов 14а",
+          "count": 9,
+          "address_id": 173
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 150,
+      "name": "Куйбышева 139",
+      "items": 25,
+      "fingerprint_items": 38,
+      "correct": 17,
+      "wrong": 8,
+      "unknown": 0,
+      "error_rate": 0.32,
+      "top_confusions": [
+        {
+          "name": "Куйбышева 116",
+          "count": 8,
+          "address_id": 149
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "label_error",
+      "note": "ошибка в названии, не в распознавании"
+    },
+    {
+      "address_id": 148,
+      "name": "Вавилова 59/101",
+      "items": 61,
+      "fingerprint_items": 29,
+      "correct": 43,
+      "wrong": 18,
+      "unknown": 0,
+      "error_rate": 0.29508196721311475,
+      "top_confusions": [
+        {
+          "name": "Курчатова / Хасанская А",
+          "count": 8,
+          "address_id": 181
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 163,
+      "name": "Комарова 28 / 5",
+      "items": 96,
+      "fingerprint_items": 37,
+      "correct": 80,
+      "wrong": 16,
+      "unknown": 0,
+      "error_rate": 0.16666666666666666,
+      "top_confusions": [
+        {
+          "name": "Ком./Добр. Поз. 3",
+          "count": 7,
+          "address_id": 162
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 189,
+      "name": "Ленина 52",
+      "items": 180,
+      "fingerprint_items": 79,
+      "correct": 156,
+      "wrong": 24,
+      "unknown": 0,
+      "error_rate": 0.13333333333333333,
+      "top_confusions": [
+        {
+          "name": "Ленина 115",
+          "count": 21,
+          "address_id": 187
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 213,
+      "name": "Стачки 13",
+      "items": 30,
+      "fingerprint_items": 23,
+      "correct": 26,
+      "wrong": 4,
+      "unknown": 0,
+      "error_rate": 0.13333333333333333,
+      "top_confusions": [
+        {
+          "name": "Стачки 178 / Труженников",
+          "count": 2,
+          "address_id": 214
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 160,
+      "name": "Борко / Капустина",
+      "items": 129,
+      "fingerprint_items": 69,
+      "correct": 118,
+      "wrong": 11,
+      "unknown": 0,
+      "error_rate": 0.08527131782945736,
+      "top_confusions": [
+        {
+          "name": "Комарова 28 / 5",
+          "count": 7,
+          "address_id": 163
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 233,
+      "name": "Стачки 190 А",
+      "items": 12,
+      "fingerprint_items": 11,
+      "correct": 11,
+      "wrong": 1,
+      "unknown": 0,
+      "error_rate": 0.08333333333333333,
+      "top_confusions": [
+        {
+          "name": "Стачки 190 Б",
+          "count": 1,
+          "address_id": 215
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 158,
+      "name": "Зорге 46",
+      "items": 289,
+      "fingerprint_items": 43,
+      "correct": 267,
+      "wrong": 22,
+      "unknown": 0,
+      "error_rate": 0.07612456747404844,
+      "top_confusions": [
+        {
+          "name": "Таганрогская 147 Б",
+          "count": 13,
+          "address_id": 219
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 225,
+      "name": "Шеболдаева 43",
+      "items": 56,
+      "fingerprint_items": 50,
+      "correct": 52,
+      "wrong": 4,
+      "unknown": 0,
+      "error_rate": 0.07142857142857142,
+      "top_confusions": [
+        {
+          "name": "Шеболдаева 8",
+          "count": 3,
+          "address_id": 226
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 215,
+      "name": "Стачки 190 Б",
+      "items": 118,
+      "fingerprint_items": 83,
+      "correct": 111,
+      "wrong": 7,
+      "unknown": 0,
+      "error_rate": 0.059322033898305086,
+      "top_confusions": [
+        {
+          "name": "Зорге / Стачки",
+          "count": 4,
+          "address_id": 211
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    },
+    {
+      "address_id": 167,
+      "name": "Королева 20",
+      "items": 74,
+      "fingerprint_items": 68,
+      "correct": 70,
+      "wrong": 4,
+      "unknown": 0,
+      "error_rate": 0.05405405405405406,
+      "top_confusions": [
+        {
+          "name": "Королева 10-12",
+          "count": 4,
+          "address_id": 169
+        }
+      ],
+      "is_naming_variant": false,
+      "classification": "recognition_error"
+    }
+  ],
+  "notes": [
+    "Состав экспериментальных вариантов из report_run4.json сохранён на общей выборке с 31,983 однозначно размеченными фото.",
+    "Адресная таблица включает все адреса из labeled_error_table/run4.csv с долей ошибок более 5% (39 из 109). Это отдельная агрегация: 32,021 фото, включая 38 без результата.",
+    "Для адресов с нулём эталонных фото ошибка может означать отсутствие fingerprint, а не слабость модели.",
+    "Сырые directory rows и ошибки определения меток исключены; адреса с неоднозначными сторонами A/B не объединялись автоматически.",
+    "Этот snapshot использует эвристические метки из filename, а не независимую ручную разметку; temporal holdout отсутствует.",
+    "Строки 1–14, 17–19 помечены как варианты названия, строка 29 — как ошибка в названии; они не входят в число сомнительных адресов, сырые счётчики сохранены для аудита."
+  ]
+}

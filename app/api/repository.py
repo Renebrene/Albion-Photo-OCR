@@ -272,10 +272,11 @@ def _dino_fallback_address_sql(photo_ref: str) -> str:
     """
     Запасной адрес для фото, у которых нет ни одного вердикта HYBRID.
 
-    Пока вердикта нет, показывать нечего, кроме лучшего кандидата DINO: так
-    фото видно в корзине «Требуют проверки» с предложенным адресом. Как только
-    вердикт появился, запасной путь выключается — даже если порог уверенности
-    его не пропустил.
+    Пока вердикта нет, показывать нечего, кроме лучшего кандидата DINO. В
+    корзину «Требуют проверки» такие фото не попадают (там только фото с
+    DONE-вердиктом), но запасной адрес остаётся для карточек, открытых по
+    photo_id. Как только вердикт появился, запасной путь выключается — даже
+    если порог уверенности его не пропустил.
     """
 
     return (
@@ -322,7 +323,8 @@ def _latest_verdict_lateral_sql(photo_ref: str = "p", alias: str = "v") -> str:
         "LEFT JOIN LATERAL ("
         "    SELECT h.hybrid_final_id AS final_id, "
         "           h.hybrid_margin AS margin, "
-        "           c.score AS confidence "
+        "           c.score AS confidence, "
+        "           TRUE AS has_verdict "
         "    FROM public.hybrid_results AS h "
         "    LEFT JOIN public.dino_candidates AS c "
         "           ON c.run_id = h.dino_run_id AND c.rank = 1 "
@@ -372,10 +374,13 @@ def _verdict_source_sql(
 
     `addr_fp` — тот же адресный слепок, что у `_address_sql`: порог уверенности
     и отрыва применяется, запасной адрес по DINO — нет. Это важно: запасной
-    адрес нужен только для показа в корзине «Требуют проверки» (`_PHOTO_BASE`),
-    а распознанным фото делает `_recognized_sql` — без запасного пути. Иначе
-    фото без вердикта HYBRID попало бы в счётчики адресов, тогда как грид с
-    `recognized_only` его там не показывает.
+    адрес нужен только для карточки фото (`_PHOTO_BASE`), а распознанным фото
+    делает `_recognized_sql` — без запасного пути. Иначе фото без вердикта
+    HYBRID попало бы в счётчики адресов, тогда как грид с `recognized_only` его
+    там не показывает.
+
+    `has_verdict` отличает обработанное фото с отказом от ещё не прошедшего
+    HYBRID; корзина «Требуют проверки» считает только первые.
 
     `with_qwen` добавляет клиента и бренд QWEN — они нужны панели клиентов и
     режиму «от клиента». Обе величины лежат в одной строке `photo_qwen`,
@@ -399,6 +404,7 @@ def _verdict_source_sql(
         f"SELECT {photo_ref}.photo_id, {photo_ref}.created_at, {photo_ref}.taken_at"
         + qwen_columns
         + f", (CASE WHEN {threshold} THEN {alias}.final_id END) AS addr_fp "
+        + f", COALESCE({alias}.has_verdict, FALSE) AS has_verdict "
         + f"FROM public.photos AS {photo_ref} "
         + _latest_verdict_lateral_sql(photo_ref, alias)
         + " "
@@ -420,8 +426,10 @@ def _recognized_sql(
     A photo is recognised when the latest HYBRID verdict has a final id **and
     its confidence is not below the review threshold**, or when an operator set
     a manual address override. Older verdicts cannot keep a photo in the grid
-    after a failed re-run. Everything else — a weak match, no match, or no
-    verdict at all — lands in «Требуют проверки» (see list_addresses).
+    after a failed re-run. A photo that already has a DONE HYBRID verdict but
+    no address (weak or no match) lands in «Требуют проверки» (see
+    list_addresses). A photo without a DONE verdict has not been processed yet:
+    it is neither in the grid nor in that bucket.
 
     `address_expr` позволяет подставить готовое выражение адресного слепка
     вместо трёх коррелированных подзапросов: у компактного источника
@@ -439,6 +447,22 @@ def _recognized_sql(
         f"({address} IS NOT NULL OR EXISTS ("
         "SELECT 1 FROM public.photo_address_overrides AS ov "
         f"WHERE ov.photo_id = {photo_ref}.photo_id))"
+    )
+
+
+def _has_done_verdict_sql(photo_ref: str = "p") -> str:
+    """
+    Есть ли у фото завершённый вердикт HYBRID.
+
+    Корзина «Требуют проверки» — это фото, которые *уже* прошли распознавание,
+    но остались без адреса. Фото без DONE-вердикта ещё не распознавались и в
+    корзину не входят: иначе при порогах 0/0 она не пустела бы из-за одного
+    только ожидания обработки.
+    """
+
+    return (
+        "EXISTS (SELECT 1 FROM public.hybrid_results AS hv "
+        f"WHERE hv.photo_id = {photo_ref}.photo_id AND hv.status = 'DONE')"
     )
 
 
@@ -898,11 +922,16 @@ def _photo_where(
                 suffix = text.split(":", 1)[1].strip()
 
                 if suffix.lower() == REVIEW_ADDRESS_ID:
-                    # «Требуют проверки»: всё, что не получило адреса — слабое
-                    # совпадение, отсутствие совпадения или отсутствие
-                    # вердикта. Ручное переопределение выводит фото отсюда.
+                    # «Требуют проверки»: фото, которые уже прошли HYBRID, но
+                    # не получили адреса (слабое совпадение или отсутствие
+                    # совпадения). Ещё не обработанные фото сюда не входят —
+                    # они просто ждут распознавания. Ручное переопределение
+                    # выводит фото отсюда.
                     address_parts.append(
+                        "("
                         "NOT " + _recognized_sql("t", address_expr=address_expr)
+                        + " AND " + _has_done_verdict_sql("t")
+                        + ")"
                     )
                     continue
 
@@ -1718,6 +1747,7 @@ def review_count(
             cur.execute(
                 f"SELECT count(*) FROM public.photos AS p "
                 f"WHERE NOT {_recognized_sql('p', low_score, min_margin)} "
+                f"AND {_has_done_verdict_sql('p')} "
                 f"AND {_PREVIEW_READY_SQL}"
             )
             row = cur.fetchone()
@@ -1857,6 +1887,7 @@ def list_addresses(
                 LEFT JOIN public.photo_address_overrides AS ov
                        ON ov.photo_id = t.photo_id
                 WHERE NOT (t.addr_fp IS NOT NULL OR ov.address_id IS NOT NULL)
+                  AND t.has_verdict
                   """ + client_filter_t + """
                 """,
                 period_params + client_params,

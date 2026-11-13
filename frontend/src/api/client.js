@@ -599,6 +599,10 @@ export function fetchMediaStatistics() {
   return getJson(`${BASE}/v1/media/statistics`)
 }
 
+export function fetchRecognitionQuality() {
+  return getJson(`${BASE}/v1/recognition-quality`)
+}
+
 // Albion cloud links (schema/039): upload selected media and list ready links.
 export function createMediaLinks({ photoIds = [], videoIds = [] } = {}) {
   return postJson(`${BASE}/v1/media-links`, {

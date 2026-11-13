@@ -86,6 +86,24 @@ def test_review_filter_is_recognised():
     assert repository.REVIEW_ADDRESS_VALUE == "addr:review"
 
 
+def test_review_filter_requires_a_done_verdict():
+    """
+    Корзина — это обработанные фото без адреса, а не очередь распознавания.
+
+    Без `has_verdict` при порогах 0/0 в корзине оставались фото, которые ещё
+    не проходили HYBRID.
+    """
+
+    where, _params = repository._photo_where(
+        addresses=[repository.REVIEW_ADDRESS_VALUE],
+        recognized_only=True,
+    )
+
+    assert "public.hybrid_results" in where
+    assert "status = 'DONE'" in where
+    assert repository._has_done_verdict_sql("t") in where
+
+
 def test_threshold_sql_handles_each_criterion(monkeypatch):
     monkeypatch.setattr(hybrid_config, "low_score", lambda: 0.0)
     monkeypatch.setattr(hybrid_config, "min_margin", lambda: 0.0)
@@ -195,7 +213,8 @@ requires_db = pytest.mark.skipif(
 @pytest.fixture()
 def corpus():
     """
-    Три фото: уверенное (0.95), слабое (0.70) и без совпадения вовсе.
+    Четыре фото: уверенное (0.95), слабое (0.70), вердикт без адреса и
+    ещё не прошедшее HYBRID.
 
     Убирается за собой: батч удаляется каскадом вместе с прогонами.
     """
@@ -211,7 +230,8 @@ def corpus():
     ids = {
         "strong": "PH_" + "1" * 24,
         "weak": "PH_" + "2" * 24,
-        "none": "PH_" + "3" * 24,
+        "pending": "PH_" + "3" * 24,
+        "no_match": "PH_" + "4" * 24,
     }
 
     with get_connection() as conn:
@@ -233,6 +253,7 @@ def corpus():
 
     strong = recognize_photo(ids["strong"], "78_v33")
     weak = recognize_photo(ids["weak"], "78_v33")
+    no_match = recognize_photo(ids["no_match"], "78_v33")
 
     # Уверенность задаётся оценкой кандидата первого ранга.
     with get_connection() as conn:
@@ -246,9 +267,17 @@ def corpus():
                     (run_id, score, score, score, score, score, score),
                 )
 
+            # Вердикт есть, но адреса нет: HYBRID не нашёл совпадения.
+            cur.execute(
+                """UPDATE public.hybrid_results
+                   SET hybrid_final_id = NULL
+                   WHERE photo_id = %s""",
+                (ids["no_match"],),
+            )
+
     yield ids
 
-    for rows in (strong, weak):
+    for rows in (strong, weak, no_match):
         forget_recognized_photo(rows)
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -273,7 +302,7 @@ def test_weak_match_leaves_its_address(corpus, monkeypatch):
     strong = corpus["strong"]
     weak = corpus["weak"]
 
-    assert _photos("addr:review", monkeypatch, 0.85) == {weak, corpus["none"]}
+    assert _photos("addr:review", monkeypatch, 0.85) == {weak, corpus["no_match"]}
     # Уверенное фото остаётся распознанным и в корзину не попадает.
     assert strong not in _photos("addr:review", monkeypatch, 0.85)
 
@@ -287,9 +316,21 @@ def test_threshold_can_be_lowered_to_accept_the_match(corpus, monkeypatch):
 
 
 @requires_db
-def test_threshold_zero_keeps_the_old_behaviour(corpus, monkeypatch):
-    # Проверка выключена: в корзине только фото без совпадения вовсе.
-    assert _photos("addr:review", monkeypatch, 0) == {corpus["none"]}
+def test_threshold_zero_leaves_only_verdicts_without_an_address(corpus, monkeypatch):
+    # Проверка выключена: слабое совпадение получает адрес. В корзине остаётся
+    # только фото, которое прошло HYBRID, но так и не получило адрес.
+    assert _photos("addr:review", monkeypatch, 0) == {corpus["no_match"]}
+
+
+@requires_db
+def test_unprocessed_photo_is_not_in_the_review_bucket(corpus, monkeypatch):
+    # Пока нет DONE-вердикта HYBRID, фото ещё не распознано и не «требует
+    # проверки»: оно просто ждёт обработки.
+    pending = corpus["pending"]
+
+    assert pending not in _photos("addr:review", monkeypatch, 0)
+    recognized, _ = repository.list_photos(limit=50, recognized_only=True)
+    assert pending not in {photo.photo_id for photo in recognized}
 
 
 @requires_db
@@ -313,9 +354,11 @@ def test_confidence_is_reported_for_each_photo(corpus, monkeypatch):
 
     assert in_review[corpus["weak"]].confidence == pytest.approx(0.70)
     assert in_review[corpus["weak"]].address is None
-    # Фото без совпадения вовсе: уверенности нет, адреса нет.
-    assert in_review[corpus["none"]].confidence is None
-    assert in_review[corpus["none"]].address is None
+    # Вердикт без адреса: уверенности нет, адреса нет.
+    assert in_review[corpus["no_match"]].confidence is None
+    assert in_review[corpus["no_match"]].address is None
+    # Ещё не прошедшее HYBRID фото в корзине не показывается.
+    assert corpus["pending"] not in in_review
 
 
 # ---- предпросмотр порога (оператор подбирает значение) --------------------
@@ -400,9 +443,11 @@ def test_preview_route_rejects_out_of_range():
 
 @requires_db
 def test_review_count_matches_the_threshold(corpus):
-    strong, weak, none = corpus["strong"], corpus["weak"], corpus["none"]
+    weak, no_match = corpus["weak"], corpus["no_match"]
 
     # Порог между уверенностями слабого (0.70) и уверенного (0.95) фото.
-    assert repository.review_count(0.85) == len({weak, none})
-    # Порог ниже слабого: в корзине остаётся только фото без совпадения.
-    assert repository.review_count(0.60) == len({none})
+    assert repository.review_count(0.85) == len({weak, no_match})
+    # Порог ниже слабого: в корзине остаётся только вердикт без адреса.
+    assert repository.review_count(0.60) == len({no_match})
+    # 0/0 выключает оба порога, но не выдумывает адрес там, где его нет.
+    assert repository.review_count(0, 0) == len({no_match})

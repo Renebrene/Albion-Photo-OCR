@@ -9,6 +9,7 @@ import BaseSettings from '../components/BaseSettings.vue'
 import UsersAdmin from '../components/UsersAdmin.vue'
 import SystemMonitor from '../components/SystemMonitor.vue'
 import FingerprintsList from '../components/FingerprintsList.vue'
+import RecognitionQuality from '../components/RecognitionQuality.vue'
 import LastRun from '../components/LastRun.vue'
 import MediaStatistics from '../components/MediaStatistics.vue'
 import DataModule from '../components/DataModule.vue'
@@ -63,6 +64,7 @@ const canEditClients = computed(() =>
       <q-tab name="data" icon="storage" label="Данные" />
       <span class="tab-sep" />
       <q-tab name="fingerprints" icon="fingerprint" label="Слепки" />
+      <q-tab name="recognition_quality" icon="query_stats" label="Качество распознавания" />
       <q-tab name="addresses" icon="place" label="Адреса" />
       <span class="tab-sep" />
       <q-tab v-if="isAdmin" name="users" icon="group" label="Пользователи" />
@@ -102,6 +104,10 @@ const canEditClients = computed(() =>
 
       <q-tab-panel name="fingerprints">
         <FingerprintsList />
+      </q-tab-panel>
+
+      <q-tab-panel name="recognition_quality">
+        <RecognitionQuality />
       </q-tab-panel>
 
       <q-tab-panel name="addresses">
