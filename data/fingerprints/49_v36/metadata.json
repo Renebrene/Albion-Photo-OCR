@@ -1,0 +1,76 @@
+{
+  "id": "49_v36",
+  "version": "3.5",
+  "context_descriptor": "whole_scene_v1",
+  "context_names": [
+    "green_top",
+    "sky_top",
+    "gray_building"
+  ],
+  "context_mean": [
+    0.005871815141290426,
+    0.9378127455711365,
+    0.3578382432460785
+  ],
+  "context_std": [
+    0.007771789561957121,
+    0.01916707493364811,
+    0.10249465703964233
+  ],
+  "source_folder": "/media/alexice/F819-A20B/00/кд2",
+  "image_meta": [
+    {
+      "name": "Комарова 20 Добровольского, А (12).JPG",
+      "taken_at": "2026-04-10 17:18:55"
+    },
+    {
+      "name": "Комарова 20 Добровольского, А (18).JPG",
+      "taken_at": "2026-04-10 17:19:41"
+    },
+    {
+      "name": "Комарова Добровольского А (12).JPG",
+      "taken_at": "2026-10-28 12:40:41"
+    },
+    {
+      "name": "Комарова Добровольского А (2).JPG",
+      "taken_at": "2026-10-28 12:39:38"
+    },
+    {
+      "name": "Комарова Добровольского А (8).JPG",
+      "taken_at": "2026-10-28 12:40:08"
+    },
+    {
+      "name": "Комарова Добровольского А (9).JPG",
+      "taken_at": "2026-10-28 12:40:08"
+    }
+  ],
+  "model": "facebook/dinov2-base",
+  "images": 6,
+  "recommended_images": 60,
+  "dimension": 768,
+  "representatives": 6,
+  "patch_tokens": 0,
+  "patch_storage": false,
+  "environment_descriptor": "compact_v1",
+  "environment_dimension": 640,
+  "color_descriptor": "hsv_histogram_v1",
+  "color_dimension": 48,
+  "spatial_descriptor": "gray_grid_v1",
+  "spatial_dimension": 32,
+  "weights": {
+    "global": 0.7,
+    "environment": 0.2,
+    "color": 0.07,
+    "spatial": 0.03
+  },
+  "image_names": [
+    "Комарова 20 Добровольского, А (12).JPG",
+    "Комарова 20 Добровольского, А (18).JPG",
+    "Комарова Добровольского А (12).JPG",
+    "Комарова Добровольского А (2).JPG",
+    "Комарова Добровольского А (8).JPG",
+    "Комарова Добровольского А (9).JPG"
+  ],
+  "preview": "preview.jpg",
+  "skipped_images": []
+}
