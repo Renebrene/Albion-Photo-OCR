@@ -135,10 +135,10 @@ def compare_loaded(
     )
 
     final_score = (
-        0.70 * global_score
-        + 0.20 * environment_score
-        + 0.07 * color_score
-        + 0.03 * spatial_score
+        0.40 * global_score
+        + 0.35 * environment_score
+        + 0.00 * color_score
+        + 0.25 * spatial_score
     )
 
     return {
@@ -179,7 +179,36 @@ class DinoRunner:
             self.embedder,
         )
 
+        # PCA whitening: loaded lazily on first access (tests create
+        # instances via object.__new__ that bypasses __init__).
+        self._pca = None
+
         self.fingerprints = self._load_fingerprints()
+
+    @property
+    def pca(self):
+        """Lazily-initialised PCA whitening transform.
+
+        Tests that create instances via ``object.__new__`` skip ``__init__``,
+        so ``_pca`` may not exist — return inactive PCA in that case.
+        """
+
+        if not hasattr(self, "_pca") or self._pca is None:
+            try:
+                from app.fingerprint.pca import load_pca
+
+                self._pca = load_pca()
+
+                if self._pca.active:
+                    print(f"[DINO Runner] PCA=active (v{self._pca.version}, "
+                          f"{self._pca.fingerprint_count} fingerprints)")
+            except Exception as exc:
+                print(f"[DINO Runner] PCA not available: {exc}")
+                from app.fingerprint.pca import PcaTransform
+
+                self._pca = PcaTransform()
+
+        return self._pca
 
     def _load_fingerprints(self):
         from app.api.fingerprints import active_fingerprint_ids
@@ -234,6 +263,23 @@ class DinoRunner:
                 for fingerprint_id, _ in loaded
             )
         )
+
+        # Apply PCA whitening to centroids and embeddings of all fingerprints
+        # so the per-comparison hot path (_rank → compare_loaded) has zero
+        # overhead from the transformation.
+        if self.pca.active and self.pca.mean is not None and self.pca.whiten is not None:
+            for i, (fingerprint_id, data) in enumerate(loaded):
+                # Work on a shallow copy so the original on-disk data is
+                # never mutated.
+                data = dict(data)
+
+                centroid = self.pca.transform(data["centroid"].reshape(1, -1))
+                data["centroid"] = centroid.flatten()
+
+                data["embeddings"] = self.pca.transform(data["embeddings"])
+                data["centroid"] = data["embeddings"].mean(axis=0)
+
+                loaded[i] = (fingerprint_id, data)
 
         return loaded
 

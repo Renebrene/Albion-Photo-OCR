@@ -40,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.api import repository  # noqa: E402
 from app.hybrid import config as hybrid_config  # noqa: E402
 from app.ingest.database import get_connection  # noqa: E402
-from app.refine.logic import skeleton  # noqa: E402
+from app.refine.logic import _HOMOGLYPHS, skeleton  # noqa: E402
 
 # Имена адресов для читаемого отчёта заполняет load_addresses().
 ADDRESS_NAMES: dict[int, str] = {}
@@ -56,6 +56,25 @@ _FILENAME_ADDRESS_ALIASES = (
     (("шеболдаева", "риижт"), "Шеболдаева 8"),
     (("королева", "мост"), "Королева возле моста"),
     (("вавилова", "технологический"), "Технологический"),
+    # Разби́рение неподписанных имён, подтверждено владельцем 17.11.2026:
+    # «Таганрогская ул. 1572, А» — это Таганрогская 157; «на СЖМ» — сторона
+    # «А на квадро»; «ленина_ЖД» — Ленина 217 / ЖД; «Комарвоа» — опечатка
+    # «Комарова 13»; «левый/правый» при Вагулевского — стороны Стачки /
+    # Вагулевского.
+    (("таганрогская", "1572"), "Таганрогская 157"),
+    (("космонавтов", "сжм"), "Космонавтов 14-16 А на квадро"),
+    (("ленина", "жд"), "Ленина 217 / ЖД"),
+    (("комарвоа",), "Комарова 13"),
+    (("вагулевского", "левый"), "Вагулевского (левый)"),
+    (("вагулевского", "правый"), "Вагулевского (правый)"),
+    # 17.11.2026, продолжение: «Космонавтов 14 в центр» и весь «14-16» —
+    # это Космонавтов 14а; отдельные позиции стороны выделяются своими
+    # словами, поэтому их алиасы стоят раньше общего «14-16». Порядок
+    # важен: проверяются до обычного префиксного поиска.
+    (("космонавтов", "квадро"), "Космонавтов 14-16 А на квадро"),
+    (("космонавтов", "14", "16"), "Космонавтов 14а"),
+    (("космонавтов", "14", "центр"), "Космонавтов 14а"),
+    (("космонавтов", "42", "центр"), "Космонавтов 42 Б в центр"),
 )
 ALIAS_ADDRESS_IDS: dict[tuple[str, ...], int] = {}
 
@@ -122,12 +141,28 @@ _ADDRESS_TOKEN_RE = re.compile(r"[a-zа-я0-9]+")
 def _address_tokens(value: object) -> list[str]:
     """Значимые слова адреса/имени файла без служебных сокращений."""
 
-    text = str(value or "").lower().replace("ё", "е")
+    text = str(value or "").lower().replace("ё", "е").translate(_HOMOGLYPHS)
     return [
         word
         for word in _ADDRESS_TOKEN_RE.findall(text)
         if len(word) >= 2 and word not in _ADDRESS_STOPWORDS
     ]
+
+
+# Латиница в токенах адреса («ул. 1572») и расширения файлов не помогают
+# сопоставлять улицы: числа есть не в каждом имени файла, расширение — вообще
+# не часть адреса. Пересечения улиц сравниваются без них.
+_FILE_EXTENSION_TOKENS = {"jpg", "jpeg", "png", "webp", "tif", "tiff", "bmp"}
+
+
+def _street_tokens(tokens: list[str]) -> set[str]:
+    """Токены-улицы: без чисел (номеров домов) и расширений файлов."""
+
+    return {
+        token
+        for token in tokens
+        if not token.isdigit() and token not in _FILE_EXTENSION_TOKENS
+    }
 
 
 def _intersection_match(
@@ -144,7 +179,10 @@ def _intersection_match(
     file_tokens = _address_tokens(filename)
     if len(file_tokens) < 2:
         return None
-    file_set = set(file_tokens)
+    # Числа и расширение не участвуют: в адресе может быть номер дома,
+    # которого нет в имени файла («Ашхабадский / Ленина 44»), а в имени —
+    # индекс копии или «.JPG», которых нет в адресе.
+    file_set = _street_tokens(file_tokens)
     file_side = _side(filename)
 
     matches: list[tuple[tuple[int, int, int, int, int], int]] = []
@@ -152,12 +190,17 @@ def _intersection_match(
     for address_id, normalized in addresses:
         raw = ADDRESS_NAMES.get(address_id) or ""
         address_tokens = _address_tokens(raw) or _address_tokens(normalized)
-        if len(address_tokens) < 2:
+        address_set = _street_tokens(address_tokens)
+        if len(address_set) < 1:
             continue
-        address_set = set(address_tokens)
 
         if file_set <= address_set or address_set <= file_set:
             matched = len(file_set & address_set)
+            # «Пересечение» требует минимум две общих улицы: одиночная улица
+            # без номера не отличает адреса одной улицы — это работа
+            # префиксного поиска, а не угадывание.
+            if matched < 2:
+                continue
             address_side = _side(raw or normalized)
             if file_side and address_side:
                 side_score = 2 if file_side == address_side else 0
@@ -231,6 +274,26 @@ def load_addresses() -> list[tuple[int, str]]:
     return result
 
 
+def _prefix_candidates(
+    name: str,
+    addresses: list[tuple[int, str]],
+) -> list[tuple[int, int]]:
+    """Префиксные совпадения: [(длина совпавшей части, address_id)]."""
+
+    candidates: list[tuple[int, int]] = []
+
+    for address_id, normalized in addresses:
+        if not normalized or len(normalized) < 4:
+            continue
+
+        if name.startswith(normalized):
+            candidates.append((len(normalized), address_id))
+        elif normalized.startswith(name) and len(name) >= 5:
+            candidates.append((len(name), address_id))
+
+    return candidates
+
+
 def expected_address(filename: str, addresses: list[tuple[int, str]]) -> int | None:
     """
     Адрес по имени файла: самый длинный однозначный вариант.
@@ -254,16 +317,14 @@ def expected_address(filename: str, addresses: list[tuple[int, str]]) -> int | N
     if alias is not None:
         return alias
 
-    candidates: list[tuple[int, int]] = []
+    candidates = _prefix_candidates(name, addresses)
 
-    for address_id, normalized in addresses:
-        if not normalized or len(normalized) < 4:
-            continue
-
-        if name.startswith(normalized):
-            candidates.append((len(normalized), address_id))
-        elif normalized.startswith(name) and len(name) >= 5:
-            candidates.append((len(name), address_id))
+    if not candidates:
+        # «Сальский 31 А», «Ленина 125 А»: конечная одиночная буква — это
+        # сторона съёмки, а не часть номера дома. Повторяем поиск без неё.
+        stripped = re.sub(r"[абab]$", "", name)
+        if stripped != name and len(stripped) >= 5:
+            candidates = _prefix_candidates(stripped, addresses)
 
     if candidates:
         candidates.sort(reverse=True)

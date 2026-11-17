@@ -4372,3 +4372,91 @@ def get_fingerprint_batch(batch_id: str):
             for job in batch_jobs
         ],
     }
+
+
+# ---- PCA-отбеливание эмбеддингов -----------------------------------------
+
+
+@read_router.get("/v1/fingerprints/pca", response_model=None)
+def get_pca_status():
+    """Статус PCA-отбеливания эмбеддингов: версия, дата, включено/выкл, stale."""
+
+    from app.fingerprint import pca as pca_mod
+
+    return pca_mod.pca_status()
+
+
+@jobs_router.post(
+    "/v1/fingerprints/pca/rebuild",
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def rebuild_pca():
+    """
+    Пересчитать PCA-отбеливание по всем активным слепкам.
+
+    Выполняется синхронно: SVD на ~100к эмбеддингов занимает порядка минуты.
+    """
+
+    try:
+        from app.core.embedder import SceneEmbedder
+        from app.core.config import settings as core_settings
+        from app.core.fingerprint import FingerprintManager
+        from app.fingerprint import pca as pca_mod
+        from app.api import fingerprints as fingerprints_mod
+
+        import numpy as np
+
+        embedder = SceneEmbedder(core_settings)
+        manager = FingerprintManager(core_settings, embedder)
+
+        active = fingerprints_mod.active_fingerprint_ids()
+        if active is None:
+            raise HTTPException(status_code=503, detail="реестр слепков недоступен")
+
+        loaded = []
+
+        for meta in manager.list_fingerprints():
+            fid = meta.get("id")
+            if not fid:
+                continue
+            if str(fid) not in active:
+                continue
+
+            try:
+                data = manager.load(fid)
+            except (FileNotFoundError, ValueError, OSError):
+                continue
+
+            if not isinstance(data.get("embeddings"), np.ndarray) or data["embeddings"].shape[1] != 768:
+                continue
+
+            loaded.append((str(fid), data))
+
+        if not loaded:
+            raise HTTPException(status_code=400, detail="нет активных слепков для PCA")
+
+        result = pca_mod.rebuild(loaded)
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"PCA не рассчитан: {exc}") from exc
+
+
+@jobs_router.put(
+    "/v1/fingerprints/pca/toggle",
+    dependencies=[Depends(require_scope("settings:write"))],
+)
+def toggle_pca(request: dict):
+    """Включить или выключить применение PCA при DINO-сортировке."""
+
+    from app.fingerprint import pca as pca_mod
+
+    flag = request.get("active")
+
+    if not isinstance(flag, bool):
+        raise HTTPException(status_code=422, detail="ожидается поле active: bool")
+
+    return pca_mod.set_active(flag)

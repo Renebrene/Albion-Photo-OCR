@@ -25,8 +25,12 @@ SWITCH_GAIN = 1.5
 
 # When DINO's top two addresses are almost tied, the centroid score is not
 # decisive. The best individual representative (best_image_score) proved more
-# reliable on the corpus than the top-1 centroid score.
-BEST_IMAGE_MARGIN = 0.01
+# reliable on the corpus than the top-1 centroid score. The 0.01 threshold
+# fired on too many near-ties where it was wrong more often than the plain
+# score switch: run-11 replay 16.11.2026 (32,817 labelled) showed 46% of all
+# errors came from this rule, and margin < 0.005 keeps the useful cases only
+# (+39 photos).
+BEST_IMAGE_MARGIN = 0.005
 
 
 def default_workers() -> int:

@@ -1105,6 +1105,20 @@ export function setAddressFingerprints(addressId, fingerprints) {
   })
 }
 
+// --- PCA-отбеливание эмбеддингов -------------------------------------------
+
+export function fetchPcaStatus() {
+  return getJson(`${BASE}/v1/fingerprints/pca`)
+}
+
+export function rebuildPca() {
+  return postJson(`${BASE}/v1/fingerprints/pca/rebuild`, {})
+}
+
+export function togglePcaActive(active) {
+  return putJson(`${BASE}/v1/fingerprints/pca/toggle`, { active })
+}
+
 export function fetchSelection() {
   return getJson(`${BASE}/v1/selection`)
 }

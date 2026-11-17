@@ -117,10 +117,10 @@
   "spatial_descriptor": "gray_grid_v1",
   "spatial_dimension": 32,
   "weights": {
-    "global": 0.7,
-    "environment": 0.2,
-    "color": 0.07,
-    "spatial": 0.03
+    "global": 0.4,
+    "environment": 0.35,
+    "color": 0.0,
+    "spatial": 0.25
   },
   "image_names": [
     "Вавилова Дачная А (1).JPG",

@@ -186,6 +186,55 @@ onMounted(load)
         </q-card-section>
       </q-card>
 
+      <!-- PCA-отбеливание: раздел из снапшота -->
+      <template v-if="snapshot?.pca_experiment">
+      <q-card flat bordered class="q-mb-md">
+        <q-card-section>
+          <div class="text-subtitle2 q-mb-xs">{{ snapshot.pca_experiment.title }}</div>
+          <div class="text-caption text-grey q-mb-sm">
+            Слепков: {{ snapshot.pca_experiment.fingerprints_count }} ·
+            Цвет удалён: {{ snapshot.pca_experiment.color_removed ? 'да' : 'нет' }}
+          </div>
+
+          <div v-if="snapshot.pca_experiment.color_exp" class="q-mb-sm bg-blue-1 q-pa-sm rounded-borders">
+            <b>Удаление цвета:</b>
+            {{ snapshot.pca_experiment.color_exp.before }}
+            → {{ snapshot.pca_experiment.color_exp.after }}
+            (+{{ snapshot.pca_experiment.color_exp.delta_correct }} верных)
+          </div>
+
+          <q-markup-table dense flat>
+            <thead>
+              <tr>
+                <th class="text-left">Адрес</th>
+                <th class="text-right">Отрыв (orig)</th>
+                <th class="text-right">Отрыв (PCA)</th>
+                <th class="text-right">×</th>
+                <th class="text-center">Best match</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in snapshot.pca_experiment.results" :key="row.address">
+                <td>{{ row.address }}</td>
+                <td class="text-right">{{ row.orig_margin.toFixed(4) }}</td>
+                <td class="text-right">{{ row.pca_margin.toFixed(4) }}</td>
+                <td class="text-right">{{ row.ratio }}×</td>
+                <td class="text-center">
+                  <q-badge :color="row.best_unchanged ? 'positive' : 'negative'" outline>
+                    {{ row.best_unchanged ? '✓' : '✗' }}
+                  </q-badge>
+                </td>
+              </tr>
+            </tbody>
+          </q-markup-table>
+
+          <div v-if="snapshot.pca_experiment.real_photo_test" class="text-caption text-grey q-mt-sm">
+            Тест на 12 реальных фото: {{ snapshot.pca_experiment.real_photo_test.note }}
+          </div>
+        </q-card-section>
+      </q-card>
+      </template>
+
       <div class="row q-col-gutter-md">
         <div class="col-12 col-xl-7">
           <q-card flat bordered>

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from app.hybrid.database import HybridWorkItem
-from app.hybrid.runner import hybrid_one
+from app.hybrid.runner import BEST_IMAGE_MARGIN, hybrid_one
+
+# Явно ниже порога low-margin ветки: тесты не должны зависеть от его значения.
+LOW_MARGIN = BEST_IMAGE_MARGIN / 2
 
 
 def _candidate(fingerprint_id: str, score: float, best_image: float) -> dict:
@@ -17,7 +20,7 @@ def _candidate(fingerprint_id: str, score: float, best_image: float) -> dict:
 def _item(
     *,
     best: str | None = "a",
-    margin: float = 0.005,
+    margin: float = LOW_MARGIN,
     candidates: list[dict] | None = None,
     photo_id: str = "PH_1",
     series_fp: str | None = None,

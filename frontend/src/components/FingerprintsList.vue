@@ -24,12 +24,15 @@ import {
   fetchFingerprintRegistry,
   fetchFingerprintVersions,
   fetchJob,
+  fetchPcaStatus,
   fingerprintPreviewUrl,
   pauseJob,
   pickFolderNative,
+  rebuildPca,
   resumeJob,
   setFingerprintAddress,
   syncFingerprints,
+  togglePcaActive,
   updateFingerprint,
   uploadFingerprintFile,
 } from '../api/client'
@@ -58,6 +61,47 @@ const RECOMMENDED_IMAGES = 60
 const { busy: editBusy, run: editRun } = useAsyncAction()
 // Поколение опроса: закрытие диалога и уход со вкладки гасят цикл сбора.
 const poll = usePollToken()
+
+// ---- PCA-отбеливание ---------------------------------------------------
+const pca = ref(null)
+const pcaBusy = ref(false)
+
+async function loadPca() {
+  try {
+    pca.value = await fetchPcaStatus()
+  } catch {
+    pca.value = null
+  }
+}
+
+async function computePca() {
+  pcaBusy.value = true
+  try {
+    const result = await rebuildPca()
+    pca.value = result
+    Notify.create({ type: 'positive', message: 'PCA пересчитан' })
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message || 'PCA не рассчитан' })
+  } finally {
+    pcaBusy.value = false
+  }
+}
+
+async function togglePca(value) {
+  try {
+    const result = await togglePcaActive(Boolean(value))
+    pca.value = result
+    Notify.create({
+      type: 'positive',
+      message: `PCA ${result.active ? 'включён' : 'выключен'}`,
+    })
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+    await loadPca()
+  }
+}
+
+// ------------------------------------------------------------------------
 
 const items = ref([])
 
@@ -1015,6 +1059,7 @@ onMounted(async () => {
   loadColumnLayout()
   await load()
   await loadNativePicker()
+  await loadPca()
 })
 
 async function sync() {
@@ -1228,6 +1273,41 @@ function day(value) {
     <div v-if="error" class="q-mb-md">
       <q-banner class="bg-red-1 text-negative">{{ error }}</q-banner>
     </div>
+
+    <!-- PCA-отбеливание эмбеддингов (коллапс, админ). -->
+    <q-card v-if="isAdmin" flat bordered class="q-mb-md">
+      <q-card-section class="row items-center q-gutter-sm q-py-sm">
+        <div class="col text-caption">
+          <span class="text-weight-medium">PCA-отбеливание</span>
+          <span v-if="pca" class="text-grey-7 q-ml-sm">
+            · v{{ pca.version }}
+            · {{ pca.updated_at ? pca.updated_at.slice(0, 10) : 'не рассчитано' }}
+            · <q-badge :color="pca.active ? 'positive' : 'grey'" outline>
+                {{ pca.active ? 'включено' : 'выключено' }}
+              </q-badge>
+            · слепков в PCA: {{ pca.fingerprint_count }}
+          </span>
+        </div>
+        <q-btn
+          dense
+          outline
+          no-caps
+          size="sm"
+          :color="pca?.stale ? 'orange' : 'primary'"
+          icon="calculate"
+          :label="pca?.stale ? 'Слепки изменились — пересчитать PCA' : 'Пересчитать PCA'"
+          :loading="pcaBusy"
+          @click="computePca"
+        />
+        <q-toggle
+          :model-value="pca?.active || false"
+          :disable="!pca || !pca.version"
+          size="sm"
+          label="Включить"
+          @update:model-value="togglePca"
+        />
+      </q-card-section>
+    </q-card>
 
     <!-- Закладки — фильтр по общей таблице (задание, п. 5в). -->
     <q-tabs
