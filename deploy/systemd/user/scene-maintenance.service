@@ -9,5 +9,9 @@ WorkingDirectory=/home/alexice/projects/albion-photobase
 EnvironmentFile=/home/alexice/.config/scene-fingerprint.env
 ExecStart=/home/alexice/projects/albion-photobase/.venv/bin/python scripts/cleanup_job_queue.py --json
 ExecStart=/home/alexice/projects/albion-photobase/.venv/bin/python scripts/cleanup_crops.py --older-than-days 7 --json
+# Карантин превью (файлы, перенесённые cleanup_missing_originals): держим 10
+# дней на обратимый разбор, потом чистим. Ежедневный запуск с порогом 10 дней
+# даёт запрошенную уборку «каждые 10 дней».
+ExecStart=/home/alexice/projects/albion-photobase/.venv/bin/python scripts/cleanup_preview_quarantine.py --older-than-days 10 --json
 Nice=10
 TimeoutStartSec=3600
