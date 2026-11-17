@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
@@ -20,7 +21,12 @@ from app.hybrid.database import (
 
 
 GLOBAL_WEIGHT = 10.0
-NEIGHBOR_BONUS = 3.0
+# Окно правила соседей: вместо «левый+правый» (бонус 3.0 при их согласии)
+# каждый сосед в ±NEIGHBOR_WINDOW, чей DINO-вердикт совпал с кандидатом,
+# добавляет ему NEIGHBOR_VOTE_BONUS голоса. Виртуальный прогон на run 12
+# (17.11.2026, 37 269 подписанных): ошибки 1170 → 735, +435 верных фото.
+NEIGHBOR_WINDOW = 10
+NEIGHBOR_VOTE_BONUS = 1.0
 SWITCH_GAIN = 1.5
 
 # When DINO's top two addresses are almost tied, the centroid score is not
@@ -61,7 +67,7 @@ def hybrid_one(
             + float(score) * GLOBAL_WEIGHT
         )
 
-    neighbors: dict[str, str] = {}
+    neighbors: dict[str, object] = {}
 
     left_fp = None
     right_fp = None
@@ -76,12 +82,24 @@ def hybrid_one(
         if right_fp is not None:
             neighbors["right"] = right_fp
 
-    if (
-        left_fp is not None
-        and right_fp is not None
-        and left_fp == right_fp
-    ):
-        scores[left_fp] = scores.get(left_fp, 0.0) + NEIGHBOR_BONUS
+    votes: Counter[str] = Counter()
+
+    lo = max(0, index - NEIGHBOR_WINDOW)
+    hi = min(len(items), index + NEIGHBOR_WINDOW + 1)
+
+    for offset in range(lo, hi):
+        if offset == index:
+            continue
+
+        neighbor_fp = items[offset].dino_best_id
+
+        if neighbor_fp is not None:
+            votes[neighbor_fp] += 1
+
+    for fingerprint_id, count in votes.items():
+        scores[fingerprint_id] = (
+            scores.get(fingerprint_id, 0.0) + count * NEIGHBOR_VOTE_BONUS
+        )
 
     best = old
     used_custom_rule = False
@@ -92,13 +110,17 @@ def hybrid_one(
         if candidate.get("id") is not None
     }
 
-    # Two identical neighbours outvote a nearly tied centroid. This is
-    # especially strong for series shot from the same folder.
-    consensus_fp = (
-        left_fp
-        if left_fp is not None and left_fp == right_fp
-        else None
-    )
+    # Согласие соседей в окне (>=2 голоса за один слепок) перевешивает
+    # почти равный центроид — серии однотипных кадров обычно надёжнее
+    # одного сходства.
+    consensus_fp = None
+
+    if votes:
+        top_fp, top_count = votes.most_common(1)[0]
+
+        if top_count >= 2:
+            consensus_fp = top_fp
+            neighbors["votes"] = dict(votes.most_common(3))
 
     # DINO may have no best_id because its absolute score is below 0.65 even
     # though the top candidate is the right scene. With zero review thresholds
@@ -280,7 +302,8 @@ def run(
     print(f"to_process={len(pending_indexes)}")
     print(f"workers={workers}")
     print(f"GLOBAL_WEIGHT={GLOBAL_WEIGHT}")
-    print(f"NEIGHBOR_BONUS={NEIGHBOR_BONUS}")
+    print(f"NEIGHBOR_WINDOW={NEIGHBOR_WINDOW}")
+    print(f"NEIGHBOR_VOTE_BONUS={NEIGHBOR_VOTE_BONUS}")
     print(f"SWITCH_GAIN={SWITCH_GAIN}")
     print("SUBFINGERPRINTS=DISABLED")
     print("IMAGE_READS=DISABLED")

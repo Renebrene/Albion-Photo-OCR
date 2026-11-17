@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from app.hybrid.database import HybridWorkItem
 from app.hybrid.runner import BEST_IMAGE_MARGIN, hybrid_one
 
@@ -76,6 +78,37 @@ def test_low_margin_prefers_two_neighbour_consensus():
 
     assert result["hybrid_final_id"] == "n"
     assert result["hybrid_changed"] is True
+
+
+def test_window_votes_switch_high_margin_candidate():
+    """Окно ±10: два согласных соседа переключают кандидата с большим отрывом."""
+
+    target = _item(margin=0.03)  # a: 0.90*10 = 9.0, b: 0.89*10 = 8.9
+    left = _item(best="b", photo_id="PH_left")
+    right = _item(best="b", photo_id="PH_right")
+
+    result = hybrid_one([left, target, right], 1)
+
+    # Голоса b: 8.9 + 2*1.0 = 10.9 против 9.0 → отрыв 1.9 > SWITCH_GAIN.
+    assert result["hybrid_final_id"] == "b"
+    assert result["hybrid_changed"] is True
+    # hybrid_neighbors — JSON-строка для БД.
+    neighbors = json.loads(result["hybrid_neighbors"])
+    assert neighbors["votes"] == {"b": 2}
+
+
+def test_single_neighbour_vote_does_not_switch():
+    """Один голос (+1.0) не дотягивает до SWITCH_GAIN — переключения нет."""
+
+    target = _item(margin=0.03)
+    left = _item(best="a", photo_id="PH_left")
+    right = _item(best="b", photo_id="PH_right")
+
+    result = hybrid_one([left, target, right], 1)
+
+    # Голоса: a +1.0 → 10.0, b +1.0 → 9.9; a остаётся лучшим.
+    assert result["hybrid_final_id"] == "a"
+    assert result["hybrid_changed"] is False
 
 
 def test_low_margin_falls_back_to_best_image_without_consensus():
