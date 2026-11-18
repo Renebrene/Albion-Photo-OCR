@@ -4558,13 +4558,13 @@ function tagList(meta) {
               </template>
             </div>
           </div>
-          <!-- Кнопки просмотрщика: у менеджера и гостя — широкие, с
-               подписями; у админа — как раньше, иконки. -->
+          <!-- Кнопки просмотрщика: широкие, с подписями, для всех ролей
+               (владелец, 18.11.2026: админу — как и остальным). -->
           <q-btn
             dense
             flat
             icon="open_in_new"
-            :label="isAdmin ? undefined : 'Открыть'"
+            :label="'Открыть'"
             :disable="originalUnavailable"
             @click="openOriginal(current)"
           >
@@ -4576,7 +4576,7 @@ function tagList(meta) {
             dense
             flat
             icon="download"
-            :label="isAdmin ? undefined : 'Сохранить'"
+            :label="'Сохранить'"
             :disable="originalUnavailable"
             @click="saveOriginal(current)"
           >
@@ -4588,7 +4588,7 @@ function tagList(meta) {
             dense
             flat
             icon="image_search"
-            :label="isAdmin ? undefined : 'Похожие'"
+            :label="'Похожие'"
             @click="openSimilar(current)"
           >
             <q-tooltip>Похожие объявления (визуальный поиск)</q-tooltip>
