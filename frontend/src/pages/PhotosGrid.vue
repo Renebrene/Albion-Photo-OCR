@@ -16,6 +16,8 @@ import {
   fetchPhotoDetails,
   fetchPhotos,
   searchVisualByPhoto,
+  addFavorites,
+  fetchFavorites,
   fetchSearchSuggestions,
   fetchSearchMatches,
   fetchRunActivity,
@@ -156,6 +158,16 @@ const canUseCollective = computed(() => {
   return ['Администратор', 'Менеджер'].includes(session.user?.role)
 })
 
+// Полномасштабный просмотрщик (строки «рядом:», score в «Похожих», история
+// описаний и photo_id) — только для администратора; менеджер и гость видят
+// упрощённую карточку (владелец, 18.11.2026).
+const isAdmin = computed(() => {
+  if (!session.authEnabled) return true
+  return session.user?.role === 'Администратор'
+})
+
+const canSeeScores = isAdmin
+
 // Поиск по загруженному фото/видео требует searches:write — у Гостя его нет.
 const canSearchMedia = canUseCollective
 
@@ -213,6 +225,21 @@ const similarOpen = ref(false)
 const similarLoading = ref(false)
 const similarItems = ref([])
 const similarPhotoId = ref('')
+// Диапазон дат съёмки для «Похожих»: цикл переключателем в шапке диалога
+// (владелец, 18.11.2026). days=0 — всё время.
+const SIMILAR_RANGES = [
+  { label: 'Неделя', days: 7 },
+  { label: 'Месяц', days: 30 },
+  { label: '3 месяца', days: 90 },
+  { label: 'Полгода', days: 182 },
+  { label: 'Год', days: 365 },
+  { label: 'Всё время', days: 0 },
+]
+const similarRangeIndex = ref(SIMILAR_RANGES.length - 1)
+const similarRange = computed(() => SIMILAR_RANGES[similarRangeIndex.value])
+// Отмеченные фото: photo_id -> true. С ними уходят в «Избранное» грида.
+const similarChecked = ref({})
+const similarFavoritesBusy = ref(false)
 const mediaStage = ref('')
 const mediaBusy = ref(false)
 const qwenElapsedSeconds = ref(0)
@@ -572,6 +599,45 @@ const effectiveColumns = computed(() => {
 const gridStyle = computed(() => ({
   gridTemplateColumns: `repeat(${effectiveColumns.value}, minmax(0, 1fr))`,
 }))
+
+// Цикл количества ячеек кнопкой в панели фильтров. Значение «auto» (или
+// отсутствующее в цикле) считает стартом цикла: первый клик ставит 3.
+const CELLS_CYCLE = [3, 4, 5, 6, 8, 10]
+
+const cellsValue = computed(() => {
+  const value = display.tileColumns
+  return CELLS_CYCLE.includes(value) ? value : 'auto'
+})
+
+function cycleCells() {
+  const current = display.tileColumns
+  const position = CELLS_CYCLE.indexOf(current)
+  display.tileColumns =
+    position === -1 ? CELLS_CYCLE[0] : CELLS_CYCLE[(position + 1) % CELLS_CYCLE.length]
+}
+
+/**
+ * «Избранные фото» из меню «Избранное»: включает фильтр грида по служебной
+ * фото-подборке. Повторный клик снимает фильтр.
+ */
+async function showFavoritesInGrid() {
+  if (store.favoritesCollectionId) {
+    store.clearFavoritesMode()
+    await store.refresh()
+    return
+  }
+
+  try {
+    const favorites = await fetchFavorites()
+    if (!favorites.photo_ids?.length) {
+      Notify.create({ type: 'info', message: 'Избранных фото пока нет' })
+      return
+    }
+    await store.showFavorites(favorites.collection_id)
+  } catch (err) {
+    Notify.create({ type: 'negative', message: `Избранное: ${err.message}` })
+  }
+}
 
 function stopGridObserver() {
   if (gridObserver) {
@@ -1915,6 +1981,7 @@ async function reset() {
   customFrom.value = null
   customTo.value = null
   store.resetSelectionFilters()
+  store.clearFavoritesMode()
   clearStructuredFilters()
   addressSearch.value = ''
   clientSearch.value = ''
@@ -2978,16 +3045,26 @@ async function open(photo) {
 
 /**
  * Похожие объявления (CLIP по кропам щитов): берём первый кроп фото,
- * показываем сетку совпадений; клик открывает фото в просмотрщике.
+ * показываем сетку совпадений. Диапазон дат съёмки переключается в шапке;
+ * отмеченные чекбоксами фото уходят в «Избранное» грида.
  */
 async function openSimilar(photo) {
   similarPhotoId.value = photo.photo_id
   similarItems.value = []
+  similarChecked.value = {}
   similarOpen.value = true
+  await loadSimilar()
+}
+
+async function loadSimilar() {
   similarLoading.value = true
 
   try {
-    const result = await searchVisualByPhoto(photo.photo_id)
+    const result = await searchVisualByPhoto(
+      similarPhotoId.value,
+      24,
+      similarRange.value.days,
+    )
     similarItems.value = result.matches || []
   } catch (err) {
     Notify.create({ type: 'negative', message: `Похожие: ${err.message}` })
@@ -2997,10 +3074,64 @@ async function openSimilar(photo) {
   }
 }
 
-function openSimilarMatch(match) {
+function cycleSimilarRange() {
+  similarRangeIndex.value =
+    (similarRangeIndex.value + 1) % SIMILAR_RANGES.length
+  similarChecked.value = {}
+  if (similarOpen.value) loadSimilar()
+}
+
+function toggleSimilarCheck(item) {
+  const next = { ...similarChecked.value }
+  if (next[item.photo_id]) delete next[item.photo_id]
+  else next[item.photo_id] = true
+  similarChecked.value = next
+}
+
+const similarCheckedCount = computed(
+  () => Object.values(similarChecked.value).filter(Boolean).length,
+)
+
+function clearSimilarChecked() {
+  similarChecked.value = {}
+}
+
+function closeSimilar() {
+  // «Закрыть» снимает отметки: повторное открытие начинается с чистого.
+  clearSimilarChecked()
   similarOpen.value = false
-  // Минимального объекта хватает: просмотрщик догружает детали по photo_id.
-  open({ photo_id: match.photo_id, filename: match.photo_id })
+}
+
+/**
+ * «Перейти в избранное»: отмеченные фото попадают в служебную подборку
+ * «Избранные фото», грид открывается с фильтром по ней.
+ */
+async function sendSimilarToFavorites() {
+  const ids = Object.keys(similarChecked.value).filter(
+    (key) => similarChecked.value[key],
+  )
+
+  if (!ids.length) return
+
+  similarFavoritesBusy.value = true
+
+  try {
+    const result = await addFavorites(ids)
+    clearSimilarChecked()
+    similarOpen.value = false
+    Notify.create({
+      type: 'positive',
+      message: `В избранном: ${result.count} фото`,
+    })
+    await store.showFavorites(result.collection_id)
+  } catch (err) {
+    Notify.create({
+      type: 'negative',
+      message: `Избранное: ${err.message}`,
+    })
+  } finally {
+    similarFavoritesBusy.value = false
+  }
 }
 
 /**
@@ -3427,7 +3558,6 @@ function tagList(meta) {
         />
 
         <CollectionsPanel
-          v-if="canUseCollective"
           scope="addresses"
           @create="openBucketDialog"
         />
@@ -3670,8 +3800,9 @@ function tagList(meta) {
             выбрано: {{ store.selectedCount }}
             <q-tooltip>Снять выделение</q-tooltip>
           </q-badge>
+          <!-- Скачивание по одному доступно и гостю; ZIP и облако —
+               только менеджер/админ (владелец, 18.11.2026). -->
           <q-btn
-            v-if="canUseCollective"
             dense
             flat
             icon="download"
@@ -3683,21 +3814,25 @@ function tagList(meta) {
             <q-tooltip>Скачать выбранные фото по одному</q-tooltip>
           </q-btn>
           <q-btn
-            v-if="canUseCollective"
             dense
             color="secondary"
             icon="folder_zip"
             label="ZIP"
-            :disable="!store.selectedCount"
+            :disable="!store.selectedCount || !canUseCollective"
             :loading="zipBusy"
             @click="downloadZip"
           >
-            <q-tooltip>Скачать выбранные фото одним архивом</q-tooltip>
+            <q-tooltip>
+              {{
+                canUseCollective
+                  ? 'Скачать выбранные фото одним архивом'
+                  : 'Архив доступен только менеджеру и администратору'
+              }}
+            </q-tooltip>
           </q-btn>
           <CloudLinkButton
-            v-if="canUseCollective"
             :photo-ids="store.selected"
-            :disabled="!store.selectedCount"
+            :disabled="!store.selectedCount || !canUseCollective"
           />
 
           <q-space />
@@ -3780,11 +3915,47 @@ function tagList(meta) {
             <q-tooltip>Настройки отображения</q-tooltip>
           </q-btn>
 
-          <!-- Избранное (бывшие «сохранённые поиски») — тоже принадлежит пользователю -->
-          <q-btn v-if="canUseCollective" dense flat icon="bookmarks">
-            <q-tooltip>Избранное</q-tooltip>
+          <!-- Кол-во ячеек в строке плитки: цифра на кнопке, клик циклит
+               3→4→5→6→8→10. У менеджера и админа запоминается на сервере
+               (настройки отображения), у гостя — только в браузере. -->
+          <q-btn dense flat :label="String(cellsValue)" @click="cycleCells">
+            <q-tooltip>
+              Ячеек в строке: {{ cellsValue }}. Клик — переключить
+              (3, 4, 5, 6, 8, 10).
+            </q-tooltip>
+          </q-btn>
+
+          <!-- Избранное (бывшие «сохранённые поиски») + избранные фото из
+               диалога «Похожие». У гостя — неактивно (владелец, 18.11.2026). -->
+          <q-btn dense flat icon="bookmarks" :disable="!canUseCollective">
+            <q-tooltip>
+              {{ canUseCollective ? 'Избранное' : 'Избранное доступно только менеджеру и администратору' }}
+            </q-tooltip>
             <q-menu>
               <q-list dense style="min-width: 240px">
+                <q-item
+                  clickable
+                  v-close-popup
+                  :disable="!store.favoritesCollectionId"
+                  @click="showFavoritesInGrid"
+                >
+                  <q-item-section avatar>
+                    <q-icon name="star" />
+                  </q-item-section>
+                  <q-item-section>
+                    Избранные фото
+                    <span
+                      v-if="store.favoritesCollectionId"
+                      class="text-caption text-grey-7"
+                    >
+                      показать в гриде
+                    </span>
+                    <span v-else class="text-caption text-grey-7">
+                      пусто — добавьте из диалога «Похожие»
+                    </span>
+                  </q-item-section>
+                </q-item>
+                <q-separator />
                 <q-item clickable v-close-popup @click="openSaveSearch">
                   <q-item-section avatar>
                     <q-icon name="bookmark_add" />
@@ -3944,23 +4115,15 @@ function tagList(meta) {
                       </q-item-section>
                       <q-item-section>Открыть</q-item-section>
                     </q-item>
-                    <q-item
-                      v-if="canUseCollective"
-                      clickable
-                      v-close-popup
-                      @click="openOriginal(photo)"
-                    >
+                    <!-- Оригинал и «Сохранить» доступны и гостю; «В подборку»
+                         — только менеджер/админ (владелец, 18.11.2026). -->
+                    <q-item clickable v-close-popup @click="openOriginal(photo)">
                       <q-item-section avatar>
                         <q-icon name="open_in_new" />
                       </q-item-section>
                       <q-item-section>Оригинал</q-item-section>
                     </q-item>
-                    <q-item
-                      v-if="canUseCollective"
-                      clickable
-                      v-close-popup
-                      @click="saveOriginal(photo)"
-                    >
+                    <q-item clickable v-close-popup @click="saveOriginal(photo)">
                       <q-item-section avatar>
                         <q-icon name="download" />
                       </q-item-section>
@@ -4319,7 +4482,6 @@ function tagList(meta) {
         />
 
         <CollectionsPanel
-          v-if="canUseCollective"
           scope="clients"
           @create="openBucketDialog"
         />
@@ -4367,9 +4529,11 @@ function tagList(meta) {
               {{ current?.filename }}
             </div>
             <!-- Фото из «Требуют проверки»: показываем, что предложил
-                 дино-гибрид по обычной схеме, без порога. -->
+                 дино-гибрид по обычной схеме, без порога. Только админ:
+                 менеджер и гость видят лишь адрес и имя файла
+                 (владелец, 18.11.2026). -->
             <div
-              v-if="current && !current.address && current.suggested_address"
+              v-if="isAdmin && current && !current.address && current.suggested_address"
               class="text-caption text-orange-9 ellipsis"
             >
               Дино-гибрид предлагал: {{ current.suggested_address }}
@@ -4378,9 +4542,9 @@ function tagList(meta) {
               </template>
             </div>
             <!-- Ближайшая альтернатива: видно, куда ещё можно отнести фото и
-                 насколько выбор был однозначным. -->
+                 насколько выбор был однозначным. Только админ. -->
             <div
-              v-if="current?.runner_up_address || current?.margin != null"
+              v-if="isAdmin && (current?.runner_up_address || current?.margin != null)"
               class="text-caption text-grey-7 ellipsis"
             >
               <template v-if="current?.runner_up_address">
@@ -4394,11 +4558,13 @@ function tagList(meta) {
               </template>
             </div>
           </div>
+          <!-- Кнопки просмотрщика: у менеджера и гостя — широкие, с
+               подписями; у админа — как раньше, иконки. -->
           <q-btn
-            v-if="canUseCollective"
             dense
             flat
             icon="open_in_new"
+            :label="isAdmin ? undefined : 'Открыть'"
             :disable="originalUnavailable"
             @click="openOriginal(current)"
           >
@@ -4407,10 +4573,10 @@ function tagList(meta) {
             </q-tooltip>
           </q-btn>
           <q-btn
-            v-if="canUseCollective"
             dense
             flat
             icon="download"
+            :label="isAdmin ? undefined : 'Сохранить'"
             :disable="originalUnavailable"
             @click="saveOriginal(current)"
           >
@@ -4422,6 +4588,7 @@ function tagList(meta) {
             dense
             flat
             icon="image_search"
+            :label="isAdmin ? undefined : 'Похожие'"
             @click="openSimilar(current)"
           >
             <q-tooltip>Похожие объявления (визуальный поиск)</q-tooltip>
@@ -4662,8 +4829,10 @@ function tagList(meta) {
                   </div>
                 </div>
 
+                <!-- История описаний — только админ: менеджеру и гостю она
+                     не показывается (владелец, 18.11.2026). -->
                 <q-expansion-item
-                  v-if="qwenHistory.length"
+                  v-if="isAdmin && qwenHistory.length"
                   class="q-mt-md"
                   dense
                   switch-toggle-side
@@ -4699,11 +4868,15 @@ function tagList(meta) {
                   Том: {{ current.source_root }}
                   <span v-if="originalRootMissing" class="text-orange"> — не подключён</span>
                 </div>
+                <!-- photo_id — только админ (владелец, 18.11.2026); номер
+                     в выборке остаётся всем. -->
                 <div class="q-mt-xs row items-center no-wrap text-caption">
-                  <span class="text-grey q-mr-xs">ID:</span>
-                  <span class="ellipsis">{{ current?.photo_id }}</span>
-                  <q-space />
-                  <span v-if="viewerIndex >= 0" class="text-grey q-ml-sm">№ {{ viewerIndex + 1 }}</span>
+                  <template v-if="isAdmin">
+                    <span class="text-grey q-mr-xs">ID:</span>
+                    <span class="ellipsis">{{ current?.photo_id }}</span>
+                    <q-space />
+                  </template>
+                  <span v-if="viewerIndex >= 0" class="text-grey" :class="isAdmin ? 'q-ml-sm' : 'q-ml-auto'">№ {{ viewerIndex + 1 }}</span>
                 </div>
               </template>
             </q-card-section>
@@ -4986,55 +5159,116 @@ function tagList(meta) {
       </q-card>
     </q-dialog>
 
-    <!-- Похожие объявления (CLIP): сетка совпадений для открытого фото. -->
+    <!-- Похожие объявления (CLIP): сетка совпадений для открытого фото.
+         Диапазон дат съёмки — циклом; отмеченные фото уходят в «Избранное».
+         Score видит только администратор (владелец, 18.11.2026). -->
     <q-dialog v-model="similarOpen">
-      <q-card style="width: min(1120px, 96vw); max-height: 88vh">
-        <q-card-section class="text-subtitle1">
-          Похожие объявления
-          <div class="text-caption text-grey-7 ellipsis">
-            запрос: {{ similarPhotoId }}
+      <q-card style="width: min(1120px, 96vw); max-height: 88vh" class="column">
+        <q-card-section class="row items-center q-gutter-sm">
+          <div class="col">
+            <div class="text-subtitle1">Похожие объявления</div>
+            <div class="text-caption text-grey-7 ellipsis">
+              запрос: {{ similarPhotoId }}
+            </div>
           </div>
+          <q-btn
+            dense
+            outline
+            icon="date_range"
+            :label="similarRange.label"
+            @click="cycleSimilarRange"
+          >
+            <q-tooltip>
+              Глубина поиска по дате съёмки — клик переключает: неделя, месяц,
+              3 месяца, полгода, год, всё время.
+            </q-tooltip>
+          </q-btn>
         </q-card-section>
         <q-separator />
-        <q-card-section style="max-height: 72vh; overflow: auto">
+        <q-card-section style="max-height: 68vh; overflow: auto">
           <div v-if="similarLoading" class="row justify-center q-my-lg">
             <q-spinner-dots color="primary" size="36px" />
           </div>
           <div v-else-if="!similarItems.length" class="text-caption text-grey-7">
-            Ничего не найдено.
+            Ничего не найдено в диапазоне «{{ similarRange.label }}».
           </div>
-          <div v-else class="row q-gutter-sm">
+          <div v-else class="similar-grid">
             <q-card
               v-for="item in similarItems"
               :key="item.region_id"
               flat
               bordered
               class="cursor-pointer similar-tile"
-              @click="openSimilarMatch(item)"
+              :class="{ 'similar-tile--picked': similarChecked[item.photo_id] }"
+              @click="toggleSimilarCheck(item)"
             >
-              <AuthImage
-                :url="previewUrl(item.photo_id, 'small')"
-                style="height: 150px; width: 200px; object-fit: cover; display: block"
-              />
+              <div class="relative-position">
+                <AuthImage
+                  :url="previewUrl(item.photo_id, 'small')"
+                  class="similar-tile__img"
+                />
+                <q-checkbox
+                  :model-value="Boolean(similarChecked[item.photo_id])"
+                  dense
+                  class="similar-tile__check"
+                  @update:model-value="toggleSimilarCheck(item)"
+                  @click.stop
+                />
+              </div>
               <q-card-section class="q-pa-xs">
-                <div class="text-caption ellipsis" :title="item.address || ''">
+                <div
+                  class="text-caption ellipsis-2-lines"
+                  :title="item.address || ''"
+                >
                   {{ item.address || '—' }}
                 </div>
-                <div class="row items-center justify-between">
-                  <div
-                    class="text-caption text-grey-7 ellipsis col"
-                    :title="item.brand || item.client || ''"
-                  >
-                    {{ item.brand || item.client || '' }}
-                  </div>
-                  <q-badge color="teal" :label="item.score.toFixed(2)" />
+                <div
+                  class="text-caption text-grey-7 ellipsis-2-lines"
+                  :title="item.brand || item.client || ''"
+                >
+                  {{ item.brand || item.client || '—' }}
+                </div>
+                <div class="text-caption text-grey-8 q-mt-xs">
+                  съёмка {{ day(item.taken_at) || '—' }}
+                </div>
+                <div class="text-caption text-grey-8">
+                  загрузка {{ day(item.created_at) || '—' }}
+                </div>
+                <div class="row items-center justify-between q-mt-xs">
+                  <q-badge
+                    v-if="canSeeScores"
+                    color="teal"
+                    :label="item.score.toFixed(2)"
+                  />
+                  <span v-else class="text-caption text-grey-7">
+                    кроп {{ (item.crop_index ?? 0) + 1 }}
+                  </span>
                 </div>
               </q-card-section>
             </q-card>
           </div>
         </q-card-section>
-        <q-card-actions align="right">
-          <q-btn flat label="Закрыть" v-close-popup />
+        <q-separator />
+        <q-card-actions class="row items-center justify-between q-px-md">
+          <q-btn
+            flat
+            label="Очистить"
+            :disable="!similarCheckedCount"
+            @click="clearSimilarChecked"
+          />
+          <div class="row q-gutter-sm">
+            <q-btn flat label="Закрыть" @click="closeSimilar" />
+            <q-btn
+              v-if="canUseCollective"
+              unelevated
+              color="primary"
+              icon="star"
+              label="Перейти в избранное"
+              :disable="!similarCheckedCount"
+              :loading="similarFavoritesBusy"
+              @click="sendSimilarToFavorites"
+            />
+          </div>
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -5146,6 +5380,33 @@ function tagList(meta) {
 .photos-page {
   height: calc(100vh - var(--app-chrome, 85px));
   overflow: hidden;
+}
+
+/* Похожие объявления: ровные карточки в три колонки, чекбокс поверх
+   превью (владелец, 18.11.2026). */
+.similar-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.similar-tile__img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
+.similar-tile__check {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 4px;
+}
+
+.similar-tile--picked {
+  outline: 2px solid var(--q-primary, #1976d2);
 }
 
 /* Строка тегов: одна линия без рамки; полоса прокрутки скрыта, колесо

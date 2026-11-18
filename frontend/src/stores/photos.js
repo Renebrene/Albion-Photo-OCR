@@ -77,6 +77,8 @@ function filterParams(state, { limit, cursor = null, count = true }) {
     // Подборка на фото не влияет: она восстанавливает выбор адресов или
     // клиентов, а грид фильтруется уже по нему.
     ids: state.nlIds.length ? state.nlIds : null,
+    // Избранные фото — прямой серверный фильтр по фото-подборке.
+    collection_id: state.favoritesCollectionId || null,
     // Полный результат ИИ-поиска остаётся на сервере; в URL едет только id
     // задания, иначе десятки тысяч photo_id не помещаются в запрос.
     nl_job_id: state.nlJobId || null,
@@ -197,6 +199,9 @@ export const usePhotosStore = defineStore('photos', {
     // The two collection panels select independently. collectionId remains the
     // most recently picked one for saved searches/backwards compatibility.
     collectionId: null,
+    // Избранные фото (служебная фото-подборка из диалога «Похожие»):
+    // грид фильтруется прямо по collection_id, адреса/клиенты не трогаем.
+    favoritesCollectionId: null,
     // Несколько подборок одного вида можно держать активными одновременно;
     // скалярные id оставлены первым элементом для старых сохранённых поисков.
     addressCollectionIds: [],
@@ -732,6 +737,23 @@ export const usePhotosStore = defineStore('photos', {
       this.addressCollectionId = this.addressCollectionIds[0] ?? null
       this.clientCollectionId = this.clientCollectionIds[0] ?? null
       this.collectionId = this.addressCollectionId ?? this.clientCollectionId ?? null
+    },
+
+    /**
+     * Показать избранные фото (диалог «Похожие» / меню «Избранное»).
+     *
+     * Ручные адреса/клиенты и подборки снимаются: список должен показывать
+     * ровно избранное. Режим держится, пока его не снимут повторным
+     * включением или «Сбросить фильтры».
+     */
+    async showFavorites(collectionId) {
+      this.resetSelectionFilters()
+      this.favoritesCollectionId = Number(collectionId) || null
+      await this.refresh()
+    },
+
+    clearFavoritesMode() {
+      this.favoritesCollectionId = null
     },
 
     /**

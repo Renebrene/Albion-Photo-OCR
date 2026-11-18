@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api import repository
 from app.api.main import app
 from app.clip import service
 
@@ -15,11 +16,16 @@ client = TestClient(app, raise_server_exceptions=False)
 
 # Ожидаемое обогащение из БД: region_id → (crop_index, address_id,
 # legal_address, simple_address, brand, client) — как в реальном fetchall().
+# 9 колонок как в реальном fetchall(): region_id + (crop_index,
+# address_id, legal, simple, brand, client, taken_at, created_at).
 ENRICH_ROWS = {
-    1: (0, 51, "Адрес 1", None, "Бренд 1", None),
-    2: (1, 52, "Адрес 2", None, None, "Клиент 2"),
-    3: (0, None, None, None, None, None),
-    4: (1, 51, "Адрес 1", None, None, None),
+    1: (0, 51, "Адрес 1", None, "Бренд 1", None,
+        "2026-11-01T10:00:00", "2026-11-02T10:00:00"),
+    2: (1, 52, "Адрес 2", None, None, "Клиент 2",
+        "2026-11-15T10:00:00", "2026-11-16T10:00:00"),
+    3: (0, None, None, None, None, None, None, None),
+    4: (1, 51, "Адрес 1", None, None, None,
+        "2026-10-01T10:00:00", "2026-10-02T10:00:00"),
 }
 
 
@@ -88,6 +94,7 @@ def clip_index(tmp_path, monkeypatch):
     monkeypatch.setattr(service, "INDEX_FILE", tmp_path / "clip_index.faiss")
     monkeypatch.setattr(service, "META_FILE", tmp_path / "clip_meta.jsonl")
     monkeypatch.setattr(service, "INFO_FILE", tmp_path / "index_info.json")
+    monkeypatch.setattr(service, "PENDING_FILE", tmp_path / "pending.jsonl")
     monkeypatch.setattr(service, "get_connection", lambda: FakeConn())
     monkeypatch.setattr(service, "_state", service._State())
 
@@ -262,3 +269,214 @@ def test_rebuild_publish_writes_final_files(tmp_path, monkeypatch):
     # Опубликованный индекс согласован с метой.
     index = faiss_mod.read_index(str(tmp_path / "clip_index.faiss"))
     assert index.ntotal == 2
+
+
+# ---------------------------------------------------------------------------
+# Реальное время: pending-очередь новых кропов (docs/clip_search.txt §5)
+# ---------------------------------------------------------------------------
+
+
+def test_pending_absorb_adds_vectors_and_persists(clip_index, monkeypatch):
+    """Вектор из pending попадает в поиск; после порога — и на диск.
+
+    Сервис: поглощение мгновенно (в память), публикация файлов — по порогу
+    100 векторов. Здесь порог снижен, чтобы проверить запись файлов.
+    """
+
+    import base64
+
+    import numpy as np
+
+    monkeypatch.setattr(service, "PERSIST_THRESHOLD_VECTORS", 1)
+
+    # Вектор «нового кропа»: рядом с r1/r2 (фото A), но другое фото.
+    vector = np.array([0.9, 0.1], dtype="float32")
+    vector /= np.linalg.norm(vector)
+    service.queue_region(
+        77, "PH_" + "d" * 24, "data/crops/PH_D/crop_01.jpg", vector.tolist()
+    )
+
+    result = service.search_by_region(1, top_k=10)
+
+    # Новый регион найден, фото запроса (PH_A) по-прежнему исключено.
+    region_ids = [match["region_id"] for match in result["matches"]]
+    assert 77 in region_ids
+    assert all(match["photo_id"] != "PH_A" for match in result["matches"])
+    # pending-файл вычеркнут после публикации на диск.
+    assert not service.PENDING_FILE.exists() or service.PENDING_FILE.stat().st_size == 0
+    # Файлы индекса обновлены: векторов стало 5.
+    assert service.status()["vectors"] == 5
+    _ = base64
+
+
+def test_pending_absorb_is_idempotent(clip_index, monkeypatch):
+    """Повторное поглощение тех же строк не дублирует векторы."""
+
+    import numpy as np
+
+    monkeypatch.setattr(service, "PERSIST_THRESHOLD_VECTORS", 10 ** 6)
+
+    vector = np.array([0.0, 1.0], dtype="float32")
+    service.queue_region(88, "PH_" + "e" * 24, "data/crops/PH_E/crop_01.jpg", vector.tolist())
+
+    service.search_by_region(1, top_k=5)  # первое поглощение
+    service.search_by_photo("PH_" + "b" * 24, top_k=5)  # второе — те же строки
+
+    assert service.status()["vectors"] == 5
+
+
+# ---------------------------------------------------------------------------
+# Дата-фильтр «Похожих» по дате съёмки (taken_at)
+# ---------------------------------------------------------------------------
+
+
+def test_days_filter_keeps_recent_matches(clip_index):
+    """days=30: остаются только совпадения со съёмкой за последний месяц."""
+
+    # r2 (фото B): taken_at 2026-11-15 — свежее; r1 (фото A, исключён);
+    # r3 (фото C): taken_at None — в окно не попадает.
+    result = service.search_by_region(1, top_k=10, days=30)
+
+    assert result["count"] == 1
+    assert result["matches"][0]["region_id"] == 2
+
+
+def test_days_zero_returns_everything(clip_index):
+    """days=0 — всё время: фильтр не режет выдачу."""
+
+    result = service.search_by_region(1, top_k=10, days=0)
+
+    assert result["count"] == 2
+
+
+def test_matches_carry_dates(clip_index):
+    """Дата съёмки и дата загрузки доезжают до ответа."""
+
+    result = service.search_by_region(1, top_k=10, days=0)
+
+    match = result["matches"][0]
+    assert match["taken_at"] is not None
+    assert match["created_at"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Эндпоинты /v1/favorites (служебная фото-подборка пользователя)
+# ---------------------------------------------------------------------------
+
+
+def _authorize(monkeypatch, role: str) -> dict[str, str]:
+    """Сессия заданной роли без PostgreSQL: паттерн test_role_scopes.py."""
+
+    from app.users import database as users_db
+
+    monkeypatch.setenv("SCENE_AUTH_REQUIRED", "1")
+    monkeypatch.delenv("SCENE_API_TOKENS", raising=False)
+    monkeypatch.setattr(
+        users_db,
+        "get_session",
+        lambda token: (
+            {"user_id": 7, "name": "tester", "role": role}
+            if token == "sess"
+            else None
+        ),
+    )
+    return {"Authorization": "Bearer sess"}
+
+
+def _favorites_repository(monkeypatch):
+    """Мок хранилища избранного: словарь user_id -> {photo_id}."""
+
+    state: dict[str, set[str]] = {}
+
+    monkeypatch.setattr(
+        repository, "favorites_collection_id", lambda user_id: 4242
+    )
+
+    def fake_ids(user_id):
+        return sorted(state.get(str(user_id), set()))
+
+    def fake_add(user_id, photo_ids):
+        bucket = state.setdefault(str(user_id), set())
+        bucket.update(photo_ids)
+        return fake_ids(user_id)
+
+    def fake_remove(user_id, photo_ids):
+        bucket = state.setdefault(str(user_id), set())
+        bucket.difference_update(photo_ids)
+        return fake_ids(user_id)
+
+    monkeypatch.setattr(repository, "favorites_photo_ids", fake_ids)
+    monkeypatch.setattr(repository, "add_favorite_photos", fake_add)
+    monkeypatch.setattr(repository, "remove_favorite_photos", fake_remove)
+    return state
+
+
+def test_favorites_add_list_remove(monkeypatch):
+    """Полный цикл: добавить → получить → удалить (администратор)."""
+
+    headers = _authorize(monkeypatch, "Администратор")
+    state = _favorites_repository(monkeypatch)
+
+    photo_a = "PH_" + "a" * 24
+    photo_b = "PH_" + "b" * 24
+
+    added = client.post(
+        "/api/v1/favorites",
+        json={"photo_ids": [photo_a, photo_b, photo_a]},
+        headers=headers,
+    )
+    assert added.status_code == 200
+    body = added.json()
+    assert body["collection_id"] == 4242
+    assert body["count"] == 2  # дубликат photo_a пропущен
+
+    listed = client.get("/api/v1/favorites", headers=headers)
+    assert listed.status_code == 200
+    assert listed.json()["photo_ids"] == sorted([photo_a, photo_b])
+
+    removed = client.delete(f"/api/v1/favorites/{photo_a}", headers=headers)
+    assert removed.status_code == 200
+    assert removed.json()["photo_ids"] == [photo_b]
+    assert state == {"7": {photo_b}}
+
+
+def test_favorites_requires_valid_photo_id(monkeypatch):
+    """Битый photo_id — 404 (конвенция _validate_photo_id: не раскрывать,
+    что id существует), в избранное он не попадает."""
+
+    headers = _authorize(monkeypatch, "Администратор")
+    _favorites_repository(monkeypatch)
+
+    bad = client.post(
+        "/api/v1/favorites", json={"photo_ids": ["GARBAGE"]}, headers=headers
+    )
+
+    assert bad.status_code == 404
+
+
+def test_favorites_rejects_empty_list(monkeypatch):
+    """Пустой список — 422, а не тихий успех."""
+
+    headers = _authorize(monkeypatch, "Администратор")
+    _favorites_repository(monkeypatch)
+
+    empty = client.post(
+        "/api/v1/favorites", json={"photo_ids": []}, headers=headers
+    )
+
+    assert empty.status_code == 422
+
+
+def test_favorites_write_is_denied_to_guest(monkeypatch):
+    """Гость может читать (read), но добавлять не может (collections:write)."""
+
+    headers = _authorize(monkeypatch, "Гость")
+    _favorites_repository(monkeypatch)
+
+    listed = client.get("/api/v1/favorites", headers=headers)
+    added = client.post(
+        "/api/v1/favorites", json={"photo_ids": ["PH_" + "c" * 24]}, headers=headers
+    )
+
+    assert listed.status_code == 200
+    assert added.status_code == 403

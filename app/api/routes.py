@@ -2266,6 +2266,71 @@ def get_media_search(job_id: int):
 
 
 # ---------------------------------------------------------------------------
+# Избранные фото (служебная фото-подборка пользователя) — источник:
+# диалог «Похожие». Хранение в collection_members (schema/009), отдельной
+# таблицы и миграции не требуется.
+# ---------------------------------------------------------------------------
+
+
+def _favorites_body(user_id: str) -> dict:
+    collection_id = repository.favorites_collection_id(user_id)
+    photo_ids = repository.favorites_photo_ids(user_id)
+    return {
+        "collection_id": collection_id,
+        "photo_ids": photo_ids,
+        "count": len(photo_ids),
+    }
+
+
+@searches_router.get(
+    "/v1/favorites",
+    dependencies=[Depends(require_scope("read"))],
+)
+def get_favorites(principal=Depends(require_scope("read"))):
+    """Избранные фото текущего пользователя (гость не пользуется ими в UI)."""
+
+    user = _require_user(principal)
+    return _favorites_body(str(user["user_id"]))
+
+
+@searches_router.post("/v1/favorites")
+def add_favorites(
+    request: dict,
+    principal=Depends(require_scope("collections:write")),
+):
+    """Добавить фото в избранное: {"photo_ids": ["PH_…", …]}."""
+
+    user = _require_user(principal)
+    raw = request.get("photo_ids") if isinstance(request, dict) else None
+
+    if not isinstance(raw, list) or not raw:
+        raise HTTPException(status_code=422, detail="photo_ids must be a non-empty list")
+
+    photo_ids = [_validate_photo_id(str(value)) for value in raw]
+
+    try:
+        repository.add_favorite_photos(str(user["user_id"]), photo_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return _favorites_body(str(user["user_id"]))
+
+
+@searches_router.delete("/v1/favorites/{photo_id}")
+def delete_favorite(
+    photo_id: str,
+    principal=Depends(require_scope("collections:write")),
+):
+    """Убрать фото из избранного."""
+
+    user = _require_user(principal)
+    repository.remove_favorite_photos(
+        str(user["user_id"]), [_validate_photo_id(photo_id)]
+    )
+    return _favorites_body(str(user["user_id"]))
+
+
+# ---------------------------------------------------------------------------
 # Визуальный поиск (CLIP по кропам щитов) — docs/clip_search.txt
 # ---------------------------------------------------------------------------
 
@@ -2297,10 +2362,12 @@ def visual_search(
     top_k: int = 24,
     region_id: int | None = None,
     photo_id: str | None = None,
+    days: int = Query(0, ge=0, le=3650),
 ):
     """Похожие кропы для региона или фото (модель не нужна, ~20 мс).
 
     Ровно один из region_id / photo_id; для фото берётся его первый кроп.
+    ``days`` сужает выдачу окном по дате съёмки (taken_at); 0 — всё время.
     """
 
     if (region_id is None) == (photo_id is None):
@@ -2316,8 +2383,12 @@ def visual_search(
 
     try:
         if region_id is not None:
-            return clip_service.search_by_region(region_id, top_k=top_k)
-        return clip_service.search_by_photo(photo_id, top_k=top_k)
+            return clip_service.search_by_region(
+                region_id, top_k=top_k, days=days
+            )
+        return clip_service.search_by_photo(
+            photo_id, top_k=top_k, days=days
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=redact_paths(str(exc))) from exc
     except clip_service.ClipIndexUnavailable as exc:

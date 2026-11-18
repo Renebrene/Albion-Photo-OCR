@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 
 import { fetchSelection, getToken, saveSelection } from '../api/client'
+import { useSessionStore } from './session'
 
 // Display settings for the photo grid (number of tile columns, which fields a
 // list row shows). Shared by the grid's gear dialog and the technical section.
@@ -18,6 +19,8 @@ export const TILE_COUNTS = [
   { value: 4, label: '4' },
   { value: 5, label: '5' },
   { value: 6, label: '6' },
+  { value: 8, label: '8' },
+  { value: 10, label: '10' },
 ]
 
 // Target tile width used by 'auto': the grid fits as many columns as possible
@@ -101,6 +104,19 @@ function storageKey() {
 
 function baseStorageKey() {
   return `${storageKey()}.base`
+}
+
+// Настройки гостя на сервер не уезжают (владелец, 18.11.2026): они живут
+// только в этом браузере. Сессия может быть ещё не готова — тогда считаем
+// настройки пишущими, чтобы не терять их у обычных пользователей.
+function isGuestUser() {
+  try {
+    const session = useSessionStore()
+    if (!session.authEnabled) return false
+    return session.user?.role === 'Гость'
+  } catch {
+    return false
+  }
 }
 
 function loadState({ migrate = false } = {}) {
@@ -448,7 +464,9 @@ export const useDisplayStore = defineStore('display', () => {
     }
 
     try {
-      saveSelection({ display_base: data }).catch(() => {})
+      if (!isGuestUser()) {
+        saveSelection({ display_base: data }).catch(() => {})
+      }
     } catch {
       // offline: the local copy is enough
     }
@@ -547,7 +565,9 @@ export const useDisplayStore = defineStore('display', () => {
       }
 
       try {
-        saveSelection({ display: data }).catch(() => {})
+        if (!isGuestUser()) {
+          saveSelection({ display: data }).catch(() => {})
+        }
       } catch {
         // No session or no network: the local copy is all we have.
       }
@@ -582,7 +602,9 @@ export const useDisplayStore = defineStore('display', () => {
     try {
       // keepalive lets the small settings blob survive page teardown; a plain
       // fetch is aborted and then the older server copy wins on next login.
-      await saveSelection({ display: snapshot() }, { keepalive: true })
+      if (!isGuestUser()) {
+        await saveSelection({ display: snapshot() }, { keepalive: true })
+      }
     } catch {
       // Offline or logged out: the local copy is all we have.
     }

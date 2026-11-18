@@ -9,6 +9,7 @@ atomically: temp file -> validation -> os.replace.
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import tempfile
@@ -20,6 +21,8 @@ from app.billboard.config import CROPS_ROOT, resolve_settings
 from app.billboard.detector import detect_billboards
 from app.core.errors import redact_absolute_paths
 from app.ingest.database import get_registered_photo
+
+logger = logging.getLogger(__name__)
 
 # Crops keep the banner text readable; only very large crops are shrunk.
 CROP_MAX_SIDE = int(os.getenv("SCENE_BILLBOARD_QWEN_MAX_SIDE", "2048"))
@@ -223,6 +226,11 @@ def _detect_and_store(photo_id: str, cfg: dict) -> dict:
     primary = crops[0]
     region_ids = database.replace_regions(photo_id, crops)
 
+    # CLIP-индекс «Похожих» пополняется в момент создания кропа (реальное
+    # время): вектор уходит в pending-очередь, сервис поглощает при первом
+    # же поиске. Любая ошибка CLIP не должна ломать детекцию.
+    _clip_queue_new_crops(photo_id, crops, region_ids)
+
     return {
         "detected": True,
         "regions": len(region_ids),
@@ -232,6 +240,38 @@ def _detect_and_store(photo_id: str, cfg: dict) -> dict:
         "billboards": len(crops),
         "score": primary["score"],
     }
+
+
+def _clip_queue_new_crops(
+    photo_id: str, crops: list[dict], region_ids: list
+) -> None:
+    """Векторы свежих кропов → pending-очередь CLIP-индекса.
+
+    Ошибки эмбеддинга (нет модели, битый файл, нет прав на data/clip)
+    глотаются с записью в лог: CLIP — вспомогательный механизм и не может
+    ломать детекцию. Ленивый импорт: torch подгружается только когда
+    очередь реально доступна.
+    """
+
+    try:
+        from app.clip import service as clip_service
+    except Exception as exc:  # noqa: BLE001 - CLIP не обязателен
+        logger.warning("CLIP queue skipped (import failed): %s", exc)
+        return
+
+    for region_id, crop in zip(region_ids, crops):
+        try:
+            vector = clip_service.embed_image(crop["crop_path"])
+            clip_service.queue_region(
+                region_id,
+                photo_id,
+                crop["crop_path"],
+                vector,
+            )
+        except Exception as exc:  # noqa: BLE001 - один кроп не валит прогон
+            logger.warning(
+                "CLIP queue failed for region %s: %s", region_id, exc
+            )
 
 
 def run_detect(photo_id: str) -> dict:

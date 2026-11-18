@@ -3023,6 +3023,78 @@ def remove_collection_members(
             return cur.rowcount
 
 
+# «Избранное» из поиска похожих: на каждого пользователя — служебная
+# фото-подборка. Отдельная таблица не нужна: фото-подборки уже фильтруют
+# грид через collection_id (schema/009), лимит фото-членов — 5000.
+FAVORITES_COLLECTION_NAME = "Избранные фото"
+
+
+def favorites_collection_id(user_id: str) -> int:
+    """Id служебной фото-подборки пользователя; создаётся при отсутствии."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT collection_id FROM public.collections
+                WHERE user_id = %s AND name = %s AND scope = 'photos'
+                ORDER BY collection_id
+                LIMIT 1
+                """,
+                (user_id, FAVORITES_COLLECTION_NAME),
+            )
+            row = cur.fetchone()
+            if row is not None:
+                return int(row[0])
+
+            cur.execute(
+                """
+                INSERT INTO public.collections (name, kind, scope, user_id)
+                VALUES (%s, 'Моя', 'photos', %s)
+                RETURNING collection_id
+                """,
+                (FAVORITES_COLLECTION_NAME, user_id),
+            )
+            return int(cur.fetchone()[0])
+
+
+def favorites_photo_ids(user_id: str) -> list[str]:
+    """Список избранных фото пользователя (детерминированно по photo_id)."""
+
+    collection_id = favorites_collection_id(user_id)
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT m.member_value
+                FROM public.collection_members AS m
+                WHERE m.collection_id = %s AND m.member_type = 'photo'
+                ORDER BY m.member_value
+                """,
+                (collection_id,),
+            )
+            return [str(row[0]) for row in cur.fetchall()]
+
+
+def add_favorite_photos(user_id: str, photo_ids: list[str]) -> list[str]:
+    """Добавить фото в избранное (дубликаты пропускаются)."""
+
+    collection_id = favorites_collection_id(user_id)
+    add_collection_members(collection_id, member_type="photo", values=photo_ids)
+    return favorites_photo_ids(user_id)
+
+
+def remove_favorite_photos(user_id: str, photo_ids: list[str]) -> list[str]:
+    """Убрать фото из избранного."""
+
+    collection_id = favorites_collection_id(user_id)
+    remove_collection_members(
+        collection_id, member_type="photo", values=photo_ids
+    )
+    return favorites_photo_ids(user_id)
+
+
 def photo_sources(photo_ids: list[str]) -> dict[str, dict]:
     """
     {photo_id: {source_path, filename}} for the registered ids.

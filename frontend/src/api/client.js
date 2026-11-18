@@ -720,16 +720,30 @@ export function fetchMediaSearchJob(jobId) {
 
 // Визуальный поиск (CLIP по кропам щитов) — docs/clip_search.txt.
 // По региону модель не нужна (~20 мс); по файлу — CLIP-кодирование на CPU.
-export function searchVisual(regionId, topK = 24) {
+// days — окно по дате съёмки (0 = всё время).
+export function searchVisual(regionId, topK = 24, days = 0) {
   return getJson(
-    `${BASE}/v1/search/visual?region_id=${regionId}&top_k=${topK}`,
+    `${BASE}/v1/search/visual?region_id=${regionId}&top_k=${topK}&days=${days}`,
   )
 }
 
-export function searchVisualByPhoto(photoId, topK = 24) {
+export function searchVisualByPhoto(photoId, topK = 24, days = 0) {
   return getJson(
-    `${BASE}/v1/search/visual?photo_id=${photoId}&top_k=${topK}`,
+    `${BASE}/v1/search/visual?photo_id=${photoId}&top_k=${topK}&days=${days}`,
   )
+}
+
+// Избранные фото (служебная фото-подборка пользователя).
+export function fetchFavorites() {
+  return getJson(`${BASE}/v1/favorites`)
+}
+
+export function addFavorites(photoIds) {
+  return postJson(`${BASE}/v1/favorites`, { photo_ids: [].concat(photoIds) })
+}
+
+export function removeFavorite(photoId) {
+  return deleteJson(`${BASE}/v1/favorites/${encodeURIComponent(photoId)}`)
 }
 
 export function searchVisualStatus() {
