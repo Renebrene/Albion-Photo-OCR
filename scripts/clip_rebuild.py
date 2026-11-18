@@ -141,7 +141,9 @@ def publish(emb: np.ndarray, meta_rows: list[dict], stats: dict) -> None:
     """Атомарная запись: npy + мета + индекс + info (tmp → os.replace)."""
 
     CLIP_DIR.mkdir(parents=True, exist_ok=True)
-    tmp_emb = EMB_FILE.with_suffix(".npy.tmp")
+    # np.save сам дописывает '.npy' к имени без него — tmp-имя обязано
+    # заканчиваться на .npy, иначе os.replace не найдёт файл.
+    tmp_emb = EMB_FILE.with_name("clip_embeddings.tmp.npy")
     tmp_meta = META_FILE.with_suffix(".jsonl.tmp")
     tmp_index = INDEX_FILE.with_suffix(".faiss.tmp")
     tmp_info = INFO_FILE.with_suffix(".json.tmp")

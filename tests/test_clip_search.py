@@ -209,3 +209,56 @@ def test_visual_endpoint_by_photo(clip_index):
     assert body["query_photo_id"] == "PH_aaaaaaaaaaaaaaaaaaaaaaaa"
     assert body["matches"][0]["region_id"] == 2
     assert body["matches"][0]["address"] == "Адрес 2"
+
+
+def test_rebuild_publish_writes_final_files(tmp_path, monkeypatch):
+    """Публикация ребилда: все четыре файла лежат под финальными именами.
+
+    Регрессия: np.save молча дописывает '.npy' к tmp-имени без него, из-за
+    чего os.replace не находил файл и публикация падала после ~35 минут
+    эмбеддинга (18.11.2026).
+    """
+
+    import faiss as faiss_mod
+    import importlib.util
+    from pathlib import Path
+
+    # Модуль скрипта требует CUDA_VISIBLE_DEVICES="" ещё на импорте.
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "clip_rebuild_test", root / "scripts" / "clip_rebuild.py"
+    )
+    rebuild = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(rebuild)
+
+    monkeypatch.setattr(rebuild, "CLIP_DIR", tmp_path)
+    monkeypatch.setattr(rebuild, "EMB_FILE", tmp_path / "clip_embeddings.npy")
+    monkeypatch.setattr(rebuild, "META_FILE", tmp_path / "clip_meta.jsonl")
+    monkeypatch.setattr(rebuild, "INDEX_FILE", tmp_path / "clip_index.faiss")
+    monkeypatch.setattr(rebuild, "INFO_FILE", tmp_path / "index_info.json")
+
+    emb = np.array([[1.0, 0.0], [0.0, 1.0]], dtype="float32")
+    meta = [
+        {"region_id": 1, "photo_id": "PH_A", "crop_path": "x"},
+        {"region_id": 2, "photo_id": "PH_B", "crop_path": "y"},
+    ]
+
+    rebuild.publish(emb, meta, {"mode": "full"})
+
+    for name in (
+        "clip_embeddings.npy",
+        "clip_meta.jsonl",
+        "clip_index.faiss",
+        "index_info.json",
+    ):
+        assert (tmp_path / name).is_file(), name
+
+    # tmp-файлов не осталось.
+    assert not [path for path in tmp_path.iterdir() if ".tmp" in path.name]
+
+    # Опубликованный индекс согласован с метой.
+    index = faiss_mod.read_index(str(tmp_path / "clip_index.faiss"))
+    assert index.ntotal == 2
