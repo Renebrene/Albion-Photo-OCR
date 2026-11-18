@@ -4022,13 +4022,31 @@ function tagList(meta) {
                   color="primary"
                   @update:model-value="store.toggleSelected(photo.photo_id)"
                 />
-                <AuthImage
-                  :url="previewUrl(photo.photo_id, 'small')"
-                  :ratio="4 / 3"
-                  lazy
-                  class="cursor-pointer"
-                  @click="open(photo)"
-                />
+                <!-- Превью с оверлеем: обёртка нужна, чтобы «Похожие»
+                     позиционировалось по нижнему краю ИЗОБРАЖЕНИЯ, а не
+                     подписи под ним. -->
+                <div class="relative-position">
+                  <AuthImage
+                    :url="previewUrl(photo.photo_id, 'small')"
+                    :ratio="4 / 3"
+                    lazy
+                    class="cursor-pointer"
+                    @click="open(photo)"
+                  />
+                  <!-- «Похожие» прямо на плитке (правый нижний угол):
+                       виден при наведении на десктопе, постоянно на таче.
+                       click.stop — чтобы не открыть просмотрщик. -->
+                  <q-btn
+                    class="photo-similar"
+                    dense
+                    round
+                    size="sm"
+                    icon="image_search"
+                    @click.stop="openSimilar(photo)"
+                  >
+                    <q-tooltip>Похожие объявления</q-tooltip>
+                  </q-btn>
+                </div>
                 <q-card-section class="q-pa-xs">
                   <!-- Подпись плитки: алиас адреса жирным, имя файла обычным,
                        дата съёмки и вес — жирным курсивом, клиент и бренд —
@@ -5660,6 +5678,28 @@ body.body--dark .grid-scroll {
   z-index: 2;
   background: rgba(255, 255, 255, 0.85);
   border-radius: 4px;
+}
+
+/* «Похожие» на плитке: в правом нижнем углу превью, проявляется при
+   наведении; на тач-устройствах (нет hover) видна постоянно. */
+.photo-similar {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  z-index: 2;
+  background: rgba(255, 255, 255, 0.85);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.photo-card:hover .photo-similar {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .photo-similar {
+    opacity: 1;
+  }
 }
 
 /* Превью выбранного файла в ручном режиме поиска. */
