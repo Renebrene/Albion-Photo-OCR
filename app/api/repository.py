@@ -1591,44 +1591,81 @@ def qwen_stats() -> dict:
                 "paused": int(jobs_row[2]),
             }
 
-            # Текущая выборка распознавания: «обработано / всего» для той
-            # партии, которая идёт сейчас (обычно это дозаполнение за период).
-            # Числа берём живыми из связей задания↔запуск, а не из сохранённых
-            # счётчиков: они отстают, пока очередь ещё идёт.
+            # Текущая выборка распознавания: «обработано / всего» для того,
+            # что идёт сейчас. Активных запусков может быть несколько
+            # (например, ручной запуск 20 фото поверх массового бэклога),
+            # поэтому суммируем ВСЕ активные: показывать только свежий —
+            # значит маскировать ход большого прогона парой 0/20.
+            # Числа берём живыми из связей задания↔запуск, а не из
+            # сохранённых счётчиков: они отстают, пока очередь ещё идёт.
+            # Если активных нет — показываем последний завершённый.
             cur.execute(
                 """
-                SELECT run_id, title, status
-                FROM public.run_history
-                WHERE kind = 'qwen'
-                ORDER BY (status IN ('RUNNING', 'PENDING')) DESC, run_id DESC
-                LIMIT 1
+                SELECT rh.run_id, rh.title, rh.status,
+                       count(q.id) AS total,
+                       count(*) FILTER (WHERE q.status = 'DONE') AS done,
+                       count(*) FILTER (WHERE q.status = 'FAILED') AS failed
+                FROM public.run_history AS rh
+                LEFT JOIN public.run_history_jobs AS j ON j.run_id = rh.run_id
+                LEFT JOIN public.job_queue AS q ON q.id = j.job_id
+                WHERE rh.kind = 'qwen'
+                  AND rh.status IN ('RUNNING', 'PENDING')
+                GROUP BY rh.run_id, rh.title, rh.status
+                ORDER BY count(q.id) DESC, rh.run_id DESC
                 """
             )
-            batch_row = cur.fetchone()
+            active_rows = cur.fetchall()
             batch = None
 
-            if batch_row is not None:
-                batch_run_id, batch_title, batch_status = batch_row
-                cur.execute(
-                    """
-                    SELECT count(*) AS total,
-                           count(*) FILTER (WHERE q.status = 'DONE') AS done,
-                           count(*) FILTER (WHERE q.status = 'FAILED') AS failed
-                    FROM public.run_history_jobs AS j
-                    JOIN public.job_queue AS q ON q.id = j.job_id
-                    WHERE j.run_id = %s
-                    """,
-                    (int(batch_run_id),),
-                )
-                total_row = cur.fetchone()
+            if active_rows:
+                batch_run_id, batch_title, batch_status = active_rows[0][:3]
                 batch = {
                     "run_id": int(batch_run_id),
-                    "title": batch_title,
+                    # Заголовок берём у самого большого запуска; если их
+                    # несколько — показываем, что это объединение партий.
+                    "title": (
+                        batch_title
+                        if len(active_rows) == 1
+                        else f"{batch_title} (+{len(active_rows) - 1} паралл.)"
+                    ),
                     "status": batch_status,
-                    "total": int(total_row[0]),
-                    "done": int(total_row[1]),
-                    "failed": int(total_row[2]),
+                    "total": sum(int(row[3]) for row in active_rows),
+                    "done": sum(int(row[4]) for row in active_rows),
+                    "failed": sum(int(row[5]) for row in active_rows),
                 }
+            else:
+                cur.execute(
+                    """
+                    SELECT run_id, title, status
+                    FROM public.run_history
+                    WHERE kind = 'qwen'
+                    ORDER BY run_id DESC
+                    LIMIT 1
+                    """
+                )
+                batch_row = cur.fetchone()
+                if batch_row is not None:
+                    batch_run_id, batch_title, batch_status = batch_row
+                    cur.execute(
+                        """
+                        SELECT count(*) AS total,
+                               count(*) FILTER (WHERE q.status = 'DONE') AS done,
+                               count(*) FILTER (WHERE q.status = 'FAILED') AS failed
+                        FROM public.run_history_jobs AS j
+                        JOIN public.job_queue AS q ON q.id = j.job_id
+                        WHERE j.run_id = %s
+                        """,
+                        (int(batch_run_id),),
+                    )
+                    total_row = cur.fetchone()
+                    batch = {
+                        "run_id": int(batch_run_id),
+                        "title": batch_title,
+                        "status": batch_status,
+                        "total": int(total_row[0]),
+                        "done": int(total_row[1]),
+                        "failed": int(total_row[2]),
+                    }
 
             # «Уточнение» — хвост этапа описаний: идёт своей очередью, но
             # показывается в шапке рядом с ним. Счётчик берём из прогресса
