@@ -91,10 +91,19 @@
 
 ```bash
 .venv/bin/python scripts/cleanup_crops.py --dry-run
-.venv/bin/python scripts/cleanup_crops.py --older-than-days 7
+.venv/bin/python scripts/cleanup_crops.py --older-than-days 90
 .venv/bin/python scripts/cleanup_crops.py --max-delete 5000 --json
 .venv/bin/python scripts/cleanup_crops.py --skip-orphans
 ```
+
+## Ретеншн кропов: 7 → 90 дней (17.11.2026)
+
+Кропы нужны дольше 7 дней: CLIP-индекс «похожих объявлений» строится по
+файлам кропов, а QWEN-прогон пересоздаёт кропы только по мере обработки.
+Порог в `scene-maintenance.service` поднят с 7 до **90 дней**
+(`--older-than-days 90`). Откат — вернуть аргумент в 7 и `daemon-reload`.
+Синхронизировать обе копии юнита: `deploy/systemd/user/` и
+`~/.config/systemd/user/`.
 
 `--max-delete` (по умолчанию 5000 файлов) не даёт одному запуску удалить
 слишком много; `0` — без лимита. Код возврата `1`, если хотя бы один файл
@@ -185,3 +194,12 @@ SELECT pg_size_pretty(pg_total_relation_size('public.job_queue')) AS queue,
 Подключение: `deploy/systemd/user/scene-maintenance.service` → третий ExecStart
 (`--older-than-days 10 --json`); единица устанавливается в
 `~/.config/systemd/user/`, после правки — `systemctl --user daemon-reload`.
+
+## Ретеншн кропов: 7 → 90 дней (17.11.2026)
+
+Кропы нужны дольше 7 дней: CLIP-индекс «похожих объявлений» строится по
+файлам кропов, а QWEN-прогон пересоздаёт кропы только по мере обработки.
+Порог в `scene-maintenance.service` поднят с 7 до **90 дней**
+(`--older-than-days 90`). Откат — вернуть аргумент в 7 и `daemon-reload`.
+Синхронизировать обе копии юнита: `deploy/systemd/user/` и
+`~/.config/systemd/user/`.
