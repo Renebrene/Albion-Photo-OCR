@@ -13,5 +13,9 @@ ExecStart=/home/alexice/projects/albion-photobase/.venv/bin/python scripts/clean
 # дней на обратимый разбор, потом чистим. Ежедневный запуск с порогом 10 дней
 # даёт запрошенную уборку «каждые 10 дней».
 ExecStart=/home/alexice/projects/albion-photobase/.venv/bin/python scripts/cleanup_preview_quarantine.py --older-than-days 10 --json
+# CLIP-индекс «Похожих»: инкрементальное дование новых кропов. GPU не
+# трогается (CUDA_VISIBLE_DEVICES=""), полный пересбор делается вручную
+# (--full); docs/clip_search.txt.
+ExecStart=/bin/sh -c 'CUDA_VISIBLE_DEVICES= /home/alexice/projects/albion-photobase/.venv/bin/python scripts/clip_rebuild.py --json'
 Nice=10
 TimeoutStartSec=3600

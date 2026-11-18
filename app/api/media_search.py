@@ -26,8 +26,12 @@ from pathlib import Path
 
 from app.api.crop_search import search_by_hash
 from app.api.nl_search import MAX_TOTAL, PAGE_SIZE
+from app.clip import service as clip_service
 
 MAX_PER_TERM = PAGE_SIZE
+# Сколько CLIP-совпадений берём с кадра: визуальный источник — про кампании,
+# глубокий хвост одинаковых по вёрстке щитов не нужен.
+VISUAL_TOP_K = 24
 
 # The raw answer may still carry a literal <think> block; it is not a search
 # phrase, so it is dropped before the fallback text is used.
@@ -643,6 +647,8 @@ def run(
     per_frame: list[dict] = []
     photo_ids: dict[str, None] = {}
     hash_matches: dict[tuple[str, int], dict] = {}
+    visual_matches: dict[tuple[str, int], dict] = {}
+    visual_error: str | None = None
     hash_query = None
     hash_query_phash = None
     seconds_total = 0.0
@@ -691,6 +697,26 @@ def run(
                 if previous is None or match["distance"] < previous["distance"]:
                     hash_matches[key] = {**match, "sec": source["sec"]}
 
+        # CLIP — третий независимый источник кандидатов (OR с QWEN и хешами):
+        # та же кампания в другом ракурсе/освещении не совпадает ни по метаданным,
+        # ни по перцептуальным хешам (docs/clip_search.txt). Отказ индекса не
+        # валит поиск — источник просто пропадает.
+        visual_found = None
+        if mode == "auto":
+            try:
+                visual_found = clip_service.search_by_image(
+                    source["path"], top_k=VISUAL_TOP_K
+                )
+            except Exception as exc:  # noqa: BLE001 - деградация вместо ошибки
+                visual_error = str(exc)
+        if visual_found is not None:
+            for match in visual_found.get("matches") or []:
+                photo_ids.setdefault(match["photo_id"], None)
+                key = (match["photo_id"], match["region_id"])
+                previous = visual_matches.get(key)
+                if previous is None or match["score"] > previous["score"]:
+                    visual_matches[key] = {**match, "sec": source["sec"]}
+
         per_frame.append(
             {
                 "sec": source["sec"],
@@ -701,6 +727,9 @@ def run(
                 "tags": list(fields.get("tags") or []),
                 "count": found["count"],
                 "hash_count": len(hash_found.get("matches") or []) if hash_found else 0,
+                "visual_count": (
+                    len(visual_found.get("matches") or []) if visual_found else 0
+                ),
             }
         )
 
@@ -725,6 +754,16 @@ def run(
     seen: set[str] = set()
 
     for match in ordered_hash:
+        if match["photo_id"] not in seen:
+            seen.add(match["photo_id"])
+            ordered_ids.append(match["photo_id"])
+
+    # Визуальные кандидаты — после хеш-близких, по убыванию косинуса.
+    ordered_visual = sorted(
+        visual_matches.values(),
+        key=lambda item: (-item["score"], item["photo_id"], item["crop_index"]),
+    )
+    for match in ordered_visual:
         if match["photo_id"] not in seen:
             seen.add(match["photo_id"])
             ordered_ids.append(match["photo_id"])
@@ -754,6 +793,11 @@ def run(
             {key: value for key, value in match.items() if key != "sec"}
             for match in ordered_hash[:50]
         ],
+        "visual_matches": [
+            {key: value for key, value in match.items() if key != "sec"}
+            for match in ordered_visual[:50]
+        ],
+        "visual_error": visual_error,
     }
 
     _write_search_log(path, kind, result)

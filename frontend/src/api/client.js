@@ -718,6 +718,42 @@ export function fetchMediaSearchJob(jobId) {
   return getJson(`${BASE}/v1/jobs/media-search/${jobId}`)
 }
 
+// Визуальный поиск (CLIP по кропам щитов) — docs/clip_search.txt.
+// По региону модель не нужна (~20 мс); по файлу — CLIP-кодирование на CPU.
+export function searchVisual(regionId, topK = 24) {
+  return getJson(
+    `${BASE}/v1/search/visual?region_id=${regionId}&top_k=${topK}`,
+  )
+}
+
+export function searchVisualByPhoto(photoId, topK = 24) {
+  return getJson(
+    `${BASE}/v1/search/visual?photo_id=${photoId}&top_k=${topK}`,
+  )
+}
+
+export function searchVisualStatus() {
+  return getJson(`${BASE}/v1/search/visual/status`)
+}
+
+export function searchVisualUpload(file, topK = 24) {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('top_k', String(topK))
+
+  const response = fetch(`${BASE}/v1/search/visual`, {
+    method: 'POST',
+    // Без Content-Type: границу multipart ставит браузер.
+    headers: authHeaders(),
+    body: form,
+  })
+
+  return response.then(async (r) => {
+    if (!r.ok) throw await apiError(r)
+    return r.json()
+  })
+}
+
 export function cancelJob(jobId) {
   return postJson(`${BASE}/v1/jobs/${jobId}/cancel`, {})
 }

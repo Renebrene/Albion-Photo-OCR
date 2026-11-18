@@ -15,6 +15,7 @@ import uuid
 import shutil
 import subprocess
 from datetime import date as date_type
+from io import BytesIO
 from pathlib import Path
 
 from fastapi import (
@@ -42,6 +43,7 @@ from app.api import repository
 from app.api import archive as archive_mod
 from app.api import data as data_mod
 from app.api import media_search
+from app.clip import service as clip_service
 from app.api import sources
 from app.api import system as sysinfo
 from app.api import upload as upload_mod
@@ -2262,7 +2264,112 @@ def get_media_search(job_id: int):
     if job is None or job.get("job_type") != "MEDIA_SEARCH":
         raise HTTPException(status_code=404, detail="media search not found")
 
-    return job
+
+# ---------------------------------------------------------------------------
+# Визуальный поиск (CLIP по кропам щитов) — docs/clip_search.txt
+# ---------------------------------------------------------------------------
+
+
+def _clip_error(exc: Exception) -> HTTPException:
+    """CLIP-ошибки наружу: путь индекса прячем (redact_paths)."""
+
+    return HTTPException(status_code=503, detail=redact_paths(str(exc)))
+
+
+@searches_router.get(
+    "/v1/search/visual/status",
+    dependencies=[Depends(require_scope("read"))],
+)
+def visual_search_status():
+    """Состояние CLIP-индекса: векторы, отставание от БД, сборка."""
+
+    try:
+        return clip_service.status()
+    except Exception as exc:  # noqa: BLE001 - статус не должен падать
+        raise _clip_error(exc) from exc
+
+
+@searches_router.get(
+    "/v1/search/visual",
+    dependencies=[Depends(require_scope("read"))],
+)
+def visual_search(
+    top_k: int = 24,
+    region_id: int | None = None,
+    photo_id: str | None = None,
+):
+    """Похожие кропы для региона или фото (модель не нужна, ~20 мс).
+
+    Ровно один из region_id / photo_id; для фото берётся его первый кроп.
+    """
+
+    if (region_id is None) == (photo_id is None):
+        raise HTTPException(
+            status_code=422, detail="specify exactly one of region_id, photo_id"
+        )
+
+    if not 1 <= top_k <= 50:
+        raise HTTPException(status_code=422, detail="top_k must be 1..50")
+
+    if photo_id is not None:
+        photo_id = _validate_photo_id(photo_id)
+
+    try:
+        if region_id is not None:
+            return clip_service.search_by_region(region_id, top_k=top_k)
+        return clip_service.search_by_photo(photo_id, top_k=top_k)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=redact_paths(str(exc))) from exc
+    except clip_service.ClipIndexUnavailable as exc:
+        raise _clip_error(exc) from exc
+    except Exception as exc:  # noqa: BLE001 - наружу уходит сообщение без путей
+        raise _clip_error(exc) from exc
+
+
+@searches_router.post(
+    "/v1/search/visual",
+    dependencies=[Depends(require_scope("read"))],
+)
+async def visual_search_upload(
+    file: UploadFile = File(...),
+    top_k: int = Form(default=24),
+):
+    """Похожие кропы для загруженного изображения (CLIP-кодирование, CPU).
+
+    Файл не сохраняется на диск и не создаёт задание: декодируется в памяти
+    (PIL), ограничен 10 МБ — как в поиске по медиа.
+    """
+
+    if not 1 <= top_k <= 50:
+        raise HTTPException(status_code=422, detail="top_k must be 1..50")
+
+    from PIL import Image
+
+    data = await file.read()
+    if len(data) > clip_service.UPLOAD_LIMIT_BYTES:
+        raise HTTPException(status_code=413, detail="file too large (max 10 MB)")
+    if not data:
+        raise HTTPException(status_code=422, detail="empty file")
+
+    buffer = BytesIO(data)
+    try:
+        with Image.open(buffer) as probe:
+            probe.convert("RGB").load()
+    except Exception as exc:  # noqa: BLE001 - битое изображение = 400
+        raise HTTPException(
+            status_code=400, detail="not a decodable image"
+        ) from exc
+    buffer.seek(0)
+
+    try:
+        result = clip_service.search_by_image(buffer, top_k=top_k)
+    except clip_service.ClipIndexUnavailable as exc:
+        raise _clip_error(exc) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise _clip_error(exc) from exc
+
+    result["filename"] = file.filename or ""
+    return result
 
 
 # ---------------------------------------------------------------------------

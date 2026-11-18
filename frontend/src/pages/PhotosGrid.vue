@@ -15,6 +15,7 @@ import {
   fetchMediaSearchJob,
   fetchPhotoDetails,
   fetchPhotos,
+  searchVisualByPhoto,
   fetchSearchSuggestions,
   fetchSearchMatches,
   fetchRunActivity,
@@ -203,6 +204,15 @@ const mediaFile = ref(null) // the chosen File, kept in memory until ПОИСК
 const mediaJobId = ref(null)
 const mediaHashMatches = ref([])
 const hashMatchesOpen = ref(false)
+// Визуальный поиск (CLIP по кропам щитов): совпадения в умном поиске и
+// диалог «Похожие» от карточки фото (docs/clip_search.txt).
+const mediaVisualMatches = ref([])
+const mediaVisualError = ref('')
+const visualMatchesOpen = ref(false)
+const similarOpen = ref(false)
+const similarLoading = ref(false)
+const similarItems = ref([])
+const similarPhotoId = ref('')
 const mediaStage = ref('')
 const mediaBusy = ref(false)
 const qwenElapsedSeconds = ref(0)
@@ -1915,6 +1925,7 @@ async function reset() {
   hadSearchTerm = false
   mediaFile.value = null
   mediaHashMatches.value = []
+  mediaVisualMatches.value = []
   // «Сбросить фильтры» не трогает корзину выделенных фото: она живёт
   // отдельно от фильтров. Снять выделение можно кнопкой «Обновить».
   await apply()
@@ -2182,6 +2193,7 @@ async function clearMedia() {
   mediaStage.value = ''
   mediaFile.value = null
   mediaHashMatches.value = []
+  mediaVisualMatches.value = []
   stopQwenElapsed()
 
   if (jobId) {
@@ -2250,6 +2262,8 @@ async function runMediaSearch() {
     const truncated = result.truncated
     const described = result.qwen && result.qwen.description
     mediaHashMatches.value = result.hash_matches || []
+    mediaVisualMatches.value = result.visual_matches || []
+    mediaVisualError.value = result.visual_error || ''
 
     Notify.create({
       type: truncated ? 'warning' : 'info',
@@ -2963,6 +2977,33 @@ async function open(photo) {
 }
 
 /**
+ * Похожие объявления (CLIP по кропам щитов): берём первый кроп фото,
+ * показываем сетку совпадений; клик открывает фото в просмотрщике.
+ */
+async function openSimilar(photo) {
+  similarPhotoId.value = photo.photo_id
+  similarItems.value = []
+  similarOpen.value = true
+  similarLoading.value = true
+
+  try {
+    const result = await searchVisualByPhoto(photo.photo_id)
+    similarItems.value = result.matches || []
+  } catch (err) {
+    Notify.create({ type: 'negative', message: `Похожие: ${err.message}` })
+    similarOpen.value = false
+  } finally {
+    similarLoading.value = false
+  }
+}
+
+function openSimilarMatch(match) {
+  similarOpen.value = false
+  // Минимального объекта хватает: просмотрщик догружает детали по photo_id.
+  open({ photo_id: match.photo_id, filename: match.photo_id })
+}
+
+/**
  * Проверка доступности оригинала при открытии фото.
  *
  * Только чтение и только признак: сервер не отдаёт путь. Ответ приходит
@@ -3531,6 +3572,20 @@ function tagList(meta) {
             </q-tooltip>
           </q-btn>
           <q-btn
+            v-if="mediaVisualMatches.length"
+            dense
+            flat
+            color="teal"
+            icon="insights"
+            :label="`Визуально: ${mediaVisualMatches.length}`"
+            @click="visualMatchesOpen = true"
+          >
+            <q-tooltip>
+              Совпадения по CLIP: косинусное сходство кропа запроса с кропами
+              щитов (находит ту же кампанию в другом ракурсе).
+            </q-tooltip>
+          </q-btn>
+          <q-btn
             v-if="mediaBusy"
             dense
             color="negative"
@@ -4029,6 +4084,14 @@ function tagList(meta) {
                           <q-item-section avatar><q-icon name="bookmark_add" /></q-item-section>
                           <q-item-section>В подборку</q-item-section>
                         </q-item>
+                        <q-item
+                          clickable
+                          v-close-popup
+                          @click="openSimilar(photo)"
+                        >
+                          <q-item-section avatar><q-icon name="image_search" /></q-item-section>
+                          <q-item-section>Похожие</q-item-section>
+                        </q-item>
                       </q-list>
                     </q-menu>
                   </q-btn>
@@ -4354,6 +4417,14 @@ function tagList(meta) {
             <q-tooltip>
               {{ originalUnavailable ? `Оригинал недоступен: ${originalUnavailableReason}` : 'Сохранить оригинал' }}
             </q-tooltip>
+          </q-btn>
+          <q-btn
+            dense
+            flat
+            icon="image_search"
+            @click="openSimilar(current)"
+          >
+            <q-tooltip>Похожие объявления (визуальный поиск)</q-tooltip>
           </q-btn>
           <q-btn dense flat icon="close" v-close-popup />
         </q-card-section>
@@ -4866,6 +4937,101 @@ function tagList(meta) {
               </tr>
             </tbody>
           </q-markup-table>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Закрыть" v-close-popup />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Совпадения по CLIP (визуальное сходство кропов). -->
+    <q-dialog v-model="visualMatchesOpen">
+      <q-card style="width: min(920px, 95vw); max-height: 84vh">
+        <q-card-section class="text-subtitle1">
+          Совпадения кропов по CLIP
+        </q-card-section>
+        <q-separator />
+        <q-card-section style="max-height: 64vh; overflow: auto">
+          <q-markup-table dense flat bordered>
+            <thead>
+              <tr>
+                <th class="text-left">Фото</th>
+                <th class="text-right">Кроп</th>
+                <th class="text-right">CLIP</th>
+                <th class="text-left">Бренд</th>
+                <th class="text-left">Адрес</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in mediaVisualMatches" :key="`${item.photo_id}:${item.region_id}`">
+                <td class="text-left">{{ item.photo_id }}</td>
+                <td class="text-right">{{ Number(item.crop_index ?? 0) + 1 }}</td>
+                <td class="text-right">
+                  <q-badge :color="item.score >= 0.85 ? 'positive' : item.score >= 0.7 ? 'teal' : 'grey-7'">
+                    {{ item.score.toFixed(2) }}
+                  </q-badge>
+                </td>
+                <td class="text-left">{{ item.brand || '—' }}</td>
+                <td class="text-left">{{ item.address || '—' }}</td>
+              </tr>
+            </tbody>
+          </q-markup-table>
+          <div v-if="mediaVisualError" class="text-caption text-orange-9 q-mt-sm">
+            Визуальный источник недоступен: {{ mediaVisualError }}
+          </div>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Закрыть" v-close-popup />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Похожие объявления (CLIP): сетка совпадений для открытого фото. -->
+    <q-dialog v-model="similarOpen">
+      <q-card style="width: min(1120px, 96vw); max-height: 88vh">
+        <q-card-section class="text-subtitle1">
+          Похожие объявления
+          <div class="text-caption text-grey-7 ellipsis">
+            запрос: {{ similarPhotoId }}
+          </div>
+        </q-card-section>
+        <q-separator />
+        <q-card-section style="max-height: 72vh; overflow: auto">
+          <div v-if="similarLoading" class="row justify-center q-my-lg">
+            <q-spinner-dots color="primary" size="36px" />
+          </div>
+          <div v-else-if="!similarItems.length" class="text-caption text-grey-7">
+            Ничего не найдено.
+          </div>
+          <div v-else class="row q-gutter-sm">
+            <q-card
+              v-for="item in similarItems"
+              :key="item.region_id"
+              flat
+              bordered
+              class="cursor-pointer similar-tile"
+              @click="openSimilarMatch(item)"
+            >
+              <AuthImage
+                :url="previewUrl(item.photo_id, 'small')"
+                style="height: 150px; width: 200px; object-fit: cover; display: block"
+              />
+              <q-card-section class="q-pa-xs">
+                <div class="text-caption ellipsis" :title="item.address || ''">
+                  {{ item.address || '—' }}
+                </div>
+                <div class="row items-center justify-between">
+                  <div
+                    class="text-caption text-grey-7 ellipsis col"
+                    :title="item.brand || item.client || ''"
+                  >
+                    {{ item.brand || item.client || '' }}
+                  </div>
+                  <q-badge color="teal" :label="item.score.toFixed(2)" />
+                </div>
+              </q-card-section>
+            </q-card>
+          </div>
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Закрыть" v-close-popup />
