@@ -770,9 +770,10 @@ def search_suggestions(
     Подсказки строки поиска по уже существующим значениям.
 
     Ищутся теги, клиенты, бренды и категории (подстрока или триграммное
-    сходство). Если в текущей раскладке ничего не нашлось, слово
-    переворачивается в другую раскладку и подсказки повторяются — так
-    «rjvfyjdf» находит «Комарова».
+    сходство). Параллельно запрос всегда конвертируется в другую раскладку —
+    так «rjvfyjdf» подсказывает «Комарова» сразу, а прямые латинские находки
+    (бренды вроде ORION) не блокируются. Опечатки ловит pg_trgm в обоих
+    запросах.
     """
 
     term = q.strip()
@@ -783,14 +784,18 @@ def search_suggestions(
     items = repository.suggest_terms(term, limit=limit)
     layout = None
 
-    if len(items) < 3:
-        converted = to_other_layout(term).strip()
+    # Конвертация раскладки — ПАРАЛЛЕЛЬНО набору, а не только как запасной
+    # вариант при малом числе прямых подсказок (владелец, 20.11.2026):
+    # латинское «rjvfyjdf» сразу подсказывает теги «Комарова» рядом с
+    # прямыми (латинскими) находками. Нечёткий поиск (pg_trgm) покрывает
+    # опечатки в обоих запросах.
+    converted = to_other_layout(term).strip()
 
-        if converted and converted.lower() != term.lower():
-            alt_items = repository.suggest_terms(converted, limit=limit)
+    if converted and converted.lower() != term.lower():
+        alt_items = repository.suggest_terms(converted, limit=limit)
 
-            if alt_items:
-                layout = {"query": converted, "items": alt_items}
+        if alt_items:
+            layout = {"query": converted, "items": alt_items}
 
     return {"items": items, "layout": layout}
 

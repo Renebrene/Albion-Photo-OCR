@@ -62,6 +62,8 @@ def test_pipeline_stage_supplies_stats_without_sort_history(monkeypatch):
     monkeypatch.setattr(sort_status, "_latest_pipeline_sort", lambda: pipeline)
     monkeypatch.setattr(sort_status, "_active_batch", lambda: None)
     monkeypatch.setattr(sort_status.coordination, "active_operation", lambda: None)
+    # sort_resume.load() читает настройки из БД: в юнит-тесте подменяем.
+    monkeypatch.setattr("app.runs.sort_resume.load", lambda: None)
 
     data = sort_status.status()
 
@@ -92,6 +94,8 @@ def test_newest_sorting_event_wins(monkeypatch):
         sort_status, "_sort_run_stats",
         lambda run: {"batch_id": 3, "total": 10, "done": 10, "failed": 0, "matched": 7},
     )
+    # sort_resume.load() читает настройки из БД: в юнит-тесте подменяем.
+    monkeypatch.setattr("app.runs.sort_resume.load", lambda: None)
 
     data = sort_status.status()
 

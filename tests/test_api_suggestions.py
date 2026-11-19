@@ -30,10 +30,13 @@ def test_direct_matches_are_returned_without_layout_hint(monkeypatch):
         {"value": "Рязанская область", "kind": "tag", "uses": 1},
         {"value": "Рязань", "kind": "address", "uses": 2},
     ]
-    monkeypatch.setattr(
-        routes.repository, "suggest_terms",
-        lambda term, limit=8: items,
-    )
+
+    def fake_suggest(term, limit=8):
+        # Конвертированный запрос «hzp» ничего не находит — раскладка
+        # вычисляется, но подсказок по ней нет.
+        return items if term == "ряз" else []
+
+    monkeypatch.setattr(routes.repository, "suggest_terms", fake_suggest)
 
     response = client.get("/api/v1/search/suggestions?q=ряз")
 
@@ -62,20 +65,26 @@ def test_wrong_layout_offers_the_converted_query(monkeypatch):
     assert calls == ["rjvfhjdf", "комарова"]
 
 
-def test_layout_fallback_only_when_direct_matches_are_few(monkeypatch):
-    items = [
-        {"value": f"Тег {index}", "kind": "tag", "uses": 1}
-        for index in range(3)
-    ]
+def test_layout_is_computed_alongside_direct_matches(monkeypatch):
+    """Конвертация раскладки — параллельно прямым находкам (20.11.2026).
+
+    Русский запрос находит русские теги, а перевёрнутый (латинский) запрос
+    в это же время находит латинские бренды — обе выдачи едут в ответе
+    вместе, прямой прогон ничего не блокирует.
+    """
 
     def fake_suggest(term, limit=8):
         if term == "комарова":
-            return items
-        return items
+            return [{"value": f"Тег {index}", "kind": "tag", "uses": 1}
+                    for index in range(3)]
+        return [{"value": "ORION", "kind": "brand", "uses": 15}]
 
     monkeypatch.setattr(routes.repository, "suggest_terms", fake_suggest)
 
     body = client.get("/api/v1/search/suggestions?q=комарова").json()
 
-    # Прямых совпадений достаточно — раскладку не проверяем.
-    assert body["layout"] is None
+    assert [item["value"] for item in body["items"]] == [
+        "Тег 0", "Тег 1", "Тег 2",
+    ]
+    assert body["layout"]["query"] == "rjvfhjdf"
+    assert body["layout"]["items"][0]["value"] == "ORION"

@@ -1702,10 +1702,30 @@ async function loadSuggestions(term) {
     // Пока шёл запрос, строку уже изменили — старые подсказки не показываем.
     if (String(q.value || '').trim() !== term) return
 
-    suggestItems.value = mergeSuggestions(
-      (data.items || []).filter((item) => !suggestionAlreadySelected(item)),
+    const direct = (data.items || []).filter(
+      (item) => !suggestionAlreadySelected(item),
     )
-    suggestLayout.value = data.layout || null
+
+    // Конвертация раскладки работает ПАРАЛЛЕЛЬНО набору (владелец,
+    // 20.11.2026): теги, найденные по перевёрнутому запросу, показываются
+    // в общем списке рядом с прямыми, с пометкой «через раскладку».
+    // Дубликаты прямых находок не повторяются.
+    const layout = data.layout || null
+    const layoutItems = ((layout && layout.items) || [])
+      .filter((item) => !suggestionAlreadySelected(item))
+      .filter(
+        (item) =>
+          !direct.some(
+            (candidate) =>
+              candidate.kind === item.kind
+              && String(candidate.value).toLowerCase()
+                === String(item.value).toLowerCase(),
+          ),
+      )
+      .map((item) => ({ ...item, viaLayout: true }))
+
+    suggestItems.value = mergeSuggestions([...direct, ...layoutItems])
+    suggestLayout.value = layout
     suggestOpen.value = Boolean(suggestItems.value.length || suggestLayout.value)
   } catch {
     suggestItems.value = []
@@ -3629,12 +3649,18 @@ function tagList(meta) {
                   @click="pickSuggestion(item)"
                 >
                   <q-item-section avatar>
-                    <q-icon :name="suggestionIcon(item.kind)" />
+                    <q-icon
+                      :name="item.viaLayout ? 'keyboard' : suggestionIcon(item.kind)"
+                    />
                   </q-item-section>
                   <q-item-section>
                     <q-item-label>{{ item.value }}</q-item-label>
                     <q-item-label caption>
-                      {{ suggestionKinds(item) }}
+                      {{
+                        item.viaLayout
+                          ? `через раскладку · ${suggestionKinds(item)}`
+                          : suggestionKinds(item)
+                      }}
                     </q-item-label>
                   </q-item-section>
                 </q-item>
