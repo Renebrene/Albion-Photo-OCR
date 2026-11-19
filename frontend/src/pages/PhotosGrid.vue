@@ -649,10 +649,46 @@ async function toggleFavoriteInGrid(collection) {
   await store.showFavorites(collection.collection_id)
 }
 
+/**
+ * Удалить избранное. Сами фото в базе не затрагиваются: исчезает только
+ * именованная подборка. Если удалённое было открыто в гриде — режим
+ * снимается, грид возвращается к обычной выдаче.
+ */
+async function removeFavorite(collection) {
+  const confirmed = await confirmDialog({
+    title: 'Удалить избранное?',
+    message: `«${collection.name}» исчезнет из «Избранного». Сами фото в базе останутся.`,
+  })
+
+  if (!confirmed) return
+
+  favoritesRemoveBusy.value = true
+
+  try {
+    const wasActive = store.favoritesCollectionId === collection.collection_id
+    await store.deleteCollectionById(collection.collection_id)
+
+    if (wasActive) {
+      store.clearFavoritesMode()
+      await store.refresh()
+    }
+
+    Notify.create({
+      type: 'positive',
+      message: `Избранное «${collection.name}» удалено`,
+    })
+  } catch (err) {
+    Notify.create({ type: 'negative', message: `Избранное: ${err.message}` })
+  } finally {
+    favoritesRemoveBusy.value = false
+  }
+}
+
 /** Диалог названия нового избранного: в него уходят отмеченные чекбоксами фото. */
 const addFavoritesOpen = ref(false)
 const addFavoritesName = ref('')
 const favoritesAddBusy = ref(false)
+const favoritesRemoveBusy = ref(false)
 
 function openAddFavorites() {
   if (!store.selected.length) return
@@ -4113,6 +4149,18 @@ function tagList(meta) {
                     <span v-else class="text-caption text-grey-7">
                       фото: {{ fav.members ?? '—' }}
                     </span>
+                  </q-item-section>
+                  <!-- Удалить избранное: сами фото в базе не затрагиваются,
+                       исчезает только именованная подборка. -->
+                  <q-item-section side>
+                    <q-btn
+                      dense
+                      flat
+                      size="sm"
+                      icon="delete"
+                      :loading="favoritesRemoveBusy"
+                      @click.stop="removeFavorite(fav)"
+                    />
                   </q-item-section>
                 </q-item>
                 <!-- Разделитель перед поисками виден, только когда список
