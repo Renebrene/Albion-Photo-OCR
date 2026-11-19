@@ -1177,18 +1177,6 @@ export function saveSelection(state, options = {}) {
   return putJson(`${BASE}/v1/selection`, { state }, options)
 }
 
-export function fetchSavedSearches() {
-  return getJson(`${BASE}/v1/searches`)
-}
-
-export function createSavedSearch(payload) {
-  return postJson(`${BASE}/v1/searches`, payload)
-}
-
-export function deleteSavedSearch(searchId) {
-  return deleteJson(`${BASE}/v1/searches/${searchId}`)
-}
-
 export function fetchCollections() {
   return getJson(`${BASE}/v1/collections`)
 }

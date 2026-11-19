@@ -3,15 +3,12 @@ import { defineStore } from 'pinia'
 import {
   addCollectionMembers,
   createCollection as createCollectionApi,
-  createSavedSearch as createSavedSearchApi,
   deleteCollection as deleteCollectionApi,
-  deleteSavedSearch as deleteSavedSearchApi,
   fetchAddresses,
   fetchClients,
   fetchCollectionMembers,
   fetchCollections,
   fetchPhotos,
-  fetchSavedSearches,
   removeCollectionMembers,
 } from '../api/client'
 
@@ -25,10 +22,9 @@ let addressesRequest = 0
 // не должен перебивать более новый клик по другой.
 let addressCollectionRequest = 0
 let clientCollectionRequest = 0
-// Collections/searches can be reloaded independently (create/delete/save);
+// Collections can be reloaded independently (create/delete/save);
 // a slower loadFacets must not restore the pre-change list.
 let collectionsRequest = 0
-let searchesRequest = 0
 
 // Размер страницы грида. API принимает до 100 строк; 50 — компромисс по
 // времени до первой картинки (аудит 28.10.2026): первая страница — это 50
@@ -231,7 +227,6 @@ export const usePhotosStore = defineStore('photos', {
     clientsCursor: null,
     clientsLoadingMore: false,
     collections: [],
-    savedSearches: [],
     facetsLoading: false,
 
     // selection
@@ -425,14 +420,12 @@ export const usePhotosStore = defineStore('photos', {
       const addressToken = ++addressesRequest
       const clientToken = ++clientsRequest
       const collectionToken = ++collectionsRequest
-      const searchToken = ++searchesRequest
       this.facetsLoading = true
 
-      // Панели грузятся независимо: падение одной (например, сохранённых
-      // поисков) не должно ни рисовать баннер в галерее, ни скрывать «Ничего
-      // не найдено», ни останавливать автодогрузку страниц. Ошибку показываем
-      // в самой панели.
-      const [addresses, clients, collections, searches] =
+      // Панели грузятся независимо: падение одной не должно ни рисовать
+      // баннер в галерее, ни скрывать «Ничего не найдено», ни останавливать
+      // автодогрузку страниц. Ошибку показываем в самой панели.
+      const [addresses, clients, collections] =
         await Promise.allSettled([
           fetchAddresses({
             ...addressPanelParams(this),
@@ -449,12 +442,11 @@ export const usePhotosStore = defineStore('photos', {
             limit: CLIENTS_PAGE_SIZE,
           }),
           fetchCollections(),
-          fetchSavedSearches(),
         ])
 
       if (request === facetsRequest) {
         // Ошибку сохраняем по источникам: панель показывает только свою.
-        const results = { addresses, clients, collections, searches }
+        const results = { addresses, clients, collections }
         const errors = {}
 
         for (const [source, result] of Object.entries(results)) {
@@ -479,10 +471,6 @@ export const usePhotosStore = defineStore('photos', {
           collectionToken === collectionsRequest
         ) {
           this.collections = collections.value.items || []
-        }
-
-        if (searches.status === 'fulfilled' && searchToken === searchesRequest) {
-          this.savedSearches = searches.value.items || []
         }
 
         this.facetsLoading = false
@@ -937,48 +925,6 @@ export const usePhotosStore = defineStore('photos', {
         ids: jobId ? [] : ids,
         nlJobId: jobId,
       })
-    },
-
-    // ---- saved searches ----
-
-    async loadSavedSearches() {
-      const request = ++searchesRequest
-
-      try {
-        const data = await fetchSavedSearches()
-
-        if (request === searchesRequest) {
-          this.savedSearches = data.items || []
-        }
-      } catch (err) {
-        if (request === searchesRequest) this.error = err.message
-      }
-    },
-
-    async saveCurrentSearch(name) {
-      const filters = {
-        q: this.query,
-        addresses: this.selectedAddresses,
-        clients: this.selectedClients,
-        brand: this.brand,
-        tag: this.tag,
-        category: this.category,
-        date_from: this.dateFrom,
-        date_to: this.dateTo,
-        date_mode: this.dateMode,
-        collection_id: this.collectionId,
-        // Режим ○/△/□ — часть набора: без него тот же поиск давал другую
-        // выдачу (адреса и клиенты складываются иначе).
-        combine: this.combine,
-      }
-      const created = await createSavedSearchApi({ name, filters })
-      await this.loadSavedSearches()
-      return created
-    },
-
-    async deleteSavedSearchById(searchId) {
-      await deleteSavedSearchApi(searchId)
-      await this.loadSavedSearches()
     },
 
     // ---- selection ----

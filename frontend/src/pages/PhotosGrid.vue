@@ -175,14 +175,11 @@ const favoritesActive = computed(() => Boolean(store.favoritesCollectionId))
 // Поиск по загруженному фото/видео требует searches:write — у Гостя его нет.
 const canSearchMedia = canUseCollective
 
-// Действия, которые нельзя запускать дважды: выгрузка, сохранение подборки
-// и поиска, удаление поиска.
+// Действия, которые нельзя запускать дважды: выгрузка, сохранение подборки.
 const { busy: downloadBusy, run: downloadRun } = useAsyncAction()
 const { busy: bucketBusy, run: bucketRun } = useAsyncAction()
-const { busy: searchBusy, run: searchRun } = useAsyncAction()
-const { busy: searchRemoveBusy, run: searchRemoveRun } = useAsyncAction()
 
-const { items, error, loading, addresses, clients, savedSearches } =
+const { items, error, loading, addresses, clients } =
   storeToRefs(store)
 
 const q = ref('')
@@ -1504,13 +1501,12 @@ function onKeydown(event) {
   if (!viewerOpen.value) return
   if (event.defaultPrevented) return
 
-  // Поверх просмотра могут быть открыты редактор описания/адреса, подборка
-  // или сохранённый поиск: стрелки не должны листать фото за диалогом.
+  // Поверх просмотра могут быть открыты редактор описания/адреса или
+  // подборка: стрелки не должны листать фото за диалогом.
   if (
     addressEditOpen.value
     || qwenEditOpen.value
     || bucketOpen.value
-    || saveSearchOpen.value
     || manualOpen.value
   ) {
     return
@@ -2496,105 +2492,6 @@ async function stopMediaSearch() {
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
   }
-}
-
-// ---- saved searches ----
-
-const saveSearchOpen = ref(false)
-const saveSearchName = ref('')
-
-function openSaveSearch() {
-  saveSearchName.value = ''
-  saveSearchOpen.value = true
-}
-
-async function saveSearch() {
-  const name = saveSearchName.value.trim()
-  if (!name) {
-    Notify.create({ type: 'warning', message: 'Введите название поиска' })
-    return
-  }
-  await searchRun(async () => {
-    try {
-      await store.saveCurrentSearch(name)
-      Notify.create({ type: 'positive', message: 'Поиск сохранён' })
-      saveSearchOpen.value = false
-    } catch (err) {
-      Notify.create({ type: 'negative', message: err.message })
-    }  })
-}
-
-async function applySavedSearch(search) {
-  const filters = search.filters || {}
-
-  q.value = filters.q || ''
-  // Программно восстановленный запрос тоже должен корректно очищаться.
-  hadSearchTerm = Boolean(q.value)
-
-  addressSearch.value = ''
-  clientSearch.value = ''
-
-  selectedBrand.value = filters.brand || null
-  selectedTag.value = filters.tag || null
-  selectedCategory.value = filters.category || null
-
-  // Сохранённый поиск заменяет подборки, а не смешивается с ними.
-  store.addressCollectionIds = []
-  store.clientCollectionIds = []
-  store.addressCollectionId = null
-  store.clientCollectionId = null
-  store.addressCollectionMembers = {}
-  store.clientCollectionMembers = {}
-  store.addressCollectionValues = []
-  store.clientCollectionValues = []
-
-  const from = filters.date_from || null
-  const to = filters.date_to || null
-  customFrom.value = from
-  customTo.value = to
-  period.value = from || to ? 'custom' : 'all'
-  dateMode.value = filters.date_mode === 'capture' ? 'capture' : 'upload'
-
-  // Режим ○/△/□ хранится вместе с поиском: у старых записей его нет — тогда
-  // остаётся текущий переключатель. Ставим его в подвале, чтобы переключатель
-  // показывал то, что применилось.
-  const savedCombine = ['union', 'address', 'client'].includes(filters.combine)
-    ? filters.combine
-    : combineMode.value
-
-  if (savedCombine !== combineMode.value) display.addressClientMode = savedCombine
-
-  await store.applyFilters({
-    q: q.value,
-    addresses: filters.addresses || [],
-    clients: filters.clients || [],
-    brand: selectedBrand.value,
-    tag: selectedTag.value,
-    category: selectedCategory.value,
-    dateFrom: from,
-    dateTo: to,
-    dateMode: dateMode.value,
-    combine: savedCombine,
-    collectionId: filters.collection_id || null,
-  })
-}
-
-async function removeSavedSearch(search) {
-  const confirmed = await confirmDialog({
-    title: 'Удалить сохранённый поиск?',
-    message: `«${search.name}» — набор фильтров удалится из «Избранного».`,
-  })
-
-  if (!confirmed) return
-
-  await searchRemoveRun(async () => {
-    try {
-      await store.deleteSavedSearchById(search.search_id)
-      Notify.create({ type: 'positive', message: 'Поиск удалён' })
-    } catch (err) {
-      Notify.create({ type: 'negative', message: err.message })
-    }
-  })
 }
 
 async function openBucketDialog(scope = 'addresses') {
@@ -4080,9 +3977,8 @@ function tagList(meta) {
             </q-tooltip>
           </q-btn>
 
-          <!-- Избранное: добавить отмеченные фото (с названием), затем список
-               избранных и сохранённые поиски. У гостя — неактивно
-               (владелец, 18.11.2026). -->
+          <!-- Избранное: добавить отмеченные фото (с названием), затем
+               список избранных. У гостя — неактивно (владелец, 18.11.2026). -->
           <q-btn
             dense
             flat
@@ -4160,34 +4056,6 @@ function tagList(meta) {
                       icon="delete"
                       :loading="favoritesRemoveBusy"
                       @click.stop="removeFavorite(fav)"
-                    />
-                  </q-item-section>
-                </q-item>
-                <!-- Разделитель перед поисками виден, только когда список
-                     избранных не пуст: иначе после «Добавить фото» остаются
-                     двойные полосы. -->
-                <q-separator v-if="favoriteCollections.length" />
-                <q-item
-                  v-for="search in savedSearches"
-                  :key="search.search_id"
-                  clickable
-                  v-close-popup
-                  @click="applySavedSearch(search)"
-                >
-                  <q-item-section avatar>
-                    <q-icon name="bookmark" size="18px" />
-                  </q-item-section>
-                  <q-item-section>
-                    <div class="ellipsis">{{ search.name }}</div>
-                  </q-item-section>
-                  <q-item-section side>
-                    <q-btn
-                      dense
-                      flat
-                      size="sm"
-                      icon="delete"
-                      :loading="searchRemoveBusy"
-                      @click.stop="removeSavedSearch(search)"
                     />
                   </q-item-section>
                 </q-item>
@@ -5249,31 +5117,6 @@ function tagList(meta) {
         <q-card-actions align="right">
           <q-btn flat label="Отмена" v-close-popup />
           <q-btn color="primary" label="Сохранить" :loading="bucketBusy" @click="saveToBucket" />
-        </q-card-actions>
-      </q-card>
-    </q-dialog>
-
-    <q-dialog v-model="saveSearchOpen">
-      <q-card style="min-width: 360px">
-        <q-card-section class="text-subtitle1">Сохранить поиск</q-card-section>
-        <q-separator />
-        <q-card-section>
-          <q-input
-            v-model="saveSearchName"
-            dense
-            outlined
-            label="Название поиска"
-            autofocus
-            @keyup.enter="saveSearch"
-          />
-          <div class="text-caption text-grey q-mt-sm">
-            Сохраняются текущие фильтры: запрос, адреса, клиенты, период,
-            подборка.
-          </div>
-        </q-card-section>
-        <q-card-actions align="right">
-          <q-btn flat label="Отмена" v-close-popup />
-          <q-btn color="primary" label="Сохранить" :loading="searchBusy" @click="saveSearch" />
         </q-card-actions>
       </q-card>
     </q-dialog>
