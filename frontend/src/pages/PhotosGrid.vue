@@ -245,8 +245,8 @@ const similarRange = computed(() => SIMILAR_RANGES[similarRangeIndex.value])
 const similarChecked = ref({})
 // Лупа: фото, чьё превью увеличено, пока зажата мышь над снимком карточки.
 const similarZoom = ref(null)
-// «Избранное» из диалога: сохраняем адреса отмеченных фото как именованную
-// адресную подборку; название вводится тут же в карточке (владелец, 20.11.2026).
+// «Избранное» из диалога: отмеченные фото уходят в именованное избранное
+// панели фильтров грида (фото-подборка); название вводится тут же в карточке.
 const similarFavNaming = ref(false)
 const similarFavName = ref('')
 const similarFavoritesBusy = ref(false)
@@ -3193,34 +3193,24 @@ function closeSimilar() {
 }
 
 /**
- * «Избранное» в диалоге «Похожие»: адреса отмеченных фото сохраняются
- * как именованная адресная подборка (владелец, 20.11.2026). Название
- * вводится тут же в карточке — после первого нажатия кнопки появляется
- * поле, повторное нажатие сохраняет.
+ * «Избранное» в диалоге «Похожие» попадает в то же избранное, что и в
+ * панели фильтров грида, — именованные фото-подборки, а не в адресные
+ * подборки (владелец, 20.11.2026). Название вводится тут же в карточке:
+ * первое нажатие кнопки показывает поле, повторное (или Enter) сохраняет.
  */
-async function saveSimilarAddresses() {
+async function saveSimilarFavorites() {
   const name = String(similarFavName.value || '').trim()
 
   if (!name) {
-    Notify.create({ type: 'warning', message: 'Укажите название подборки' })
+    Notify.create({ type: 'warning', message: 'Введите название избранного' })
     return
   }
 
-  const values = [
-    ...new Set(
-      similarItems.value
-        .filter((item) => similarChecked.value[item.photo_id] && item.address_id)
-        .map((item) => `addr:${item.address_id}`),
-    ),
-  ]
+  const ids = Object.keys(similarChecked.value).filter(
+    (key) => similarChecked.value[key],
+  )
 
-  if (!values.length) {
-    Notify.create({
-      type: 'warning',
-      message: 'У отмеченных фото нет адресов — сохранять нечего',
-    })
-    return
-  }
+  if (!ids.length) return
 
   similarFavoritesBusy.value = true
 
@@ -3228,22 +3218,26 @@ async function saveSimilarAddresses() {
     const created = await createCollection({
       name,
       kind: 'Моя',
-      scope: 'addresses',
+      scope: 'photos',
     })
     await addCollectionMembers(created.collection_id, {
-      member_type: 'address',
-      values,
+      member_type: 'photo',
+      values: ids,
     })
-    // Чип подборки появится в панели адресов грида.
+    // Пункт появится в меню «Избранное» грида после обновления списка.
     await store.loadCollections()
     Notify.create({
       type: 'positive',
-      message: `Подборка «${name}»: ${values.length} адресов`,
+      message: `В избранном «${name}»: ${ids.length} фото`,
     })
     clearSimilarChecked()
     similarFavNaming.value = false
     similarFavName.value = ''
     similarOpen.value = false
+    // Показать созданное избранное в гриде: полный сброс фильтров, панели
+    // адресов/клиентов скрываются до снятия режима.
+    await reset()
+    await store.showFavorites(created.collection_id)
   } catch (err) {
     Notify.create({ type: 'negative', message: `Избранное: ${err.message}` })
   } finally {
@@ -5500,8 +5494,9 @@ function tagList(meta) {
           />
           <div class="row items-center q-gutter-sm">
             <q-btn flat label="Закрыть" @click="closeSimilar" />
-            <!-- Название адресной подборки появляется по первому нажатию
-                 «Избранного»; сохранение — повторным нажатием или Enter. -->
+            <!-- «Избранное» уходит в список избранных панели фильтров грида.
+                 Название появляется по первому нажатию; сохранение —
+                 повторным нажатием или Enter. -->
             <q-input
               v-if="similarFavNaming"
               v-model="similarFavName"
@@ -5509,9 +5504,9 @@ function tagList(meta) {
               outlined
               clearable
               style="width: 220px"
-              placeholder="Название подборки"
+              placeholder="Название избранного"
               :disable="similarFavoritesBusy"
-              @keydown.enter.prevent="saveSimilarAddresses"
+              @keydown.enter.prevent="saveSimilarFavorites"
             />
             <q-btn
               v-if="canUseCollective"
@@ -5522,7 +5517,7 @@ function tagList(meta) {
               :disable="!similarCheckedCount"
               :loading="similarFavoritesBusy"
               @click="
-                similarFavNaming ? saveSimilarAddresses() : (similarFavNaming = true)
+                similarFavNaming ? saveSimilarFavorites() : (similarFavNaming = true)
               "
             />
           </div>
