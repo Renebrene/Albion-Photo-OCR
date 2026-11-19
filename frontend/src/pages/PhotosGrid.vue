@@ -3147,6 +3147,10 @@ async function sendSimilarToFavorites() {
       type: 'positive',
       message: `В избранном: ${result.count} фото`,
     })
+    // Переход в «Избранное» — полный сброс: поиск, даты, бренд/тег/категория
+    // и ИИ-поиск не должны продолжать сужать выдачу (владелец, 20.11.2026).
+    // reset() чистит панель и грид, затем включается режим избранного.
+    await reset()
     await store.showFavorites(result.collection_id)
   } catch (err) {
     Notify.create({
