@@ -1607,6 +1607,10 @@ def _enqueue_hybrid_impl(request: HybridRequest):
 def enqueue_qwen(request: QwenJobRequest):
     if request.only_failed:
         photo_ids = repository.photo_ids_with_qwen_status("FAILED")
+    elif request.only_missing:
+        # «Дописать отсутствующие»: уже описанные фото в очередь не
+        # попадают — их описания остаются как есть.
+        photo_ids = repository.photo_ids_without_description()
     elif request.photo_ids is not None:
         # Explicit list (even an empty one) never falls back to the whole
         # corpus: «Пересканировать» в карточке запускает только это фото.

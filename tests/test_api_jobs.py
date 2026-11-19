@@ -167,3 +167,38 @@ def test_qwen_empty_explicit_list_does_not_fall_back_to_all(monkeypatch):
     response = client.post("/api/v1/jobs/qwen", json={"photo_ids": []})
 
     assert response.status_code == 422
+
+
+def test_qwen_only_missing_enqueues_photos_without_description(monkeypatch):
+    """«Дописать отсутствующие»: ставятся только фото без описания."""
+
+    from app.api import routes
+    from app.runs import history
+
+    missing = ["PH_" + "aa" * 12, "PH_" + "bb" * 12]
+    described = ["PH_" + "cc" * 12]
+
+    monkeypatch.setattr(
+        routes.repository, "photo_ids_without_description",
+        lambda: missing,
+    )
+    monkeypatch.setattr(
+        routes.repository, "all_photo_ids",
+        lambda: missing + described,
+    )
+    monkeypatch.setattr(history, "create_run", lambda **kw: 1)
+    monkeypatch.setattr(history, "add_jobs", lambda *a, **kw: None)
+    monkeypatch.setattr(history, "finish_enqueue", lambda *a, **kw: None)
+
+    queued = []
+    monkeypatch.setattr(
+        routes.jobs_db, "enqueue_qwen",
+        lambda pid, **kw: queued.append(pid) or 10,
+    )
+
+    response = client.post("/api/v1/jobs/qwen", json={"only_missing": True})
+
+    assert response.status_code == 202
+    # Описанное фото не поставлено, поставлены только два без описания.
+    assert queued == missing
+    assert response.json()["jobs"] == 2

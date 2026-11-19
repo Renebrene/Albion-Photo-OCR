@@ -34,6 +34,7 @@ const error = ref(null)
 // Разбираем на верхнеуровневые ref'ы: вложенные в объект не разворачиваются
 // в шаблоне, и `:loading` получил бы объект вместо boolean.
 const { busy: runAllBusy, run: runAllRun } = useAsyncAction()
+const { busy: runMissingBusy, run: runMissingRun } = useAsyncAction()
 const { busy: retryBusy, run: retryRun } = useAsyncAction()
 const { busy: stopQueueBusy, run: stopQueueRun } = useAsyncAction()
 const { busy: clearQueueBusy, run: clearQueueRun } = useAsyncAction()
@@ -405,6 +406,22 @@ async function runAll() {
     }
   })
 }
+
+/**
+ * «Дописать отсутствующие»: в очередь ставятся только фото без описания,
+ * уже описанные не трогаются (владелец, 19.11.2026).
+ */
+async function runMissing() {
+  await runMissingRun(async () => {
+    try {
+      const result = await enqueueQwen(null, false, { only_missing: true })
+      Notify.create({ type: 'positive', message: `QWEN заданий: ${result.jobs}` })
+      await loadStats()
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
+  })
+}
 async function stopQueue() {
   await stopQueueRun(async () => {
     try {
@@ -736,9 +753,9 @@ onBeforeUnmount(stopStatsPolling)
         <div class="text-subtitle1 q-mb-sm">Метаданные QWEN</div>
 
         <div class="text-caption text-grey-8 q-mb-sm">
-          ВСЕГО ФОТО: {{ stats.photos ?? '—' }} ·
-          РАСПОЗНАНО: {{ stats.processed ?? 0 }}
-          <template v-if="stats.remaining">(осталось {{ stats.remaining }})</template> ·
+          ФОТО В БАЗЕ: {{ stats.photos ?? '—' }} ·
+          С ОПИСАНИЯМИ: {{ stats.processed ?? 0 }} ·
+          БЕЗ ОПИСАНИЙ: {{ stats.remaining ?? 0 }} ·
           В ОЧЕРЕДИ: {{ qwenQueue }} ·
           С ОШИБКОЙ: {{ stats.counts?.FAILED || 0 }}
         </div>
@@ -798,12 +815,31 @@ onBeforeUnmount(stopStatsPolling)
 
         <div class="row q-gutter-sm">
           <q-btn
+            color="primary"
+            icon="playlist_add_check"
+            label="Дописать отсутствующие"
+            :loading="runMissingBusy"
+            @click="runMissing"
+          >
+            <q-tooltip>
+              Поставить только фото без описания. Уже описанные не
+              затрагиваются — их результаты сохраняются как есть.
+            </q-tooltip>
+          </q-btn>
+          <q-btn
+            flat
             color="secondary"
             icon="auto_awesome"
             label="Запустить QWEN (все фото)"
             :loading="runAllBusy"
             @click="runAll"
-          />
+          >
+            <q-tooltip>
+              Полный прогон: ставит ВСЕ фото, включая уже описанные —
+              их описания будут перезаписаны новым результатом
+              (прежние сохраняются в истории).
+            </q-tooltip>
+          </q-btn>
           <q-btn
             flat
             color="teal"

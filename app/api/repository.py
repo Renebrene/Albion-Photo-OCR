@@ -1768,6 +1768,31 @@ def all_photo_ids() -> list[str]:
             return [row[0] for row in cur.fetchall()]
 
 
+def photo_ids_without_description() -> list[str]:
+    """photo_ids с отсутствующим или пустым описанием (дописать остаток).
+
+    Противоположность полному прогону: фото с готовым описанием не
+    ставятся в очередь вовсе, поэтому уже существующие результаты
+    не перезаписываются (владелец, 19.11.2026).
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT p.photo_id
+                FROM public.photos AS p
+                LEFT JOIN public.photo_qwen AS q
+                       ON q.photo_id = p.photo_id
+                      AND q.description IS NOT NULL
+                      AND btrim(q.description) <> ''
+                WHERE q.photo_id IS NULL
+                ORDER BY p.photo_id
+                """
+            )
+            return [row[0] for row in cur.fetchall()]
+
+
 def review_count(
     low_score: float | None = None,
     min_margin: float | None = None,
