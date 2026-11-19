@@ -634,7 +634,9 @@ const favoriteCollections = computed(() =>
 /**
  * Клик по избранному из списка: включает фильтр грида по этой подборке
  * (панели адресов/клиентов при этом скрыты). Повторный клик по открытому
- * избранному снимает режим.
+ * избранному снимает режим. Период сбрасывается на «Все даты»: избранное
+ * должно показываться целиком, без сужения текущим периодом
+ * (владелец, 20.11.2026).
  */
 async function toggleFavoriteInGrid(collection) {
   if (store.favoritesCollectionId === collection.collection_id) {
@@ -643,6 +645,12 @@ async function toggleFavoriteInGrid(collection) {
     return
   }
 
+  period.value = 'all'
+  customFrom.value = null
+  customTo.value = null
+  // apply() синхронизирует даты стора с панелью: refresh внутри
+  // showFavorites уйдёт уже без диапазона.
+  await apply()
   await store.showFavorites(collection.collection_id)
 }
 
@@ -2073,7 +2081,7 @@ async function resetClientSelection() {
   await apply()
 }
 
-async function reset() {
+async function reset(periodValue = 'week') {
   const mediaJob = mediaJobId.value
   const manualJob = manualJobId.value
 
@@ -2092,7 +2100,9 @@ async function reset() {
   if (manualOpen.value) await closeManual({ cancel: false })
 
   q.value = ''
-  period.value = 'week'
+  // Кнопка «Сбросить фильтры» возвращает период «За неделю»; переход в
+  // «Избранное» передаёт 'all' — даты за всё время (владелец, 20.11.2026).
+  period.value = periodValue
   dateMode.value = 'capture'
   customFrom.value = null
   customTo.value = null
@@ -3167,9 +3177,9 @@ async function saveSimilarFavorites() {
     similarFavNaming.value = false
     similarFavName.value = ''
     similarOpen.value = false
-    // Показать созданное избранное в гриде: полный сброс фильтров, панели
-    // адресов/клиентов скрываются до снятия режима.
-    await reset()
+    // Показать созданное избранное в гриде: полный сброс фильтров с датами
+    // «за всё время», панели адресов/клиентов скрываются до снятия режима.
+    await reset('all')
     await store.showFavorites(created.collection_id)
   } catch (err) {
     Notify.create({ type: 'negative', message: `Избранное: ${err.message}` })
