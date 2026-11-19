@@ -5311,14 +5311,14 @@ function tagList(meta) {
             </q-card>
           </div>
         </q-card-section>
-        <!-- Лупа: увеличенное превью видно, пока мышь зажата; отпустили — пропало. -->
-        <div
-          v-if="similarZoom"
-          class="similar-zoom"
-          @mouseup="similarZoom = null"
-        >
+        <!-- Лупа: увеличенное превью видно, пока мышь зажата; отпустили — пропало.
+             Всплывает без рамки и кнопок, размером с снимок в просмотрщике
+             (7/12 ширины его карточки ≈ 624px, 4:3); клики проходит насквозь. -->
+        <div v-if="similarZoom" class="similar-zoom">
           <AuthImage
             :url="previewUrl(similarZoom.photo_id, 'middle')"
+            :ratio="4 / 3"
+            fit="contain"
             class="similar-zoom__img"
           />
         </div>
@@ -5510,22 +5510,20 @@ function tagList(meta) {
   cursor: pointer;
 }
 
+/* Всплывающая лупа: плавающий снимок без рамки и кнопок по центру экрана,
+   размером с фото в просмотрщике; клики проходят насквозь (mouseup
+   ловит карточка, а не попап) — превью держится, пока мышь зажата. */
 .similar-zoom {
   position: fixed;
-  inset: 0;
+  top: 50%;
+  left: 50%;
   z-index: 6000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.72);
-  cursor: zoom-out;
-}
-
-.similar-zoom__img {
-  max-width: 92vw;
-  max-height: 86vh;
-  object-fit: contain;
+  width: min(624px, 60vw);
+  transform: translate(-50%, -50%);
   border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
 }
 
 /* Строка тегов: одна линия без рамки; полоса прокрутки скрыта, колесо
