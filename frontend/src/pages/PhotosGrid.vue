@@ -18,6 +18,8 @@ import {
   searchVisualByPhoto,
   addFavorites,
   fetchFavorites,
+  createCollection,
+  addCollectionMembers,
   fetchSearchSuggestions,
   fetchSearchMatches,
   fetchRunActivity,
@@ -245,6 +247,10 @@ const similarRange = computed(() => SIMILAR_RANGES[similarRangeIndex.value])
 const similarChecked = ref({})
 // Лупа: фото, чьё превью увеличено, пока зажата мышь над снимком карточки.
 const similarZoom = ref(null)
+// «Избранное» из диалога: сохраняем адреса отмеченных фото как именованную
+// адресную подборку; название вводится тут же в карточке (владелец, 20.11.2026).
+const similarFavNaming = ref(false)
+const similarFavName = ref('')
 const similarFavoritesBusy = ref(false)
 const mediaStage = ref('')
 const mediaBusy = ref(false)
@@ -3104,6 +3110,8 @@ async function openSimilar(photo) {
   similarItems.value = []
   similarChecked.value = {}
   similarZoom.value = null
+  similarFavNaming.value = false
+  similarFavName.value = ''
   similarOpen.value = true
   await loadSimilar()
 }
@@ -3152,36 +3160,63 @@ function closeSimilar() {
   // «Закрыть» снимает отметки: повторное открытие начинается с чистого.
   clearSimilarChecked()
   similarZoom.value = null
+  similarFavNaming.value = false
+  similarFavName.value = ''
   similarOpen.value = false
 }
 
 /**
- * «Избранное» в диалоге «Похожие» — то же самое избранное, что и в панели
- * фильтров грида (служебная фото-подборка «Избранные фото»), а не адресная
- * подборка (владелец, 20.11.2026). Отмеченные фото попадают в него, затем
- * грид открывается с фильтром по избранному.
+ * «Избранное» в диалоге «Похожие»: адреса отмеченных фото сохраняются
+ * как именованная адресная подборка (владелец, 20.11.2026). Название
+ * вводится тут же в карточке — после первого нажатия кнопки появляется
+ * поле, повторное нажатие сохраняет.
  */
-async function sendSimilarToFavorites() {
-  const ids = Object.keys(similarChecked.value).filter(
-    (key) => similarChecked.value[key],
-  )
+async function saveSimilarAddresses() {
+  const name = String(similarFavName.value || '').trim()
 
-  if (!ids.length) return
+  if (!name) {
+    Notify.create({ type: 'warning', message: 'Укажите название подборки' })
+    return
+  }
+
+  const values = [
+    ...new Set(
+      similarItems.value
+        .filter((item) => similarChecked.value[item.photo_id] && item.address_id)
+        .map((item) => `addr:${item.address_id}`),
+    ),
+  ]
+
+  if (!values.length) {
+    Notify.create({
+      type: 'warning',
+      message: 'У отмеченных фото нет адресов — сохранять нечего',
+    })
+    return
+  }
 
   similarFavoritesBusy.value = true
 
   try {
-    const result = await addFavorites(ids)
-    clearSimilarChecked()
-    similarOpen.value = false
+    const created = await createCollection({
+      name,
+      kind: 'Моя',
+      scope: 'addresses',
+    })
+    await addCollectionMembers(created.collection_id, {
+      member_type: 'address',
+      values,
+    })
+    // Чип подборки появится в панели адресов грида.
+    await store.loadCollections()
     Notify.create({
       type: 'positive',
-      message: `В избранном: ${result.count} фото`,
+      message: `Подборка «${name}»: ${values.length} адресов`,
     })
-    // Переход в «Избранное» — полный сброс: поиск, даты, бренд/тег/категория
-    // и ИИ-поиск не должны продолжать сужать выдачу (владелец, 20.11.2026).
-    await reset()
-    await store.showFavorites(result.collection_id)
+    clearSimilarChecked()
+    similarFavNaming.value = false
+    similarFavName.value = ''
+    similarOpen.value = false
   } catch (err) {
     Notify.create({ type: 'negative', message: `Избранное: ${err.message}` })
   } finally {
@@ -5385,18 +5420,30 @@ function tagList(meta) {
           />
           <div class="row items-center q-gutter-sm">
             <q-btn flat label="Закрыть" @click="closeSimilar" />
-            <!-- «Избранное» здесь — то же избранное, что и в панели фильтров
-                 грида: отмеченные фото уходят в служебную подборку
-                 «Избранные фото», затем грид открывается на ней. -->
+            <!-- Название адресной подборки появляется по первому нажатию
+                 «Избранного»; сохранение — повторным нажатием или Enter. -->
+            <q-input
+              v-if="similarFavNaming"
+              v-model="similarFavName"
+              dense
+              outlined
+              clearable
+              style="width: 220px"
+              placeholder="Название подборки"
+              :disable="similarFavoritesBusy"
+              @keydown.enter.prevent="saveSimilarAddresses"
+            />
             <q-btn
               v-if="canUseCollective"
               unelevated
               color="primary"
               icon="star"
-              label="Избранное"
+              :label="similarFavNaming ? 'Сохранить' : 'Избранное'"
               :disable="!similarCheckedCount"
               :loading="similarFavoritesBusy"
-              @click="sendSimilarToFavorites"
+              @click="
+                similarFavNaming ? saveSimilarAddresses() : (similarFavNaming = true)
+              "
             />
           </div>
         </q-card-actions>
