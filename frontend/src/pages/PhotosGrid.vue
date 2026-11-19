@@ -16,8 +16,6 @@ import {
   fetchPhotoDetails,
   fetchPhotos,
   searchVisualByPhoto,
-  addFavorites,
-  fetchFavorites,
   createCollection,
   addCollectionMembers,
   fetchSearchSuggestions,
@@ -629,50 +627,79 @@ function cycleCells() {
 }
 
 /**
- * «Избранные фото» из меню «Избранное»: включает фильтр грида по служебной
- * фото-подборке. Повторный клик снимает фильтр.
+ * Избранные грида — именованные фото-подборки (scope photos). Список для
+ * меню «Избранное»: после пункта добавления и разделителя.
  */
-async function showFavoritesInGrid() {
-  if (store.favoritesCollectionId) {
+const favoriteCollections = computed(() =>
+  (store.collections || []).filter((item) => item.scope === 'photos'),
+)
+
+/**
+ * Клик по избранному из списка: включает фильтр грида по этой подборке
+ * (панели адресов/клиентов при этом скрыты). Повторный клик по открытому
+ * избранному снимает режим.
+ */
+async function toggleFavoriteInGrid(collection) {
+  if (store.favoritesCollectionId === collection.collection_id) {
     store.clearFavoritesMode()
     await store.refresh()
     return
   }
 
-  try {
-    const favorites = await fetchFavorites()
-    if (!favorites.photo_ids?.length) {
-      Notify.create({ type: 'info', message: 'Избранных фото пока нет' })
-      return
-    }
-    await store.showFavorites(favorites.collection_id)
-  } catch (err) {
-    Notify.create({ type: 'negative', message: `Избранное: ${err.message}` })
-  }
+  await store.showFavorites(collection.collection_id)
+}
+
+/** Диалог названия нового избранного: в него уходят отмеченные чекбоксами фото. */
+const addFavoritesOpen = ref(false)
+const addFavoritesName = ref('')
+const favoritesAddBusy = ref(false)
+
+function openAddFavorites() {
+  if (!store.selected.length) return
+  addFavoritesName.value = ''
+  addFavoritesOpen.value = true
 }
 
 /**
- * «Добавить выделенные фото в Избранное»: в подборку идут только фото,
- * отмеченные чекбоксами в гриде — не текущий поиск (владелец, 20.11.2026).
+ * «Добавить фото в избранное»: в подборку идут только фото, отмеченные
+ * чекбоксами в гриде — не текущий поиск (владелец, 20.11.2026). Каждое
+ * избранное — отдельная именованная фото-подборка.
  */
 async function addSelectionToFavorites() {
-  if (!store.selected.length) return
+  const name = String(addFavoritesName.value || '').trim()
+
+  if (!name) {
+    Notify.create({ type: 'warning', message: 'Введите название избранного' })
+    return
+  }
+
+  const ids = [...store.selected]
+
+  if (!ids.length) return
+
+  favoritesAddBusy.value = true
 
   try {
-    const result = await addFavorites([...store.selected])
-    // Коллекция могла создаться только что — обновляем id для «Избранных фото».
-    const favorites = await fetchFavorites().catch(() => null)
-
-    if (favorites?.collection_id) {
-      store.favoritesCollectionId = Number(favorites.collection_id)
-    }
-
+    const created = await createCollection({
+      name,
+      kind: 'Моя',
+      scope: 'photos',
+    })
+    await addCollectionMembers(created.collection_id, {
+      member_type: 'photo',
+      values: ids,
+    })
+    // Пункт появляется в списке избранных сразу после создания.
+    await store.loadCollections()
     Notify.create({
       type: 'positive',
-      message: `В избранном: ${result.count} фото`,
+      message: `В избранном «${name}»: ${ids.length} фото`,
     })
+    addFavoritesOpen.value = false
   } catch (err) {
     Notify.create({ type: 'negative', message: `Избранное: ${err.message}` })
+  } finally {
+    favoritesAddBusy.value = false
   }
 }
 
@@ -4023,52 +4050,74 @@ function tagList(meta) {
             </q-tooltip>
           </q-btn>
 
-          <!-- Избранное (бывшие «сохранённые поиски») + избранные фото из
-               диалога «Похожие». У гостя — неактивно (владелец, 18.11.2026). -->
-          <q-btn dense flat icon="bookmarks" :disable="!canUseCollective">
+          <!-- Избранное: добавить отмеченные фото (с названием), затем список
+               избранных и сохранённые поиски. У гостя — неактивно
+               (владелец, 18.11.2026). -->
+          <q-btn
+            dense
+            flat
+            icon="bookmarks"
+            :disable="!canUseCollective"
+            @click="void store.loadCollections()"
+          >
             <q-tooltip>
               {{ canUseCollective ? 'Избранное' : 'Избранное доступно только менеджеру и администратору' }}
             </q-tooltip>
             <q-menu>
               <q-list dense style="min-width: 240px">
-                <q-item
-                  clickable
-                  v-close-popup
-                  :disable="!store.favoritesCollectionId"
-                  @click="showFavoritesInGrid"
-                >
-                  <q-item-section avatar>
-                    <q-icon name="star" />
-                  </q-item-section>
-                  <q-item-section>
-                    Избранные фото
-                    <span
-                      v-if="store.favoritesCollectionId"
-                      class="text-caption text-grey-7"
-                    >
-                      показать в гриде
-                    </span>
-                    <span v-else class="text-caption text-grey-7">
-                      пусто — добавьте из диалога «Похожие»
-                    </span>
-                  </q-item-section>
-                </q-item>
-                <q-separator />
-                <!-- В Избранное попадают только фото, отмеченные чекбоксами,
+                <!-- В избранное попадают только фото, отмеченные чекбоксами,
                      не результаты текущего поиска (владелец, 20.11.2026). -->
                 <q-item
                   clickable
                   v-close-popup
                   :disable="!store.selected.length"
-                  @click="addSelectionToFavorites"
+                  @click="openAddFavorites"
                 >
                   <q-item-section avatar>
                     <q-icon name="star" />
                   </q-item-section>
                   <q-item-section>
-                    Добавить выделенные фото в Избранное
+                    Добавить фото в избранное
                     <span class="text-caption text-grey-7">
-                      отмечено чекбоксами: {{ store.selected.length }}
+                      {{ store.selected.length
+                        ? `отмечено чекбоксами: ${store.selected.length}`
+                        : 'отметьте фото чекбоксами в гриде' }}
+                    </span>
+                  </q-item-section>
+                </q-item>
+                <!-- Список избранных: именованные фото-подборки. Клик —
+                     показать в гриде, повторный по открытому снимает режим. -->
+                <q-item
+                  v-for="fav in favoriteCollections"
+                  :key="fav.collection_id"
+                  clickable
+                  v-close-popup
+                  @click="toggleFavoriteInGrid(fav)"
+                >
+                  <q-item-section avatar>
+                    <q-icon
+                      :name="
+                        store.favoritesCollectionId === fav.collection_id
+                          ? 'star'
+                          : 'star_border'
+                      "
+                      :color="
+                        store.favoritesCollectionId === fav.collection_id
+                          ? 'primary'
+                          : undefined
+                      "
+                    />
+                  </q-item-section>
+                  <q-item-section>
+                    <div class="ellipsis">{{ fav.name }}</div>
+                    <span
+                      v-if="store.favoritesCollectionId === fav.collection_id"
+                      class="text-caption text-grey-7"
+                    >
+                      открыто в гриде — клик снимет
+                    </span>
+                    <span v-else class="text-caption text-grey-7">
+                      фото: {{ fav.members ?? '—' }}
                     </span>
                   </q-item-section>
                 </q-item>
@@ -5185,6 +5234,37 @@ function tagList(meta) {
         <q-card-actions align="right">
           <q-btn flat label="Отмена" v-close-popup />
           <q-btn color="primary" label="Сохранить" :loading="searchBusy" @click="saveSearch" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Название нового избранного: в него уходят фото, отмеченные
+         чекбоксами в гриде (владелец, 20.11.2026). -->
+    <q-dialog v-model="addFavoritesOpen">
+      <q-card style="min-width: 360px">
+        <q-card-section class="text-subtitle1">Добавить фото в избранное</q-card-section>
+        <q-separator />
+        <q-card-section>
+          <q-input
+            v-model="addFavoritesName"
+            dense
+            outlined
+            label="Название избранного"
+            autofocus
+            @keyup.enter="addSelectionToFavorites"
+          />
+          <div class="text-caption text-grey q-mt-sm">
+            В избранное попадут отмеченные чекбоксами фото: {{ store.selected.length }}.
+          </div>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Отмена" v-close-popup />
+          <q-btn
+            color="primary"
+            label="Сохранить"
+            :loading="favoritesAddBusy"
+            @click="addSelectionToFavorites"
+          />
         </q-card-actions>
       </q-card>
     </q-dialog>
