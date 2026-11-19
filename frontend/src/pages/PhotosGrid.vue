@@ -239,6 +239,8 @@ const similarRangeIndex = ref(SIMILAR_RANGES.length - 1)
 const similarRange = computed(() => SIMILAR_RANGES[similarRangeIndex.value])
 // Отмеченные фото: photo_id -> true. С ними уходят в «Избранное» грида.
 const similarChecked = ref({})
+// Лупа: фото, чьё превью увеличено, пока зажата мышь над снимком карточки.
+const similarZoom = ref(null)
 const similarFavoritesBusy = ref(false)
 const mediaStage = ref('')
 const mediaBusy = ref(false)
@@ -3072,6 +3074,7 @@ async function openSimilar(photo) {
   similarPhotoId.value = photo.photo_id
   similarItems.value = []
   similarChecked.value = {}
+  similarZoom.value = null
   similarOpen.value = true
   await loadSimilar()
 }
@@ -3119,6 +3122,7 @@ function clearSimilarChecked() {
 function closeSimilar() {
   // «Закрыть» снимает отметки: повторное открытие начинается с чистого.
   clearSimilarChecked()
+  similarZoom.value = null
   similarOpen.value = false
 }
 
@@ -5210,7 +5214,12 @@ function tagList(meta) {
       <q-card style="width: min(1120px, 96vw); max-height: 88vh" class="column">
         <q-card-section class="row items-center q-gutter-sm">
           <div class="col">
-            <div class="text-subtitle1">Похожие объявления</div>
+            <div class="text-subtitle1">
+              Похожие объявления
+              <span class="text-caption text-grey-7">
+                (найдено {{ similarItems.length }} / отмечено {{ similarCheckedCount }})
+              </span>
+            </div>
             <div class="text-caption text-grey-7 ellipsis">
               запрос: {{ similarPhotoId }}
             </div>
@@ -5242,24 +5251,34 @@ function tagList(meta) {
               :key="item.region_id"
               flat
               bordered
-              class="cursor-pointer similar-tile"
+              class="similar-tile"
               :class="{ 'similar-tile--picked': similarChecked[item.photo_id] }"
-              @click="toggleSimilarCheck(item)"
             >
-              <div class="relative-position">
+              <!-- Фото — лупа: пока зажата мышь над снимком, превью увеличено.
+                   Отметка чекбоксом — кликом по белому полю карточки (ниже). -->
+              <div
+                class="relative-position similar-tile__media"
+                @mousedown.prevent="similarZoom = item"
+                @mouseup="similarZoom = null"
+              >
                 <AuthImage
                   :url="previewUrl(item.photo_id, 'small')"
                   class="similar-tile__img"
                 />
+                <q-icon name="search" size="26px" class="similar-tile__zoom" />
                 <q-checkbox
                   :model-value="Boolean(similarChecked[item.photo_id])"
                   dense
                   class="similar-tile__check"
+                  @mousedown.stop
                   @update:model-value="toggleSimilarCheck(item)"
                   @click.stop
                 />
               </div>
-              <q-card-section class="q-pa-xs">
+              <q-card-section
+                class="q-pa-xs similar-tile__info"
+                @click="toggleSimilarCheck(item)"
+              >
                 <div
                   class="text-caption ellipsis-2-lines"
                   :title="item.address || ''"
@@ -5292,6 +5311,17 @@ function tagList(meta) {
             </q-card>
           </div>
         </q-card-section>
+        <!-- Лупа: увеличенное превью видно, пока мышь зажата; отпустили — пропало. -->
+        <div
+          v-if="similarZoom"
+          class="similar-zoom"
+          @mouseup="similarZoom = null"
+        >
+          <AuthImage
+            :url="previewUrl(similarZoom.photo_id, 'middle')"
+            class="similar-zoom__img"
+          />
+        </div>
         <q-separator />
         <q-card-actions class="row items-center justify-between q-px-md">
           <q-btn
@@ -5451,6 +5481,51 @@ function tagList(meta) {
 
 .similar-tile--picked {
   outline: 2px solid var(--q-primary, #1976d2);
+}
+
+/* Лупа (владелец, 20.11.2026): снимок карточки — зажатие мыши показывает
+   увеличенное превью; отметка — клик по белому полю под фото. */
+.similar-tile__media {
+  cursor: zoom-in;
+}
+
+.similar-tile__zoom {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 5px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+
+.similar-tile__media:hover .similar-tile__zoom {
+  opacity: 1;
+}
+
+.similar-tile__info {
+  cursor: pointer;
+}
+
+.similar-zoom {
+  position: fixed;
+  inset: 0;
+  z-index: 6000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  cursor: zoom-out;
+}
+
+.similar-zoom__img {
+  max-width: 92vw;
+  max-height: 86vh;
+  object-fit: contain;
+  border-radius: 4px;
 }
 
 /* Строка тегов: одна линия без рамки; полоса прокрутки скрыта, колесо
