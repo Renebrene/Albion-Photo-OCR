@@ -170,6 +170,10 @@ const isAdmin = computed(() => {
 
 const canSeeScores = isAdmin
 
+// Режим «Избранные фото»: панели адресов и клиентов скрываются и недоступны,
+// пока режим не снят (повторный пункт меню, «Обновить», перезагрузка).
+const favoritesActive = computed(() => Boolean(store.favoritesCollectionId))
+
 // Поиск по загруженному фото/видео требует searches:write — у Гостя его нет.
 const canSearchMedia = canUseCollective
 
@@ -642,6 +646,31 @@ async function showFavoritesInGrid() {
       return
     }
     await store.showFavorites(favorites.collection_id)
+  } catch (err) {
+    Notify.create({ type: 'negative', message: `Избранное: ${err.message}` })
+  }
+}
+
+/**
+ * «Добавить выделенные фото в Избранное»: в подборку идут только фото,
+ * отмеченные чекбоксами в гриде — не текущий поиск (владелец, 20.11.2026).
+ */
+async function addSelectionToFavorites() {
+  if (!store.selected.length) return
+
+  try {
+    const result = await addFavorites([...store.selected])
+    // Коллекция могла создаться только что — обновляем id для «Избранных фото».
+    const favorites = await fetchFavorites().catch(() => null)
+
+    if (favorites?.collection_id) {
+      store.favoritesCollectionId = Number(favorites.collection_id)
+    }
+
+    Notify.create({
+      type: 'positive',
+      message: `В избранном: ${result.count} фото`,
+    })
   } catch (err) {
     Notify.create({ type: 'negative', message: `Избранное: ${err.message}` })
   }
@@ -3474,9 +3503,11 @@ function tagList(meta) {
 <template>
   <q-page class="photos-page q-pa-md">
     <div class="row no-wrap full-height">
-      <!-- LEFT: адреса + подборки; складывается кнопкой у края -->
+      <!-- LEFT: адреса + подборки; складывается кнопкой у края.
+           В режиме «Избранные фото» панель скрыта и недоступна
+           (владелец, 20.11.2026) — фильтры адресов к избранному не применяются. -->
       <div
-        v-if="display.leftPanelOpen"
+        v-if="display.leftPanelOpen && !favoritesActive"
         class="left-panel q-pr-xs"
         :style="{ width: display.leftPanelWidthEffective + 'px', flex: '0 0 auto' }"
       >
@@ -4023,11 +4054,23 @@ function tagList(meta) {
                   </q-item-section>
                 </q-item>
                 <q-separator />
-                <q-item clickable v-close-popup @click="openSaveSearch">
+                <!-- В Избранное попадают только фото, отмеченные чекбоксами,
+                     не результаты текущего поиска (владелец, 20.11.2026). -->
+                <q-item
+                  clickable
+                  v-close-popup
+                  :disable="!store.selected.length"
+                  @click="addSelectionToFavorites"
+                >
                   <q-item-section avatar>
-                    <q-icon name="bookmark_add" />
+                    <q-icon name="star" />
                   </q-item-section>
-                  <q-item-section>Добавить текущий поиск в Избранное</q-item-section>
+                  <q-item-section>
+                    Добавить выделенные фото в Избранное
+                    <span class="text-caption text-grey-7">
+                      отмечено чекбоксами: {{ store.selected.length }}
+                    </span>
+                  </q-item-section>
                 </q-item>
                 <q-separator />
                 <q-item
@@ -4424,9 +4467,10 @@ function tagList(meta) {
         @resize="(delta) => display.resizePanel('right', delta)"
       />
 
-      <!-- RIGHT: клиенты + подборки; складывается кнопкой у края -->
+      <!-- RIGHT: клиенты + подборки; складывается кнопкой у края.
+           В режиме «Избранные фото» панель скрыта и недоступна. -->
       <div
-        v-if="display.rightPanelOpen"
+        v-if="display.rightPanelOpen && !favoritesActive"
         class="right-panel q-pl-xs"
         :style="{ width: display.rightPanelWidthEffective + 'px', flex: '0 0 auto' }"
       >
@@ -4573,18 +4617,22 @@ function tagList(meta) {
       </div>
     </div>
 
-    <!-- плавающие кнопки у краёв: складывают панели в край -->
+    <!-- плавающие кнопки у краёв: складывают панели в край.
+         В режиме «Избранные фото» недоступны: панели скрыты целиком. -->
     <q-btn
       class="edge-toggle edge-toggle--left"
       round
       dense
       size="sm"
+      :disable="favoritesActive"
       :icon="display.leftPanelOpen ? 'chevron_left' : 'chevron_right'"
       :color="display.leftPanelOpen ? 'grey-7' : 'primary'"
       @click="display.leftPanelOpen = !display.leftPanelOpen"
     >
       <q-tooltip>
-        {{ display.leftPanelOpen ? 'Скрыть' : 'Показать' }} адреса и подборки
+        {{ favoritesActive
+          ? 'В режиме «Избранные фото» панели скрыты'
+          : (display.leftPanelOpen ? 'Скрыть' : 'Показать') + ' адреса и подборки' }}
       </q-tooltip>
     </q-btn>
 
@@ -4593,12 +4641,15 @@ function tagList(meta) {
       round
       dense
       size="sm"
+      :disable="favoritesActive"
       :icon="display.rightPanelOpen ? 'chevron_right' : 'chevron_left'"
       :color="display.rightPanelOpen ? 'grey-7' : 'primary'"
       @click="display.rightPanelOpen = !display.rightPanelOpen"
     >
       <q-tooltip>
-        {{ display.rightPanelOpen ? 'Скрыть' : 'Показать' }} клиентов и подборки
+        {{ favoritesActive
+          ? 'В режиме «Избранные фото» панели скрыты'
+          : (display.rightPanelOpen ? 'Скрыть' : 'Показать') + ' клиентов и подборки' }}
       </q-tooltip>
     </q-btn>
 
