@@ -4115,7 +4115,10 @@ function tagList(meta) {
                     </span>
                   </q-item-section>
                 </q-item>
-                <q-separator />
+                <!-- Разделитель перед поисками виден, только когда список
+                     избранных не пуст: иначе после «Добавить фото» остаются
+                     двойные полосы. -->
+                <q-separator v-if="favoriteCollections.length" />
                 <q-item
                   v-for="search in savedSearches"
                   :key="search.search_id"
@@ -4138,11 +4141,6 @@ function tagList(meta) {
                       :loading="searchRemoveBusy"
                       @click.stop="removeSavedSearch(search)"
                     />
-                  </q-item-section>
-                </q-item>
-                <q-item v-if="!savedSearches.length">
-                  <q-item-section class="text-caption text-grey">
-                    В Избранном пусто
                   </q-item-section>
                 </q-item>
               </q-list>
