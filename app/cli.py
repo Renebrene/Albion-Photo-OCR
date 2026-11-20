@@ -450,6 +450,14 @@ def main():
         for photo_id in summary["conflicts"]:
             print(f"[Ingest] conflict {photo_id}")
 
+        # Инспекция убирает записи видео, чей файл пропал в этой папке.
+        videos = summary.get("videos") or {}
+        if videos.get("removed_missing"):
+            print(f"[Ingest] video records removed (no file)={videos['removed_missing']}")
+
+        if videos.get("purge_error"):
+            print(f"[Ingest] video purge error: {videos['purge_error']}")
+
         return 0
 
     if args.command == "queue-add":

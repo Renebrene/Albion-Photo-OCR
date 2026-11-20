@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Notify } from 'quasar'
 
@@ -24,6 +24,7 @@ import {
   videoStoryboardFrameUrl,
 } from '../api/client'
 import { useDisplayStore } from '../stores/display'
+import { usePipelineStore } from '../stores/pipeline'
 import { useSessionStore } from '../stores/session'
 import { useVideosStore } from '../stores/videos'
 
@@ -83,6 +84,32 @@ let searchTimer = null
 const transcodePoller = usePoller(pollTranscode, { intervalMs: 1500 })
 const storyboardPoller = usePoller(pollStoryboard, { intervalMs: 1500 })
 const trimPoller = usePoller(pollTrim, { intervalMs: 1500 })
+
+// Инспекция правит реестр видео: пропавшие файлы удаляются, новые
+// регистрируются. Пока раздел открыт, ждём завершения прогона «Обновление
+// базы» и перечитываем список — иначе в галерее висят видео, которых уже
+// нет, и не появляются новые (владелец, 20.11.2026).
+const pipeline = usePipelineStore()
+let pipelineWasActive = false
+
+watch(
+  () => pipeline.tick,
+  async () => {
+    if (pipeline.active) {
+      pipelineWasActive = true
+      return
+    }
+
+    if (!pipelineWasActive) return
+
+    // Идёт загрузка страниц: не мешаем ей и повторим на следующем тике.
+    if (loading.value) return
+
+    pipelineWasActive = false
+
+    await store.refreshLoaded()
+  },
+)
 
 const selectedVideo = computed(() => store.selectedVideo)
 // Задание конвертации: показывается независимо от текущего выделения. Раньше

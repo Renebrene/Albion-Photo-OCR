@@ -55,8 +55,10 @@ def test_playback_endpoint_enforces_dedicated_video_read_scope(monkeypatch):
     assert response.status_code == 403
 
 
-def test_list_videos_passes_capture_date_filter(monkeypatch):
+def test_list_videos_passes_capture_date_filter(monkeypatch, tmp_path):
     video_id = "VI_" + "bc" * 12
+    present = tmp_path / "one.mp4"
+    present.write_bytes(b"x")
     seen = {}
 
     def fake_list(**kwargs):
@@ -66,7 +68,7 @@ def test_list_videos_passes_capture_date_filter(monkeypatch):
             "container_format": "mp4", "video_codec": "h264", "width": 640,
             "height": 360, "duration_seconds": 1.5, "fps": 25.0,
             "frame_count": 38, "size_bytes": 1000, "taken_at": None,
-            "created_at": None,
+            "created_at": None, "source_path": str(present),
         }], None)
 
     monkeypatch.setenv("SCENE_AUTH_REQUIRED", "0")
@@ -92,8 +94,11 @@ def _video_row(video_id: str, source_path: str | None) -> dict:
     }
 
 
-def test_list_videos_marks_videos_without_original_file(monkeypatch, tmp_path):
-    """Запись без файла остаётся в списке, но помечена недоступной (п. 11)."""
+def test_list_videos_hides_records_without_an_original_file(monkeypatch, tmp_path):
+    """Записи без оригинала в раздел не попадают: только реальные данные.
+
+    Владелец (20.11.2026): удалённые видео не показываются даже превью.
+    """
 
     present = tmp_path / "there.mp4"
     present.write_bytes(b"x")
@@ -110,10 +115,37 @@ def test_list_videos_marks_videos_without_original_file(monkeypatch, tmp_path):
     response = TestClient(make_app()).get("/api/v1/videos")
 
     assert response.status_code == 200
-    assert [item["available"] for item in response.json()["items"]] == [True, False, False]
+    items = response.json()["items"]
+    assert [item["video_id"] for item in items] == ["VI_" + "aa" * 12]
+    assert items[0]["available"] is True
     # Наружу уходит только признак: записанного пути в ответе нет.
     assert str(tmp_path) not in response.text
-    assert "source_path" not in response.json()["items"][0]
+    assert "source_path" not in items[0]
+
+
+def test_list_videos_fills_the_page_from_the_next_registry_page(monkeypatch, tmp_path):
+    """Мёртвые строки не делают страницу пустой: нехватку добираем следующей."""
+
+    present = tmp_path / "there.mp4"
+    present.write_bytes(b"x")
+    gone = _video_row("VI_" + "aa" * 12, str(tmp_path / "gone.mp4"))
+    alive = _video_row("VI_" + "bb" * 12, str(present))
+    calls = []
+
+    def fake_list(**kwargs):
+        calls.append(kwargs["cursor"])
+        if kwargs["cursor"] is None:
+            return [gone], gone["video_id"]
+        return [alive], None
+
+    monkeypatch.setenv("SCENE_AUTH_REQUIRED", "0")
+    monkeypatch.setenv("SCENE_API_TOKENS", "")
+    monkeypatch.setattr(videos.video_repository, "list_videos", fake_list)
+
+    response = TestClient(make_app()).get("/api/v1/videos")
+
+    assert [item["video_id"] for item in response.json()["items"]] == [alive["video_id"]]
+    assert calls == [None, gone["video_id"]]
 
 
 def test_video_row_keeps_the_recorded_path_for_the_availability_check(tmp_path):

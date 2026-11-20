@@ -14,6 +14,12 @@
 починит `scripts/remap_source_root.py` или бэкап, поэтому удалять её нужно
 осознанно.
 
+С той же логикой инспекция папки (`app/ingest/runner.py`) удаляет записи,
+чей файл пропал внутри проинспектированной папки: общий код —
+`app/video/maintenance.py`. Скрипт остаётся ручным режимом по всему реестру и
+действует осторожнее: строка вне разрешённых корней тоже считается мёртвой,
+даже если файл где-то есть.
+
 Перед удалением скрипт сохраняет полные строки (и связанные производные) в
 JSON рядом с отчётами: `data/reports/video_records_removed_<штамп>.json`.
 Это не откат, а след: восстановить запись из него можно вставкой в
@@ -34,84 +40,22 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.api.config import ORIGINALS_ROOTS, VIDEO_DERIVATIVES_ROOT  # noqa: E402
-from app.api.repository import get_connection  # noqa: E402
-from app.video.transcode import derivatives_root  # noqa: E402
+from app.video import maintenance  # noqa: E402
 
-REPORT_DIR = "data/reports"
-
-
+# Тесты подменяют `_allowed_roots`, поэтому `_has_file` берёт корни оттуда, а
+# не напрямую из общего модуля.
 def _allowed_roots() -> list[str]:
-    roots = [str(root) for root in ORIGINALS_ROOTS]
-    derivative_root = str(derivatives_root() or VIDEO_DERIVATIVES_ROOT)
-    if derivative_root not in roots:
-        roots.append(derivative_root)
-    return roots
-
-
-def _json_ready(row: dict) -> dict:
-    """Даты в ISO: след пишется в JSON, а не в SQL-дамп."""
-
-    return {
-        key: value.isoformat() if isinstance(value, datetime) else value
-        for key, value in row.items()
-    }
+    return maintenance.allowed_roots()
 
 
 def _has_file(source_path: str | None) -> bool:
-    """Файл на месте? Пустой путь и путь вне корней считаются отсутствием."""
-
-    if not source_path:
-        return False
-
-    for root in _allowed_roots():
-        if source_path == root or source_path.startswith(root.rstrip("/") + "/"):
-            return os.path.isfile(source_path)
-
-    return False
+    return maintenance.has_file(source_path, _allowed_roots())
 
 
-def _rows() -> list[dict]:
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT video_id, filename, source_path, parent_video_id,
-                       display_title, size_bytes, duration_seconds, created_at
-                FROM public.video_assets
-                ORDER BY video_id
-                """
-            )
-            columns = [description[0] for description in cur.description]
-            return [
-                _json_ready(dict(zip(columns, row))) for row in cur.fetchall()
-            ]
-
-
-def _derivatives(video_ids: list[str]) -> list[dict]:
-    if not video_ids:
-        return []
-
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT derivative_id, video_id, profile, status, output_path,
-                       output_sha256, created_at
-                FROM public.video_derivatives
-                WHERE video_id = ANY(%s)
-                ORDER BY derivative_id
-                """,
-                (video_ids,),
-            )
-            columns = [description[0] for description in cur.description]
-            return [
-                _json_ready(dict(zip(columns, row))) for row in cur.fetchall()
-            ]
+_json_ready = maintenance.json_ready
 
 
 def main() -> int:
@@ -124,67 +68,31 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="вывод в JSON")
     args = parser.parse_args()
 
-    rows = _rows()
-    missing = [row for row in rows if not _has_file(row["source_path"])]
-
-    payload = {
-        "checked_at": datetime.now(timezone.utc).isoformat(),
-        "total": len(rows),
-        "missing": len(missing),
-        "records": missing,
-    }
+    payload = maintenance.purge_missing_records(apply=args.apply)
+    missing = payload["missing"]
 
     if not missing:
         if args.json:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
-            print(f"Записей всего {len(rows)}, без файла нет — удалять нечего.")
+            print(f"Записей всего {payload['total']}, без файла нет — удалять нечего.")
         return 0
 
     if not args.apply:
-        payload["applied"] = False
         if args.json:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
-            print(f"Записей всего {len(rows)}, без файла {len(missing)}:")
-            for row in missing:
+            print(f"Записей всего {payload['total']}, без файла {missing}:")
+            for row in payload["records"]:
                 print(f"  {row['video_id']}  {row['filename']}  |  {row['source_path']}")
             print("\nНичего не изменено. Удаление — с флагом --apply.")
         return 1
 
-    # След до удаления: полные строки и связанные производные.
-    records = [row["video_id"] for row in missing]
-    payload["derivatives"] = _derivatives(records)
-    os.makedirs(REPORT_DIR, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    report_path = os.path.join(REPORT_DIR, f"video_records_removed_{stamp}.json")
-
-    with open(report_path, "w", encoding="utf-8") as stream:
-        json.dump(payload, stream, ensure_ascii=False, indent=2)
-
-    # Удаляем в одной транзакции и только те строки, у которых файла нет и
-    # сейчас: между показом и удалением том мог вернуться.
-    still_missing = [
-        row["video_id"] for row in missing if not _has_file(row["source_path"])
-    ]
-
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM public.video_assets WHERE video_id = ANY(%s) RETURNING video_id",
-                (still_missing,),
-            )
-            deleted = [row[0] for row in cur.fetchall()]
-
-    payload["applied"] = True
-    payload["deleted"] = len(deleted)
-    payload["report"] = report_path
-
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
-        print(f"Удалено записей: {len(deleted)} (из {len(missing)} найденных).")
-        print(f"След сохранён: {report_path}")
+        print(f"Удалено записей: {payload['deleted']} (из {missing} найденных).")
+        print(f"След сохранён: {payload['report']}")
 
     return 0
 

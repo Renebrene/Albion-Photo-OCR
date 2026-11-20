@@ -167,6 +167,56 @@ def _issue_ticket(response: Response, request: Request, video_id: str, action: s
     }
 
 
+# Сколько страниц реестра допустимо пролистать, чтобы добрать видимые строки.
+# Записи без оригинала убирает инспекция; если они всё же остались (том
+# отключён), раздел не должен показывать пустой экран при живых данных.
+MAX_PAGES_PER_REQUEST = 10
+
+
+def _available_videos(
+    *,
+    limit: int,
+    cursor: str | None,
+    query: str | None,
+    date_from: date_type | None,
+    date_to: date_type | None,
+    date_mode: str,
+) -> tuple[list[dict], str | None]:
+    """
+    Страница только тех записей, у которых файл на месте.
+
+    Реестр может хранить строки без оригинала (том отключён, корпус удалён):
+    в разделе «Видео» такие не показываются — только реальные данные. Фильтр
+    по странице, а не отдельный обход диска; недостающие строки добираются
+    следующей страницей, поэтому выдача не «худеет» на пустых страницах.
+    """
+
+    collected: list[dict] = []
+    seen_pages = 0
+
+    while len(collected) < limit and seen_pages < MAX_PAGES_PER_REQUEST:
+        page, cursor = video_repository.list_videos(
+            limit=limit - len(collected),
+            cursor=cursor,
+            query=query,
+            date_from=date_from,
+            date_to=date_to,
+            date_mode=date_mode,
+        )
+        seen_pages += 1
+
+        for item in page:
+            source = item.get("source_path")
+            item["available"] = bool(source) and os.path.isfile(source)
+            if item["available"]:
+                collected.append(item)
+
+        if cursor is None:
+            break
+
+    return collected[:limit], cursor
+
+
 @read_router.get("/v1/videos", response_model=None)
 def list_videos(
     limit: int = Query(50, ge=1, le=100),
@@ -177,16 +227,10 @@ def list_videos(
     date_mode: str = Query("upload", pattern="^(upload|capture)$"),
 ):
     date_from, date_to = _date_params(date_from, date_to)
-    items, next_cursor = video_repository.list_videos(
+    items, next_cursor = _available_videos(
         limit=limit, cursor=cursor, query=q,
         date_from=date_from, date_to=date_to, date_mode=date_mode,
     )
-
-    # Файл на месте? Список показывает запись и без оригинала: удалять её
-    # молча нельзя, а человек должен видеть, почему видео не открывается.
-    for item in items:
-        source = item.get("source_path")
-        item["available"] = bool(source) and os.path.isfile(source)
 
     return {"items": [VideoSummary(**item).model_dump() for item in items], "next_cursor": next_cursor}
 

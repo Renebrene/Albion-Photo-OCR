@@ -477,3 +477,46 @@ describe('обновление после конвертации', () => {
     expect(store.items.length).toBeGreaterThanOrEqual(100)
   })
 })
+
+describe('обновление после инспекции', () => {
+  function mountPage() {
+    return mount(VideosGrid, {
+      attachTo: document.body,
+      global: {
+        plugins: [Quasar],
+        stubs: {
+          AuthImage: true,
+          QPage: { template: '<div class="test-page"><slot /></div>' },
+        },
+      },
+    })
+  }
+
+  it('перечитывает список, когда прогон «Обновление базы» завершился', async () => {
+    const { usePipelineStore } = await import('../src/stores/pipeline')
+    const pipeline = usePipelineStore()
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const reads = () => calls.filter((call) => call.path.endsWith('/v1/videos') && call.method === 'GET').length
+    const before = reads()
+
+    // Прогон идёт: тики не должны дёргать список на каждом шаге.
+    pipeline.active = true
+    pipeline.tick += 1
+    await flushPromises()
+
+    expect(reads()).toBe(before)
+
+    // Прогон закончился — раздел обновляется сам.
+    pipeline.active = false
+    pipeline.tick += 1
+    await flushPromises()
+    await flushPromises()
+
+    expect(reads()).toBe(before + 1)
+
+    wrapper.unmount()
+  })
+})

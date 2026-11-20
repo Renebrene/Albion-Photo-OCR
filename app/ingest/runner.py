@@ -65,6 +65,39 @@ def _video_moment(path: Path, facts: dict) -> date | None:
     return file_date(path)
 
 
+def _purge_missing_videos(directory: str | Path) -> dict:
+    """
+    Удалить записи видео, чей файл пропал внутри этой папки.
+
+    Инспекция и есть проверка «что реально лежит на диске»: если файла,
+    записанного в реестре, в просканированной папке больше нет, запись —
+    мёртвая и должна уйти вместе с производными и билетами (каскад внешних
+    ключей). Шире папки не смотрим: отключённый том выглядит так же, как
+    удалённый корпус, и стирать из-за него реестр нельзя. Папки нет — тоже
+    ничего не трогаем.
+
+    Сбой уборки не должен ломать инспекцию: он попадает в `error`.
+    """
+
+    root = Path(directory)
+
+    if not root.is_dir():
+        return {"removed": 0, "missing": 0, "error": "папка недоступна"}
+
+    from app.video import maintenance
+
+    try:
+        summary = maintenance.purge_missing_records(scope=root, apply=True)
+    except Exception as exc:  # noqa: BLE001 - уборка не критична для инспекции
+        return {"removed": 0, "missing": 0, "error": redact_absolute_paths(str(exc))}
+
+    return {
+        "removed": summary.get("deleted", 0),
+        "missing": summary.get("missing", 0),
+        "report": summary.get("report"),
+    }
+
+
 def _ingest_videos(
     directory: str | Path,
     *,
@@ -76,6 +109,10 @@ def _ingest_videos(
     date_mode: str = DATE_MODE_UPLOAD,
 ) -> dict:
     """Probe and register source videos separately from the photo pipeline."""
+
+    # Мёртвые записи убираем до регистрации: файла, найденного ниже, среди них
+    # уже нет, а каталог/проброс за один проход не меняется.
+    purged = _purge_missing_videos(directory)
 
     shallow = date_mode != DATE_MODE_CAPTURE
     discovery = discover_videos(
@@ -109,6 +146,8 @@ def _ingest_videos(
             "conflicts": [],
             "errors": [],
             "excluded_by_period": excluded_by_period,
+            "removed_missing": purged.get("removed", 0),
+            **({"purge_error": purged["error"]} if purged.get("error") else {}),
         }
 
     checked: list[tuple[Path, dict]] = []
@@ -175,6 +214,8 @@ def _ingest_videos(
         "errors": errors[:20],
         "filtered": filtered,
         "excluded_by_period": excluded_by_period,
+        "removed_missing": purged.get("removed", 0),
+        **({"purge_error": purged["error"]} if purged.get("error") else {}),
     }
 
 

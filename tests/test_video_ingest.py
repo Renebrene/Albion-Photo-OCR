@@ -194,6 +194,8 @@ def test_ingest_directory_keeps_video_out_of_photo_records(tmp_path, monkeypatch
     from app.ingest.result import create_ingest_result
 
     video_path = _video_file(tmp_path / "video.mp4")
+    # Уборка мёртвых записей идёт в базу: в юнит-тесте её не запускаем.
+    monkeypatch.setattr(runner, "_purge_missing_videos", lambda _directory: {"removed": 0, "missing": 0})
     monkeypatch.setattr(runner, "run", lambda *args, **kwargs: create_ingest_result([]))
     monkeypatch.setattr(runner, "check_identity_batch", lambda records: {"NEW": [], "EXISTING": [], "CONFLICT": []})
     monkeypatch.setattr(
