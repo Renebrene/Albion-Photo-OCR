@@ -322,36 +322,35 @@ const qwenPending = computed(
 const qwenRunning = computed(() => stats.value?.queue?.RUNNING || 0)
 const qwenQueue = computed(() => qwenPending.value + qwenRunning.value)
 
-// Правый модуль «Распознавания»: сводка присвоения описаний.
-const assignmentStats = computed(() => {
+// Карточка «Метаданные QWEN»: крупные числа вместо строки капсом. Плитки не
+// пересекаются и в сумме дают базу: successful + done_empty = DONE, remaining —
+// остальные фото; «в очереди» (задания) и «с ошибкой» (статус FAILED) живут
+// отдельно, это не часть разбиения (владелец, 20.11.2026).
+const qwenMetrics = computed(() => {
   const s = stats.value
 
   if (!s) return []
 
-  const photos = Number(s.photos || 0)
-  const processed = Number(s.processed || 0)
+  const failed = Number(s.counts?.FAILED || 0)
+  const queued = qwenQueue.value
 
   return [
-    { label: 'ВСЕГО ФАЙЛОВ', value: photos },
-    { label: 'ОБРАБОТАНО', value: processed },
-    { label: 'УСПЕШНО', value: Number(s.counts?.DONE || 0) },
-    { label: 'ПУСТО ИЛИ С ОШИБКОЙ', value: Math.max(0, photos - processed) },
+    { label: 'Фото в базе', value: Number(s.photos || 0), tone: '' },
+    { label: 'С описанием', value: Number(s.successful || 0), tone: 'positive' },
+    { label: 'Пустой ответ', value: Number(s.done_empty || 0), tone: '' },
+    { label: 'Без описания', value: Number(s.remaining || 0), tone: '' },
+    { label: 'В очереди', value: queued, tone: queued ? 'info' : '' },
+    { label: 'С ошибкой', value: failed, tone: failed ? 'negative' : '' },
   ]
 })
 
-// Даты последних запусков по источникам: ручной / плановый / внеочередной.
-const launchDates = computed(() => {
-  const bySource = {}
+// Полоса покрытия: обработанные фото к размеру базы (0..1).
+const qwenCoverage = computed(() => {
+  const photos = Number(stats.value?.photos || 0)
 
-  for (const run of stats.value?.runs || []) {
-    bySource[run.source] = run.last_finished_at
-  }
+  if (!photos) return 0
 
-  return [
-    { label: 'Вручную', value: bySource.manual },
-    { label: 'По расписанию', value: bySource.automation },
-    { label: 'Вне очереди', value: bySource.pipeline },
-  ]
+  return Math.min(1, Number(stats.value?.processed || 0) / photos)
 })
 
 // ref, а не обычная переменная: окно показывает «обновляется автоматически».
@@ -748,16 +747,35 @@ onBeforeUnmount(stopStatsPolling)
       </div>
 
       <div class="col-12 col-sm-6 col-lg">
-    <q-card v-if="stats" flat bordered>
+    <q-card v-if="stats" flat bordered class="fit">
       <q-card-section>
-        <div class="text-subtitle1 q-mb-sm">Метаданные QWEN</div>
+        <div class="row items-center q-mb-sm">
+          <div class="text-subtitle1 col">Метаданные QWEN</div>
+          <span v-if="statsPolling" class="text-caption text-grey-7">
+            обновляется автоматически…
+          </span>
+        </div>
 
-        <div class="text-caption text-grey-8 q-mb-sm">
-          ФОТО В БАЗЕ: {{ stats.photos ?? '—' }} ·
-          С ОПИСАНИЯМИ: {{ stats.processed ?? 0 }} ·
-          БЕЗ ОПИСАНИЙ: {{ stats.remaining ?? 0 }} ·
-          В ОЧЕРЕДИ: {{ qwenQueue }} ·
-          С ОШИБКОЙ: {{ stats.counts?.FAILED || 0 }}
+        <!-- Крупные числа вместо строки капсом: состояние описаний видно с
+             первого взгляда, а не читается как абзац (владелец, 20.11.2026). -->
+        <div class="qwen-metrics q-mb-sm">
+          <div v-for="tile in qwenMetrics" :key="tile.label" class="qwen-metric">
+            <div class="qwen-metric__value" :class="tile.tone">{{ tile.value }}</div>
+            <div class="qwen-metric__label">{{ tile.label }}</div>
+          </div>
+        </div>
+
+        <div class="row items-center no-wrap q-mb-md">
+          <q-linear-progress
+            :value="qwenCoverage"
+            color="primary"
+            track-color="grey-3"
+            rounded
+            class="col"
+          />
+          <div class="text-caption text-grey-8 q-ml-sm">
+            {{ stats.processed ?? 0 }} из {{ stats.photos ?? 0 }}
+          </div>
         </div>
 
         <div class="row items-center q-gutter-sm q-mb-md">
@@ -770,46 +788,52 @@ onBeforeUnmount(stopStatsPolling)
           >
             {{ status }}: {{ count }}
           </q-chip>
-          <span v-if="statsPolling" class="text-caption text-grey-7">
-            обновляется автоматически…
-          </span>
         </div>
 
         <div v-if="stats.models && stats.models.length" class="q-mb-md">
           <div class="text-caption text-grey-8 q-mb-xs">
-            Какая модель дала описания:
+            Какая модель дала описания
           </div>
           <div
             v-for="item in stats.models"
             :key="item.model"
-            class="text-caption text-grey-8"
+            class="qwen-row"
           >
-            {{ item.model }} — {{ item.photos }}
+            <span class="qwen-row__label ellipsis">{{ item.model }}</span>
+            <span class="qwen-row__value">{{ item.photos }}</span>
           </div>
-          <div
-            v-if="stats.tokens && stats.tokens.total"
-            class="text-caption text-grey-8 q-mt-xs"
-          >
-            Токенов облака: {{ stats.tokens.total }}
-            (запрос {{ stats.tokens.prompt }} / ответ {{ stats.tokens.completion }})
+          <div v-if="stats.tokens && stats.tokens.total" class="qwen-row">
+            <span class="qwen-row__label">Токенов облака</span>
+            <span class="qwen-row__value">
+              {{ stats.tokens.total }}
+              <span class="text-grey-6">
+                ({{ stats.tokens.prompt }} / {{ stats.tokens.completion }})
+              </span>
+            </span>
           </div>
-          <div v-if="stats.history_rows" class="text-caption text-grey-8">
-            Прежних результатов в истории: {{ stats.history_rows }}
+          <div v-if="stats.history_rows" class="qwen-row">
+            <span class="qwen-row__label">Прежних результатов в истории</span>
+            <span class="qwen-row__value">{{ stats.history_rows }}</span>
           </div>
         </div>
 
         <div v-if="stats.runs && stats.runs.length" class="q-mb-md">
           <div class="text-caption text-grey-8 q-mb-xs">
-            Последние запуски (по источнику):
+            Последние запуски
           </div>
           <div
             v-for="run in stats.runs"
             :key="run.source"
-            class="text-caption text-grey-8"
+            class="qwen-row"
           >
-            {{ sourceLabel(run.source) }}: {{ fmtDate(run.last_finished_at) }}
-            · заданий {{ run.jobs }}
-            <template v-if="run.failed">(ошибок {{ run.failed }})</template>
+            <span class="qwen-row__label">
+              {{ sourceLabel(run.source) }}
+              <span class="text-grey-6">· заданий {{ run.jobs }}</span>
+              <span v-if="run.failed" class="text-negative">
+                · ошибок {{ run.failed }}
+              </span>
+            </span>
+            <span class="qwen-row__value">{{ fmtDate(run.last_finished_at) }}</span>
           </div>
         </div>
 
@@ -867,72 +891,35 @@ onBeforeUnmount(stopStatsPolling)
             @click="clearQueue"
           />
         </div>
+
+        <!-- Периодические операции: пересканирование и дозаполнение за
+             выбранный период (перенесено из удалённой карточки статистики). -->
+        <q-separator class="q-my-sm" />
+        <div class="row q-gutter-sm">
+          <q-btn
+            outline
+            color="negative"
+            icon="restart_alt"
+            label="Пересканировать"
+            :disable="qwenQueue > 0"
+            @click="openRescan()"
+          />
+          <q-btn
+            outline
+            color="primary"
+            icon="playlist_add"
+            label="Дозаполнить за период"
+            @click="openScan"
+          />
+        </div>
+        <div class="text-caption text-grey-7 q-mt-xs">
+          «Пересканировать» удалит текущие QWEN-результаты за выбранный
+          период (сохранив их в историю) и запустит описание заново;
+          «Дозаполнить за период» поставит только фото без успешного
+          описания — существующие результаты не меняются.
+        </div>
       </q-card-section>
     </q-card>
-      </div>
-
-      <!-- Справа: статистика присвоения описаний -->
-      <div class="col-12 col-sm-6 col-lg">
-        <q-card flat bordered class="fit">
-          <q-card-section>
-            <div class="text-subtitle1 q-mb-sm">Статистика описаний</div>
-
-            <template v-if="stats">
-              <div
-                v-for="row in assignmentStats"
-                :key="row.label"
-                class="row items-baseline q-mb-xs"
-              >
-                <div class="text-caption text-grey col">{{ row.label }}</div>
-                <div class="text-subtitle1">{{ row.value }}</div>
-              </div>
-
-              <q-separator class="q-my-sm" />
-
-              <div class="text-caption text-grey q-mb-xs">
-                Дата последнего запуска
-              </div>
-              <div
-                v-for="row in launchDates"
-                :key="row.label"
-                class="row items-baseline q-mb-xs"
-              >
-                <div class="text-caption text-grey col">{{ row.label }}</div>
-                <div class="text-caption">{{ fmtDate(row.value) }}</div>
-              </div>
-
-              <q-separator class="q-my-sm" />
-              <q-btn
-                outline
-                color="negative"
-                icon="restart_alt"
-                label="Пересканировать"
-                class="full-width"
-                :disable="qwenQueue > 0"
-                @click="openRescan()"
-              />
-              <div class="text-caption text-negative q-mt-xs">
-                Удалит текущие QWEN-результаты за выбранный период, сохранив их в историю, и запустит описание заново.
-              </div>
-              <q-btn
-                outline
-                color="primary"
-                icon="playlist_add"
-                label="Дозаполнить за период"
-                class="full-width q-mt-sm"
-                @click="openScan"
-              />
-              <div class="text-caption text-grey-7 q-mt-xs">
-                Поставит в очередь только фото без успешного описания за
-                выбранный период. Существующие результаты не меняются.
-              </div>
-            </template>
-
-            <div v-else class="text-caption text-grey-7">
-              Данные статистики ещё не загружены.
-            </div>
-          </q-card-section>
-        </q-card>
       </div>
 
       <!-- Третья колонка: текстовый лог прежних описаний. -->
@@ -1094,6 +1081,75 @@ onBeforeUnmount(stopStatsPolling)
 </template>
 
 <style scoped>
+/* Плитки «Метаданных QWEN»: число крупно, подпись мелкая — состояние видно
+   с первого взгляда, без чтения строки капсом. */
+.qwen-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 6px;
+}
+
+.qwen-metric {
+  padding: 6px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.qwen-metric__value {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: #37474f;
+}
+
+.qwen-metric__value.positive {
+  color: #2e7d32;
+}
+
+.qwen-metric__value.info {
+  color: #1565c0;
+}
+
+.qwen-metric__value.negative {
+  color: #c62828;
+}
+
+.qwen-metric__label {
+  margin-top: 2px;
+  font-size: 10.5px;
+  line-height: 1.2;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #78909c;
+}
+
+/* Строка «ключ — значение»: модель, токены, запуски. */
+.qwen-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  border-bottom: 1px dashed rgba(0, 0, 0, 0.06);
+  font-size: 12.5px;
+  color: #455a64;
+}
+
+.qwen-row:last-child {
+  border-bottom: 0;
+}
+
+.qwen-row__label {
+  min-width: 0;
+}
+
+.qwen-row__value {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
 .qwen-history-text {
   margin: 0;
   max-height: 420px;

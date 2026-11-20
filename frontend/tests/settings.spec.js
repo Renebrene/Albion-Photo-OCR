@@ -272,10 +272,14 @@ describe('Settings.vue', () => {
   })
 
   it('shows the base size, what is left and the last runs', async () => {
+    // Плитки «Метаданных QWEN» заменили дублирующую карточку «Статистика
+    // описаний» (владелец, 20.11.2026): те же числа, но крупно и один раз.
     stats = {
       photos: 260,
       processed: 250,
       remaining: 10,
+      successful: 247,
+      done_empty: 3,
       counts: { DONE: 250, FAILED: 3, PENDING: 4 },
       // Очередь считается по заданиям (`queue`), а не по статусам строк:
       // убитый воркер оставляет RUNNING без заданий (29.10.2026).
@@ -291,17 +295,23 @@ describe('Settings.vue', () => {
     await flushPromises()
 
     const text = wrapper.text()
-    // Сводка QWEN в текущей разметке: строка «ФОТО В БАЗЕ …» и таблица
-    // «ВСЕГО ФАЙЛОВ / ОБРАБОТАНО / УСПЕШНО» (владелец, 20.11.2026).
-    expect(text).toContain('ФОТО В БАЗЕ: 260')
-    expect(text).toContain('С ОПИСАНИЯМИ: 250')
-    expect(text).toContain('БЕЗ ОПИСАНИЙ: 10')
-    expect(text).toContain('ВСЕГО ФАЙЛОВ')
-    expect(text).toContain('ОБРАБОТАНО')
-    expect(text).toContain('В ОЧЕРЕДИ: 4')
+    // Плитки: непересекающиеся числа базы. 247 описаний + 3 пустых ответа
+    // = DONE 250; «без описания» — remaining; очередь и FAILED — отдельно.
+    expect(wrapper.vm.qwenMetrics).toEqual([
+      { label: 'Фото в базе', value: 260, tone: '' },
+      { label: 'С описанием', value: 247, tone: 'positive' },
+      { label: 'Пустой ответ', value: 3, tone: '' },
+      { label: 'Без описания', value: 10, tone: '' },
+      { label: 'В очереди', value: 4, tone: 'info' },
+      { label: 'С ошибкой', value: 3, tone: 'negative' },
+    ])
+    // Полоса покрытия: 250 из 260 = 0.96…
+    expect(wrapper.vm.qwenCoverage).toBeCloseTo(250 / 260, 5)
     // Триггеры подписаны по-русски, дата — без «T».
-    expect(text).toContain('ручной: 2026-10-16 09:05')
-    expect(text).toContain('внеочередной: 2026-10-15 22:10')
+    expect(text).toContain('ручной')
+    expect(text).toContain('2026-10-16 09:05')
+    expect(text).toContain('внеочередной')
+    expect(text).toContain('2026-10-15 22:10')
 
     // Очередь непустая — карточка сама себя обновляет; размонтирование
     // должно остановить таймер, иначе он переживёт тест.
