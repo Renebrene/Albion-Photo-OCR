@@ -68,16 +68,39 @@ def get_user_by_name(name: str) -> dict | None:
         with conn.cursor() as cur:
             # Логин без учёта регистра: «гость» и «Гость» — один аккаунт.
             # Точное совпадение имени всё равно выигрывает, если вдруг
-            # существуют два написания.
+            # существуют два написания. Активный аккаунт приоритетнее
+            # архивированного: архивированный вход не проходит (routes.login),
+            # и одноимённый действующий пользователь должен входить.
             cur.execute(
                 f"SELECT {_USER_COLUMNS} FROM public.users "  # noqa: S608
                 "WHERE LOWER(name) = LOWER(%s) "
-                "ORDER BY (name = %s) DESC, user_id LIMIT 1",
+                "ORDER BY active DESC, (name = %s) DESC, user_id LIMIT 1",
                 (name, name),
             )
             row = cur.fetchone()
 
     return _row_to_user(row, include_hash=True) if row is not None else None
+
+
+def get_active_user_by_name(name: str) -> dict | None:
+    """Активный пользователь с таким именем (без учёта регистра).
+
+    Имя занято только у действующих аккаунтов: архивированный пользователь
+    не может войти (routes.login отклоняет inactive), поэтому его имя можно
+    занять заново (владелец, 20.11.2026).
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {_USER_COLUMNS} FROM public.users "  # noqa: S608
+                "WHERE LOWER(name) = LOWER(%s) AND active "
+                "ORDER BY (name = %s) DESC, user_id LIMIT 1",
+                (name, name),
+            )
+            row = cur.fetchone()
+
+    return _row_to_user(row) if row is not None else None
 
 
 # The two seeded accounts (schema/010). They must keep working - one
@@ -92,6 +115,16 @@ def is_builtin_user(user: dict) -> bool:
     return (user.get("name") or "").strip().casefold() in BUILTIN_USER_NAMES
 
 
+def _name_taken_error(existing: dict) -> ValueError:
+    """Единый текст для занятого имени — сразу с подсказкой, что делать."""
+
+    return ValueError(
+        f"name already taken: {existing['name']!r} (case-insensitive match) — "
+        "имя держит действующий пользователь: переименуйте его или архивируйте, "
+        "чтобы освободить имя"
+    )
+
+
 def create_user(
     *,
     name: str,
@@ -100,15 +133,15 @@ def create_user(
     password: str | None = None,
 ) -> dict:
     # Имя пользователя регистронезависимо и может быть кириллицей:
-    # «Иван», «иван» и «ИВАН» — одно и то же имя. Проверяем существование
-    # заранее: уникальный индекс БД регистрозависимый, и без этой проверки
-    # «иван» спокойно создавался бы при живом «Иван» (владелец, 20.11.2026).
-    existing = get_user_by_name(name)
+    # «Иван», «иван» и «ИВАН» — одно и то же имя. Проверяем заранее:
+    # уникальный индекс БД регистрозависимый, и без этой проверки «иван»
+    # спокойно создавался бы при живом «Иван» (владелец, 20.11.2026).
+    # Занято имя только у активного аккаунта: архивированного пользователя
+    # можно заменить новым с тем же именем.
+    existing = get_active_user_by_name(name)
 
     if existing is not None:
-        raise ValueError(
-            f"name already taken: {existing['name']!r} (case-insensitive match)"
-        )
+        raise _name_taken_error(existing)
 
     password_hash = hash_password(password) if password else None
 
@@ -141,12 +174,11 @@ def update_user(
     if name is not None:
         # Переименование подчиняется тем же правилам, что и создание:
         # новое имя не должно совпадать с чужим даже в другом регистре.
-        existing = get_user_by_name(name)
+        # Архивированный аккаунт имя не держит (вход для него закрыт).
+        existing = get_active_user_by_name(name)
 
         if existing is not None and int(existing["user_id"]) != int(user_id):
-            raise ValueError(
-                f"name already taken: {existing['name']!r} (case-insensitive match)"
-            )
+            raise _name_taken_error(existing)
 
         sets.append("name = %s")
         params.append(name)

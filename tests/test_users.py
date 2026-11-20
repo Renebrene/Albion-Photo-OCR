@@ -207,6 +207,23 @@ def test_create_user_keeps_the_entered_casing(temp_user):
 
 
 @requires_db
+def test_archived_user_name_can_be_taken_again(temp_user):
+    """Имя архивированного пользователя свободно: вход для него закрыт,
+    поэтому новый сотрудник может получить то же имя (владелец, 20.11.2026)."""
+
+    old = users_db.create_user(name="Тест Архив", role="Менеджер")
+    temp_user.append(old["user_id"])
+
+    users_db.update_user(old["user_id"], active=False)
+
+    fresh = users_db.create_user(name="тест архив", role="Менеджер")
+    temp_user.append(fresh["user_id"])
+
+    assert fresh["user_id"] != old["user_id"]
+    assert fresh["active"] is True
+
+
+@requires_db
 def test_update_user_name_collision_case_insensitive(temp_user):
     """Переименование не должно занимать чужое имя в другом регистре,
     а своё собственное — можно (тот же user_id не коллизия)."""
