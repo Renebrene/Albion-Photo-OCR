@@ -99,6 +99,17 @@ def create_user(
     color: str | None = None,
     password: str | None = None,
 ) -> dict:
+    # Имя пользователя регистронезависимо и может быть кириллицей:
+    # «Иван», «иван» и «ИВАН» — одно и то же имя. Проверяем существование
+    # заранее: уникальный индекс БД регистрозависимый, и без этой проверки
+    # «иван» спокойно создавался бы при живом «Иван» (владелец, 20.11.2026).
+    existing = get_user_by_name(name)
+
+    if existing is not None:
+        raise ValueError(
+            f"name already taken: {existing['name']!r} (case-insensitive match)"
+        )
+
     password_hash = hash_password(password) if password else None
 
     with get_connection() as conn:
@@ -128,8 +139,18 @@ def update_user(
     params: list[object] = []
 
     if name is not None:
+        # Переименование подчиняется тем же правилам, что и создание:
+        # новое имя не должно совпадать с чужим даже в другом регистре.
+        existing = get_user_by_name(name)
+
+        if existing is not None and int(existing["user_id"]) != int(user_id):
+            raise ValueError(
+                f"name already taken: {existing['name']!r} (case-insensitive match)"
+            )
+
         sets.append("name = %s")
         params.append(name)
+
     if color is not None:
         sets.append("color = %s")
         params.append(color)

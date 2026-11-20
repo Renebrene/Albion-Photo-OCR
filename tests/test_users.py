@@ -169,3 +169,64 @@ def test_login_and_me(temp_user):
         headers={"Authorization": f"Bearer {token}"},
     ).json()
     assert after["user"] is None
+
+@requires_db
+def test_create_user_name_collision_case_insensitive(temp_user):
+    """
+    Имя пользователя регистронезависимо: «иван» и «Иван» — одно имя.
+    Повторное создание в другом регистре кидает ValueError с понятным
+    сообщением, а не падает на constraint БД (владелец, 20.11.2026).
+    """
+
+    user = users_db.create_user(name="Тест Коллизия", role="Менеджер")
+    temp_user.append(user["user_id"])
+
+    with pytest.raises(ValueError) as collision:
+        users_db.create_user(name="тест коллизия", role="Менеджер")
+
+    assert "name already taken" in str(collision.value)
+
+    # Кириллица: регистр сведён корректно и в верхнем варианте.
+    with pytest.raises(ValueError) as cyrillic:
+        users_db.create_user(name="ТЕСТ КОЛЛИЗИЯ", role="Менеджер")
+
+    assert "name already taken" in str(cyrillic.value)
+
+
+@requires_db
+def test_create_user_keeps_the_entered_casing(temp_user):
+    """Регистронезависимость — при сравнении, а не при записи: имя хранится
+    так, как ввёл администратор."""
+
+    user = users_db.create_user(name="ПрЕдСаВиТеЛь Отдела", role="Менеджер")
+    temp_user.append(user["user_id"])
+
+    # Имя сохраняется с исходным регистром — сравнение с зарегистрированным
+    # регистронезависимое, а запись хранит вариант администратора.
+    assert user["name"] == "ПрЕдСаВиТеЛь Отдела"
+
+
+@requires_db
+def test_update_user_name_collision_case_insensitive(temp_user):
+    """Переименование не должно занимать чужое имя в другом регистре,
+    а своё собственное — можно (тот же user_id не коллизия)."""
+
+    first = users_db.create_user(name="Первый Коллизия", role="Менеджер")
+    second = users_db.create_user(name="Второй Коллизия", role="Менеджер")
+    temp_user.extend([first["user_id"], second["user_id"]])
+
+    with pytest.raises(ValueError) as collision:
+        users_db.update_user(
+            second["user_id"],
+            name="первый коллизия",
+        )
+
+    assert "name already taken" in str(collision.value)
+
+    # Переименование самого себя в свой же регистр — разрешено.
+    same = users_db.update_user(
+        first["user_id"],
+        name="ПЕРВЫЙ КОЛЛИЗИЯ",
+    )
+
+    assert same["name"] == "ПЕРВЫЙ КОЛЛИЗИЯ"

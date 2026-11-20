@@ -3014,6 +3014,10 @@ def create_user(request: UserCreate):
                 password=request.password,
             )
         )
+    except ValueError as exc:
+        # Явная коллизия имени из users_db.create_user: имя занято даже без
+        # учёта регистра («Иван» vs «иван»), кириллица сравнивается как есть.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:  # unique violation etc.
         # Do not leak driver/DB details to the client.
         raise HTTPException(
@@ -3040,13 +3044,16 @@ def update_user(user_id: int, request: UserUpdate):
             detail="Администратора и Гостя нельзя архивировать",
         )
 
-    updated = users_db.update_user(
-        user_id,
-        name=request.name,
-        color=request.color,
-        role=request.role,
-        active=request.active,
-    )
+    try:
+        updated = users_db.update_user(
+            user_id,
+            name=request.name,
+            color=request.color,
+            role=request.role,
+            active=request.active,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     if request.password is not None:
         users_db.set_password(user_id, request.password or None)
