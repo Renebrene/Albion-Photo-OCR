@@ -113,7 +113,7 @@ function readFiltersFromQuery(query) {
     from: query.from ? String(query.from) : null,
     to: query.to ? String(query.to) : null,
     dateMode: ['capture', 'upload'].includes(dateModeValue) ? dateModeValue : null,
-    combine: ['union', 'address', 'client', 'none'].includes(combineValue)
+    combine: ['union', 'address', 'client'].includes(combineValue)
       ? combineValue
       : null,
     // Ключ сортировки проверяем по списку полей: неизвестный сервер отклонит
@@ -300,27 +300,41 @@ const customFrom = ref(null)
 const customTo = ref(null)
 
 // ○/△/□ заменены чекбоксами в заголовках панелей (владелец, 20.11.2026):
-// «Адреса» ↔ △, «Клиент/бренд» ↔ □, оба отмечены ↔ ○ объединение,
-// оба сняты ↔ 'none' — адреса и клиенты не фильтруют выдачу.
+// «Адреса» ↔ △, «Клиент/бренд» ↔ □, оба отмечены ↔ ○ объединение.
+// Снять оба нельзя: снятый чекбокс включает второй (владелец, 20.11.2026).
 const combineMode = computed(() => display.addressClientMode)
 
 const addressPriorityEnabled = computed({
   get: () => combineMode.value === 'union' || combineMode.value === 'address',
   set: (value) => {
-    const clientOn = combineMode.value === 'union' || combineMode.value === 'client'
-    display.addressClientMode = value
-      ? clientOn ? 'union' : 'address'
-      : clientOn ? 'client' : 'none'
+    if (value) {
+      // Включили «Адреса»: вместе с «Клиентами» — объединение, иначе △.
+      display.addressClientMode =
+        combineMode.value === 'union' || combineMode.value === 'client'
+          ? 'union'
+          : 'address'
+      return
+    }
+
+    // Сняли «Адреса» — «Клиенты» должны остаться включёнными (□).
+    display.addressClientMode = 'client'
   },
 })
 
 const clientPriorityEnabled = computed({
   get: () => combineMode.value === 'union' || combineMode.value === 'client',
   set: (value) => {
-    const addressOn = combineMode.value === 'union' || combineMode.value === 'address'
-    display.addressClientMode = value
-      ? addressOn ? 'union' : 'client'
-      : addressOn ? 'address' : 'none'
+    if (value) {
+      // Включили «Клиенты»: вместе с «Адресами» — объединение, иначе □.
+      display.addressClientMode =
+        combineMode.value === 'union' || combineMode.value === 'address'
+          ? 'union'
+          : 'client'
+      return
+    }
+
+    // Сняли «Клиенты» — «Адреса» должны остаться включёнными (△).
+    display.addressClientMode = 'address'
   },
 })
 
@@ -3507,8 +3521,9 @@ function tagList(meta) {
           <q-card-section class="panel-head q-pb-xs row items-center">
             <div class="panel-title col row items-center no-wrap">
               <!-- Чекбокс вместо △: отмечен — выбранные адреса задают набор
-                   выдачи; вместе с «Клиентами» — объединение (○); снят —
-                   адреса не фильтруют (владелец, 20.11.2026). -->
+                   выдачи; вместе с «Клиентами» — объединение (○); снять
+                   его можно только вместе с «Клиентами» — тот включится
+                   (владелец, 20.11.2026). -->
               <q-checkbox
                 v-model="addressPriorityEnabled"
                 dense
@@ -3517,7 +3532,8 @@ function tagList(meta) {
                 <q-tooltip>
                   Отмечено — выбранные адреса задают набор выдачи (△).
                   Оба чекбокса отмечены — объединение адресов и клиентов (○).
-                  Снято — адреса не фильтруют выдачу.
+                  Снять «Адреса» можно только вместе с «Клиентами»: снятый
+                  чекбокс включает второй.
                 </q-tooltip>
               </q-checkbox>
               <span class="mode-label">Адреса</span>
@@ -4483,8 +4499,9 @@ function tagList(meta) {
           <q-card-section class="panel-head q-pb-xs row items-center">
             <div class="panel-title col row items-center no-wrap">
               <!-- Чекбокс вместо □: отмечен — выбранные клиенты задают набор
-                   выдачи; вместе с «Адресами» — объединение (○); снят —
-                   клиенты не фильтруют (владелец, 20.11.2026). -->
+                   выдачи; вместе с «Адресами» — объединение (○); снять
+                   его можно только вместе с «Адресами» — тот включится
+                   (владелец, 20.11.2026). -->
               <q-checkbox
                 v-model="clientPriorityEnabled"
                 dense
@@ -4493,7 +4510,8 @@ function tagList(meta) {
                 <q-tooltip>
                   Отмечено — выбранные клиенты задают набор выдачи (□).
                   Оба чекбокса отмечены — объединение адресов и клиентов (○).
-                  Снято — клиенты не фильтруют выдачу.
+                  Снять «Клиент/бренд» можно только вместе с «Адресами»:
+                  снятый чекбокс включает второй.
                 </q-tooltip>
               </q-checkbox>
               <span class="mode-label">Клиент/бренд</span>

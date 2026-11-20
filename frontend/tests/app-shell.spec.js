@@ -1111,13 +1111,14 @@ describe('оболочка приложения', () => {
     await checkboxes[0].trigger('click')
     expect(display.addressClientMode).toBe('client')
 
-    // Сняли и «Клиенты» → адреса и клиенты не фильтруют выдачу.
+    // Сняли «Клиенты» — но снятый чекбокс включает второй: «Адреса»
+    // включаются сами, режим △ (приоритет адресов).
     await checkboxes[1].trigger('click')
-    expect(display.addressClientMode).toBe('none')
-
-    // Вернули только «Адреса» → бывший △ (приоритет адресов).
-    await checkboxes[0].trigger('click')
     expect(display.addressClientMode).toBe('address')
+
+    // Вернули «Клиенты» → оба отмечены, объединение ○.
+    await checkboxes[1].trigger('click')
+    expect(display.addressClientMode).toBe('union')
 
     wrapper.unmount()
   })
