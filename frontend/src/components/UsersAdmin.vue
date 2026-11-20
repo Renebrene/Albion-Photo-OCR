@@ -158,6 +158,14 @@ async function savePassword() {
   })
 }</script>
 
+<style scoped>
+.users-table-scroll {
+  max-height: min(60vh, 480px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+</style>
+
 <template>
   <div>
     <div class="row items-center q-mb-sm">
@@ -166,20 +174,23 @@ async function savePassword() {
       <q-btn dense flat icon="refresh" class="q-ml-sm" @click="load" />
     </div>
 
-    <q-table
-      :rows="users"
-      :loading="loading"
-      row-key="user_id"
-      flat
-      bordered
-      :columns="[
-        { name: 'name', label: 'Имя', field: 'name', align: 'left' },
-        { name: 'role', label: 'Роль', field: 'role', align: 'left' },
-        { name: 'active', label: 'Активен', field: 'active', align: 'left' },
-        { name: 'actions', label: '', field: 'actions', align: 'right' },
-      ]"
-      no-data-label="Нет пользователей"
-    >
+    <div class="users-table-scroll">
+      <q-table
+        :rows="users"
+        :loading="loading"
+        row-key="user_id"
+        :pagination="{ rowsPerPage: 0 }"
+        hide-bottom
+        flat
+        bordered
+        :columns="[
+          { name: 'name', label: 'Имя', field: 'name', align: 'left' },
+          { name: 'role', label: 'Роль', field: 'role', align: 'left' },
+          { name: 'active', label: 'Активен', field: 'active', align: 'left' },
+          { name: 'actions', label: '', field: 'actions', align: 'right' },
+        ]"
+        no-data-label="Нет пользователей"
+      >
       <template #body-cell-name="props">
         <q-td :props="props">
           <q-icon name="circle" :style="{ color: props.row.color || '#999' }" size="12px" />
@@ -211,7 +222,8 @@ async function savePassword() {
           </q-btn>
         </q-td>
       </template>
-    </q-table>
+      </q-table>
+    </div>
 
     <q-dialog v-model="dialogOpen">
       <q-card style="min-width: 360px">
