@@ -113,7 +113,9 @@ function readFiltersFromQuery(query) {
     from: query.from ? String(query.from) : null,
     to: query.to ? String(query.to) : null,
     dateMode: ['capture', 'upload'].includes(dateModeValue) ? dateModeValue : null,
-    combine: ['union', 'address', 'client'].includes(combineValue) ? combineValue : null,
+    combine: ['union', 'address', 'client', 'none'].includes(combineValue)
+      ? combineValue
+      : null,
     // Ключ сортировки проверяем по списку полей: неизвестный сервер отклонит
     // (422), и страница открылась бы пустой.
     sort: sortOptions.some((item) => item.value === sortValue) ? sortValue : null,
@@ -297,8 +299,30 @@ const period = ref('week')
 const customFrom = ref(null)
 const customTo = ref(null)
 
-// ○ объединение, △ приоритет адресов, □ приоритет клиентов.
+// ○/△/□ заменены чекбоксами в заголовках панелей (владелец, 20.11.2026):
+// «Адреса» ↔ △, «Клиент/бренд» ↔ □, оба отмечены ↔ ○ объединение,
+// оба сняты ↔ 'none' — адреса и клиенты не фильтруют выдачу.
 const combineMode = computed(() => display.addressClientMode)
+
+const addressPriorityEnabled = computed({
+  get: () => combineMode.value === 'union' || combineMode.value === 'address',
+  set: (value) => {
+    const clientOn = combineMode.value === 'union' || combineMode.value === 'client'
+    display.addressClientMode = value
+      ? clientOn ? 'union' : 'address'
+      : clientOn ? 'client' : 'none'
+  },
+})
+
+const clientPriorityEnabled = computed({
+  get: () => combineMode.value === 'union' || combineMode.value === 'client',
+  set: (value) => {
+    const addressOn = combineMode.value === 'union' || combineMode.value === 'address'
+    display.addressClientMode = value
+      ? addressOn ? 'union' : 'client'
+      : addressOn ? 'address' : 'none'
+  },
+})
 
 watch(
   () => display.addressClientMode,
@@ -3481,13 +3505,22 @@ function tagList(meta) {
           :style="{ height: display.sideListHeight + 'px' }"
         >
           <q-card-section class="panel-head q-pb-xs row items-center">
-            <div class="panel-title col">
-              <span v-if="combineMode === 'union'" class="mode-symbol">○</span>
-              <span v-else-if="combineMode === 'address'" class="mode-symbol">△</span>
-              <span
-                class="mode-label"
-                :class="{ 'mode-label--lead': combineMode !== 'client' }"
-              >Адреса</span>
+            <div class="panel-title col row items-center no-wrap">
+              <!-- Чекбокс вместо △: отмечен — выбранные адреса задают набор
+                   выдачи; вместе с «Клиентами» — объединение (○); снят —
+                   адреса не фильтруют (владелец, 20.11.2026). -->
+              <q-checkbox
+                v-model="addressPriorityEnabled"
+                dense
+                class="mode-check"
+              >
+                <q-tooltip>
+                  Отмечено — выбранные адреса задают набор выдачи (△).
+                  Оба чекбокса отмечены — объединение адресов и клиентов (○).
+                  Снято — адреса не фильтруют выдачу.
+                </q-tooltip>
+              </q-checkbox>
+              <span class="mode-label">Адреса</span>
               <span class="address-summary">
                 <span class="period-count">({{ store.selectedAddresses.length || '' }})</span>
                 {{ recognizedAddressCount }}
@@ -4449,15 +4482,22 @@ function tagList(meta) {
         >
           <q-card-section class="panel-head q-pb-xs row items-center">
             <div class="panel-title col row items-center no-wrap">
-              <span v-if="combineMode === 'union'" class="mode-symbol">○</span>
-              <span v-else-if="combineMode === 'client'" class="mode-symbol">□</span>
-              <span>
-                <span
-                  class="mode-label"
-                  :class="{ 'mode-label--lead': combineMode !== 'address' }"
-                >Клиент/бренд</span>
-                <span class="client-summary">({{ clientSelectionCount || '' }})</span>
-              </span>
+              <!-- Чекбокс вместо □: отмечен — выбранные клиенты задают набор
+                   выдачи; вместе с «Адресами» — объединение (○); снят —
+                   клиенты не фильтруют (владелец, 20.11.2026). -->
+              <q-checkbox
+                v-model="clientPriorityEnabled"
+                dense
+                class="mode-check"
+              >
+                <q-tooltip>
+                  Отмечено — выбранные клиенты задают набор выдачи (□).
+                  Оба чекбокса отмечены — объединение адресов и клиентов (○).
+                  Снято — клиенты не фильтруют выдачу.
+                </q-tooltip>
+              </q-checkbox>
+              <span class="mode-label">Клиент/бренд</span>
+              <span class="client-summary">({{ clientSelectionCount || '' }})</span>
               <q-icon name="help_outline" size="16px" class="client-help q-ml-xs">
                 <q-tooltip>
                   Отображается не более {{ store.clientsPageSize }} клиентов; выбранные показываются
@@ -5696,15 +5736,10 @@ body.body--dark .client-summary {
   cursor: pointer;
 }
 
-/* Символ режима у заголовка панели и подчёркивание ведущего фильтра. */
-.mode-symbol {
-  margin-right: 4px;
-  font-weight: 600;
-}
-
-.mode-label--lead {
-  text-decoration: underline;
-  text-underline-offset: 2px;
+/* Чекбокс режима в заголовке панели: адреса ↔ клиенты (владелец,
+   20.11.2026). Отступ, чтобы он не липнул к слову. */
+.mode-check {
+  margin-right: 2px;
 }
 
 /* Счётчик адресов за выбранный период: зелёный тонкий шрифт перед общим. */

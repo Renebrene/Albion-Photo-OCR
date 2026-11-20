@@ -8,7 +8,7 @@ import { usePoller } from './composables/usePoller'
 import PipelineUpdateButton from './components/PipelineUpdateButton.vue'
 import { cacheBustUrl } from './utils/cacheBust'
 import { fetchMediaStatistics, fetchStats } from './api/client'
-import { ADDRESS_CLIENT_MODES, useDisplayStore } from './stores/display'
+import { useDisplayStore } from './stores/display'
 import { usePipelineStore } from './stores/pipeline'
 import { usePhotosStore } from './stores/photos'
 import { useSessionStore } from './stores/session'
@@ -112,8 +112,8 @@ const canRunPipeline = computed(
 // ничего не решают. Поэтому остальным подвал не запрашивается вовсе, а не
 // просто не показывается. В открытом демо-режиме ограничений нет.
 //
-// Сам подвал при этом остаётся у всех: в нём переключатель ○△□, руководство
-// и метка сборки — по ним проверяют свежесть страницы после Ctrl+F5.
+// Сам подвал при этом остаётся у всех: в нём руководство и метка сборки —
+// по ним проверяют свежесть страницы после Ctrl+F5.
 const canSeeStats = computed(
   () => !session.authEnabled || session.user?.role === 'Администратор',
 )
@@ -643,31 +643,9 @@ function toggleDark() {
 
         <q-space />
 
-        <!-- Режим совместного выбора адресов и клиентов: ○ объединение,
-             △ приоритет адресов, □ приоритет клиентов. -->
-        <div class="footer-mode row items-center no-wrap q-mr-sm">
-          <q-btn
-            v-for="mode in ADDRESS_CLIENT_MODES"
-            :key="mode.value"
-            flat
-            dense
-            class="mode-btn"
-            :class="{ 'mode-btn--active': display.addressClientMode === mode.value }"
-            :color="display.addressClientMode === mode.value ? 'primary' : 'grey-7'"
-            :label="mode.symbol"
-            @click="display.addressClientMode = mode.value"
-          >
-            <q-tooltip>
-              {{ mode.label }}: {{ mode.value === 'union'
-                ? 'показываются фото любого из выбранных адресов или клиентов'
-                : mode.value === 'address'
-                  ? 'выбранные адреса задают набор, клиенты уточняют его'
-                  : 'выбранные клиенты задают набор, адреса уточняют его' }}
-            </q-tooltip>
-          </q-btn>
-        </div>
-        <span class="footer-dot">·</span>
-
+        <!-- Режим совместного выбора адресов и клиентов переехал в
+             заголовки панелей грида: два чекбокса «Адреса» и
+             «Клиенты/бренд» (владелец, 20.11.2026). -->
         <template v-if="canSeeStats">
           <span class="footer-item">
             Всего медиа:
@@ -912,38 +890,6 @@ function toggleDark() {
 .footer-item {
   font-size: 11px;
   white-space: nowrap;
-}
-
-/* Переключатель режима адреса/клиенты: один тёмный блок с тремя
-   одинаковыми квадратными кнопками-символами. */
-.footer-mode {
-  background: rgba(0, 0, 0, 0.10);
-  border-radius: 6px;
-  padding: 1px;
-  gap: 1px;
-}
-
-.mode-btn {
-  width: 21px;
-  height: 21px;
-  min-width: 21px;
-  min-height: 21px;
-  padding: 0;
-  font-size: 12px;
-  line-height: 1;
-  border-radius: 5px;
-}
-
-.mode-btn :deep(.q-btn__content) {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-}
-
-.mode-btn--active {
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
 }
 
 .footer-icon {

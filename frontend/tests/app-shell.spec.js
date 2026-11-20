@@ -787,10 +787,19 @@ describe('оболочка приложения', () => {
       wrapper.find('input[placeholder*="Название файла"]').exists(),
     ).toBe(true)
 
-    // Запрещено: поиск по фото/видео, скачивание, подборки, техраздел.
+    // Запрещено: поиск по фото/видео, подборки, техраздел.
     expect(html).not.toContain('photo_camera')
-    expect(wrapper.text()).not.toContain('Скачать')
     expect(wrapper.text()).not.toContain('В подборку')
+    // ZIP и облако видны гостю, но неактивны; скачивание по одному доступно
+    // (владелец, 18.11.2026).
+    expect(wrapper.text()).toContain('Скачать')
+    const zipButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('ZIP'))
+
+    expect(zipButton).toBeTruthy()
+    expect(zipButton.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('Облако')
     expect(html).not.toContain('/technical')
 
     // «Обновление базы» видно, но неактивно: прогон запускает Администратор.
@@ -1088,18 +1097,27 @@ describe('оболочка приложения', () => {
     wrapper.unmount()
   })
 
-  it('переключатель режима адреса/клиенты живёт в подвале', async () => {
+  it('чекбоксы «Адреса» и «Клиент/бренд» заменяют ○/△/□', async () => {
     const wrapper = await mountShell()
     const display = useDisplayStore()
 
-    const square = wrapper
-      .findAll('button')
-      .find((button) => button.text().trim() === '□')
+    // Изначально оба чекбокса отмечены — бывший ○ (объединение).
+    expect(display.addressClientMode).toBe('union')
 
-    expect(square).toBeTruthy()
-    await square.trigger('click')
+    const checkboxes = wrapper.findAll('.mode-check')
+    expect(checkboxes.length).toBe(2)
 
+    // Сняли «Адреса» → бывший □ (приоритет клиентов).
+    await checkboxes[0].trigger('click')
     expect(display.addressClientMode).toBe('client')
+
+    // Сняли и «Клиенты» → адреса и клиенты не фильтруют выдачу.
+    await checkboxes[1].trigger('click')
+    expect(display.addressClientMode).toBe('none')
+
+    // Вернули только «Адреса» → бывший △ (приоритет адресов).
+    await checkboxes[0].trigger('click')
+    expect(display.addressClientMode).toBe('address')
 
     wrapper.unmount()
   })

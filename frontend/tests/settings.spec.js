@@ -291,9 +291,13 @@ describe('Settings.vue', () => {
     await flushPromises()
 
     const text = wrapper.text()
-    expect(text).toContain('ВСЕГО ФОТО: 260')
-    expect(text).toContain('РАСПОЗНАНО: 250')
-    expect(text).toContain('осталось 10')
+    // Сводка QWEN в текущей разметке: строка «ФОТО В БАЗЕ …» и таблица
+    // «ВСЕГО ФАЙЛОВ / ОБРАБОТАНО / УСПЕШНО» (владелец, 20.11.2026).
+    expect(text).toContain('ФОТО В БАЗЕ: 260')
+    expect(text).toContain('С ОПИСАНИЯМИ: 250')
+    expect(text).toContain('БЕЗ ОПИСАНИЙ: 10')
+    expect(text).toContain('ВСЕГО ФАЙЛОВ')
+    expect(text).toContain('ОБРАБОТАНО')
     expect(text).toContain('В ОЧЕРЕДИ: 4')
     // Триггеры подписаны по-русски, дата — без «T».
     expect(text).toContain('ручной: 2026-10-16 09:05')

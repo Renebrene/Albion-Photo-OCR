@@ -20,8 +20,8 @@ describe('панели адресов, клиентов и подборок', ()
     global.fetch = vi.fn(async (url) => {
       const path = String(url).split('?')[0]
 
-      if (path.endsWith('/v1/searches')) {
-        return json({ detail: 'searches are unavailable' }, 500)
+      if (path.endsWith('/v1/clients')) {
+        return json({ detail: 'clients are unavailable' }, 500)
       }
 
       return json({ items: [] })
@@ -31,10 +31,10 @@ describe('панели адресов, клиентов и подборок', ()
     await store.loadFacets()
 
     // Ошибка панели — в панели; выдача грида остаётся рабочей.
-    // Сбой сохранённых поисков виден в левой панели, а не в обеих: раньше
-    // один и тот же текст рисовался и над адресами, и над клиентами.
-    expect(store.addressesPanelError).toBeTruthy()
-    expect(store.clientsPanelError).toBe('')
+    // Сбой клиентов виден в правой панели, а не в левой: раньше один и тот же
+    // текст рисовался и над адресами, и над клиентами.
+    expect(store.clientsPanelError).toBeTruthy()
+    expect(store.addressesPanelError).toBe('')
     expect(store.error).toBe(null)
   })
 
@@ -42,7 +42,7 @@ describe('панели адресов, клиентов и подборок', ()
     global.fetch = vi.fn(async (url) => {
       const path = String(url).split('?')[0]
 
-      if (path.endsWith('/v1/searches')) {
+      if (path.endsWith('/v1/clients')) {
         return json({ detail: 'boom' }, 500)
       }
 
@@ -57,9 +57,8 @@ describe('панели адресов, клиентов и подборок', ()
     await store.loadFacets()
 
     expect(store.addresses).toHaveLength(1)
-    expect(store.savedSearches).toEqual([])
-    expect(store.addressesPanelError).toBeTruthy()
-    expect(store.clientsPanelError).toBe('')
+    expect(store.clientsPanelError).toBeTruthy()
+    expect(store.addressesPanelError).toBe('')
   })
 })
 

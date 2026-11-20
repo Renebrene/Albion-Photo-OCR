@@ -771,22 +771,6 @@ describe('подборки и структурные фильтры', () => {
     expect(url).toContain('category=')
   })
 
-  it('сохранённый поиск включает бренд, тег и категорию', async () => {
-    const store = usePhotosStore()
-    store.query = 'вывеска'
-    store.brand = 'СТС'
-    store.tag = 'канал СТС'
-    store.category = 'реклама'
-
-    await store.saveCurrentSearch('Мой поиск')
-
-    // Тело запроса ловит общий маршрут POST /v1/searches (savedSearchBodies).
-    expect(savedSearchBodies[0].filters).toMatchObject({
-      brand: 'СТС',
-      tag: 'канал СТС',
-      category: 'реклама',
-    })
-  })
 })
 
 describe('выделение фото', () => {
@@ -849,23 +833,6 @@ describe('пустая подборка', () => {
 
     expect(store.selectedClients).toEqual([])
     expect(store.clientCollectionId).toBe(null)
-  })
-})
-
-describe('сохранённый поиск', () => {
-  it('хранит режим ○/△/□ вместе с фильтрами', async () => {
-    const store = usePhotosStore()
-
-    store.combine = 'client'
-    store.selectedClients = ['Клиент А']
-
-    await store.saveCurrentSearch('Мой поиск')
-
-    expect(savedSearchBodies).toHaveLength(1)
-    // Без режима тот же поиск давал другую выдачу: адреса и клиенты
-    // складываются по-разному.
-    expect(savedSearchBodies[0].filters.combine).toBe('client')
-    expect(savedSearchBodies[0].filters.clients).toEqual(['Клиент А'])
   })
 })
 

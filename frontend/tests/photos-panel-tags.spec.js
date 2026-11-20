@@ -488,7 +488,12 @@ describe('строка тегов', () => {
 
     let params = new URL(calls().at(-1), 'http://localhost').searchParams
     expect(params.getAll('client')).toEqual(['Клиент А'])
-    expect(wrapper.text()).toContain('□')
+    // Режим □ показывает чекбокс у клиентов: адреса снят, клиенты отмечены.
+    const modeChecks = wrapper.findAllComponents('.mode-check')
+
+    expect(modeChecks.length).toBe(2)
+    expect(modeChecks[0].props('modelValue')).toBe(false)
+    expect(modeChecks[1].props('modelValue')).toBe(true)
 
     // Сняли выбор — адреса и их счётчики возвращаются к полному списку.
     store.selectedClients = []

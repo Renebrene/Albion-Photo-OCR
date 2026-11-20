@@ -52,6 +52,12 @@ let totalTimer = null
  * «сколько фото сейчас в выборке» — поэтому он собирается здесь.
  */
 function filterParams(state, { limit, cursor = null, count = true }) {
+  // ○/△/□ заменены чекбоксами панелей (владелец, 20.11.2026): 'none' означает
+  // «адреса и клиенты не фильтруют» — их выбор остаётся в панелях, но в
+  // запрос не едет; на сервер уходит только корректный combine.
+  const noFacets = state.combine === 'none'
+  const combine = noFacets ? 'union' : state.combine || 'union'
+
   return {
     limit,
     cursor,
@@ -61,15 +67,19 @@ function filterParams(state, { limit, cursor = null, count = true }) {
     order: state.sortDirection || 'asc',
     q: state.query || null,
     group: state.group || null,
-    address: state.selectedAddresses.length ? state.selectedAddresses : null,
-    client: state.selectedClients.length ? state.selectedClients : null,
+    address: !noFacets && state.selectedAddresses.length
+      ? state.selectedAddresses
+      : null,
+    client: !noFacets && state.selectedClients.length
+      ? state.selectedClients
+      : null,
     brand: state.brand || null,
     tag: state.tag || null,
     category: state.category || null,
     date_from: state.dateFrom || null,
     date_to: state.dateTo || null,
     date_mode: state.dateMode || 'upload',
-    combine: state.combine || 'union',
+    combine,
     // Подборка на фото не влияет: она восстанавливает выбор адресов или
     // клиентов, а грид фильтруется уже по нему.
     ids: state.nlIds.length ? state.nlIds : null,
