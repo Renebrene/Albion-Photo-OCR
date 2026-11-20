@@ -1521,6 +1521,12 @@ def qwen_stats() -> dict:
     description stays in place (`mark_running` does not clear it), so counting
     DONE made the counter go backwards during a re-recognition pass.
 
+    `successful` / `done_empty` split DONE rows by whether the model actually
+    produced a description: a false-positive billboard crop still finishes the
+    job DONE while the answer comes back empty. The two counters do not
+    overlap and sum up to `counts["DONE"]`, so the card renders them as
+    non-overlapping rows next to FAILED.
+
     `runs` groups finished QWEN jobs by the trigger recorded in the payload
     ("manual" / "automation" / "pipeline"; older rows default to "manual"),
     so the window can show when each kind last ran.
@@ -1541,6 +1547,22 @@ def qwen_stats() -> dict:
                 "WHERE description IS NOT NULL AND btrim(description) <> ''"
             )
             described = int(cur.fetchone()[0])
+
+            # DONE разбивается по факту описания: задание завершилось, но
+            # модель вернула пустой JSON (ложный кроп щита) — строка DONE с
+            # пустым описанием. Счётчики не пересекаются и в сумме дают DONE.
+            cur.execute(
+                "SELECT count(*) FILTER ("
+                "      WHERE status = 'DONE' "
+                "        AND description IS NOT NULL AND btrim(description) <> ''"
+                "    ) AS successful, "
+                "    count(*) FILTER ("
+                "      WHERE status = 'DONE' "
+                "        AND (description IS NULL OR btrim(description) = '')"
+                "    ) AS done_empty "
+                "FROM public.photo_qwen"
+            )
+            successful, done_empty = (int(v) for v in cur.fetchone())
 
             # Какая модель дала описания: при смене модели видно, что
             # перераспознано, а что ещё держит старый результат.
@@ -1718,6 +1740,8 @@ def qwen_stats() -> dict:
         "photos": photos,
         "counts": counts,
         "processed": described,
+        "successful": successful,
+        "done_empty": done_empty,
         "remaining": max(0, photos - described),
         "queued": counts.get("PENDING", 0) + counts.get("RUNNING", 0),
         "jobs": jobs,

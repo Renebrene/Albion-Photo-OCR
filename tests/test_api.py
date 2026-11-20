@@ -346,6 +346,10 @@ def test_qwen_stats_shape():
     for status, count in data["counts"].items():
         assert status in {"PENDING", "RUNNING", "DONE", "FAILED"}
         assert count >= 0
+    # DONE разбивается по факту описания: успешные + пустые ответы модели.
+    assert isinstance(data["successful"], int)
+    assert isinstance(data["done_empty"], int)
+    assert data["successful"] + data["done_empty"] == data["counts"].get("DONE", 0)
 
 
 def test_qwen_only_failed_with_none_enqueues_nothing(monkeypatch):

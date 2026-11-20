@@ -444,10 +444,12 @@ def test_run_photo_analyses_billboard_crop_when_present(monkeypatch, tmp_path):
     )
 
     seen = {}
+    analyze_calls = {"count": 0}
 
     def fake_analyze(path, config=None):
+        analyze_calls["count"] += 1
         seen.update({"path": path, "config": config})
-        return ({"brand": "X", "client": "Y"}, {}, 1.0)
+        return ({"brand": "X", "client": "Y", "description": "Щит X"}, {}, 1.0)
 
     monkeypatch.setattr(processor, "analyze_image", fake_analyze)
 
@@ -463,7 +465,9 @@ def test_run_photo_analyses_billboard_crop_when_present(monkeypatch, tmp_path):
     assert fields["client"] == "Y"
     # Новый агрегат также фиксирует объединённые описания/теги и категорию.
     assert fields["tags"] == []
-    assert fields["description"] is None
+    assert fields["description"] == "Щит X"
+    # Описанный кроп не вызывает полнокадрового фолбэка.
+    assert analyze_calls["count"] == 1
     # Кроп — временный: после успешного сохранения он удаляется.
     # Кропы больше не удаляются после успешного описания: по ним идёт
     # прогон серий (docs/series_merge.md), удаление — по возрасту.
@@ -818,6 +822,162 @@ def test_run_photo_keeps_primary_result_when_second_crop_fails(monkeypatch, tmp_
     assert saved["fields"]["client"] == "A"
     assert saved["fields"]["description"] == "Первый"
     assert result["crop_errors"] == ["second crop failed"]
+
+
+def test_run_photo_reads_full_frame_when_crop_description_empty(monkeypatch, tmp_path):
+    """Ложная детекция: кроп дал пустое описание — фото описывается целиком."""
+
+    from app.billboard import pipeline as billboard_pipeline
+
+    crop = tmp_path / "crop_01.jpg"
+    crop.write_bytes(b"crop")
+
+    monkeypatch.setattr(processor.db, "get_photo_source", lambda pid: "/tmp/source.jpg")
+    monkeypatch.setattr(processor.db, "mark_running", lambda pid: None)
+    saved = {}
+    monkeypatch.setattr(
+        processor.db, "save_success",
+        lambda pid, **kw: saved.update(kw),
+    )
+    monkeypatch.setattr(processor, "resolve_settings", _qwen_base_settings)
+    monkeypatch.setattr(processor, "analysis_input", lambda pid, src: "full.jpg")
+    monkeypatch.setattr(
+        billboard_pipeline, "ensure_crops",
+        lambda pid: [str(crop)],
+    )
+    monkeypatch.setattr(billboard_pipeline, "discard_crops", lambda paths: None)
+
+    calls = []
+
+    def fake_analyze(path, config=None):
+        calls.append(str(path))
+        if str(path) == str(crop):
+            # Кроп ложной детекции: модель отвечает пустым JSON.
+            return ({}, {}, 1.0)
+        return (
+            {
+                "description": "Городская улица",
+                "client": "Магазин",
+                "brand": "Магазин",
+                "category": "торговля",
+                "tags": ["город"],
+                "address": "ул. Ленина, 10",
+            },
+            {"usage": {"prompt_tokens": 100, "completion_tokens": 20,
+                       "total_tokens": 120}},
+            2.0,
+        )
+
+    monkeypatch.setattr(processor, "analyze_image", fake_analyze)
+
+    result = processor.run_photo("PH_" + "7c" * 12)
+
+    assert calls == [str(crop), "full.jpg"]
+    assert result["full_frame_fallback"] is True
+    assert result["billboards"] == 1
+    fields = saved["fields"]
+    assert fields["description"] == "Городская улица"
+    assert fields["client"] == "Магазин"
+    assert fields["brand"] == "Магазин"
+    assert fields["category"] == "торговля"
+    assert fields["tags"] == ["город"]
+    assert fields["address"] == "ул. Ленина, 10"
+    # Токены и время — полнокадрового чтения: кропы заменены, а не сложены.
+    assert saved["raw"]["usage"]["total_tokens"] == 120
+    assert result["time_sec"] == 2.0
+
+
+def test_run_photo_keeps_empty_crop_result_when_fallback_full_frame_fails(monkeypatch, tmp_path):
+    """Фолбэк — best-effort: ошибка полнокадрового чтения не ломает задание."""
+
+    from app.billboard import pipeline as billboard_pipeline
+
+    crop = tmp_path / "crop_01.jpg"
+    crop.write_bytes(b"crop")
+
+    monkeypatch.setattr(processor.db, "get_photo_source", lambda pid: "/tmp/source.jpg")
+    monkeypatch.setattr(processor.db, "mark_running", lambda pid: None)
+    saved = {}
+    monkeypatch.setattr(
+        processor.db, "save_success",
+        lambda pid, **kw: saved.update(kw),
+    )
+    monkeypatch.setattr(processor, "resolve_settings", _qwen_base_settings)
+    monkeypatch.setattr(processor, "analysis_input", lambda pid, src: "full.jpg")
+    monkeypatch.setattr(
+        billboard_pipeline, "ensure_crops",
+        lambda pid: [str(crop)],
+    )
+    monkeypatch.setattr(billboard_pipeline, "discard_crops", lambda paths: None)
+
+    def fake_analyze(path, config=None):
+        if str(path) == str(crop):
+            return ({}, {}, 1.0)
+        raise RuntimeError("full frame failed")
+
+    monkeypatch.setattr(processor, "analyze_image", fake_analyze)
+
+    result = processor.run_photo("PH_" + "8d" * 12)
+
+    # Фото остаётся DONE с пустым описанием; ошибка фолбэка — в crop_errors.
+    assert "full_frame_fallback" not in result
+    assert result["crop_errors"] == ["full frame failed"]
+    assert saved["fields"]["description"] is None
+
+
+def test_run_photo_does_not_reread_full_frame_after_multi_crop_read(monkeypatch, tmp_path):
+    """Два пустых кропа: полный кадр уже прочитан — фолбэк не дублирует вызов."""
+
+    from app.api import repository
+    from app.billboard import database as billboard_db
+    from app.billboard import pipeline as billboard_pipeline
+    from app.refine import crop_frequency
+
+    first = tmp_path / "crop_01.jpg"
+    second = tmp_path / "crop_02.jpg"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+
+    monkeypatch.setattr(processor.db, "get_photo_source", lambda pid: "/tmp/source.jpg")
+    monkeypatch.setattr(processor.db, "mark_running", lambda pid: None)
+    saved = {}
+    monkeypatch.setattr(
+        processor.db, "save_success",
+        lambda pid, **kw: saved.update(kw),
+    )
+    monkeypatch.setattr(processor, "resolve_settings", _qwen_base_settings)
+    monkeypatch.setattr(processor, "analysis_input", lambda pid, src: "full.jpg")
+    monkeypatch.setattr(
+        billboard_pipeline, "ensure_crops",
+        lambda pid: [str(first), str(second)],
+    )
+    monkeypatch.setattr(billboard_pipeline, "discard_crops", lambda paths: None)
+    monkeypatch.setattr(billboard_db, "get_billboard_regions", lambda pid: [])
+    monkeypatch.setattr(repository, "list_client_aliases", lambda kind="client": [])
+    monkeypatch.setattr(
+        crop_frequency, "aggregation_context",
+        lambda: {
+            "use_client_aliases": True,
+            "global_frequency": True,
+            "frequencies": {"client": {}, "brand": {}, "display": {}},
+        },
+    )
+
+    calls = []
+
+    def fake_analyze(path, config=None):
+        calls.append(str(path))
+        if str(path) in (str(first), str(second)):
+            return ({}, {}, 1.0)
+        return ({"description": "Городская улица", "tags": []}, {}, 2.0)
+
+    monkeypatch.setattr(processor, "analyze_image", fake_analyze)
+
+    result = processor.run_photo("PH_" + "9e" * 12)
+
+    assert calls == [str(first), str(second), "full.jpg"]
+    assert "full_frame_fallback" not in result
+    assert saved["fields"]["description"] == "Городская улица"
 
 
 def test_run_photo_falls_back_to_full_frame(monkeypatch):

@@ -1079,8 +1079,10 @@ def run_photo(
     # exist (detection runs on demand if the background job has not finished
     # yet). A photo may show two side-by-side billboards: each crop is
     # analysed and the results are merged into one photo_qwen row. Without a
-    # billboard the full frame is analysed as before. A crop failure must
-    # never break QWEN.
+    # billboard the full frame is analysed as before. When every crop comes
+    # back without a description (false detection, unreadable banner), the
+    # full frame is analysed as a fallback. A crop failure must never break
+    # QWEN.
     image_path = analysis_input(photo_id, source_path)
     crop_paths: list[str] = []
     discard_crops = None
@@ -1124,6 +1126,7 @@ def run_photo(
     per_crop_results: list[tuple[dict, dict, float]] = []
     crop_errors: list[str] = []
     per_crop_regions = []
+    full_frame_fallback = False
     if crop_paths:
         try:
             from app.billboard import database as billboard_db
@@ -1169,13 +1172,38 @@ def run_photo(
         except Exception:  # noqa: BLE001 - правило не должно ломать QWEN
             pass
 
-        if len(crop_paths) > 1 and full_frame_enabled:
+        full_frame_read = len(crop_paths) > 1 and full_frame_enabled
+        if full_frame_read:
             try:
                 per_crop_results.append(
                     analyze_image(full_frame_image, config=full_frame_config)
                 )
             except Exception as exc:  # noqa: BLE001 - кропы уже дали результат
                 crop_errors.append(redact_absolute_paths(str(exc)))
+
+        # Ложное срабатывание детектора или нечитаемый щит: все кропы вернули
+        # пустое описание. Читаем полный кадр — общее чтение описывает сцену
+        # и рекламодателя там, где вырезка этого не позволила. Результат фото
+        # целиком берётся с полнокадрового чтения: ложный кроп не должен
+        # тянуть в карточку мусорные клиента/бренд/теги. Разбор кропов остаётся
+        # в ledger регионов (photo_regions.qwen_fields).
+        if (
+            not full_frame_read
+            and per_crop_results
+            and all(
+                not str((fields or {}).get("description") or "").strip()
+                for fields, _raw, _time_sec in per_crop_results
+            )
+        ):
+            try:
+                full_frame_result = analyze_image(
+                    full_frame_image, config=full_frame_config
+                )
+            except Exception as exc:  # noqa: BLE001 - пустое описание лучше ошибки
+                crop_errors.append(redact_absolute_paths(str(exc)))
+            else:
+                full_frame_fallback = True
+                per_crop_results = [full_frame_result]
 
         if not per_crop_results:
             error = "; ".join(crop_errors) or "all billboard crops failed"
@@ -1240,5 +1268,6 @@ def run_photo(
         "time_sec": round(elapsed, 2),
         "billboards": len(crop_paths),
         **({"crop_errors": crop_errors} if crop_errors else {}),
+        **({"full_frame_fallback": True} if full_frame_fallback else {}),
         **fields,
     }

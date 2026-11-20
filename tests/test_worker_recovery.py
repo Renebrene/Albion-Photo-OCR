@@ -124,6 +124,11 @@ def test_qwen_stats_reports_base_size_and_runs(sample_photo):
     assert stats["queued"] == (
         stats["counts"].get("PENDING", 0) + stats["counts"].get("RUNNING", 0)
     )
+    # DONE разбивается по факту описания: успешные + пустые ответы модели
+    # (ложный кроп щита) = все DONE; счётчики не пересекаются с FAILED.
+    assert stats["successful"] + stats["done_empty"] == stats["counts"].get("DONE", 0)
+    assert 0 <= stats["successful"] <= stats["photos"]
+    assert 0 <= stats["done_empty"] <= stats["photos"]
     assert isinstance(stats["runs"], list)
     assert isinstance(stats["models"], list)
 
