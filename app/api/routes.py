@@ -866,6 +866,85 @@ def search_matches(
     )
 
 
+@read_router.get("/v1/photos/dates", response_model=None)
+def list_photo_dates(
+    q: str | None = Query(None, max_length=256),
+    address: list[str] | None = Query(None, max_length=1000),
+    client: list[str] | None = Query(None, max_length=100),
+    brand: str | None = Query(None, max_length=200),
+    tag: str | None = Query(None, max_length=200),
+    category: str | None = Query(None, max_length=200),
+    date_from: date_type | None = Query(None),
+    date_to: date_type | None = Query(None),
+    date_mode: str = Query("capture", pattern="^(upload|capture)$"),
+    collection_id: int | None = Query(None, ge=1),
+    group: str | None = Query(
+        None, pattern="^(screens|small|rostov|roads|cities)$"
+    ),
+    principal=Depends(require_scope("read")),
+):
+    """
+    Дни с числом фото — плитки «По датам» мобильного PWA.
+
+    Отдаёт все реально существующие дни съёмки за выбранный период, а не
+    только те, что попали в первую страницу `/v1/photos`: грид с лимитом
+    100 фото показывал бы один-два дня даже за год. Условия отбора — те же
+    (`_photo_where`), что у самого грида.
+
+    Объявлен до `/v1/photos/{photo_id}`: иначе «dates» ушёл бы в параметр
+    photo_id и маршрут ответил бы 404.
+    """
+
+    date_from, date_to = _date_params(date_from, date_to)
+
+    if collection_id is not None:
+        collection = repository.get_collection(
+            collection_id, _principal_user_id(principal)
+        )
+
+        if collection is None:
+            return {"items": [], "total": 0}
+
+        if collection.get("scope") != "photos":
+            raise HTTPException(
+                status_code=422,
+                detail="collection scope must be photos",
+            )
+
+    group_addresses = None
+
+    if group:
+        group_values = {
+            f"addr:{value}" for value in directory_mod.address_ids_for_tab(group)
+        }
+
+        if address:
+            address = [
+                str(value).strip()
+                for value in address
+                if str(value).strip() in group_values
+            ]
+
+        group_addresses = sorted(group_values) or ["addr:-1"]
+
+    items = repository.list_photo_dates(
+        query=q,
+        addresses=address,
+        clients=client,
+        date_from=date_from,
+        date_to=date_to,
+        date_mode=date_mode,
+        collection_id=collection_id,
+        brand=brand,
+        tag=tag,
+        category=category,
+        recognized_only=True,
+        group_addresses=group_addresses,
+    )
+
+    return {"items": items, "total": sum(item["photos"] for item in items)}
+
+
 @read_router.get("/v1/photos/{photo_id}", response_model=None)
 def get_photo(photo_id: str):
     photo_id = _validate_photo_id(photo_id)

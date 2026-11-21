@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>АЛЬБИОН — Мобильный PWA: Вариант отображения через папки</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+    h1 { text-align: center; margin-bottom: 30px; color: #1976d2; }
+    h2 { margin: 30px 0 15px; color: #333; border-bottom: 2px solid #1976d2; padding-bottom: 10px; }
+    h3 { margin: 20px 0 10px; color: #555; }
+
+    .phone-mockup {
+      width: 375px;
+      height: 812px;
+      background: #000;
+      border-radius: 40px;
+      padding: 12px;
+      margin: 30px auto;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      position: relative;
+    }
+
+    .phone-screen {
+      width: 100%;
+      height: 100%;
+      background: #fff;
+      border-radius: 30px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .screen-content {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Шапка */
+    .header {
+      height: 56px;
+      background: #1976d2;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 12px;
+    }
+
+    .header-logo {
+      font-weight: 600;
+      font-size: 18px;
+      flex: 1;
+    }
+
+    .header-icon {
+      width: 24px;
+      height: 24px;
+      cursor: pointer;
+      opacity: 0.9;
+    }
+
+    /* Переключатель режима */
+    .mode-switch {
+      display: flex;
+      background: #f5f5f5;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .mode-btn {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      font-size: 14px;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      color: #666;
+    }
+
+    .mode-btn.active {
+      background: #fff;
+      color: #1976d2;
+      font-weight: 600;
+      border-bottom: 2px solid #1976d2;
+    }
+
+    /* Подвал */
+    .footer {
+      height: 48px;
+      background: #fff;
+      border-top: 1px solid #e0e0e0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      padding: 0 16px;
+    }
+
+    .footer-btn {
+      font-size: 13px;
+      color: #666;
+      cursor: pointer;
+      padding: 6px 12px;
+      border-radius: 16px;
+      background: #f5f5f5;
+      border: none;
+    }
+
+    .footer-btn.active {
+      background: #1976d2;
+      color: #fff;
+    }
+
+    /* Папка (album card) */
+    .folder-card {
+      background: #f5f5f5;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+
+    .folder-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+
+    .folder-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .folder-icon {
+      width: 32px;
+      height: 32px;
+      flex-shrink: 0;
+    }
+
+    .folder-info {
+      flex: 1;
+    }
+
+    .folder-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 2px;
+    }
+
+    .folder-count {
+      font-size: 13px;
+      color: #666;
+    }
+
+    .folder-chevron {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+      color: #999;
+    }
+
+    .folder-preview {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+    }
+
+    .folder-preview-item {
+      aspect-ratio: 1;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .folder-preview-item div {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Грид внутри папки */
+    .grid-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    .photo-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+    }
+
+    .photo-tile {
+      aspect-ratio: 1;
+      background: #e0e0e0;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .photo-tile > div {
+      width: 100%;
+      height: 100%;
+    }
+
+    .photo-tile .label {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      font-size: 10px;
+      padding: 4px 6px;
+      line-height: 1.2;
+    }
+
+    /* Подшапка с группами */
+    .subheader {
+      background: #f5f5f5;
+      padding: 8px;
+      overflow-x: auto;
+      white-space: nowrap;
+      display: flex;
+      gap: 8px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .subheader-pill {
+      padding: 6px 12px;
+      background: #e0e0e0;
+      border-radius: 16px;
+      font-size: 13px;
+      color: #666;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+
+    .subheader-pill.active {
+      background: #1976d2;
+      color: #fff;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .phone-mockup {
+        width: 100%;
+        height: 100vh;
+        border-radius: 0;
+        padding: 0;
+      }
+
+      .phone-screen {
+        border-radius: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📁 АЛЬБИОН — Вариант отображения через папки (альбомы)</h1>
+    <p style="text-align: center; color: #666; margin-bottom: 40px;">Даты и адреса представлены как папки/альбомы с иконками и счётчиками</p>
+
+    <!-- 7.1. Режим "По датам" (папки по датам) -->
+    <h2>7.1. Режим "По датам" — папки по датам</h2>
+    <div class="phone-mockup">
+      <div class="phone-screen">
+        <div class="screen-content">
+          <!-- Шапка -->
+          <div class="header">
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+            </svg>
+            <div class="header-logo">АЛЬБИОН</div>
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+            </svg>
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
+            </svg>
+          </div>
+
+          <!-- Переключатель режима -->
+          <div class="mode-switch">
+            <button class="mode-btn active">📅 По датам</button>
+            <button class="mode-btn"> По папкам</button>
+          </div>
+
+          <!-- Контент: папки по датам -->
+          <div class="grid-content" style="padding: 12px;">
+            <div style="font-size: 16px; font-weight: 600; margin-bottom: 16px; color: #333;">Альбомы</div>
+
+            <!-- Папка: Сегодня -->
+            <div class="folder-card">
+              <div class="folder-header">
+                <svg class="folder-icon" viewBox="0 0 24 24" fill="#1976d2">
+                  <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                </svg>
+                <div class="folder-info">
+                  <div class="folder-title">Сегодня</div>
+                  <div class="folder-count">12 фото</div>
+                </div>
+                <svg class="folder-chevron" viewBox="0 0 24 24" fill="#999">
+                  <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>
+                </svg>
+              </div>
+              <div class="folder-preview">
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);"></div></div>
+              </div>
+            </div>
+
+            <!-- Папка: Вчера -->
+            <div class="folder-card">
+              <div class="folder-header">
+                <svg class="folder-icon" viewBox="0 0 24 24" fill="#1976d2">
+                  <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                </svg>
+                <div class="folder-info">
+                  <div class="folder-title">Вчера</div>
+                  <div class="folder-count">8 фото</div>
+                </div>
+                <svg class="folder-chevron" viewBox="0 0 24 24" fill="#999">
+                  <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>
+                </svg>
+              </div>
+              <div class="folder-preview">
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%);"></div></div>
+              </div>
+            </div>
+
+            <!-- Папка: 15 ноября 2021 -->
+            <div class="folder-card">
+              <div class="folder-header">
+                <svg class="folder-icon" viewBox="0 0 24 24" fill="#1976d2">
+                  <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                </svg>
+                <div class="folder-info">
+                  <div class="folder-title">15 ноября 2021</div>
+                  <div class="folder-count">8 фото</div>
+                </div>
+                <svg class="folder-chevron" viewBox="0 0 24 24" fill="#999">
+                  <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>
+                </svg>
+              </div>
+              <div class="folder-preview">
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #fccb90 0%, #d57eeb 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #f5576c 0%, #ff6a88 100%);"></div></div>
+              </div>
+            </div>
+
+            <!-- Папка: Октябрь 2021 -->
+            <div class="folder-card">
+              <div class="folder-header">
+                <svg class="folder-icon" viewBox="0 0 24 24" fill="#1976d2">
+                  <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                </svg>
+                <div class="folder-info">
+                  <div class="folder-title">Октябрь 2021</div>
+                  <div class="folder-count">45 фото</div>
+                </div>
+                <svg class="folder-chevron" viewBox="0 0 24 24" fill="#999">
+                  <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>
+                </svg>
+              </div>
+              <div class="folder-preview">
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);"></div></div>
+              </div>
+            </div>
+
+            <!-- Папка: Сентябрь 2021 -->
+            <div class="folder-card">
+              <div class="folder-header">
+                <svg class="folder-icon" viewBox="0 0 24 24" fill="#1976d2">
+                  <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                </svg>
+                <div class="folder-info">
+                  <div class="folder-title">Сентябрь 2021</div>
+                  <div class="folder-count">67 фото</div>
+                </div>
+                <svg class="folder-chevron" viewBox="0 0 24 24" fill="#999">
+                  <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>
+                </svg>
+              </div>
+              <div class="folder-preview">
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%);"></div></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Подвал -->
+          <div class="footer">
+            <button class="footer-btn active">3×4</button>
+            <button class="footer-btn">◄ Неделя</button>
+            <button class="footer-btn">►</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7.2. Режим "По папкам" (папки по адресам) -->
+    <h2>7.2. Режим "По папкам" — папки по адресам</h2>
+    <div class="phone-mockup">
+      <div class="phone-screen">
+        <div class="screen-content">
+          <div class="header">
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+            </svg>
+            <div class="header-logo">АЛЬБИОН</div>
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+            </svg>
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
+            </svg>
+          </div>
+
+          <div class="mode-switch">
+            <button class="mode-btn"> По датам</button>
+            <button class="mode-btn active">📁 По папкам</button>
+          </div>
+
+          <div class="grid-content" style="padding: 12px;">
+            <div style="font-size: 16px; font-weight: 600; margin-bottom: 16px; color: #333;">Подборки адресов</div>
+
+            <!-- Папка: Ростов-на-Дону -->
+            <div class="folder-card">
+              <div class="folder-header">
+                <svg class="folder-icon" viewBox="0 0 24 24" fill="#1976d2">
+                  <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                </svg>
+                <div class="folder-info">
+                  <div class="folder-title">Ростов-на-Дону</div>
+                  <div class="folder-count">45 фото</div>
+                </div>
+                <svg class="folder-chevron" viewBox="0 0 24 24" fill="#999">
+                  <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>
+                </svg>
+              </div>
+              <div class="folder-preview">
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);"></div></div>
+              </div>
+            </div>
+
+            <!-- Папка: г. Краснодар -->
+            <div class="folder-card">
+              <div class="folder-header">
+                <svg class="folder-icon" viewBox="0 0 24 24" fill="#1976d2">
+                  <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                </svg>
+                <div class="folder-info">
+                  <div class="folder-title">г. Краснодар</div>
+                  <div class="folder-count">23 фото</div>
+                </div>
+                <svg class="folder-chevron" viewBox="0 0 24 24" fill="#999">
+                  <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>
+                </svg>
+              </div>
+              <div class="folder-preview">
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%);"></div></div>
+              </div>
+            </div>
+
+            <!-- Папка: г. Таганрог -->
+            <div class="folder-card">
+              <div class="folder-header">
+                <svg class="folder-icon" viewBox="0 0 24 24" fill="#1976d2">
+                  <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                </svg>
+                <div class="folder-info">
+                  <div class="folder-title">г. Таганрог</div>
+                  <div class="folder-count">12 фото</div>
+                </div>
+                <svg class="folder-chevron" viewBox="0 0 24 24" fill="#999">
+                  <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>
+                </svg>
+              </div>
+              <div class="folder-preview">
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #fccb90 0%, #d57eeb 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #f5576c 0%, #ff6a88 100%);"></div></div>
+              </div>
+            </div>
+
+            <!-- Папка: Трассы 6х3 -->
+            <div class="folder-card">
+              <div class="folder-header">
+                <svg class="folder-icon" viewBox="0 0 24 24" fill="#1976d2">
+                  <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                </svg>
+                <div class="folder-info">
+                  <div class="folder-title">Трассы 6х3</div>
+                  <div class="folder-count">34 фото</div>
+                </div>
+                <svg class="folder-chevron" viewBox="0 0 24 24" fill="#999">
+                  <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>
+                </svg>
+              </div>
+              <div class="folder-preview">
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);"></div></div>
+              </div>
+            </div>
+
+            <!-- Папка: Города области -->
+            <div class="folder-card">
+              <div class="folder-header">
+                <svg class="folder-icon" viewBox="0 0 24 24" fill="#1976d2">
+                  <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                </svg>
+                <div class="folder-info">
+                  <div class="folder-title">Города области</div>
+                  <div class="folder-count">89 фото</div>
+                </div>
+                <svg class="folder-chevron" viewBox="0 0 24 24" fill="#999">
+                  <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>
+                </svg>
+              </div>
+              <div class="folder-preview">
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%);"></div></div>
+              </div>
+            </div>
+
+            <!-- Папка: Малые форматы РнД -->
+            <div class="folder-card">
+              <div class="folder-header">
+                <svg class="folder-icon" viewBox="0 0 24 24" fill="#1976d2">
+                  <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                </svg>
+                <div class="folder-info">
+                  <div class="folder-title">Малые форматы РнД</div>
+                  <div class="folder-count">28 фото</div>
+                </div>
+                <svg class="folder-chevron" viewBox="0 0 24 24" fill="#999">
+                  <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>
+                </svg>
+              </div>
+              <div class="folder-preview">
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #fccb90 0%, #d57eeb 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%);"></div></div>
+                <div class="folder-preview-item"><div style="background: linear-gradient(135deg, #f5576c 0%, #ff6a88 100%);"></div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="footer">
+            <button class="footer-btn active">3×4</button>
+            <button class="footer-btn"></button>
+            <button class="footer-btn">◄ Месяц</button>
+            <button class="footer-btn">►</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7.3. Внутри папки (при тапе на папку) -->
+    <h2>7.3. Внутри папки (при тапе на папку "Ростов-на-Дону")</h2>
+    <div class="phone-mockup">
+      <div class="phone-screen">
+        <div class="screen-content">
+          <!-- Шапка -->
+          <div class="header" style="background: #1976d2;">
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+            </svg>
+            <div class="header-logo">Ростов-на-Дону</div>
+            <div style="color: #fff; font-size: 14px;">45 фото</div>
+          </div>
+
+          <!-- Подшапка с группами адресов -->
+          <div class="subheader">
+            <div class="subheader-pill active">Все (45)</div>
+            <div class="subheader-pill">ул. Большая (12)</div>
+            <div class="subheader-pill">ул. Ленина (8)</div>
+            <div class="subheader-pill">Трасса М-4 (15)</div>
+            <div class="subheader-pill">ул. Чехова (10)</div>
+            <div class="subheader-pill">пр. Савушкина (7)</div>
+          </div>
+
+          <!-- Грид фото внутри папки -->
+          <div class="grid-content">
+            <div class="photo-grid">
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"></div>
+                <div class="label">Щит на ул. Большая, 123<br>14:09</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);"></div>
+                <div class="label">Вывеска "Сбербанк"<br>14:15</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);"></div>
+                <div class="label">Реклама LADA<br>14:22</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);"></div>
+                <div class="label">Билборд "ВМЕСТЕ"<br>14:30</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);"></div>
+                <div class="label">Щит на трассе М-4<br>14:45</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%);"></div>
+                <div class="label">Реклама "Пятёрочка"<br>15:02</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #fccb90 0%, #d57eeb 100%);"></div>
+                <div class="label">Вывеска "Магнит"<br>15:18</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%);"></div>
+                <div class="label">Щит "Ростов-на-Дону"<br>15:30</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #f5576c 0%, #ff6a88 100%);"></div>
+                <div class="label">Реклама "Яндекс"<br>15:45</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="footer">
+            <button class="footer-btn active">3×4</button>
+            <button class="footer-btn">◄ Неделя</button>
+            <button class="footer-btn">►</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Сравнение подходов -->
+    <h2>Сравнение подходов</h2>
+    <div style="background: #fff; padding: 20px; border-radius: 8px; margin: 20px 0;">
+      <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+          <tr style="background: #1976d2; color: #fff;">
+            <th style="padding: 12px; text-align: left;">Критерий</th>
+            <th style="padding: 12px; text-align: left;">Грид с заголовками (старый вариант)</th>
+            <th style="padding: 12px; text-align: left;">Грид через папки (новый вариант)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;"><b>Визуальная структура</b></td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">Заголовки дат/адресов + грид фото</td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">Карточки-папки с иконками и превью</td>
+          </tr>
+          <tr>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;"><b>Навигация</b></td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">Скролл вниз по группам</td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">Тап на папку → переход внутрь</td>
+          </tr>
+          <tr>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;"><b>Превью содержимого</b></td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">Нет (только заголовок)</td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">3 миниатюры внутри каждой папки</td>
+          </tr>
+          <tr>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;"><b>Счётчики</b></td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">В заголовке (например, "Сегодня (12)")</td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">В карточке папки ("12 фото")</td>
+          </tr>
+          <tr>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;"><b>Подход к UX</b></td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">Линейный скролл (как в галерее Android)</td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">Иерархический (как в Photos на iPhone)</td>
+          </tr>
+          <tr style="background: #f5f5f5;">
+            <td style="padding: 12px; font-weight: 600;"><b>Рекомендация</b></td>
+            <td colspan="2" style="padding: 12px; text-align: center;">
+              <b>Папки (альбомы)</b> — более интуитивно для мобильных, соответствует ожиданиям от iOS/Android Photos
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="text-align: center; margin: 40px 0; padding: 20px; background: #e3f2fd; border-radius: 8px;">
+      <h3 style="color: #1976d2; margin-bottom: 12px;">Вывод</h3>
+      <p style="text-align: left; display: inline-block; line-height: 1.8;">
+        Вариант с <b>папками (альбомами)</b> предпочтительнее для мобильного PWA:<br>
+        • Соответствует привычкам пользователей iOS/Android<br>
+        • Визуально понятнее (иконки папок, превью, счётчики)<br>
+        • Позволяет навигировать через тап, а не скролл<br>
+        • Легко расширяется (вложенные папки, фильтры внутри)
+      </p>
+    </div>
+
+    <div style="text-align: center; color: #999; font-size: 13px; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+      Дата: 2026-11-21 | Автор: Claude Code | Статус: Вариант согласован
+    </div>
+  </div>
+</body>
+</html>

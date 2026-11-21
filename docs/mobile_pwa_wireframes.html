@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>АЛЬБИОН — Мобильный PWA: Визуальные макеты</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+    h1 { text-align: center; margin-bottom: 30px; color: #1976d2; }
+    h2 { margin: 30px 0 15px; color: #333; border-bottom: 2px solid #1976d2; padding-bottom: 10px; }
+    h3 { margin: 20px 0 10px; color: #555; }
+
+    .phone-mockup {
+      width: 375px;
+      height: 812px;
+      background: #000;
+      border-radius: 40px;
+      padding: 12px;
+      margin: 30px auto;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      position: relative;
+    }
+
+    .phone-screen {
+      width: 100%;
+      height: 100%;
+      background: #fff;
+      border-radius: 30px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .screen-content {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Шапка */
+    .header {
+      height: 56px;
+      background: #1976d2;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 12px;
+    }
+
+    .header-logo {
+      font-weight: 600;
+      font-size: 18px;
+      flex: 1;
+    }
+
+    .header-icon {
+      width: 24px;
+      height: 24px;
+      cursor: pointer;
+      opacity: 0.9;
+    }
+
+    /* Переключатель режима */
+    .mode-switch {
+      display: flex;
+      background: #f5f5f5;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .mode-btn {
+      flex: 1;
+      padding: 12px;
+      text-align: center;
+      font-size: 14px;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      color: #666;
+    }
+
+    .mode-btn.active {
+      background: #fff;
+      color: #1976d2;
+      font-weight: 600;
+      border-bottom: 2px solid #1976d2;
+    }
+
+    /* Грид */
+    .grid-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    .date-group-header {
+      padding: 12px 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+    }
+
+    .photo-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+    }
+
+    .photo-tile {
+      aspect-ratio: 1;
+      background: #e0e0e0;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .photo-tile img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .photo-tile .label {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      font-size: 10px;
+      padding: 4px 6px;
+      line-height: 1.2;
+    }
+
+    .photo-tile .checkbox {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 20px;
+      height: 20px;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.3);
+      display: none;
+    }
+
+    .photo-tile.selected .checkbox {
+      display: block;
+      background: #1976d2;
+      border-color: #1976d2;
+    }
+
+    /* Подвал */
+    .footer {
+      height: 48px;
+      background: #fff;
+      border-top: 1px solid #e0e0e0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      padding: 0 16px;
+    }
+
+    .footer-btn {
+      font-size: 13px;
+      color: #666;
+      cursor: pointer;
+      padding: 6px 12px;
+      border-radius: 16px;
+      background: #f5f5f5;
+      border: none;
+    }
+
+    .footer-btn.active {
+      background: #1976d2;
+      color: #fff;
+    }
+
+    /* Drawer */
+    .drawer {
+      position: absolute;
+      top: 0;
+      left: -280px;
+      width: 280px;
+      height: 100%;
+      background: #fff;
+      box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+      transition: left 0.3s;
+      z-index: 100;
+    }
+
+    .drawer.open {
+      left: 0;
+    }
+
+    .drawer-header {
+      height: 80px;
+      background: #1976d2;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .drawer-user {
+      padding: 20px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .drawer-user-name {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .drawer-user-email {
+      font-size: 13px;
+      color: #666;
+    }
+
+    .drawer-menu {
+      padding: 10px 0;
+    }
+
+    .drawer-item {
+      padding: 14px 20px;
+      font-size: 15px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .drawer-item:hover {
+      background: #f5f5f5;
+    }
+
+    .drawer-item-icon {
+      width: 20px;
+      text-align: center;
+    }
+
+    /* Login screen */
+    .login-screen {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      padding: 40px 20px;
+      background: #fff;
+    }
+
+    .login-logo {
+      font-size: 32px;
+      font-weight: 700;
+      color: #1976d2;
+      margin-bottom: 8px;
+    }
+
+    .login-subtitle {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 40px;
+    }
+
+    .login-input {
+      width: 100%;
+      max-width: 300px;
+      padding: 14px 16px;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 15px;
+      margin-bottom: 16px;
+    }
+
+    .login-btn {
+      width: 100%;
+      max-width: 300px;
+      padding: 14px;
+      background: #1976d2;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 24px;
+    }
+
+    .login-hint {
+      font-size: 12px;
+      color: #666;
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    .login-hint code {
+      background: #f5f5f5;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+
+    /* Preview popup */
+    .preview-popup {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.9);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 200;
+    }
+
+    .preview-image {
+      max-width: 100%;
+      max-height: 60%;
+      object-fit: contain;
+    }
+
+    .preview-info {
+      color: #fff;
+      text-align: center;
+      margin-top: 16px;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .preview-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .preview-action-btn {
+      padding: 10px 20px;
+      background: #1976d2;
+      color: #fff;
+      border: none;
+      border-radius: 20px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid #e0e0e0;
+      background: #fff;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 16px;
+      text-align: center;
+      font-size: 14px;
+      cursor: pointer;
+      color: #666;
+      border-bottom: 2px solid transparent;
+    }
+
+    .tab.active {
+      color: #1976d2;
+      border-bottom-color: #1976d2;
+      font-weight: 600;
+    }
+
+    /* Section title */
+    .section-title {
+      font-size: 16px;
+      font-weight: 600;
+      padding: 12px 16px;
+      background: #f5f5f5;
+      color: #333;
+    }
+
+    /* Folder group */
+    .folder-group {
+      padding: 8px;
+    }
+
+    .folder-header {
+      padding: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+      background: #f9f9f9;
+      margin-bottom: 8px;
+    }
+
+    .folder-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .phone-mockup {
+        width: 100%;
+        height: 100vh;
+        border-radius: 0;
+        padding: 0;
+      }
+
+      .phone-screen {
+        border-radius: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📱 АЛЬБИОН — Мобильный PWA</h1>
+    <p style="text-align: center; color: #666; margin-bottom: 40px;">Визуальные макеты интерфейса для мобильных устройств и PWA</p>
+
+    <!-- Экран 1: Главный (грид по датам) -->
+    <h2>1. Главный экран — Грид по датам</h2>
+    <div class="phone-mockup">
+      <div class="phone-screen">
+        <div class="screen-content">
+          <!-- Шапка -->
+          <div class="header">
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+            </svg>
+            <div class="header-logo">АЛЬБИОН</div>
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+            </svg>
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
+            </svg>
+          </div>
+
+          <!-- Переключатель режима -->
+          <div class="mode-switch">
+            <button class="mode-btn active"> По датам</button>
+            <button class="mode-btn">📁 По папкам</button>
+          </div>
+
+          <!-- Контент -->
+          <div class="grid-content">
+            <div class="date-group-header">Сегодня (12)</div>
+            <div class="photo-grid">
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Щит на ул. Большая, 123<br>14:09</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Вывеска "Сбербанк"<br>14:15</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Реклама LADA<br>14:22</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Билборд "ВМЕСТЕ"<br>14:30</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Щит на трассе М-4<br>14:45</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Реклама "Пятёрочка"<br>15:02</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #fccb90 0%, #d57eeb 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Вывеска "Магнит"<br>15:18</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Щит "Ростов-на-Дону"<br>15:30</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #f5576c 0%, #ff6a88 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Реклама "Яндекс"<br>15:45</div>
+              </div>
+            </div>
+
+            <div class="date-group-header" style="margin-top: 16px;">15 ноября 2021 (8)</div>
+            <div class="photo-grid">
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Щит на ул. Ленина, 45<br>10:20</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Вывеска "X5"<br>10:35</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Реклама "М.Видео"<br>10:50</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Билборд "МТС"<br>11:05</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Щит на ул. Чехова<br>11:20</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Реклама "Л'Occitane"<br>11:35</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #fccb90 0%, #d57eeb 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Вывеска "Dixy"<br>11:50</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Щит "Ростов-на-Дону"<br>12:05</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Подвал -->
+          <div class="footer">
+            <button class="footer-btn active">3×4</button>
+            <button class="footer-btn">◄ Неделя</button>
+            <button class="footer-btn">►</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Экран 2: Грид по папкам -->
+    <h2>2. Грид по папкам (адресам)</h2>
+    <div class="phone-mockup">
+      <div class="phone-screen">
+        <div class="screen-content">
+          <div class="header">
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+            </svg>
+            <div class="header-logo">АЛЬБИОН</div>
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+            </svg>
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
+            </svg>
+          </div>
+
+          <div class="mode-switch">
+            <button class="mode-btn"> По датам</button>
+            <button class="mode-btn active"> По папкам</button>
+          </div>
+
+          <div class="grid-content">
+            <div class="folder-group">
+              <div class="folder-header">Ростов-на-Дону (45)</div>
+              <div class="folder-grid">
+                <div class="photo-tile">
+                  <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); width: 100%; height: 100%;"></div>
+                  <div class="label">Щит на ул. Большая, 123<br>14:09</div>
+                </div>
+                <div class="photo-tile">
+                  <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); width: 100%; height: 100%;"></div>
+                  <div class="label">Вывеска "Сбербанк"<br>14:15</div>
+                </div>
+                <div class="photo-tile">
+                  <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); width: 100%; height: 100%;"></div>
+                  <div class="label">Реклама LADA<br>14:22</div>
+                </div>
+                <div class="photo-tile">
+                  <div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); width: 100%; height: 100%;"></div>
+                  <div class="label">Билборд "ВМЕСТЕ"<br>14:30</div>
+                </div>
+                <div class="photo-tile">
+                  <div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); width: 100%; height: 100%;"></div>
+                  <div class="label">Щит на трассе М-4<br>14:45</div>
+                </div>
+                <div class="photo-tile">
+                  <div style="background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%); width: 100%; height: 100%;"></div>
+                  <div class="label">Реклама "Пятёрочка"<br>15:02</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="folder-group">
+              <div class="folder-header">г. Краснодар (23)</div>
+              <div class="folder-grid">
+                <div class="photo-tile">
+                  <div style="background: linear-gradient(135deg, #fccb90 0%, #d57eeb 100%); width: 100%; height: 100%;"></div>
+                  <div class="label">Вывеска "Магнит"<br>10:20</div>
+                </div>
+                <div class="photo-tile">
+                  <div style="background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%); width: 100%; height: 100%;"></div>
+                  <div class="label">Щит на ул. Красная<br>10:35</div>
+                </div>
+                <div class="photo-tile">
+                  <div style="background: linear-gradient(135deg, #f5576c 0%, #ff6a88 100%); width: 100%; height: 100%;"></div>
+                  <div class="label">Реклама "Яндекс"<br>10:50</div>
+                </div>
+                <div class="photo-tile">
+                  <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); width: 100%; height: 100%;"></div>
+                  <div class="label">Билборд "Ростелеком"<br>11:05</div>
+                </div>
+                <div class="photo-tile">
+                  <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); width: 100%; height: 100%;"></div>
+                  <div class="label">Вывеска "Ашан"<br>11:20</div>
+                </div>
+                <div class="photo-tile">
+                  <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); width: 100%; height: 100%;"></div>
+                  <div class="label">Реклама "М.Видео"<br>11:35</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="folder-group">
+              <div class="folder-header">г. Таганрог (12)</div>
+              <div class="folder-grid">
+                <div class="photo-tile">
+                  <div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); width: 100%; height: 100%;"></div>
+                  <div class="label">Щит на ул. Чехова<br>09:15</div>
+                </div>
+                <div class="photo-tile">
+                  <div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); width: 100%; height: 100%;"></div>
+                  <div class="label">Вывеска "Л'Occitane"<br>09:30</div>
+                </div>
+                <div class="photo-tile">
+                  <div style="background: linear-gradient(135deg, #fccb90 0%, #d57eeb 100%); width: 100%; height: 100%;"></div>
+                  <div class="label">Реклама "Dixy"<br>09:45</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="footer">
+            <button class="footer-btn"></button>
+            <button class="footer-btn active">📁</button>
+            <button class="footer-btn active">3×4</button>
+            <button class="footer-btn">◄ Месяц</button>
+            <button class="footer-btn">►</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Экран 3: Бургер-меню -->
+    <h2>3. Бургер-меню (Drawer)</h2>
+    <div class="phone-mockup">
+      <div class="phone-screen">
+        <div class="screen-content">
+          <div class="header">
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+            </svg>
+            <div class="header-logo">АЛЬБИОН</div>
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+            </svg>
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
+            </svg>
+          </div>
+
+          <div class="mode-switch">
+            <button class="mode-btn active">📅 По датам</button>
+            <button class="mode-btn">📁 По папкам</button>
+          </div>
+
+          <div class="grid-content" style="opacity: 0.5;">
+            <div class="date-group-header">Сегодня (12)</div>
+            <div class="photo-grid">
+              <div class="photo-tile"><div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); width: 100%; height: 100%;"></div></div>
+              <div class="photo-tile"><div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); width: 100%; height: 100%;"></div></div>
+              <div class="photo-tile"><div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); width: 100%; height: 100%;"></div></div>
+            </div>
+          </div>
+
+          <!-- Drawer -->
+          <div class="drawer open">
+            <div class="drawer-header">
+              <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor" style="margin-right: 12px;">
+                <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+              </svg>
+              АЛЬБИОН
+            </div>
+
+            <div class="drawer-user">
+              <div class="drawer-user-name">👤 Иван Петров</div>
+              <div class="drawer-user-email">ivan@example.com</div>
+              <button style="margin-top: 12px; padding: 8px 16px; background: #e0e0e0; border: none; border-radius: 4px; cursor: pointer;">Выйти</button>
+            </div>
+
+            <div class="drawer-menu">
+              <div class="drawer-item">
+                <span class="drawer-item-icon">📁</span>
+                <span>Избранные подборки</span>
+              </div>
+              <div style="padding: 8px 20px 8px 52px; font-size: 13px; color: #666;">
+                • Щиты РнД (123)<br>
+                • Трассы (89)<br>
+                • Города области (456)
+              </div>
+
+              <div class="drawer-item">
+                <span class="drawer-item-icon">🔄</span>
+                <span>Синхронизировать</span>
+              </div>
+              <div style="padding: 8px 20px 8px 52px; font-size: 13px; color: #666;">
+                <button style="padding: 6px 12px; background: #1976d2; color: #fff; border: none; border-radius: 4px; cursor: pointer;">Обновить базу</button>
+              </div>
+
+              <div class="drawer-item">
+                <span class="drawer-item-icon">⚙️</span>
+                <span>Настройки</span>
+              </div>
+              <div style="padding: 8px 20px 8px 52px; font-size: 13px; color: #666;">
+                • Тёмная тема<br>
+                • Язык: Русский<br>
+                • О приложении
+              </div>
+            </div>
+          </div>
+
+          <div class="footer">
+            <button class="footer-btn active">3×4</button>
+            <button class="footer-btn">◄ Неделя</button>
+            <button class="footer-btn">►</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Экран 4: Экран входа -->
+    <h2>4. Экран входа</h2>
+    <div class="phone-mockup">
+      <div class="phone-screen">
+        <div class="login-screen">
+          <div class="login-logo">📷 АЛЬБИОН</div>
+          <div class="login-subtitle">Фотобаза</div>
+
+          <input type="text" class="login-input" placeholder="Имя пользователя" value="ivan">
+          <input type="password" class="login-input" placeholder="Пароль" value="••••••••">
+
+          <button class="login-btn">ВОЙТИ</button>
+
+          <div class="login-hint">
+            <b>Гостевой доступ:</b><br>
+            логин: <code>гость</code>, пароль: <code>альбион</code><br><br>
+            Настройки гостя между входами не сохраняются.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Экран 5: Выбор фото -->
+    <h2>5. Режим "Выбрать фото"</h2>
+    <div class="phone-mockup">
+      <div class="phone-screen">
+        <div class="screen-content">
+          <div class="header" style="background: #333;">
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+            </svg>
+            <div class="header-logo">АЛЬБИОН</div>
+            <div style="color: #fff; font-size: 14px;">✅ Выбрано: 3</div>
+          </div>
+
+          <div class="mode-switch">
+            <button class="mode-btn active">☑ По датам</button>
+            <button class="mode-btn">📁 По папкам</button>
+          </div>
+
+          <div class="grid-content">
+            <div class="date-group-header">Сегодня (12)</div>
+            <div class="photo-grid">
+              <div class="photo-tile selected">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); width: 100%; height: 100%;"></div>
+                <div class="checkbox" style="display: block; background: #1976d2;"></div>
+                <div class="label">Щит на ул. Большая, 123<br>14:09</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Вывеска "Сбербанк"<br>14:15</div>
+              </div>
+              <div class="photo-tile selected">
+                <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); width: 100%; height: 100%;"></div>
+                <div class="checkbox" style="display: block; background: #1976d2;"></div>
+                <div class="label">Реклама LADA<br>14:22</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Билборд "ВМЕСТЕ"<br>14:30</div>
+              </div>
+              <div class="photo-tile selected">
+                <div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); width: 100%; height: 100%;"></div>
+                <div class="checkbox" style="display: block; background: #1976d2;"></div>
+                <div class="label">Щит на трассе М-4<br>14:45</div>
+              </div>
+              <div class="photo-tile">
+                <div style="background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%); width: 100%; height: 100%;"></div>
+                <div class="label">Реклама "Пятёрочка"<br>15:02</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="padding: 12px; background: #fff; border-top: 1px solid #e0e0e0; display: flex; gap: 12px;">
+            <button style="flex: 1; padding: 12px; background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 8px; cursor: pointer;">❤️ В избранное</button>
+            <button style="flex: 1; padding: 12px; background: #1976d2; color: #fff; border: none; border-radius: 8px; cursor: pointer;">📤 Экспорт</button>
+          </div>
+
+          <div class="footer">
+            <button class="footer-btn active">3×4</button>
+            <button class="footer-btn">◄ Неделя</button>
+            <button class="footer-btn">►</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Экран 6: Preview фото -->
+    <h2>6. Preview фото (при тапе)</h2>
+    <div class="phone-mockup">
+      <div class="phone-screen">
+        <div class="screen-content">
+          <div class="header" style="background: #333;">
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+            </svg>
+            <div class="header-logo">АЛЬБИОН</div>
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+            </svg>
+            <svg class="header-icon" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/>
+            </svg>
+          </div>
+
+          <div class="preview-popup">
+            <div style="width: 100%; height: 55%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 18px;">
+              [УВЕЛИЧЕННОЕ ФОТО]
+            </div>
+
+            <div class="preview-info">
+              <div style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">📍 ул. Большая, 123, Ростов-на-Дону</div>
+              <div>👤 Клиент: ООО "Реклама"</div>
+              <div>🏷 Бренд: LADA, ВМЕСТЕ</div>
+              <div>🏷 Теги: щит, билборд, РнД</div>
+            </div>
+
+            <div class="preview-actions">
+              <button class="preview-action-btn">❤️ В избранное</button>
+              <button class="preview-action-btn">📤 Поделиться</button>
+            </div>
+          </div>
+
+          <div class="footer">
+            <button class="footer-btn active">3×4</button>
+            <button class="footer-btn">◄ Неделя</button>
+            <button class="footer-btn">►</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Архитектура -->
+    <h2>Архитектура и технические решения</h2>
+    <div style="background: #fff; padding: 20px; border-radius: 8px; margin: 20px 0;">
+      <h3>Структура проекта</h3>
+      <pre style="background: #f5f5f5; padding: 16px; border-radius: 4px; overflow-x: auto; font-size: 13px; line-height: 1.6;">
+mobile/
+├── index.html              # Главная страница
+├── manifest.json           # PWA манифест
+├── sw.js                   # Service Worker
+├── css/
+│   └── main.css            # Основные стили
+├── js/
+│   ├── api.js              # API-клиент
+│   ├── auth.js             # Аутентификация
+│   ├── grid.js             # Грид фото
+│   ├── menu.js             # Бургер-меню
+│   └── main.js             # Инициализация
+└── assets/
+    ├── logo.png
+    └── icons/
+        ├── icon-192.png
+        └── icon-512.png
+      </pre>
+
+      <h3>Переиспользуемые API endpoints</h3>
+      <table style="width: 100%; border-collapse: collapse; margin-top: 12px;">
+        <thead>
+          <tr style="background: #f5f5f5;">
+            <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e0e0e0;">Действие</th>
+            <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e0e0e0;">Endpoint</th>
+            <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e0e0e0;">Метод</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">Загрузка фото (cursor-based)</td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;"><code>/api/v1/photos?dateFrom=...&dateTo=...&cursor=...&limit=...</code></td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">GET</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">Превью фото</td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;"><code>/api/v1/photos/&lt;id&gt;/previews/{size}</code> (size: small/middle)</td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">GET</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">Поиск (suggestions)</td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;"><code>/api/v1/search/suggestions?q=...</code></td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">GET</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">Поиск (фильтры)</td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;"><code>/api/v1/photos?q=...&brand=...&tag=...&category=...</code></td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">GET</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">Избранное (список)</td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;"><code>/api/v1/collections?kind=favorites</code> → <code>/api/v1/collections/{id}/members</code></td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">GET</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">Избранное (добавить)</td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;"><code>/api/v1/favorites</code> (POST: <code>{photo_ids}</code>)</td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">POST</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">Избранное (убрать)</td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;"><code>/api/v1/favorites/&lt;id&gt;</code></td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">DELETE</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">Подборки</td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;"><code>/api/v1/collections?kind=favorites</code></td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">GET</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">Логин</td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;"><code>/api/v1/auth/login</code> (POST: <code>{name, password}</code>)</td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">POST</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">Текущий пользователь</td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;"><code>/api/v1/auth/me</code></td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">GET</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">Синхронизация (ручная)</td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;"><code>/api/v1/jobs/ingest</code></td>
+            <td style="padding: 10px; border-bottom: 1px solid #e0e0e0;">POST</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px;">Экспорт (Albion cloud)</td>
+            <td style="padding: 10px;"><code>/api/v1/media-links</code> (POST: <code>{photo_ids, ...}</code>)</td>
+            <td style="padding: 10px;">POST</td>
+          </tr>
+        </tbody>
+      </table>
+            <td style="padding: 10px;">POST</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 style="margin-top: 24px;">Ключевые решения</h3>
+      <ul style="margin-left: 20px; line-height: 1.8;">
+        <li><b>Frontend:</b> Quasar v2 (Vite + Quasar plugin) — переиспользуем те же API-клиенты и компоненты, что и десктоп</li>
+        <li><b>Lazy loading:</b> IntersectionObserver для загрузки превью при скролле</li>
+        <li><b>Cursor-based pagination:</b> API возвращает <code>next_cursor</code> для бесконечного скролла</li>
+        <li><b>Кеш:</b> IndexedDB для хранения до 500 превью</li>
+        <li><b>PWA:</b> Service Worker + manifest.json (генерируется Quasar) для офлайн-режима</li>
+        <li><b>CSS Grid:</b> Адаптивная раскладка (3-6 колонок) через Quasar QGrid</li>
+        <li><b>Group tabs:</b> 5 табов (screens, rostov, cities, roads, small) — горизонтальная прокрутка под шапкой</li>
+        <li><b>Web Share API:</b> Экспорт выбранных фото в мессенджеры через <code>/api/v1/media-links</code></li>
+      </ul>
+    </div>
+
+    <!-- Этапы разработки -->
+    <h2>Этапы разработки</h2>
+    <div style="background: #fff; padding: 20px; border-radius: 8px; margin: 20px 0;">
+      <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+          <tr style="background: #1976d2; color: #fff;">
+            <th style="padding: 12px; text-align: left;">Этап</th>
+            <th style="padding: 12px; text-align: left;">Срок</th>
+            <th style="padding: 12px; text-align: left;">Результат</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;"><b>1. Каркас</b></td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">1-2 дня</td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">HTML/CSS/JS скелет, API-клиент</td>
+          </tr>
+          <tr>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;"><b>2. Грид фото</b></td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">2-3 дня</td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">Отображение фото с группировкой</td>
+          </tr>
+          <tr>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;"><b>3. Подвал</b></td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">1-2 дня</td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">Переключатели режима, количества, периода</td>
+          </tr>
+          <tr>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;"><b>4. Избранное</b></td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">2 дня</td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">Выбор, сохранение, экспорт</td>
+          </tr>
+          <tr>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;"><b>5. Меню</b></td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">1-2 дня</td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">Бургер, логин, синхронизация</td>
+          </tr>
+          <tr>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;"><b>6. PWA</b></td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">2-3 дня</td>
+            <td style="padding: 12px; border-bottom: 1px solid #e0e0e0;">Офлайн-режим, оптимизация</td>
+          </tr>
+          <tr style="background: #f5f5f5;">
+            <td style="padding: 12px; font-weight: 600;"><b>ИТОГО</b></td>
+            <td style="padding: 12px; font-weight: 600;">9-14 дней</td>
+            <td style="padding: 12px; font-weight: 600;"><b>Рабочий PWA</b></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="text-align: center; margin: 40px 0; padding: 20px; background: #e3f2fd; border-radius: 8px;">
+      <h3 style="color: #1976d2; margin-bottom: 12px;">Следующие шаги</h3>
+      <ol style="text-align: left; display: inline-block; line-height: 2;">
+        <li>Согласовать план с владельцем</li>
+        <li>Создать структуру проекта <code>mobile/</code></li>
+        <li>Начать с Этапа 1 (каркас + API-клиент)</li>
+        <li>Показать первый рабочий прототип (грид + бургер)</li>
+      </ol>
+    </div>
+
+    <div style="text-align: center; color: #999; font-size: 13px; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+      Дата: 2026-11-21 | Автор: Claude Code | Статус: План согласован, ждём старт
+    </div>
+  </div>
+</body>
+</html>

@@ -58,6 +58,12 @@ from app.api.routes import (
 # single process; the API keeps its own /api prefix.
 SPA_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
+# Мобильный PWA (mobile/). Раздаётся тем же процессом по адресу /mobile/,
+# поэтому запросы к /api остаются same-origin: куки сессии работают, CORS
+# не нужен, а `<img src="/api/v1/photos/…/previews/small">` авторизуется
+# кукой (её сервер ставит при входе и принимает для GET/HEAD).
+MOBILE_DIST = Path(__file__).resolve().parents[2] / "mobile"
+
 
 def create_app() -> FastAPI:
     # Fail fast on a malformed SCENE_API_TOKENS instead of weakening access
@@ -164,6 +170,9 @@ def create_app() -> FastAPI:
     app.include_router(video_write_router, prefix="/api")
     app.include_router(video_playback_router, prefix="/api")
 
+    # Мобильный PWA монтируется до SPA-фолбэка: правила маршрутов проверяются
+    # по порядку, и catch-all SPA не должен перехватывать /mobile/*.
+    _mount_mobile(app)
     _mount_spa(app)
 
     return app
@@ -187,7 +196,46 @@ def static_cache_control(path: str) -> str | None:
     if path in ("/", "/index.html", "/build.json"):
         return "no-store, no-cache, must-revalidate, max-age=0"
 
+    # Мобильный PWA (/mobile/). Файлы там без хеша в имени, поэтому бандлы
+    # кешируются ненадолго, оболочка — никогда, а service worker обязан
+    # ревалидироваться: иначе после обновления браузер держит старый sw.js.
+    if path in ("/mobile", "/mobile/", "/mobile/index.html"):
+        return "no-store, no-cache, must-revalidate, max-age=0"
+
+    if path == "/mobile/sw.js":
+        return "no-cache, must-revalidate, max-age=0"
+
+    # Скрипты и стили без хеша в имени обязаны ревалидироваться: иначе
+    # после обновления браузер держит старый main.js (проверено на практике:
+    # исправленная подпись дня оставалась прежней из кэша).
+    if path.startswith(("/mobile/css/", "/mobile/js/")):
+        return "no-cache, must-revalidate, max-age=0"
+
+    if path.startswith(("/mobile/assets/",)):
+        return "public, max-age=86400"
+
+    if path == "/mobile/manifest.json":
+        return "public, max-age=3600"
+
     return None
+
+
+def _mount_mobile(app: FastAPI) -> None:
+    """
+    Serve the mobile PWA from the same process at /mobile/.
+
+    Отдельный сервер и CORS не нужны: страница и API живут на одном origin,
+    поэтому куки сессии и `Authorization` работают как в десктопной SPA.
+    """
+
+    if not MOBILE_DIST.is_dir():
+        return
+
+    app.mount(
+        "/mobile",
+        StaticFiles(directory=MOBILE_DIST, html=True),
+        name="mobile",
+    )
 
 
 def _mount_spa(app: FastAPI) -> None:

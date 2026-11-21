@@ -82,6 +82,70 @@ def test_create_requires_collections_write_scope(monkeypatch):
 
 
 @requires_db
+def test_address_collection_roundtrip(cleanup_collections):
+    """Подборка адресов: scope addresses + members addr:<id>, затем удаление."""
+
+    created = client.post(
+        "/api/v1/collections",
+        json={"name": "Тест-адреса", "kind": "Моя", "scope": "addresses"},
+    )
+    assert created.status_code == 201
+
+    collection_id = created.json()["collection_id"]
+    cleanup_collections.append(collection_id)
+
+    values = ["addr:1", "addr:2"]
+
+    added = client.post(
+        f"/api/v1/collections/{collection_id}/members",
+        json={"member_type": "address", "values": values},
+    )
+    assert added.status_code == 200
+    assert added.json()["added"] == len(values)
+
+    members = client.get(
+        f"/api/v1/collections/{collection_id}/members",
+        params={"member_type": "address"},
+    ).json()["items"]
+    assert members == values
+
+    # Скоуп владеет одним типом участников: фото в адресной подборке — 422.
+    mismatch = client.post(
+        f"/api/v1/collections/{collection_id}/members",
+        json={"member_type": "photo", "values": ["PH_0"]},
+    )
+    assert mismatch.status_code == 422
+
+    assert (
+        client.delete(f"/api/v1/collections/{collection_id}").status_code == 200
+    )
+    cleanup_collections.remove(collection_id)
+
+
+@requires_db
+def test_delete_collection_roundtrip(cleanup_collections):
+    """Удаление подборки: 200 при первом вызове, 404 — при повторе."""
+
+    created = client.post(
+        "/api/v1/collections",
+        json={"name": "Тест-удаление", "kind": "Моя", "scope": "photos"},
+    )
+    assert created.status_code == 201
+
+    collection_id = created.json()["collection_id"]
+    cleanup_collections.append(collection_id)
+
+    assert (
+        client.delete(f"/api/v1/collections/{collection_id}").status_code == 200
+    )
+    assert (
+        client.delete(f"/api/v1/collections/{collection_id}").status_code == 404
+    )
+
+    cleanup_collections.remove(collection_id)
+
+
+@requires_db
 def test_collection_lifecycle(cleanup_collections):
     with get_connection() as conn:
         with conn.cursor() as cur:

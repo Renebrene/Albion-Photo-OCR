@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#1976d2">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>АЛЬБИОН — Фотобаза</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+  <div id="app" class="phone-frame">
+
+    <!-- ===== LOGIN SCREEN ===== -->
+    <div class="login-screen" id="loginScreen">
+      <img class="login-logo-img" src="assets/icons/icon-192.png" alt="АЛЬБИОН">
+      <div class="login-logo">АЛЬБИОН</div>
+      <div class="login-subtitle">Фотобаза</div>
+      <input class="login-input" id="loginName" placeholder="Имя пользователя" autocomplete="username">
+      <input class="login-input" id="loginPass" type="password" placeholder="Пароль" autocomplete="current-password">
+      <button class="login-btn" id="loginBtn">ВОЙТИ</button>
+      <div class="login-hint">
+        <b>Гостевой доступ:</b><br>
+        логин: <code>гость</code>, пароль: <code>альбион</code><br><br>
+        Настройки гостя между входами не сохраняются.
+      </div>
+    </div>
+
+    <!-- ===== MAIN APP ===== -->
+    <div id="mainApp" style="display:none; flex-direction:column; flex:1; height:100%;">
+
+      <!-- Header -->
+      <header class="header">
+        <button class="header-btn" id="menuBtn" aria-label="Меню">☰</button>
+        <img class="header-logo" src="assets/icons/icon-192.png" alt="">
+        <div class="header-title" id="headerTitle">АЛЬБИОН</div>
+        <button class="header-action header-favorite" id="headerFavoriteBtn" aria-label="Избранное" title="Избранное">❤</button>
+        <button class="header-action" id="headerSelectBtn" aria-label="Выбрать фото" title="Выбрать фото" style="display:none;">☑</button>
+      </header>
+
+      <!-- Search bar -->
+      <div class="search-bar-container">
+        <input class="search-bar" id="searchInput" placeholder="Поиск по адресам, клиентам, брендам..." autocomplete="off">
+        <div class="search-suggestions" id="searchSuggestions" hidden></div>
+      </div>
+
+      <!-- Mode switch -->
+      <div class="mode-switch">
+        <button class="mode-btn active" id="modeDates">📅 По датам</button>
+        <button class="mode-btn" id="modeAddresses">📁 По адресам</button>
+      </div>
+
+      <!-- Content -->
+      <main class="content" id="content"></main>
+
+      <!-- Selection bar -->
+      <div class="selection-bar" id="selectionBar">
+        <span class="selection-count" id="selectionCount">Выбрано: 0</span>
+        <button class="selection-action" id="selectAllBtn">Все</button>
+        <button class="selection-action" id="favoriteBtn" aria-label="В избранное" title="В избранное">❤️</button>
+        <button class="selection-action" id="copyBtn" aria-label="Копировать адреса и ссылки" title="Копировать адреса и ссылки">📋</button>
+        <button class="selection-action primary" id="exportBtn" aria-label="Отправить в мессенджер" title="Отправить в мессенджер">📤</button>
+        <button class="selection-action" id="clearSelectionBtn" aria-label="Снять выделение" title="Снять выделение">✕</button>
+      </div>
+
+      <!-- Footer -->
+      <footer class="footer">
+        <button class="footer-btn active" id="footerCols">3×4</button>
+        <button class="footer-btn footer-address-btn" id="addressPickerBtn">
+          <span></span>
+          <span class="footer-address-text" id="footerAddressText">Все адреса</span>
+        </button>
+        <button class="footer-btn" id="footerPeriod">◄ Неделя ►</button>
+      </footer>
+
+      <!-- Address picker (bottom sheet) -->
+      <div class="address-picker-overlay" id="addressPickerOverlay"></div>
+      <div class="address-picker" id="addressPicker">
+        <div class="address-picker-header">
+          <div class="address-picker-title">Выбор адресов</div>
+          <input class="address-search" id="addressSearchInput" placeholder="Поиск адреса...">
+        </div>
+        <div class="address-picker-content" id="addressPickerContent"></div>
+        <div class="address-picker-footer">
+          <button class="address-picker-btn cancel" id="addressCancelBtn">Отмена</button>
+          <button class="address-picker-btn apply" id="addressApplyBtn">Применить</button>
+        </div>
+      </div>
+
+      <!-- Delete collection dialog -->
+      <div class="dialog-overlay" id="deleteCollectionDialog">
+        <div class="dialog">
+          <div class="dialog-title">Удалить подборку?</div>
+          <div class="dialog-text">
+            «<span id="deleteCollectionName"></span>»<br>
+            Фотографии останутся в базе — удалится только подборка.
+          </div>
+          <div class="dialog-actions">
+            <button class="dialog-btn cancel" id="deleteCollectionCancelBtn">Отмена</button>
+            <button class="dialog-btn danger" id="deleteCollectionConfirmBtn">Удалить</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Add collection dialog -->
+      <div class="dialog-overlay" id="addCollectionDialog">
+        <div class="dialog">
+          <div class="dialog-title" id="collectionDialogTitle">Новая подборка</div>
+          <input class="dialog-input" id="collectionNameInput" placeholder="Название подборки..." autocomplete="off">
+          <div class="dialog-actions">
+            <button class="dialog-btn cancel" id="addCollectionCancelBtn">Отмена</button>
+            <button class="dialog-btn create" id="addCollectionCreateBtn">Создать</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Drawer (burger menu) -->
+      <div class="drawer-overlay" id="drawerOverlay"></div>
+      <nav class="drawer" id="drawer">
+        <div class="drawer-header">
+          <div class="drawer-avatar" id="drawerAvatar">?</div>
+          <div class="drawer-user-info">
+            <div class="drawer-user-name" id="drawerUserName">Гость</div>
+            <div class="drawer-user-role" id="drawerUserRole">Гость</div>
+          </div>
+        </div>
+        <div class="drawer-menu">
+          <div class="drawer-section">Аккаунт</div>
+          <button class="drawer-item" id="profileBtn">
+            <span class="drawer-item-icon"></span>
+            <span class="drawer-item-label">Профиль</span>
+          </button>
+          <button class="drawer-item danger" id="logoutBtn">
+            <span class="drawer-item-icon">🚪</span>
+            <span class="drawer-item-label">Выйти</span>
+          </button>
+
+          <div class="drawer-section">Навигация</div>
+          <button class="drawer-item" id="navDates">
+            <span class="drawer-item-icon">📅</span>
+            <span class="drawer-item-label">По датам</span>
+            <span class="drawer-item-value">Альбомы</span>
+          </button>
+          <button class="drawer-item" id="navAddresses">
+            <span class="drawer-item-icon">📁</span>
+            <span class="drawer-item-label">По адресам</span>
+            <span class="drawer-item-value">Подборки</span>
+          </button>
+          <button class="drawer-item" id="navFavorites">
+            <span class="drawer-item-icon">❤️</span>
+            <span class="drawer-item-label">Избранные</span>
+            <span class="drawer-item-value">—</span>
+          </button>
+
+          <div class="drawer-section">Синхронизация</div>
+          <button class="drawer-item" id="syncBtn">
+            <span class="drawer-item-icon">🔄</span>
+            <span class="drawer-item-label">Синхронизировать</span>
+            <span class="drawer-item-value" id="syncStatus">Готово</span>
+          </button>
+          <button class="drawer-item" id="updateAppBtn">
+            <span class="drawer-item-icon">⬆️</span>
+            <span class="drawer-item-label">Обновить приложение</span>
+          </button>
+          <button class="drawer-item" id="addCollectionBtn">
+            <span class="drawer-item-icon">➕</span>
+            <span class="drawer-item-label">Добавить подборку</span>
+          </button>
+
+          <div class="drawer-section">Группы адресов</div>
+          <button class="drawer-item" data-group="">
+            <span class="drawer-item-icon">🗂️</span>
+            <span class="drawer-item-label">Все группы</span>
+          </button>
+          <button class="drawer-item" data-group="screens">
+            <span class="drawer-item-icon">🖥️</span>
+            <span class="drawer-item-label">Видеоэкраны</span>
+          </button>
+          <button class="drawer-item" data-group="rostov">
+            <span class="drawer-item-icon">️</span>
+            <span class="drawer-item-label">Ростов-на-Дону</span>
+          </button>
+          <button class="drawer-item" data-group="cities">
+            <span class="drawer-item-icon">🌆</span>
+            <span class="drawer-item-label">Города области</span>
+          </button>
+          <button class="drawer-item" data-group="roads">
+            <span class="drawer-item-icon">🛣️</span>
+            <span class="drawer-item-label">Трассы 6×3</span>
+          </button>
+          <button class="drawer-item" data-group="small">
+            <span class="drawer-item-icon"></span>
+            <span class="drawer-item-label">Малые форматы</span>
+          </button>
+
+          <div class="drawer-section">Настройки</div>
+          <button class="drawer-item" id="themeBtn">
+            <span class="drawer-item-icon" id="themeIcon">🌙</span>
+            <span class="drawer-item-label">Тёмная тема</span>
+          </button>
+          <button class="drawer-item">
+            <span class="drawer-item-icon">🌐</span>
+            <span class="drawer-item-label">Язык</span>
+            <span class="drawer-item-value">Русский</span>
+          </button>
+
+          <div class="drawer-section">Информация</div>
+          <button class="drawer-item">
+            <span class="drawer-item-icon">ℹ️</span>
+            <span class="drawer-item-label">О приложении</span>
+            <span class="drawer-item-value">v1.0.0</span>
+          </button>
+        </div>
+        <div class="drawer-footer">
+          <div>сборка <span id="buildVersion">—</span></div>
+        </div>
+      </nav>
+
+      <!-- Preview overlay -->
+      <div class="preview-overlay" id="previewOverlay">
+        <button class="preview-close" id="previewCloseBtn">✕</button>
+        <div class="preview-counter" id="previewCounter"></div>
+        <button class="preview-nav prev" id="previewPrevBtn" aria-label="Предыдущее фото" hidden>‹</button>
+        <button class="preview-nav next" id="previewNextBtn" aria-label="Следующее фото" hidden>›</button>
+        <div class="preview-image" id="previewImage"></div>
+        <div class="preview-info">
+          <div class="address" id="previewAddress"></div>
+          <div id="previewClient"></div>
+          <div id="previewBrand"></div>
+          <div id="previewTags"></div>
+          <div id="previewDate" style="margin-top:6px; opacity:0.7;"></div>
+        </div>
+        <div class="preview-actions">
+          <button class="preview-action-btn" id="previewFavoriteBtn">❤️ В избранное</button>
+          <button class="preview-action-btn" id="previewShareBtn">📤 Поделиться</button>
+          <button class="preview-action-btn" id="previewDownloadBtn">⬇️ Скачать</button>
+          <button class="preview-action-btn" id="previewCloseBottomBtn">✕ Закрыть</button>
+        </div>
+      </div>
+
+      <!-- Toast -->
+      <div class="toast" id="toast"></div>
+    </div>
+
+  </div>
+
+  <!-- ES-модуль: api.js/auth.js/pwa.js импортируются из main.js.
+       Service worker регистрирует pwa.js (автообновление раз в сутки). -->
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

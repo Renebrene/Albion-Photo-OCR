@@ -1,0 +1,1632 @@
+/* ===== Variables ===== */
+:root {
+  --primary: #1976d2;
+  --primary-dark: #1565c0;
+  --bg: #f5f5f5;
+  --card-bg: #ffffff;
+  --text: #333333;
+  --text-secondary: #666666;
+  --text-light: #999999;
+  --border: #e0e0e0;
+  --danger: #d32f2f;
+  --success: #388e3c;
+  --shadow: 0 2px 8px rgba(0,0,0,0.1);
+  --shadow-lg: 0 4px 16px rgba(0,0,0,0.15);
+}
+
+body.dark-mode {
+  --bg: #1a1a1a;
+  --card-bg: #2d2d2d;
+  --text: #e0e0e0;
+  --text-secondary: #b0b0b0;
+  --text-light: #808080;
+  --border: #404040;
+}
+
+/* ===== Reset ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  height: 100vh;
+}
+
+/* ===== Phone frame ===== */
+.phone-frame {
+  width: 100%;
+  max-width: 420px;
+  height: 100vh;
+  max-height: 900px;
+  margin: 0 auto;
+  background: var(--card-bg);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 0 40px rgba(0,0,0,0.15);
+}
+
+@media (min-width: 500px) {
+  body {
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .phone-frame {
+    border-radius: 32px;
+    height: 85vh;
+  }
+}
+
+/* ===== Header ===== */
+.header {
+  height: 56px;
+  background: var(--primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 10px;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.header-btn,
+.header-action {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: #fff;
+  border-radius: 50%;
+  font-size: 20px;
+}
+
+.header-btn:active,
+.header-action:active {
+  background: rgba(255,255,255,0.2);
+}
+
+.header-action.active {
+  background: rgba(255,255,255,0.25);
+}
+
+.header-favorite {
+  color: #ffcdd2;
+  font-size: 19px;
+}
+
+.header-favorite:active {
+  color: #ff8a80;
+}
+
+.header-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.header-title {
+  font-size: 18px;
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ===== Search bar ===== */
+.search-bar-container {
+  position: relative;
+  padding: 8px 12px;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.search-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 8px;
+  right: 8px;
+  z-index: 60;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+}
+
+.search-suggestion {
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.search-suggestion:last-child {
+  border-bottom: none;
+}
+
+.search-suggestion:active {
+  background: var(--bg);
+}
+
+.search-suggestion-kind {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.search-bar {
+  width: 100%;
+  height: 36px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 0 14px;
+  font-size: 14px;
+  outline: none;
+  color: var(--text);
+}
+
+.search-bar:focus {
+  border-color: var(--primary);
+  background: var(--card-bg);
+}
+
+.search-bar::placeholder {
+  color: var(--text-light);
+}
+
+/* ===== Mode switch ===== */
+.mode-switch {
+  display: flex;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.mode-btn {
+  flex: 1;
+  padding: 10px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.mode-btn.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  background: var(--card-bg);
+}
+
+/* ===== Content ===== */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px;
+}
+
+.content::-webkit-scrollbar {
+  width: 4px;
+}
+
+.content::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 2px;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 16px 0 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ===== Folder tiles (grid of dates / addresses) ===== */
+.folder-tile {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.folder-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.folder-tile.icon-only {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+  background: #e3f2fd;
+}
+
+body.dark-mode .folder-tile.icon-only {
+  background: #263238;
+}
+
+.folder-tile-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 16px 7px 6px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.78));
+  color: #fff;
+  line-height: 1.25;
+}
+
+.folder-tile.icon-only .folder-tile-label {
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.55));
+}
+
+.folder-tile-name {
+  font-size: 11px;
+  font-weight: 700;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.folder-tile-meta {
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.85;
+  margin-top: 1px;
+}
+
+/* Папки-адреса: синяя плитка с белой надписью, без иконки папки. */
+.folder-tile.plain-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 8px;
+  background: var(--primary);
+  border: 1px solid var(--primary-dark);
+}
+
+.folder-tile.plain-tile .folder-tile-label {
+  position: static;
+  padding: 0;
+  background: none;
+  color: #fff;
+  text-align: center;
+}
+
+.folder-tile.plain-tile .folder-tile-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  -webkit-line-clamp: 3;
+}
+
+.folder-tile.plain-tile .folder-tile-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 1;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* На синем фоне выбранная плитка обводится белым, чекбокс — белый. */
+.folder-tile.plain-tile.selected::after {
+  border-color: #fff;
+}
+
+.folder-tile.plain-tile .folder-checkbox {
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.folder-tile.plain-tile.selected .folder-checkbox {
+  background: #fff;
+  border-color: #fff;
+  color: var(--primary);
+}
+
+/* Чекбоксы папок-адресов в режиме мультивыбора. */
+.folder-checkbox {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 12px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.folder-tile.selectable .folder-checkbox {
+  display: flex;
+}
+
+.folder-tile.selected .folder-checkbox {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.folder-tile.selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 3px solid var(--primary);
+  border-radius: 10px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Плитка «Добавить подборку» в сетке подборок. */
+.folder-tile.add-collection-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 2px dashed var(--border);
+  background: var(--bg);
+  color: var(--text-secondary);
+}
+
+.folder-tile.add-collection-tile .folder-tile-label {
+  position: static;
+  padding: 0 8px 10px;
+  background: none;
+  color: inherit;
+  text-align: center;
+}
+
+.folder-tile.add-collection-tile .folder-tile-name {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.add-collection-plus {
+  font-size: 28px;
+  line-height: 1;
+  color: var(--primary);
+}
+
+.add-collection-tile.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.add-collection-tile.active {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.add-collection-tile.active .folder-tile-name {
+  color: var(--primary);
+}
+
+/* ===== Back tile (first cell of a photo grid) ===== */
+/* Специфичность выше `.photo-tile` из блока превью, иначе фон перебивается. */
+.photo-tile.back-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: #455a64;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.photo-tile.back-tile .back-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+
+/* ===== Folder cards ===== */
+.folder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.folder-card {
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.folder-card:active {
+  transform: scale(0.98);
+  box-shadow: var(--shadow-lg);
+}
+
+.folder-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+/* Карточка без превью (адреса, подборки) — без лишнего нижнего отступа. */
+.folder-card:not(:has(.folder-preview)) .folder-header {
+  margin-bottom: 0;
+}
+
+.folder-icon {
+  width: 36px;
+  height: 36px;
+  background: #e3f2fd;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.folder-icon svg {
+  width: 20px;
+  height: 20px;
+  fill: var(--primary);
+}
+
+.folder-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.folder-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.folder-meta {
+  font-size: 12px;
+  color: var(--text-light);
+  margin-top: 2px;
+}
+
+.folder-chevron {
+  width: 20px;
+  height: 20px;
+  color: var(--text-light);
+  flex-shrink: 0;
+}
+
+.folder-preview {
+  width: 100%;
+  height: 80px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.folder-preview > div {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ===== Add collection button ===== */
+.add-collection-btn {
+  width: 100%;
+  padding: 12px;
+  background: var(--bg);
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.add-collection-btn:active {
+  background: var(--border);
+}
+
+/* ===== Favorites actions ===== */
+.favorites-actions {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.favorites-action {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.favorites-action.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.favorites-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ===== Photo grid ===== */
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+}
+
+.photo-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.photo-grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
+.photo-grid.cols-6 { grid-template-columns: repeat(6, 1fr); }
+
+.photo-tile {
+  aspect-ratio: 1;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.photo-tile > div {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photo-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(transparent, rgba(0,0,0,0.75));
+  padding: 12px 6px 5px;
+  color: #fff;
+  font-size: 10px;
+  line-height: 1.3;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.photo-address {
+  font-weight: 700;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.photo-date {
+  font-weight: 400;
+  font-size: 9px;
+  opacity: 0.85;
+  margin-top: 1px;
+}
+
+.photo-checkbox {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.3);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 12px;
+}
+
+.photo-tile.selected .photo-checkbox {
+  display: flex;
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+/* В режиме выбора пустые чекбоксы видны у всех плиток. */
+.photo-tile.selectable .photo-checkbox {
+  display: flex;
+}
+
+.photo-favorite {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  color: #ff5252;
+  display: none;
+}
+
+.photo-tile.favorited .photo-favorite {
+  display: block;
+}
+
+/* ===== Subheader ===== */
+.subheader {
+  display: flex;
+  gap: 6px;
+  padding: 8px 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.subheader::-webkit-scrollbar {
+  display: none;
+}
+
+.sub-pill {
+  padding: 5px 10px;
+  background: var(--bg);
+  border-radius: 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.sub-pill.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+/* ===== Footer ===== */
+.footer {
+  height: 44px;
+  background: var(--card-bg);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.footer-btn {
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: var(--bg);
+  border: none;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.footer-btn.active {
+  background: var(--primary);
+  color: #fff;
+}
+
+.footer-address-btn {
+  flex: 1;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.footer-address-text {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ===== Date group header ===== */
+.date-group-header {
+  padding: 12px 4px 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.date-group-count {
+  font-size: 12px;
+  color: var(--text-light);
+  font-weight: 400;
+  margin-left: 4px;
+}
+
+/* ===== Loading spinner ===== */
+.loading-spinner {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.loading-spinner::after {
+  content: '';
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ===== Error message ===== */
+.error-message {
+  padding: 16px;
+  background: #ffebee;
+  color: var(--danger);
+  border-radius: 8px;
+  font-size: 14px;
+  text-align: center;
+  margin: 8px 0;
+}
+
+body.dark-mode .error-message {
+  background: rgba(211, 47, 47, 0.1);
+}
+
+/* ===== Pagination indicator ===== */
+.pagination-indicator {
+  text-align: center;
+  padding: 12px;
+  color: var(--primary);
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 8px;
+  margin: 8px 0;
+}
+
+.pagination-indicator:active {
+  background: var(--bg);
+}
+
+.pagination-indicator.loading {
+  color: var(--text-light);
+  cursor: default;
+}
+
+/* ===== Photo preview (real <img>, lazy) ===== */
+.photo-preview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: var(--bg);
+}
+
+.photo-preview.failed {
+  display: none;
+}
+
+.photo-tile {
+  background: #d7dbe0;
+}
+
+/* ===== Load more / empty states ===== */
+.load-more {
+  width: 100%;
+  padding: 12px;
+  margin: 10px 0;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.load-more:active {
+  background: var(--bg);
+}
+
+.load-more.loading {
+  color: var(--text-light);
+  cursor: default;
+}
+
+.empty-state {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-light);
+  font-size: 14px;
+}
+
+.empty-state-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+/* ===== Folder preview image ===== */
+.folder-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.folder-preview.empty {
+  background: var(--bg);
+  border: 1px dashed var(--border);
+}
+
+/* ===== Address picker (bottom sheet) ===== */
+.address-picker-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 50;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+
+.address-picker-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.address-picker {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--card-bg);
+  z-index: 60;
+  border-radius: 16px 16px 0 0;
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  max-height: 70%;
+  box-shadow: 0 -4px 16px rgba(0,0,0,0.15);
+}
+
+.address-picker.open {
+  transform: translateY(0);
+}
+
+.address-picker-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.address-picker-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.address-search {
+  width: 100%;
+  height: 36px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 0 14px;
+  font-size: 14px;
+  outline: none;
+}
+
+.address-search:focus {
+  border-color: var(--primary);
+  background: var(--card-bg);
+}
+
+.address-picker-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.address-section {
+  padding: 8px 16px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-light);
+  text-transform: uppercase;
+}
+
+.address-item {
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.address-item:active {
+  background: var(--bg);
+}
+
+.address-checkbox {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #fff;
+}
+
+.address-item.selected .address-checkbox {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.address-item-name {
+  flex: 1;
+}
+
+.address-item-count {
+  font-size: 12px;
+  color: var(--text-light);
+}
+
+.address-picker-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+}
+
+.address-picker-btn {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.address-picker-btn.cancel {
+  background: var(--bg);
+  color: var(--text-secondary);
+}
+
+.address-picker-btn.apply {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* ===== Dialog ===== */
+.dialog-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 70;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.dialog-overlay.open {
+  display: flex;
+}
+
+.dialog {
+  background: var(--card-bg);
+  border-radius: 16px;
+  padding: 24px;
+  width: 100%;
+  max-width: 320px;
+  box-shadow: var(--shadow-lg);
+}
+
+.dialog-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.dialog-input {
+  width: 100%;
+  height: 40px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 12px;
+  font-size: 14px;
+  outline: none;
+  margin-bottom: 16px;
+}
+
+.dialog-text {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  margin-bottom: 16px;
+}
+
+.dialog-input:focus {
+  border-color: var(--primary);
+  background: var(--card-bg);
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.dialog-btn {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.dialog-btn.cancel {
+  background: var(--bg);
+  color: var(--text-secondary);
+}
+
+.dialog-btn.create {
+  background: var(--primary);
+  color: #fff;
+}
+
+.dialog-btn.danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* Кнопка удаления на плитке подборки. */
+.folder-tile-delete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.folder-tile-delete:active {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+body.dark-mode .folder-tile-delete {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* ===== Drawer ===== */
+.drawer-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 50;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+
+.drawer-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.drawer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 280px;
+  height: 100%;
+  background: var(--card-bg);
+  z-index: 60;
+  transform: translateX(-100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+}
+
+.drawer.open {
+  transform: translateX(0);
+}
+
+.drawer-header {
+  height: 80px;
+  background: var(--primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 12px;
+}
+
+.drawer-avatar {
+  width: 40px;
+  height: 40px;
+  background: rgba(255,255,255,0.3);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.drawer-user-info {
+  flex: 1;
+}
+
+.drawer-user-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.drawer-user-role {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.drawer-menu {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.drawer-section {
+  padding: 8px 16px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.drawer-item {
+  padding: 12px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text);
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+}
+
+.drawer-item:active {
+  background: var(--bg);
+}
+
+.drawer-item.active {
+  background: var(--bg);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.drawer-item.danger {
+  color: var(--danger);
+}
+
+.drawer-item-icon {
+  width: 20px;
+  text-align: center;
+  font-size: 16px;
+}
+
+.drawer-item-label {
+  flex: 1;
+}
+
+.drawer-item-value {
+  font-size: 12px;
+  color: var(--text-light);
+}
+
+.drawer-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-light);
+  text-align: center;
+}
+
+/* ===== Login screen ===== */
+.login-screen {
+  position: absolute;
+  inset: 0;
+  background: var(--card-bg);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+}
+
+.login-screen.hidden {
+  display: none;
+}
+
+.login-logo-img {
+  width: 96px;
+  height: 96px;
+  border-radius: 22px;
+  margin-bottom: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.login-logo {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 4px;
+}
+
+.login-subtitle {
+  font-size: 13px;
+  color: var(--text-light);
+  margin-bottom: 40px;
+}
+
+.login-input {
+  width: 100%;
+  max-width: 280px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  margin-bottom: 12px;
+  outline: none;
+  background: var(--bg);
+}
+
+.login-input:focus {
+  border-color: var(--primary);
+  background: var(--card-bg);
+}
+
+.login-btn {
+  width: 100%;
+  max-width: 280px;
+  padding: 12px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 20px;
+}
+
+.login-btn:active {
+  background: var(--primary-dark);
+}
+
+.login-hint {
+  font-size: 11px;
+  color: var(--text-light);
+  text-align: center;
+  line-height: 1.7;
+  background: var(--bg);
+  padding: 12px;
+  border-radius: 8px;
+  max-width: 280px;
+}
+
+.login-hint code {
+  background: var(--border);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+
+/* ===== Preview overlay ===== */
+.preview-overlay {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  z-index: 80;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  /* Горизонтальный жест отдаём свайпу, вертикальный — прокрутке. */
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.preview-overlay.open {
+  display: flex;
+}
+
+.preview-image {
+  width: 100%;
+  max-height: 55%;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.preview-image img {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.preview-info {
+  color: #fff;
+  text-align: center;
+  margin-top: 16px;
+  font-size: 13px;
+  line-height: 1.7;
+  max-width: 320px;
+}
+
+.preview-info .address {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.preview-action-btn {
+  padding: 10px 18px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.preview-action-btn:active {
+  background: var(--primary-dark);
+}
+
+/* Счётчик «3 / 98» в карточке фото. */
+.preview-counter {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Прозрачные стрелки листания по бокам снимка. */
+.preview-nav {
+  position: absolute;
+  top: 36%;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 44px;
+  height: 72px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 42px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.preview-nav.prev {
+  left: 2px;
+}
+
+.preview-nav.next {
+  right: 2px;
+}
+
+.preview-nav:active {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.preview-nav[hidden] {
+  display: none;
+}
+
+.preview-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  background: rgba(255,255,255,0.15);
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ===== Selection bar ===== */
+.selection-bar {
+  position: absolute;
+  bottom: 44px;
+  left: 0;
+  right: 0;
+  background: var(--primary);
+  color: #fff;
+  padding: 8px 12px;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  z-index: 20;
+  box-shadow: 0 -2px 8px rgba(0,0,0,0.2);
+}
+
+.selection-bar.active {
+  display: flex;
+}
+
+.selection-count {
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.selection-action {
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.2);
+  border: none;
+  border-radius: 16px;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.selection-action.primary {
+  background: #fff;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* ===== Toast ===== */
+.toast {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background: #333;
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 20px;
+  font-size: 13px;
+  z-index: 200;
+  opacity: 0;
+  transition: all 0.3s;
+  white-space: nowrap;
+}
+
+.toast.show {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}

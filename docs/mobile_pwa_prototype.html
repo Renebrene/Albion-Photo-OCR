@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>АЛЬБИОН — Мобильный PWA: Прототип</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    :root {
+      --primary: #1976d2;
+      --primary-dark: #1565c0;
+      --bg: #f5f5f5;
+      --card-bg: #ffffff;
+      --text: #333333;
+      --text-secondary: #666666;
+      --text-light: #999999;
+      --border: #e0e0e0;
+      --danger: #d32f2f;
+      --success: #388e3c;
+      --shadow: 0 2px 8px rgba(0,0,0,0.1);
+      --shadow-lg: 0 4px 16px rgba(0,0,0,0.15);
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden;
+      height: 100vh;
+    }
+
+    /* ===== Phone mockup ===== */
+    .phone-frame {
+      width: 100%;
+      max-width: 420px;
+      height: 100vh;
+      max-height: 900px;
+      margin: 0 auto;
+      background: #fff;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 0 40px rgba(0,0,0,0.15);
+    }
+    @media (min-width: 500px) {
+      body { background: #e8e8e8; display: flex; align-items: center; justify-content: center; }
+      .phone-frame { border-radius: 32px; height: 85vh; }
+    }
+
+    /* ===== Header ===== */
+    .header {
+      height: 56px;
+      background: var(--primary);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 10px;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+    .header-btn {
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      color: #fff;
+      border-radius: 50%;
+      font-size: 20px;
+    }
+    .header-btn:active { background: rgba(255,255,255,0.2); }
+    .header-title {
+      font-size: 18px;
+      font-weight: 600;
+      flex: 1;
+    }
+    .header-subtitle {
+      font-size: 13px;
+      opacity: 0.9;
+    }
+    .search-bar {
+      flex: 1;
+      max-width: 200px;
+      height: 32px;
+      background: rgba(255,255,255,0.2);
+      border: none;
+      border-radius: 16px;
+      padding: 0 12px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+    }
+    .search-bar::placeholder { color: rgba(255,255,255,0.7); }
+
+    /* ===== Mode switch ===== */
+    .mode-switch {
+      display: flex;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .mode-btn {
+      flex: 1;
+      padding: 10px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+    .mode-btn.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+      background: #fff;
+    }
+
+    /* ===== Content ===== */
+    .content {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      padding: 12px;
+    }
+    .content::-webkit-scrollbar { width: 4px; }
+    .content::-webkit-scrollbar-thumb { background: #ccc; border-radius: 2px; }
+
+    .section-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* ===== Folder cards ===== */
+    .folder-list { display: flex; flex-direction: column; gap: 10px; }
+    .folder-card {
+      background: var(--card-bg);
+      border-radius: 12px;
+      padding: 14px;
+      box-shadow: var(--shadow);
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .folder-card:active { transform: scale(0.98); box-shadow: var(--shadow-lg); }
+    .folder-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .folder-icon {
+      width: 36px;
+      height: 36px;
+      background: #e3f2fd;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .folder-icon svg { width: 20px; height: 20px; fill: var(--primary); }
+    .folder-info { flex: 1; min-width: 0; }
+    .folder-name {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .folder-meta {
+      font-size: 12px;
+      color: var(--text-light);
+      margin-top: 2px;
+    }
+    .folder-chevron {
+      width: 20px;
+      height: 20px;
+      color: var(--text-light);
+      flex-shrink: 0;
+    }
+    .folder-preview {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .folder-preview-item {
+      aspect-ratio: 1;
+      position: relative;
+    }
+    .folder-preview-item div {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    /* ===== Photo grid ===== */
+    .photo-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 3px;
+    }
+    .photo-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+    .photo-grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
+    .photo-grid.cols-6 { grid-template-columns: repeat(6, 1fr); }
+
+    .photo-tile {
+      aspect-ratio: 1;
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .photo-tile > div {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .photo-label {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(transparent, rgba(0,0,0,0.75));
+      padding: 12px 6px 5px;
+      color: #fff;
+      font-size: 10px;
+      line-height: 1.3;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+    }
+    .photo-address {
+      font-weight: 700;
+      font-size: 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .photo-date {
+      font-weight: 400;
+      font-size: 9px;
+      opacity: 0.85;
+      margin-top: 1px;
+    }
+    .photo-checkbox {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 20px;
+      height: 20px;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.3);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 12px;
+    }
+    .photo-tile.selected .photo-checkbox {
+      display: flex;
+      background: var(--primary);
+      border-color: var(--primary);
+    }
+    .photo-favorite {
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      width: 20px;
+      height: 20px;
+      color: #ff5252;
+      display: none;
+    }
+    .photo-tile.favorited .photo-favorite { display: block; }
+
+    /* ===== Subheader (inside folder) ===== */
+    .subheader {
+      display: flex;
+      gap: 6px;
+      padding: 8px 0;
+      overflow-x: auto;
+      white-space: nowrap;
+      -webkit-overflow-scrolling: touch;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 8px;
+      flex-shrink: 0;
+    }
+    .subheader::-webkit-scrollbar { display: none; }
+    .sub-pill {
+      padding: 5px 10px;
+      background: var(--bg);
+      border-radius: 14px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .sub-pill.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+
+    /* ===== Footer ===== */
+    .footer {
+      height: 44px;
+      background: var(--card-bg);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      flex-shrink: 0;
+    }
+    .footer-btn {
+      font-size: 12px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 12px;
+      background: var(--bg);
+      border: none;
+      font-weight: 500;
+    }
+    .footer-btn.active {
+      background: var(--primary);
+      color: #fff;
+    }
+    .footer-info {
+      font-size: 11px;
+      color: var(--text-light);
+    }
+
+    /* ===== Drawer (burger menu) ===== */
+    .drawer-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 50;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s;
+    }
+    .drawer-overlay.open { opacity: 1; pointer-events: auto; }
+    .drawer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 280px;
+      height: 100%;
+      background: var(--card-bg);
+      z-index: 60;
+      transform: translateX(-100%);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      flex-direction: column;
+      box-shadow: 2px 0 12px rgba(0,0,0,0.15);
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer-header {
+      height: 80px;
+      background: var(--primary);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      gap: 12px;
+    }
+    .drawer-avatar {
+      width: 40px;
+      height: 40px;
+      background: rgba(255,255,255,0.3);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      font-weight: 600;
+    }
+    .drawer-user-info { flex: 1; }
+    .drawer-user-name { font-size: 15px; font-weight: 600; }
+    .drawer-user-role { font-size: 11px; opacity: 0.8; }
+    .drawer-menu { flex: 1; overflow-y: auto; padding: 8px 0; }
+    .drawer-section {
+      padding: 8px 16px 4px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-light);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .drawer-item {
+      padding: 12px 16px;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--text);
+      border: none;
+      background: transparent;
+      width: 100%;
+      text-align: left;
+    }
+    .drawer-item:active { background: var(--bg); }
+    .drawer-item-icon { width: 20px; text-align: center; font-size: 16px; }
+    .drawer-item-label { flex: 1; }
+    .drawer-item-value { font-size: 12px; color: var(--text-light); }
+    .drawer-item.danger { color: var(--danger); }
+    .drawer-footer {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--text-light);
+      text-align: center;
+    }
+
+    /* ===== Login screen ===== */
+    .login-screen {
+      position: absolute;
+      inset: 0;
+      background: #fff;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 24px;
+    }
+    .login-screen.hidden { display: none; }
+    .login-logo {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 4px;
+    }
+    .login-subtitle {
+      font-size: 13px;
+      color: var(--text-light);
+      margin-bottom: 40px;
+    }
+    .login-input {
+      width: 100%;
+      max-width: 280px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      margin-bottom: 12px;
+      outline: none;
+      background: var(--bg);
+    }
+    .login-input:focus { border-color: var(--primary); background: #fff; }
+    .login-btn {
+      width: 100%;
+      max-width: 280px;
+      padding: 12px;
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 20px;
+    }
+    .login-btn:active { background: var(--primary-dark); }
+    .login-hint {
+      font-size: 11px;
+      color: var(--text-light);
+      text-align: center;
+      line-height: 1.7;
+      background: var(--bg);
+      padding: 12px;
+      border-radius: 8px;
+      max-width: 280px;
+    }
+    .login-hint code {
+      background: #e0e0e0;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 10px;
+    }
+
+    /* ===== Preview overlay ===== */
+    .preview-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.95);
+      z-index: 80;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .preview-overlay.open { display: flex; }
+    .preview-image {
+      width: 100%;
+      max-height: 55%;
+      object-fit: contain;
+      border-radius: 8px;
+    }
+    .preview-info {
+      color: #fff;
+      text-align: center;
+      margin-top: 16px;
+      font-size: 13px;
+      line-height: 1.7;
+      max-width: 320px;
+    }
+    .preview-info .address { font-weight: 700; font-size: 14px; }
+    .preview-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .preview-action-btn {
+      padding: 10px 18px;
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .preview-action-btn:active { background: var(--primary-dark); }
+    .preview-close {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 36px;
+      height: 36px;
+      background: rgba(255,255,255,0.15);
+      border: none;
+      border-radius: 50%;
+      color: #fff;
+      font-size: 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ===== Selection bar ===== */
+    .selection-bar {
+      position: absolute;
+      bottom: 44px;
+      left: 0;
+      right: 0;
+      background: var(--primary);
+      color: #fff;
+      padding: 10px 16px;
+      display: none;
+      align-items: center;
+      gap: 12px;
+      z-index: 20;
+      box-shadow: 0 -2px 8px rgba(0,0,0,0.2);
+    }
+    .selection-bar.active { display: flex; }
+    .selection-count { font-size: 14px; font-weight: 600; flex: 1; }
+    .selection-action {
+      padding: 6px 14px;
+      background: rgba(255,255,255,0.2);
+      border: none;
+      border-radius: 16px;
+      color: #fff;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .selection-action.primary { background: #fff; color: var(--primary); font-weight: 600; }
+
+    /* ===== Toast ===== */
+    .toast {
+      position: absolute;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: #333;
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 20px;
+      font-size: 13px;
+      z-index: 200;
+      opacity: 0;
+      transition: all 0.3s;
+      white-space: nowrap;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+    /* ===== Cache indicator ===== */
+    .cache-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      background: #e8f5e9;
+      color: var(--success);
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .cache-badge.warn { background: #fff3e0; color: #f57c00; }
+    .cache-badge.error { background: #ffebee; color: var(--danger); }
+  </style>
+</head>
+<body>
+  <div class="phone-frame" id="app">
+
+    <!-- ===== LOGIN SCREEN ===== -->
+    <div class="login-screen" id="loginScreen">
+      <div class="login-logo">📷 АЛЬБИОН</div>
+      <div class="login-subtitle">Фотобаза</div>
+      <input class="login-input" id="loginName" placeholder="Имя пользователя" value="ivan">
+      <input class="login-input" id="loginPass" type="password" placeholder="Пароль" value="••••••••">
+      <button class="login-btn" onclick="doLogin()">ВОЙТИ</button>
+      <div class="login-hint">
+        <b>Гостевой доступ:</b><br>
+        логин: <code>гость</code>, пароль: <code>альбион</code><br><br>
+        Настройки гостя между входами не сохраняются.
+      </div>
+    </div>
+
+    <!-- ===== MAIN APP ===== -->
+    <div id="mainApp" style="display:none; flex-direction:column; flex:1; height:100%;">
+
+      <!-- Header -->
+      <div class="header">
+        <button class="header-btn" onclick="toggleDrawer()">☰</button>
+        <div style="flex:1; min-width:0;">
+          <div class="header-title" id="headerTitle">АЛЬБИОН</div>
+          <div class="header-subtitle" id="headerSubtitle">Фотографии</div>
+        </div>
+        <input class="search-bar" placeholder="Поиск..." id="searchInput">
+        <button class="header-btn" onclick="showToast('Поиск скоро будет')">🔍</button>
+      </div>
+
+      <!-- Mode switch -->
+      <div class="mode-switch">
+        <button class="mode-btn active" id="modeDates" onclick="switchMode('dates')">📅 По датам</button>
+        <button class="mode-btn" id="modeFolders" onclick="switchMode('folders')">📁 По папкам</button>
+      </div>
+
+      <!-- Content -->
+      <div class="content" id="content"></div>
+
+      <!-- Selection bar -->
+      <div class="selection-bar" id="selectionBar">
+        <span class="selection-count" id="selectionCount">Выбрано: 0</span>
+        <button class="selection-action" onclick="toggleSelectAll()">Все</button>
+        <button class="selection-action primary" onclick="addToFavorites()">❤️ В избранное</button>
+        <button class="selection-action" onclick="exportSelected()">📤 Экспорт</button>
+        <button class="selection-action" onclick="clearSelection()">✕</button>
+      </div>
+
+      <!-- Footer -->
+      <div class="footer">
+        <button class="footer-btn active" id="footerCols3" onclick="setColumns(3)">3×4</button>
+        <button class="footer-btn" id="footerCols4" onclick="setColumns(4)">4×4</button>
+        <button class="footer-btn" id="footerCols5" onclick="setColumns(5)">5×4</button>
+        <button class="footer-btn" id="footerPeriod" onclick="cyclePeriod()">◄ Неделя ►</button>
+        <span class="footer-info" id="footerCache"> Кэш: 2.3 МБ</span>
+      </div>
+    </div>
+
+    <!-- ===== DRAWER (burger menu) ===== -->
+    <div class="drawer-overlay" id="drawerOverlay" onclick="toggleDrawer()"></div>
+    <div class="drawer" id="drawer">
+      <div class="drawer-header">
+        <div class="drawer-avatar" id="drawerAvatar">И</div>
+        <div class="drawer-user-info">
+          <div class="drawer-user-name" id="drawerUserName">Иван Петров</div>
+          <div class="drawer-user-role" id="drawerUserRole">Менеджер</div>
+        </div>
+      </div>
+      <div class="drawer-menu">
+        <div class="drawer-section">Аккаунт</div>
+        <button class="drawer-item" onclick="showToast('Профиль')">
+          <span class="drawer-item-icon"></span>
+          <span class="drawer-item-label">Профиль</span>
+        </button>
+        <button class="drawer-item" onclick="doLogout()">
+          <span class="drawer-item-icon">🚪</span>
+          <span class="drawer-item-label">Выйти</span>
+        </button>
+
+        <div class="drawer-section">Навигация</div>
+        <button class="drawer-item" onclick="switchMode('dates'); toggleDrawer();">
+          <span class="drawer-item-icon">📅</span>
+          <span class="drawer-item-label">По датам</span>
+          <span class="drawer-item-value">Альбомы</span>
+        </button>
+        <button class="drawer-item" onclick="switchMode('folders'); toggleDrawer();">
+          <span class="drawer-item-icon">📁</span>
+          <span class="drawer-item-label">По папкам</span>
+          <span class="drawer-item-value">Адреса</span>
+        </button>
+        <button class="drawer-item" onclick="showToast('Избранные')">
+          <span class="drawer-item-icon">❤️</span>
+          <span class="drawer-item-label">Избранные</span>
+          <span class="drawer-item-value">23 фото</span>
+        </button>
+
+        <div class="drawer-section">Синхронизация</div>
+        <button class="drawer-item" onclick="syncNow()">
+          <span class="drawer-item-icon">🔄</span>
+          <span class="drawer-item-label">Синхронизировать</span>
+          <span class="drawer-item-value" id="syncStatus">Готово</span>
+        </button>
+        <button class="drawer-item" onclick="showToast('Обновление базы...')">
+          <span class="drawer-item-icon">📥</span>
+          <span class="drawer-item-label">Обновить базу</span>
+        </button>
+
+        <div class="drawer-section">Группы адресов</div>
+        <button class="drawer-item" onclick="showToast('Видеоэкраны')">
+          <span class="drawer-item-icon">🖥️</span>
+          <span class="drawer-item-label">Видеоэкраны</span>
+          <span class="drawer-item-value">145</span>
+        </button>
+        <button class="drawer-item" onclick="showToast('Ростов-на-Дону')">
+          <span class="drawer-item-icon">️</span>
+          <span class="drawer-item-label">Ростов-на-Дону</span>
+          <span class="drawer-item-value">456</span>
+        </button>
+        <button class="drawer-item" onclick="showToast('Города области')">
+          <span class="drawer-item-icon">🌆</span>
+          <span class="drawer-item-label">Города области</span>
+          <span class="drawer-item-value">890</span>
+        </button>
+        <button class="drawer-item" onclick="showToast('Трассы')">
+          <span class="drawer-item-icon">🛣️</span>
+          <span class="drawer-item-label">Трассы 6×3</span>
+          <span class="drawer-item-value">340</span>
+        </button>
+        <button class="drawer-item" onclick="showToast('Малые форматы')">
+          <span class="drawer-item-icon"></span>
+          <span class="drawer-item-label">Малые форматы</span>
+          <span class="drawer-item-value">123</span>
+        </button>
+
+        <div class="drawer-section">Настройки</div>
+        <button class="drawer-item" onclick="toggleDarkMode()">
+          <span class="drawer-item-icon" id="themeIcon">🌙</span>
+          <span class="drawer-item-label">Тёмная тема</span>
+        </button>
+        <button class="drawer-item" onclick="showToast('Язык: Русский')">
+          <span class="drawer-item-icon">🌐</span>
+          <span class="drawer-item-label">Язык</span>
+          <span class="drawer-item-value">Русский</span>
+        </button>
+
+        <div class="drawer-section">Кэш</div>
+        <button class="drawer-item" onclick="showCacheInfo()">
+          <span class="drawer-item-icon">📦</span>
+          <span class="drawer-item-label">Размер кеша</span>
+          <span class="drawer-item-value" id="drawerCacheSize">2.3 МБ</span>
+        </button>
+        <button class="drawer-item danger" onclick="clearCache()">
+          <span class="drawer-item-icon">🗑️</span>
+          <span class="drawer-item-label">Очистить кеш</span>
+        </button>
+        <button class="drawer-item" onclick="showToast('Автоочистка: включена')">
+          <span class="drawer-item-icon">⏰</span>
+          <span class="drawer-item-label">Автоочистка кеша</span>
+          <span class="drawer-item-value" id="autoCleanStatus" style="color:var(--success)">Вкл (7 дней)</span>
+        </button>
+
+        <div class="drawer-section">Информация</div>
+        <button class="drawer-item" onclick="showToast('О приложении')">
+          <span class="drawer-item-icon">ℹ️</span>
+          <span class="drawer-item-label">О приложении</span>
+          <span class="drawer-item-value">v1.0.0</span>
+        </button>
+      </div>
+      <div class="drawer-footer">
+        <span class="cache-badge" id="cacheBadge">🟢 API + превью</span>
+        <div style="margin-top:4px;">сборка 2026-11-21</div>
+      </div>
+    </div>
+
+    <!-- ===== PREVIEW OVERLAY ===== -->
+    <div class="preview-overlay" id="previewOverlay">
+      <button class="preview-close" onclick="closePreview()">✕</button>
+      <div class="preview-image" id="previewImage" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); height:300px; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#fff; font-size:16px;">
+        [УВЕЛИЧЕННОЕ ФОТО]
+      </div>
+      <div class="preview-info">
+        <div class="address" id="previewAddress">📍 ул. Большая, 123, Ростов-на-Дону</div>
+        <div id="previewClient">👤 Клиент: ООО "Реклама"</div>
+        <div id="previewBrand">🏷 Бренд: LADA, ВМЕСТЕ</div>
+        <div id="previewTags">🏷 Теги: щит, билборд, РнД</div>
+        <div id="previewDate" style="margin-top:6px; opacity:0.7;">📅 20.11.2026 14:09</div>
+      </div>
+      <div class="preview-actions">
+        <button class="preview-action-btn" onclick="togglePreviewFavorite()">❤️ В избранное</button>
+        <button class="preview-action-btn" onclick="showToast('Поделиться...')">📤 Поделиться</button>
+      </div>
+    </div>
+
+    <!-- ===== TOAST ===== -->
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <script>
+    // ===== STATE =====
+    const state = {
+      loggedIn: false,
+      user: null,
+      mode: 'dates',        // 'dates' | 'folders'
+      columns: 3,
+      period: 'week',
+      selectMode: false,
+      selected: new Set(),
+      favorite: new Set(),
+      cache: { api: true, previews: true, size: 2.3 * 1024 * 1024, autoClean: true, autoCleanDays: 7 },
+      darkMode: false,
+    };
+
+    // ===== MOCK DATA =====
+    const mockData = {
+      dates: [
+        { name: 'Сегодня', count: 12, date: '20.11.2026', photos: generatePhotos(12, '20.11.2026') },
+        { name: 'Вчера', count: 8, date: '19.11.2026', photos: generatePhotos(8, '19.11.2026') },
+        { name: '15 ноября 2021', count: 8, date: '15.11.2021', photos: generatePhotos(8, '15.11.2021') },
+        { name: 'Октябрь 2021', count: 45, date: '01.10.2021 — 31.10.2021', photos: generatePhotos(9, '10.2021') },
+        { name: 'Сентябрь 2021', count: 67, date: '01.09.2021 — 30.09.2021', photos: generatePhotos(9, '09.2021') },
+      ],
+      folders: [
+        { name: 'Ростов-на-Дону', count: 45, subgroups: ['Все (45)', 'ул. Большая (12)', 'ул. Ленина (8)', 'Трасса М-4 (15)', 'ул. Чехова (10)'], photos: generatePhotos(9, 'РнД') },
+        { name: 'г. Краснодар', count: 23, subgroups: ['Все (23)', 'ул. Красная (8)', 'пр. Мира (7)', 'ул. Советская (8)'], photos: generatePhotos(9, 'Краснодар') },
+        { name: 'г. Таганрог', count: 12, subgroups: ['Все (12)', 'ул. Чехова (5)', 'пр. Морской (7)'], photos: generatePhotos(9, 'Таганрог') },
+        { name: 'Трассы 6×3', count: 34, subgroups: ['Все (34)', 'М-4 "Дон" (20)', 'Р-256 "Кавказ" (14)'], photos: generatePhotos(9, 'Трассы') },
+        { name: 'Города области', count: 89, subgroups: ['Все (89)', 'Азов (15)', 'Шахты (12)', 'Новочеркасск (18)'], photos: generatePhotos(9, 'Область') },
+        { name: 'Малые форматы РнД', count: 28, subgroups: ['Все (28)', 'Сити-формат (10)', 'Скроллер (9)', 'Пиллар (9)'], photos: generatePhotos(9, 'Малые') },
+      ]
+    };
+
+    function generatePhotos(count, label) {
+      const colors = [
+        ['#667eea', '#764ba2'], ['#f093fb', '#f5576c'], ['#4facfe', '#00f2fe'],
+        ['#43e97b', '#38f9d7'], ['#fa709a', '#fee140'], ['#a18cd1', '#fbc2eb'],
+        ['#fccb90', '#d57eeb'], ['#e0c3fc', '#8ec5fc'], ['#f5576c', '#ff6a88'],
+      ];
+      const addresses = [
+        'ул. Большая, 123', 'ул. Ленина, 45', 'Трасса М-4, км 123',
+        'ул. Чехова, 67', 'пр. Савушкина, 89', 'ул. Красная, 12',
+        'ул. Советская, 34', 'пр. Мира, 56', 'ул. Морская, 78',
+      ];
+      const brands = ['LADA', 'ВМЕСТЕ', 'Сбербанк', 'Пятёрочка', 'Магнит', 'Яндекс', 'М.Видео', 'МТС'];
+      const photos = [];
+      for (let i = 0; i < count; i++) {
+        const c = colors[i % colors.length];
+        const addr = addresses[i % addresses.length];
+        const brand = brands[i % brands.length];
+        const h = 10 + (i % 6);
+        const m = (i * 7) % 60;
+        photos.push({
+          id: `PH_${label}_${i}`,
+          color: c,
+          address: addr,
+          brand: brand,
+          time: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`,
+          date: label,
+        });
+      }
+      return photos;
+    }
+
+    // ===== RENDER =====
+    function render() {
+      const content = document.getElementById('content');
+      if (state.mode === 'dates') {
+        renderDates(content);
+      } else {
+        renderFolders(content);
+      }
+    }
+
+    function renderDates(container) {
+      let html = '<div class="section-title">Альбомы</div><div class="folder-list">';
+      mockData.dates.forEach((folder, idx) => {
+        html += renderFolderCard(folder, idx, 'date');
+      });
+      html += '</div>';
+      container.innerHTML = html;
+    }
+
+    function renderFolders(container) {
+      let html = '<div class="section-title">Подборки адресов</div><div class="folder-list">';
+      mockData.folders.forEach((folder, idx) => {
+        html += renderFolderCard(folder, idx, 'folder');
+      });
+      html += '</div>';
+      container.innerHTML = html;
+    }
+
+    function renderFolderCard(folder, idx, type) {
+      const preview = folder.photos.slice(0, 3).map(p =>
+        `<div class="folder-preview-item"><div style="background: linear-gradient(135deg, ${p.color[0]}, ${p.color[1]});"></div></div>`
+      ).join('');
+
+      return `
+        <div class="folder-card" onclick="openFolder(${idx}, '${type}')">
+          <div class="folder-header">
+            <div class="folder-icon">
+              <svg viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+            </div>
+            <div class="folder-info">
+              <div class="folder-name">${folder.name}</div>
+              <div class="folder-meta">${folder.count} фото${type === 'date' ? ' · ' + folder.date : ''}</div>
+            </div>
+            <svg class="folder-chevron" viewBox="0 0 24 24" fill="currentColor"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg>
+          </div>
+          <div class="folder-preview">${preview}</div>
+        </div>
+      `;
+    }
+
+    // ===== OPEN FOLDER =====
+    function openFolder(idx, type) {
+      const folder = type === 'date' ? mockData.dates[idx] : mockData.folders[idx];
+      const content = document.getElementById('content');
+      const headerTitle = document.getElementById('headerTitle');
+      const headerSubtitle = document.getElementById('headerSubtitle');
+
+      headerTitle.textContent = folder.name;
+      headerSubtitle.textContent = `${folder.count} фото`;
+
+      let html = '';
+
+      // Subheader (subgroups) — only for folders mode
+      if (type === 'folder' && folder.subgroups) {
+        html += '<div class="subheader">';
+        folder.subgroups.forEach((sg, si) => {
+          const isActive = si === 0 ? 'active' : '';
+          html += `<div class="sub-pill ${isActive}" onclick="selectSubgroup(this)">${sg}</div>`;
+        });
+        html += '</div>';
+      }
+
+      // Photo grid
+      html += '<div class="photo-grid cols-' + state.columns + '">';
+      folder.photos.forEach((photo, pi) => {
+        const isSelected = state.selected.has(photo.id) ? 'selected' : '';
+        const isFav = state.favorite.has(photo.id) ? 'favorited' : '';
+        html += `
+          <div class="photo-tile ${isSelected} ${isFav}" onclick="handlePhotoTap(${pi}, '${type}', ${idx})">
+            <div style="background: linear-gradient(135deg, ${photo.color[0]}, ${photo.color[1]});"></div>
+            <div class="photo-checkbox">✓</div>
+            <svg class="photo-favorite" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+            <div class="photo-label">
+              <div class="photo-address">${photo.address}</div>
+              <div class="photo-date">${photo.time} · ${photo.date}</div>
+            </div>
+          </div>
+        `;
+      });
+      html += '</div>';
+
+      content.innerHTML = html;
+      content.scrollTop = 0;
+    }
+
+    function selectSubgroup(el) {
+      el.parentElement.querySelectorAll('.sub-pill').forEach(p => p.classList.remove('active'));
+      el.classList.add('active');
+      showToast('Фильтр: ' + el.textContent);
+    }
+
+    // ===== PHOTO TAP =====
+    function handlePhotoTap(photoIdx, type, folderIdx) {
+      if (state.selectMode) {
+        toggleSelect(photoIdx, type, folderIdx);
+        return;
+      }
+
+      // Open preview
+      const folder = type === 'date' ? mockData.dates[folderIdx] : mockData.folders[folderIdx];
+      const photo = folder.photos[photoIdx];
+
+      document.getElementById('previewImage').style.background = `linear-gradient(135deg, ${photo.color[0]}, ${photo.color[1]})`;
+      document.getElementById('previewAddress').textContent = `📍 ${photo.address}, ${folder.name}`;
+      document.getElementById('previewClient').textContent = `👤 Клиент: ООО "Реклама"`;
+      document.getElementById('previewBrand').textContent = `🏷 Бренд: ${photo.brand}`;
+      document.getElementById('previewTags').textContent = `🏷 Теги: щит, билборд, РнД`;
+      document.getElementById('previewDate').textContent = `📅 ${photo.date} ${photo.time}`;
+
+      document.getElementById('previewOverlay').classList.add('open');
+    }
+
+    function closePreview() {
+      document.getElementById('previewOverlay').classList.remove('open');
+    }
+
+    function togglePreviewFavorite() {
+      const overlay = document.getElementById('previewOverlay');
+      const img = overlay.querySelector('.preview-image');
+      // Find photo in current view
+      showToast('Добавлено в избранное ❤️');
+    }
+
+    // ===== SELECTION =====
+    function toggleSelect(photoIdx, type, folderIdx) {
+      const folder = type === 'date' ? mockData.dates[folderIdx] : mockData.folders[folderIdx];
+      const photo = folder.photos[photoIdx];
+
+      if (state.selected.has(photo.id)) {
+        state.selected.delete(photo.id);
+      } else {
+        state.selected.add(photo.id);
+      }
+
+      updateSelectionUI();
+      render(); // re-render to update checkboxes
+    }
+
+    function updateSelectionUI() {
+      const bar = document.getElementById('selectionBar');
+      const count = document.getElementById('selectionCount');
+
+      if (state.selected.size > 0) {
+        bar.classList.add('active');
+        count.textContent = `Выбрано: ${state.selected.size}`;
+      } else {
+        bar.classList.remove('active');
+      }
+    }
+
+    function toggleSelectAll() {
+      const folder = state.mode === 'dates' ? mockData.dates[0] : mockData.folders[0];
+      if (state.selected.size === folder.photos.length) {
+        state.selected.clear();
+      } else {
+        folder.photos.forEach(p => state.selected.add(p.id));
+      }
+      updateSelectionUI();
+      render();
+    }
+
+    function clearSelection() {
+      state.selected.clear();
+      updateSelectionUI();
+      render();
+    }
+
+    function addToFavorites() {
+      state.selected.forEach(id => state.favorite.add(id));
+      showToast(`Добавлено в избранное: ${state.selected.size} фото ❤️`);
+      state.selected.clear();
+      updateSelectionUI();
+      render();
+    }
+
+    function exportSelected() {
+      showToast(`Экспорт: ${state.selected.size} фото через Web Share API`);
+    }
+
+    // ===== MODE SWITCH =====
+    function switchMode(mode) {
+      state.mode = mode;
+      document.getElementById('modeDates').classList.toggle('active', mode === 'dates');
+      document.getElementById('modeFolders').classList.toggle('active', mode === 'folders');
+      document.getElementById('headerTitle').textContent = 'АЛЬБИОН';
+      document.getElementById('headerSubtitle').textContent = 'Фотографии';
+      render();
+    }
+
+    // ===== COLUMNS =====
+    function setColumns(n) {
+      state.columns = n;
+      document.querySelectorAll('.footer-btn[id^="footerCols"]').forEach(b => b.classList.remove('active'));
+      document.getElementById('footerCols' + n).classList.add('active');
+      render();
+    }
+
+    // ===== PERIOD =====
+    const periods = ['Неделя', '2 недели', 'Месяц', '2 месяца', 'Полгода', 'Год'];
+    let periodIdx = 0;
+    function cyclePeriod() {
+      periodIdx = (periodIdx + 1) % periods.length;
+      document.getElementById('footerPeriod').textContent = `◄ ${periods[periodIdx]} ►`;
+      showToast('Период: ' + periods[periodIdx]);
+    }
+
+    // ===== DRAWER =====
+    function toggleDrawer() {
+      const drawer = document.getElementById('drawer');
+      const overlay = document.getElementById('drawerOverlay');
+      const isOpen = drawer.classList.contains('open');
+
+      if (isOpen) {
+        drawer.classList.remove('open');
+        overlay.classList.remove('open');
+      } else {
+        drawer.classList.add('open');
+        overlay.classList.add('open');
+      }
+    }
+
+    // ===== LOGIN =====
+    function doLogin() {
+      const name = document.getElementById('loginName').value || 'ivan';
+      state.loggedIn = true;
+      state.user = { name: name, role: 'Менеджер' };
+
+      document.getElementById('loginScreen').classList.add('hidden');
+      document.getElementById('mainApp').style.display = 'flex';
+
+      document.getElementById('drawerAvatar').textContent = name[0].toUpperCase();
+      document.getElementById('drawerUserName').textContent = name;
+      document.getElementById('drawerUserRole').textContent = state.user.role;
+
+      render();
+      showToast(`Добро пожаловать, ${name}!`);
+    }
+
+    function doLogout() {
+      state.loggedIn = false;
+      state.user = null;
+      document.getElementById('loginScreen').classList.remove('hidden');
+      document.getElementById('mainApp').style.display = 'none';
+      toggleDrawer();
+    }
+
+    // ===== SYNC =====
+    function syncNow() {
+      const status = document.getElementById('syncStatus');
+      status.textContent = '...';
+      setTimeout(() => {
+        status.textContent = 'Готово ✓';
+        showToast('Синхронизация завершена');
+      }, 1500);
+    }
+
+    // ===== CACHE =====
+    function showCacheInfo() {
+      const sizeMB = (state.cache.size / (1024 * 1024)).toFixed(1);
+      showToast(`Кэш: API=${state.cache.api ? 'вкл' : 'выкл'} + Превью=${state.cache.previews ? 'вкл' : 'выкл'} (${sizeMB} МБ)`);
+    }
+
+    function clearCache() {
+      state.cache.size = 0;
+      updateCacheUI();
+      showToast('Кеш очищен 🗑️');
+      toggleDrawer();
+    }
+
+    function updateCacheUI() {
+      const sizeMB = (state.cache.size / (1024 * 1024)).toFixed(1);
+      document.getElementById('footerCache').textContent = `📦 Кэш: ${sizeMB} МБ`;
+      document.getElementById('drawerCacheSize').textContent = `${sizeMB} МБ`;
+
+      const badge = document.getElementById('cacheBadge');
+      if (state.cache.size > 10 * 1024 * 1024) {
+        badge.className = 'cache-badge warn';
+        badge.textContent = '⚠️ Кэш > 10 МБ';
+      } else if (state.cache.size > 0) {
+        badge.className = 'cache-badge';
+        badge.textContent = '🟢 API + превью';
+      } else {
+        badge.className = 'cache-badge error';
+        badge.textContent = '🔴 Кеш пуст';
+      }
+    }
+
+    // ===== DARK MODE =====
+    function toggleDarkMode() {
+      state.darkMode = !state.darkMode;
+      document.body.style.background = state.darkMode ? '#1a1a1a' : '#f5f5f5';
+      document.getElementById('themeIcon').textContent = state.darkMode ? '☀️' : '🌙';
+      showToast(state.darkMode ? 'Тёмная тема включена' : 'Светлая тема включена');
+      toggleDrawer();
+    }
+
+    // ===== TOAST =====
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2500);
+    }
+
+    // ===== INIT =====
+    render();
+    updateCacheUI();
+
+    // Auto-login for demo
+    setTimeout(() => doLogin(), 500);
+  </script>
+</body>
+</html>

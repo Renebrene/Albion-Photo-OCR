@@ -1249,6 +1249,70 @@ def count_photos(
             return int(cur.fetchone()[0])
 
 
+def list_photo_dates(
+    *,
+    query: str | None = None,
+    addresses: list[str] | None = None,
+    clients: list[str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    date_mode: str = "capture",
+    collection_id: int | None = None,
+    brand: str | None = None,
+    tag: str | None = None,
+    category: str | None = None,
+    recognized_only: bool = True,
+    combine: str = "union",
+    group_addresses: list[str] | None = None,
+) -> list[dict]:
+    """
+    Дни съёмки с числом фото — фасет для плиток мобильного «По датам».
+
+    День — `COALESCE(taken_at, created_at)`: EXIF-дата съёмки, а при её
+    отсутствии дата загрузки (таких фото в корпусе единицы). Условия отбора
+    строит тот же `_photo_where`, что и грид: плитка и открывающаяся за ней
+    сетка считают один и тот же набор, даже с фильтрами группы и адресов.
+
+    `sample_photo_id` — стабильный представитель дня для превью плитки.
+    """
+
+    where, params = _photo_where(
+        cursor=None,
+        query=query,
+        addresses=addresses,
+        clients=clients,
+        date_from=date_from,
+        date_to=date_to,
+        date_mode=date_mode,
+        collection_id=collection_id,
+        brand=brand,
+        tag=tag,
+        category=category,
+        recognized_only=recognized_only,
+        combine=combine,
+        group_addresses=group_addresses,
+    )
+    sql = (
+        "SELECT to_char(t.day, 'YYYY-MM-DD') AS day, count(*) AS photos, "
+        "       min(t.photo_id) AS sample_photo_id "
+        "FROM (SELECT COALESCE(taken_at, created_at)::date AS day, photo_id "
+        "      FROM (" + _PHOTO_SELECT + where + ") AS s) AS t "
+        "GROUP BY 1 ORDER BY 1 DESC"
+    )
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return [
+                {
+                    "date": row[0],
+                    "photos": int(row[1]),
+                    "sample_photo_id": row[2],
+                }
+                for row in cur.fetchall()
+            ]
+
+
 def list_photos(
     *,
     limit: int,

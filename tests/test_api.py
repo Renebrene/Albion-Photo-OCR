@@ -553,3 +553,18 @@ def test_address_comes_from_recognition():
                     "DELETE FROM public.photos WHERE photo_id = %s",
                     (photo_id,),
                 )
+
+
+@requires_db
+def test_photo_dates_facet_shape():
+    """Фасет дней для плиток «По датам»: день — ISO-дата, count ≥ 1."""
+
+    data = client.get("/api/v1/photos/dates?date_mode=capture").json()
+
+    assert isinstance(data["items"], list)
+    assert data["total"] == sum(item["photos"] for item in data["items"])
+
+    for item in data["items"][:100]:
+        assert len(item["date"]) == 10, item["date"]
+        assert item["photos"] >= 1
+        assert item["sample_photo_id"].startswith("PH_")
