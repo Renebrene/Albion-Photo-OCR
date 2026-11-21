@@ -597,6 +597,11 @@ def test_qwen_stats_report_the_queue_separately(monkeypatch):
         lambda: {"PENDING": 7},
     )
     monkeypatch.setattr(repository, "photo_ids_with_qwen_status", lambda _status: [])
+    monkeypatch.setattr(
+        repository,
+        "qwen_run_timeline",
+        lambda: {"started_at": None, "paused": False, "eta_seconds": None, "stuck": 0},
+    )
 
     body = client.get("/api/v1/qwen/stats").json()
 

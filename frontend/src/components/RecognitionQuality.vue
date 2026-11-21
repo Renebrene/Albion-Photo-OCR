@@ -1,46 +1,91 @@
 <script setup>
+// «Качество» — сводка распознавания по прогону HYBRID (владелец, 21.11.2026):
+// по каждому адресу видно, сколько фото, сколько из них в слепках, процент
+// совпадений с подписью файла, что решило адрес (DINO или соседи) и с каким
+// адресом чаще путается. Эталон — название фото, если в нём есть адрес.
 import { computed, onMounted, ref } from 'vue'
 
-import { fetchRecognitionQuality } from '../api/client'
+import {
+  fetchRecognitionQualityLive,
+  fetchRecognitionQualityRuns,
+} from '../api/client'
 
-const snapshot = ref(null)
-const error = ref(null)
+const data = ref(null)
+const runs = ref([])
+const runId = ref(null)
 const loading = ref(false)
-const selectedVariantId = ref('production')
+const error = ref('')
 const addressFilter = ref('')
-const showNamingVariants = ref(true)
 
-const variants = computed(() => snapshot.value?.variants || [])
-const selectedVariant = computed(() =>
-  variants.value.find((item) => item.id === selectedVariantId.value) || variants.value[0] || null,
-)
+const INFLUENCE_LABELS = {
+  dino: 'DINO (лучший)',
+  neighbors: 'соседи',
+  no_dino: 'без DINO',
+}
+
+const columns = [
+  { name: 'name', label: 'Адрес', field: 'name', align: 'left', sortable: true },
+  { name: 'photos', label: 'Всего фото', field: 'photos', align: 'right', sortable: true },
+  {
+    name: 'fingerprint',
+    label: 'В слепке',
+    field: 'fingerprint_photos',
+    align: 'right',
+    sortable: true,
+  },
+  { name: 'accuracy', label: 'Совпадение', field: 'accuracy', align: 'right', sortable: true },
+  { name: 'influence', label: 'Решило', field: 'influence', align: 'left' },
+  { name: 'confusion', label: 'Чаще путается', field: 'confused_with', align: 'left' },
+]
+
 const rows = computed(() => {
   const query = addressFilter.value.trim().toLocaleLowerCase('ru')
-  // Номер строки фиксируется по опубликованному снимку: при фильтре номера
-  // не пересчитываются, чтобы на них можно было ссылаться при разборе.
-  const items = (snapshot.value?.addresses || []).map((item, index) => ({
-    ...item,
-    number: index + 1,
-    kind: item.classification
-      || (item.is_naming_variant ? 'naming_variant' : 'recognition_error'),
-  }))
-  const filtered = items.filter((item) =>
-    (showNamingVariants.value || item.kind === 'recognition_error')
-    && (!query || String(item.name || '').toLocaleLowerCase('ru').includes(query)),
+
+  return (data.value?.addresses || []).filter(
+    (item) => !query || String(item.name || '').toLocaleLowerCase('ru').includes(query),
   )
-  return filtered.sort((a, b) => a.number - b.number)
 })
-const pairRows = computed(() => {
-  if (!selectedVariant.value) return []
-  return (selectedVariant.value.wrong_pairs || []).map((item, index) => ({
-    ...item,
-    number: index + 1,
-  }))
+
+const totals = computed(() => data.value?.totals || null)
+const run = computed(() => data.value?.run || null)
+
+// «Обновление базы» сортирует только новые файлы: в таком прогоне подписанных
+// кадров может быть единицы. Тогда предлагаем ближайший полный прогон, чтобы
+// проценты по адресам были осмысленными.
+const fullRunSuggestion = computed(() => {
+  if (!totals.value || Number(totals.value.labelled || 0) >= 50) return null
+
+  const currentId = run.value?.hybrid_run_id
+  const candidates = runs.value.filter(
+    (item) => item.hybrid_run_id !== currentId && Number(item.photos || 0) > (run.value?.photos || 0),
+  )
+
+  if (!candidates.length) return null
+
+  return candidates.reduce((best, item) =>
+    Number(item.photos || 0) > Number(best.photos || 0) ? item : best,
+  )
 })
+
+function useFullRun() {
+  if (!fullRunSuggestion.value) return
+  runId.value = fullRunSuggestion.value.hybrid_run_id
+  load()
+}
+
+// Выбор прогона: последний по умолчанию, но маленькая сортировка новых фото
+// («Обновление базы») даёт мало подписанных кадров — можно взять предыдущую
+// полную.
+const runOptions = computed(() =>
+  runs.value.map((item) => ({
+    label: `${formatDate(item.finished_at)} · ${formatCount(item.photos)} фото`,
+    value: item.hybrid_run_id,
+  })),
+)
 
 function formatPercent(value) {
   if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—'
-  return `${(Number(value) * 100).toLocaleString('ru-RU', { maximumFractionDigits: 2 })}%`
+  return `${(Number(value) * 100).toLocaleString('ru-RU', { maximumFractionDigits: 1 })}%`
 }
 
 function formatCount(value) {
@@ -48,21 +93,48 @@ function formatCount(value) {
   return Number(value).toLocaleString('ru-RU')
 }
 
-function variantLabel(variant) {
-  return `${variant.name} · ${formatPercent(variant.accuracy)} · Δ ${Number(variant.delta_vs_production || 0) > 0 ? '+' : ''}${formatCount(variant.delta_vs_production || 0)}`
+function formatDate(value) {
+  if (!value) return '—'
+  const [date, time = ''] = String(value).replace('T', ' ').split(' ')
+  const [year, month, day] = date.split('-')
+
+  if (!year || !month || !day) return String(value).slice(0, 16)
+
+  return `${day}.${month}.${year} ${time.slice(0, 5)}`.trim()
+}
+
+function influenceLabel(item) {
+  if (!item) return '—'
+
+  const name = INFLUENCE_LABELS[item.kind] || item.kind
+  const share = item.share === null || item.share === undefined
+    ? ''
+    : ` · ${Math.round(Number(item.share) * 100)}%`
+
+  return `${name}${share}`
+}
+
+function accuracyColor(value) {
+  if (value === null || value === undefined) return 'grey-7'
+  if (value >= 0.9) return 'positive'
+  if (value >= 0.75) return 'orange-9'
+  return 'negative'
 }
 
 async function load() {
   loading.value = true
-  error.value = null
+  error.value = ''
+
   try {
-    snapshot.value = await fetchRecognitionQuality()
-    if (!variants.value.some((item) => item.id === selectedVariantId.value)) {
-      selectedVariantId.value = variants.value[0]?.id || ''
+    // Список прогонов нужен один раз; данные — по выбранному (null = последний).
+    if (!runs.value.length) {
+      const response = await fetchRecognitionQualityRuns()
+      runs.value = response.items || []
     }
+
+    data.value = await fetchRecognitionQualityLive(runId.value)
   } catch (err) {
-    error.value = err?.message || 'Не удалось загрузить снимок качества распознавания'
-    snapshot.value = null
+    error.value = err.message || 'Не удалось загрузить сводку'
   } finally {
     loading.value = false
   }
@@ -72,307 +144,201 @@ onMounted(load)
 </script>
 
 <template>
-  <div>
+  <div class="recognition-quality">
     <div class="row items-center q-mb-sm">
-      <div class="col">
-        <div class="text-subtitle1">Качество распознавания</div>
-        <div v-if="snapshot" class="text-caption text-grey">
-          Снимок от {{ snapshot.generated_at }} · HYBRID run {{ snapshot.source.run_id }}
-        </div>
-      </div>
-      <q-btn dense flat icon="refresh" aria-label="Обновить качество распознавания" :loading="loading" @click="load" />
+      <div class="text-subtitle1 col">Качество распознавания</div>
+      <q-btn flat dense round icon="refresh" :loading="loading" @click="load">
+        <q-tooltip>Обновить сводку</q-tooltip>
+      </q-btn>
     </div>
 
-    <q-banner class="bg-orange-1 text-dark q-mb-md">
-      Это зафиксированная офлайн-оценка, не live-точность production. Эталонные адреса эвристически сопоставлены по именам файлов; независимого temporal holdout в этом снимке нет.
-    </q-banner>
-
-    <q-banner v-if="error" class="bg-red-1 text-negative q-mb-md">
-      {{ error }}
-    </q-banner>
-
-    <div v-if="loading && !snapshot" class="row justify-center q-my-lg">
-      <q-spinner-dots color="primary" size="40px" />
-    </div>
-    <div v-else-if="!snapshot && !error" class="text-grey q-my-md">
-      Снимок наблюдений пока не опубликован.
+    <div v-if="error" class="q-mb-md">
+      <q-banner class="bg-red-1 text-negative">{{ error }}</q-banner>
     </div>
 
-    <template v-if="snapshot">
-      <div class="row q-col-gutter-sm q-mb-md">
-        <div class="col-12 col-sm-6 col-md-3">
-          <q-card flat bordered class="fit">
-            <q-card-section>
-              <div class="text-caption text-grey">Фото в выборке</div>
-              <div class="text-h6">{{ formatCount(snapshot.totals.items) }}</div>
-              <div class="text-caption">С меткой: {{ formatCount(snapshot.totals.labelled) }}</div>
-            </q-card-section>
-          </q-card>
-        </div>
-        <div class="col-12 col-sm-6 col-md-3">
-          <q-card flat bordered class="fit">
-            <q-card-section>
-              <div class="text-caption text-grey">Текущий baseline</div>
-              <div class="text-h6">{{ formatPercent(snapshot.variants.find((item) => item.id === 'production')?.accuracy) }}</div>
-              <div class="text-caption">Точность в размеченной части</div>
-            </q-card-section>
-          </q-card>
-        </div>
-        <div class="col-12 col-sm-6 col-md-3">
-          <q-card flat bordered class="fit">
-            <q-card-section>
-              <div class="text-caption text-grey">Без однозначной метки</div>
-              <div class="text-h6">{{ formatCount(snapshot.totals.unlabelled) }}</div>
-              <div class="text-caption">Исключены из accuracy</div>
-            </q-card-section>
-          </q-card>
-        </div>
-        <div class="col-12 col-sm-6 col-md-3">
-          <q-card flat bordered class="fit">
-            <q-card-section>
-              <div class="text-caption text-grey">Сомнительные адреса</div>
-              <div class="text-h6">{{ formatCount(snapshot.address_metrics_source.error_addresses) }}</div>
-              <div class="text-caption">
-                из {{ formatCount(snapshot.address_metrics_source.total_addresses) }} ·
-                вариантов названия — {{ formatCount(snapshot.address_metrics_source.naming_variant_addresses) }},
-                ошибок в названии — {{ formatCount(snapshot.address_metrics_source.label_error_addresses) }}
-              </div>
-            </q-card-section>
-          </q-card>
-        </div>
-      </div>
-
-      <q-card flat bordered class="q-mb-md">
-        <q-card-section>
-          <div class="row items-center q-col-gutter-sm">
-            <div class="col-12 col-md-6">
-              <div class="text-subtitle2">Сравнение вариантов на общей выборке</div>
-              <div class="text-caption text-grey">Только направленные агрегаты; «исправлено» и «испортило» здесь не выводятся без per-photo парного diff.</div>
-            </div>
-            <div class="col-12 col-md-6">
-              <q-select
-                v-model="selectedVariantId"
-                :options="variants.map((item) => ({ label: variantLabel(item), value: item.id }))"
-                emit-value
-                map-options
-                dense
-                outlined
-                label="Вариант для разбора ошибок"
-              />
-            </div>
-          </div>
-          <q-markup-table dense flat class="q-mt-sm">
-            <thead>
-              <tr>
-                <th class="text-left">Вариант</th>
-                <th class="text-right">Верно</th>
-                <th class="text-right">Ошибки</th>
-                <th class="text-right">Проверка</th>
-                <th class="text-right">Точность</th>
-                <th class="text-right">Δ к baseline, фото</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="variant in variants" :key="variant.id" :class="variant.id === selectedVariantId ? 'bg-blue-1' : ''">
-                <td>{{ variant.name }}</td>
-                <td class="text-right">{{ formatCount(variant.correct) }}</td>
-                <td class="text-right">{{ formatCount(variant.wrong) }}</td>
-                <td class="text-right">{{ formatCount(variant.review) }}</td>
-                <td class="text-right">{{ formatPercent(variant.accuracy) }} <span class="text-caption text-grey">({{ formatCount(variant.labelled) }})</span></td>
-                <td class="text-right">{{ Number(variant.delta_vs_production) > 0 ? '+' : '' }}{{ formatCount(variant.delta_vs_production) }}</td>
-              </tr>
-            </tbody>
-          </q-markup-table>
-        </q-card-section>
-      </q-card>
-
-      <!-- PCA-отбеливание: раздел из снапшота -->
-      <template v-if="snapshot?.pca_experiment">
-      <q-card flat bordered class="q-mb-md">
-        <q-card-section>
-          <div class="text-subtitle2 q-mb-xs">{{ snapshot.pca_experiment.title }}</div>
-          <div class="text-caption text-grey q-mb-sm">
-            Слепков: {{ snapshot.pca_experiment.fingerprints_count }} ·
-            Цвет удалён: {{ snapshot.pca_experiment.color_removed ? 'да' : 'нет' }}
-          </div>
-
-          <div v-if="snapshot.pca_experiment.color_exp" class="q-mb-sm bg-blue-1 q-pa-sm rounded-borders">
-            <b>Удаление цвета:</b>
-            {{ snapshot.pca_experiment.color_exp.before }}
-            → {{ snapshot.pca_experiment.color_exp.after }}
-            (+{{ snapshot.pca_experiment.color_exp.delta_correct }} верных)
-          </div>
-
-          <q-markup-table dense flat>
-            <thead>
-              <tr>
-                <th class="text-left">Адрес</th>
-                <th class="text-right">Отрыв (orig)</th>
-                <th class="text-right">Отрыв (PCA)</th>
-                <th class="text-right">×</th>
-                <th class="text-center">Best match</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in snapshot.pca_experiment.results" :key="row.address">
-                <td>{{ row.address }}</td>
-                <td class="text-right">{{ row.orig_margin.toFixed(4) }}</td>
-                <td class="text-right">{{ row.pca_margin.toFixed(4) }}</td>
-                <td class="text-right">{{ row.ratio }}×</td>
-                <td class="text-center">
-                  <q-badge :color="row.best_unchanged ? 'positive' : 'negative'" outline>
-                    {{ row.best_unchanged ? '✓' : '✗' }}
-                  </q-badge>
-                </td>
-              </tr>
-            </tbody>
-          </q-markup-table>
-
-          <div v-if="snapshot.pca_experiment.real_photo_test" class="text-caption text-grey q-mt-sm">
-            Тест на 12 реальных фото: {{ snapshot.pca_experiment.real_photo_test.note }}
-          </div>
-        </q-card-section>
-      </q-card>
-      </template>
-
-      <div class="row q-col-gutter-md">
-        <div class="col-12 col-xl-7">
-          <q-card flat bordered>
-            <q-card-section>
-              <div class="row items-center q-col-gutter-sm q-mb-sm">
-                <div class="col text-subtitle2">Ошибки по адресам (более 5%)</div>
-                <div class="col-12 col-sm-5">
-                  <q-input v-model="addressFilter" dense outlined clearable label="Фильтр адреса" />
-                </div>
-                <div class="col-12 col-sm-auto">
-                  <q-toggle v-model="showNamingVariants" dense label="Показывать названия" />
-                </div>
-              </div>
-              <div class="text-caption text-grey q-mb-sm">
-                В таблице {{ formatCount(snapshot.address_metrics_source.selected_addresses) }} из {{ formatCount(snapshot.address_metrics_source.total_addresses) }} адресов отчёта HYBRID run {{ snapshot.address_metrics_source.run_id }} с долей ошибок более 5%: ошибки — {{ formatCount(snapshot.address_metrics_source.error_addresses) }}, варианты названия — {{ formatCount(snapshot.address_metrics_source.naming_variant_addresses) }}, ошибки в названии — {{ formatCount(snapshot.address_metrics_source.label_error_addresses) }}. Строки с отметкой названия не входят в число сомнительных.
-              </div>
-              <q-markup-table dense flat wrap-cells>
-                <thead>
-                  <tr>
-                    <th class="text-right quality-number">№</th>
-                    <th class="text-left">Эталонный адрес</th>
-                    <th class="text-right">Фото</th>
-                    <th class="text-right">В слепке</th>
-                    <th class="text-right">Верно</th>
-                    <th class="text-right">Ошибки</th>
-                    <th class="text-right">Без результата</th>
-                    <th class="text-right">Доля ошибок</th>
-                    <th class="text-left">Чаще путается с</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="item in rows"
-                    :key="item.address_id"
-                    :data-address-number="item.number"
-                    :class="item.kind !== 'recognition_error' ? 'quality-variant-row' : ''"
-                  >
-                    <td class="text-right text-grey">{{ item.number }}</td>
-                    <td>
-                      {{ item.name }} <span class="text-caption text-grey">#{{ item.address_id }}</span>
-                      <q-badge
-                        v-if="item.kind === 'naming_variant'"
-                        color="grey-6"
-                        label="вариант названия"
-                        class="q-ml-xs"
-                      />
-                      <q-badge
-                        v-else-if="item.kind === 'label_error'"
-                        color="orange-7"
-                        label="ошибка в названии"
-                        class="q-ml-xs"
-                      />
-                      <div v-if="item.kind === 'naming_variant'" class="text-caption text-grey">
-                        → {{ item.canonical_name }} <span>#{{ item.canonical_address_id }}</span>
-                        · расхождений {{ formatCount(item.wrong) }}
-                      </div>
-                      <div v-if="item.kind === 'label_error' && item.note" class="text-caption text-grey">
-                        {{ item.note }}
-                      </div>
-                    </td>
-                    <td class="text-right">{{ formatCount(item.items) }}</td>
-                    <td class="text-right">{{ formatCount(item.fingerprint_items) }}</td>
-                    <td class="text-right">{{ formatCount(item.correct) }}</td>
-                    <td class="text-right">{{ item.kind !== 'recognition_error' ? '—' : formatCount(item.wrong) }}</td>
-                    <td class="text-right">{{ formatCount(item.unknown) }}</td>
-                    <td class="text-right">{{ item.kind !== 'recognition_error' ? '—' : formatPercent(item.error_rate) }}</td>
-                    <td>
-                      <div v-for="pair in item.top_confusions" :key="`${item.address_id}-${pair.address_id}`">
-                        {{ pair.name }} · {{ formatCount(pair.count) }}
-                      </div>
-                    </td>
-                  </tr>
-                  <tr v-if="!rows.length">
-                    <td colspan="9" class="text-center text-grey">По фильтру ничего не найдено</td>
-                  </tr>
-                </tbody>
-              </q-markup-table>
-              <div class="text-caption text-grey q-mt-sm">
-                Доля ошибок рассчитана как wrong / items. Unknown — отдельная категория. «Фото в слепке» — число активных эталонных кадров, не знаменатель accuracy. Адресная таблица взята из отдельного run {{ snapshot.address_metrics_source.run_id }} ({{ formatCount(snapshot.address_metrics_source.items) }} фото), не из выборки сравнения вариантов. Показаны только адреса с долей ошибок более 5%; это не оценка каждого адреса справочника.
-              </div>
-            </q-card-section>
-          </q-card>
-        </div>
-
-        <div class="col-12 col-xl-5">
-          <q-card flat bordered>
-            <q-card-section>
-              <div class="text-subtitle2 q-mb-sm">Основные направленные ошибки: {{ selectedVariant?.name || '—' }}</div>
-              <q-markup-table dense flat wrap-cells>
-                <thead>
-                  <tr>
-                    <th class="text-right quality-number">№</th>
-                    <th class="text-left">Ожидалось</th>
-                    <th class="text-left">Предсказано</th>
-                    <th class="text-right">Фото</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="pair in pairRows" :key="`${pair.expected_id}-${pair.predicted_id}-${pair.number}`">
-                    <td class="text-right text-grey">{{ pair.number }}</td>
-                    <td>{{ pair.expected }} <span class="text-caption text-grey">#{{ pair.expected_id }}</span></td>
-                    <td>{{ pair.predicted }} <span class="text-caption text-grey">#{{ pair.predicted_id }}</span></td>
-                    <td class="text-right">{{ formatCount(pair.count) }}</td>
-                  </tr>
-                  <tr v-if="!pairRows.length">
-                    <td colspan="4" class="text-center text-grey">Для этого варианта нет записанных пар ошибок</td>
-                  </tr>
-                </tbody>
-              </q-markup-table>
-            </q-card-section>
-          </q-card>
-        </div>
-      </div>
-
-      <q-expansion-item class="q-mt-md" dense label="Источник данных и ограничения">
-        <q-card flat bordered>
+    <div class="row q-col-gutter-md q-mb-md">
+      <!-- Прогон: последний завершённый HYBRID и даты сортировки. -->
+      <div class="col-12 col-md-5">
+        <q-card flat bordered class="fit">
           <q-card-section>
-            <div>Метод меток: {{ snapshot.source.label_method }}.</div>
-            <div>Источник: {{ snapshot.source.experiment }}, run {{ snapshot.source.run_id }}.</div>
-            <div>Независимые ручные метки: {{ snapshot.source.independent_manual_labels ? 'да' : 'нет' }}.</div>
-            <div>Temporal holdout: {{ snapshot.source.is_temporal_holdout ? 'да' : 'нет' }}.</div>
-            <ul class="q-mb-none">
-              <li v-for="(note, index) in snapshot.source.notes" :key="index">{{ note }}</li>
-            </ul>
+            <div class="text-caption text-grey">Прогон для оценки</div>
+            <q-select
+              v-model="runId"
+              :options="runOptions"
+              dense
+              outlined
+              emit-value
+              map-options
+              :display-value="runOptions.find((item) => item.value === runId)?.label || 'Последний прогон'"
+              label="Сортировка и гибрид"
+              class="q-mt-xs"
+              @update:model-value="load"
+            >
+              <template #option="scope">
+                <q-item v-bind="scope.itemProps">
+                  <q-item-section>{{ scope.opt.label }}</q-item-section>
+                </q-item>
+              </template>
+            </q-select>
+
+            <div class="text-caption text-grey-8 q-mt-sm">
+              Последняя сортировка: <b>{{ formatDate(run?.last_sort_at) }}</b><br />
+              Последний гибрид: <b>{{ formatDate(run?.last_hybrid_at) }}</b>
+            </div>
           </q-card-section>
         </q-card>
-      </q-expansion-item>
-    </template>
+      </div>
+
+      <!-- Общий результат точности. -->
+      <div class="col-12 col-md-7">
+        <q-card flat bordered class="fit">
+          <q-card-section>
+            <div class="row items-end no-wrap">
+              <div class="col">
+                <div class="text-caption text-grey">Точность по подписанным фото</div>
+                <div
+                  class="text-h4"
+                  :class="`text-${accuracyColor(totals?.accuracy)}`"
+                >
+                  {{ formatPercent(totals?.accuracy) }}
+                </div>
+                <div class="text-caption text-grey-8">
+                  Верно {{ formatCount(totals?.correct) }}
+                  из {{ formatCount(totals?.labelled) }} подписанных
+                  <template v-if="totals?.wrong">
+                    · ошибок {{ formatCount(totals.wrong) }}
+                  </template>
+                </div>
+              </div>
+              <div class="col-auto q-ml-md text-right">
+                <div class="text-caption text-grey">Фото в прогоне</div>
+                <div class="text-subtitle1">{{ formatCount(totals?.photos) }}</div>
+                <div class="text-caption text-grey">
+                  без адреса в имени: {{ formatCount(totals?.no_label) }}
+                </div>
+              </div>
+            </div>
+          </q-card-section>
+        </q-card>
+      </div>
+    </div>
+
+    <q-banner
+      v-if="fullRunSuggestion"
+      dense
+      rounded
+      class="bg-blue-1 text-dark q-mb-md"
+    >
+      В этом прогоне мало подписанных кадров ({{ formatCount(totals?.labelled) }}) —
+      проценты по адресам почти не на чем считать.
+      <template v-if="fullRunSuggestion">
+        <q-btn
+          dense
+          flat
+          no-caps
+          color="primary"
+          :label="`Взять полный прогон (${formatCount(fullRunSuggestion.photos)} фото)`"
+          @click="useFullRun"
+        />
+      </template>
+    </q-banner>
+
+    <q-card flat bordered>
+      <q-card-section>
+        <div class="row items-center q-mb-sm">
+          <div class="text-subtitle2 col">
+            Совпадение по адресам
+            <span class="text-caption text-grey-7">
+              — эталон берётся из названия фото, поэтому в расчёт входят только
+              подписанные кадры
+            </span>
+          </div>
+          <q-input
+            v-model="addressFilter"
+            dense
+            outlined
+            clearable
+            debounce="200"
+            label="Поиск адреса"
+            style="max-width: 260px"
+          />
+        </div>
+
+        <div class="quality-table-scroll">
+          <q-table
+            :rows="rows"
+            :columns="columns"
+            :loading="loading"
+            row-key="address_id"
+            :pagination="{ rowsPerPage: 0 }"
+            hide-bottom
+            flat
+            dense
+            no-data-label="Нет данных за выбранный прогон"
+          >
+            <template #body-cell-name="props">
+              <q-td :props="props">
+                <span class="ellipsis">{{ props.row.name }}</span>
+              </q-td>
+            </template>
+
+            <template #body-cell-fingerprint="props">
+              <q-td :props="props">
+                {{ formatCount(props.row.fingerprint_photos) }}
+              </q-td>
+            </template>
+
+            <template #body-cell-accuracy="props">
+              <q-td :props="props">
+                <span :class="`text-${accuracyColor(props.row.accuracy)}`">
+                  {{ formatPercent(props.row.accuracy) }}
+                </span>
+                <q-tooltip v-if="props.row.labelled">
+                  Верно {{ props.row.correct }} из {{ props.row.labelled }}
+                  подписанных; ошибок {{ props.row.wrong }}
+                </q-tooltip>
+              </q-td>
+            </template>
+
+            <template #body-cell-influence="props">
+              <q-td :props="props">
+                {{ influenceLabel(props.row.influence) }}
+                <q-tooltip v-if="props.row.influence">
+                  <template
+                    v-for="(count, kind) in props.row.influence.counts"
+                    :key="kind"
+                  >
+                    {{ INFLUENCE_LABELS[kind] || kind }}: {{ count }}<br />
+                  </template>
+                </q-tooltip>
+              </q-td>
+            </template>
+
+            <template #body-cell-confusion="props">
+              <q-td :props="props">
+                <template v-if="props.row.confused_with">
+                  {{ props.row.confused_with.name }}
+                  <span class="text-grey-7">· {{ props.row.confused_with.count }}</span>
+                </template>
+                <span v-else class="text-grey-6">—</span>
+                <q-tooltip v-if="props.row.confused_with">
+                  {{ props.row.confused_with.count }}
+                  {{ props.row.confused_with.count === 1 ? 'кадр' : 'кадров' }}
+                  подписаны этим адресом, но отнесены к другому
+                </q-tooltip>
+              </q-td>
+            </template>
+          </q-table>
+        </div>
+      </q-card-section>
+    </q-card>
   </div>
 </template>
 
 <style scoped>
-.quality-number {
-  width: 36px;
-  white-space: nowrap;
-}
-
-.quality-variant-row {
-  background: rgba(0, 0, 0, 0.03);
+.quality-table-scroll {
+  max-height: min(70vh, 640px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 </style>

@@ -122,21 +122,31 @@ def write_crop(
     temp_path = Path(temp_name)
 
     try:
-        with Image.open(source_path) as image:
+        # turbo_decode reads truncated JPEGs that Pillow rejects; the detector
+        # accepted the same source, so the crop must not fail on it.
+        from app.preview.turbo_decode import decode_rgb
+
+        image = decode_rgb(source_path)
+
+        if image is None:
+            image = Image.open(source_path)
+
             if getattr(image, "n_frames", 1) > 1:
                 image.seek(0)
 
             image = image.convert("RGB")
-            width, height = image.size
 
-            x1 = min(max(0, int(region["bbox_x"])), width - 1)
-            y1 = min(max(0, int(region["bbox_y"])), height - 1)
-            x2 = min(width, x1 + max(1, int(region["bbox_w"])))
-            y2 = min(height, y1 + max(1, int(region["bbox_h"])))
+        width, height = image.size
 
-            crop = image.crop((x1, y1, x2, y2))
-            crop.save(temp_path, format="JPEG", quality=quality)
-            crop.close()
+        x1 = min(max(0, int(region["bbox_x"])), width - 1)
+        y1 = min(max(0, int(region["bbox_y"])), height - 1)
+        x2 = min(width, x1 + max(1, int(region["bbox_w"])))
+        y2 = min(height, y1 + max(1, int(region["bbox_h"])))
+
+        crop = image.crop((x1, y1, x2, y2))
+        crop.save(temp_path, format="JPEG", quality=quality)
+        crop.close()
+        image.close()
 
         with Image.open(temp_path) as check:
             check.load()

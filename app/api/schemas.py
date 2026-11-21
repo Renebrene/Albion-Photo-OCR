@@ -66,6 +66,12 @@ class PhotoSummary(BaseModel):
     # (a failed re-run keeps the previous description row).
     qwen_status: str | None = None
     qwen_described: bool | None = None
+    # Откуда описание: 'crop' — по кропам щита, 'full' — по полному кадру.
+    # None — описания нет. В гриде это разные цвета значка.
+    qwen_source: str | None = None
+    # У фото есть billboard-кроп, а значит и вектор в индексе «Похожих».
+    # Без кропа кнопка «Похожие» погашена с подсказкой «щит не найден».
+    has_billboard_crop: bool = False
 
 
 class PhotoPage(BaseModel):
@@ -231,6 +237,8 @@ class QwenRescanRequest(BaseModel):
     date_from: date
     date_to: date
     date_mode: str = Field(default="upload", pattern="^(upload|capture)$")
+    # Адреса из справочника (после HYBRID): пусто — все адреса периода.
+    address_ids: list[int] | None = Field(default=None, max_length=200)
 
     @model_validator(mode="after")
     def validate_range(self):
@@ -243,6 +251,7 @@ class QwenPeriodPreviewRequest(BaseModel):
     date_from: date
     date_to: date
     date_mode: str = Field(default="capture", pattern="^(upload|capture)$")
+    address_ids: list[int] | None = Field(default=None, max_length=200)
 
     @model_validator(mode="after")
     def validate_range(self):
@@ -263,12 +272,40 @@ class QwenPeriodScanRequest(BaseModel):
     date_to: date
     date_mode: str = Field(default="capture", pattern="^(upload|capture)$")
     limit: int = Field(default=1000, ge=1, le=5000)
+    address_ids: list[int] | None = Field(default=None, max_length=200)
 
     @model_validator(mode="after")
     def validate_range(self):
         if self.date_to < self.date_from:
             raise ValueError("date_to must not be earlier than date_from")
         return self
+
+
+class QwenSelectionRequest(BaseModel):
+    """
+    Что попадёт в запуск описания при выбранных периоде и адресах.
+
+    Считается до постановки заданий: `to_run` — столько фото будет поставлено
+    в выбранном режиме, `described` — уже имеющие описание (их затрагивает
+    только режим «перезаписать»).
+    """
+
+    date_from: date
+    date_to: date
+    date_mode: str = Field(default="capture", pattern="^(upload|capture)$")
+    address_ids: list[int] | None = Field(default=None, max_length=200)
+
+    @model_validator(mode="after")
+    def validate_range(self):
+        if self.date_to < self.date_from:
+            raise ValueError("date_to must not be earlier than date_from")
+        return self
+
+
+class QwenResetRequest(BaseModel):
+    """Жёсткий сброс описаний: без явного подтверждения не выполняется."""
+
+    confirm: bool = False
 
 
 class QwenModelRequest(BaseModel):
@@ -296,6 +333,12 @@ class QwenSettingsUpdate(BaseModel):
     # None = не менять, "" = вернуть встроенный промпт.
     prompt: str | None = Field(default=None, max_length=4000)
     crop_prompt: str | None = Field(default=None, max_length=4000)
+    # «Низкий приоритет при выдаче»: названия, которые не показываются как
+    # клиент/бренд, а остаются тегами. None = не менять, [] = выключить.
+    low_priority_names: list[str] | None = Field(default=None, max_length=200)
+    # «Запрещённые к выдаче слова»: не попадают в клиента/бренд/теги/описание.
+    # None = не менять, [] = очистить список.
+    forbidden_words: list[str] | None = Field(default=None, max_length=500)
 
 
 class CloudSettingsUpdate(BaseModel):

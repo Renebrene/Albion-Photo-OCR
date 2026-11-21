@@ -8,6 +8,12 @@ import { Notify, QSelect, Quasar } from 'quasar'
 
 import IngestFolder from '../src/components/IngestFolder.vue'
 
+// Очистка превью спрашивает подтверждение через Dialog: в тестах плагин не
+// регистрируется, поэтому согласие подменяется.
+vi.mock('../src/composables/confirmDialog', () => ({
+  confirmDialog: vi.fn(async () => true),
+}))
+
 Notify.create = vi.fn()
 
 function json(body, status = 200) {
@@ -44,7 +50,31 @@ const scanWithErrors = {
   problems: [{ filename: 'empty.mp4', reason: 'файл пуст' }],
 }
 
-function installFetch({ scan = scanWithErrors, previews = null, job = null } = {}) {
+const healthyInventory = {
+  previews: {
+    photos: 2,
+    files: 4,
+    bytes: 2048,
+    small: { files: 2, bytes: 512 },
+    middle: { files: 2, bytes: 1536 },
+  },
+  orphans: {
+    count: 0,
+    bytes: 0,
+    purgeable: 0,
+    purgeable_bytes: 0,
+    reasons: {},
+    samples: [],
+  },
+}
+
+function installFetch({
+  scan = scanWithErrors,
+  previews = null,
+  job = null,
+  inventory = healthyInventory,
+  purge = { photos: 2, deleted_files: 4, freed_bytes: 300, skipped: 0 },
+} = {}) {
   const calls = []
 
   global.fetch = vi.fn(async (url, options = {}) => {
@@ -55,6 +85,8 @@ function installFetch({ scan = scanWithErrors, previews = null, job = null } = {
       body: options.body ? JSON.parse(options.body) : null,
     })
 
+    if (path.includes('/v1/previews/inventory')) return json(inventory)
+    if (path.includes('/v1/previews/orphans/purge')) return json(purge)
     if (path.includes('/v1/previews/backfill')) {
       return json(previews || { selected: 3, queued: 3, already_active: 0 })
     }
@@ -367,5 +399,77 @@ describe('пересоздание превью', () => {
     const notice = Notify.create.mock.calls.at(-1)[0]
     expect(notice.type).toBe('warning')
     expect(notice.message).toContain('Оригинал недоступен у 5 фото')
+  })
+})
+
+// ---- сводка превью и «сироты» ----------------------------------------------
+
+describe('сводка превью', () => {
+  it('показывает число фото и вес файлов', async () => {
+    installFetch()
+    const wrapper = mountFolder()
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('Превью: 2 фото')
+    expect(text).toContain('2.0 КБ')
+    expect(text).toContain('512 Б')
+    expect(text).toContain('Превью без оригиналов не найдено')
+  })
+
+  it('предлагает очистить превью без оригиналов', async () => {
+    const calls = installFetch({
+      inventory: {
+        previews: healthyInventory.previews,
+        orphans: {
+          count: 3,
+          bytes: 900,
+          purgeable: 2,
+          purgeable_bytes: 600,
+          reasons: { file_missing: 2, directory_missing: 1 },
+          samples: [],
+        },
+      },
+      purge: { photos: 2, deleted_files: 4, freed_bytes: 600, skipped: 1 },
+    })
+    const wrapper = mountFolder()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Превью без оригиналов: 3')
+    expect(wrapper.text()).toContain('Можно удалить 2')
+
+    await clickButton(wrapper, 'Очистить')
+    await flushPromises()
+
+    const call = calls.find((item) => item.path.includes('/v1/previews/orphans/purge'))
+    expect(call).toBeTruthy()
+    expect(call.method).toBe('POST')
+    expect(Notify.create).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('Удалено превью: 2') }),
+    )
+  })
+
+  it('без безопасных случаев кнопку не показывает, а объясняет причину', async () => {
+    installFetch({
+      inventory: {
+        previews: healthyInventory.previews,
+        orphans: {
+          count: 2,
+          bytes: 300,
+          purgeable: 0,
+          purgeable_bytes: 0,
+          reasons: { root_unavailable: 2 },
+          samples: [],
+        },
+      },
+    })
+    const wrapper = mountFolder()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Удаление недоступно')
+    expect(wrapper.text()).toContain('том не подключён: 2')
+    expect(
+      wrapper.findAll('button').some((button) => button.text().includes('Очистить')),
+    ).toBe(false)
   })
 })

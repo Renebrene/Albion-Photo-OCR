@@ -169,10 +169,24 @@ def detect_billboards(
     """
 
     import cv2
+    import numpy as np
 
     cfg = config or resolve_settings()
 
     image = cv2.imread(str(image_path))
+
+    if image is None:
+        # Truncated JPEGs are rejected by OpenCV but decoded by libjpeg-turbo
+        # (grey tail); the same file already has a preview, so crops must not
+        # be the reason the photo stays without regions.
+        from app.preview.turbo_decode import decode_rgb
+
+        fallback = decode_rgb(image_path)
+
+        if fallback is not None:
+            image = cv2.cvtColor(
+                np.ascontiguousarray(np.asarray(fallback)), cv2.COLOR_RGB2BGR
+            )
 
     if image is None:
         raise ValueError("source image is unreadable")

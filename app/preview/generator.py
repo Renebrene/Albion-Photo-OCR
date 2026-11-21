@@ -97,16 +97,12 @@ def _load_visual_source(record: PhotoRecord) -> Image.Image:
     — no ``seek(0)`` needed.
     """
 
-    from app.preview.turbo_decode import turbo_decode
+    from app.preview.turbo_decode import decode_rgb
 
-    array = turbo_decode(record.source_path)
+    image = decode_rgb(record.source_path)
 
-    if array is not None:
-        # Image.frombuffer shares the buffer — keep the array alive as long as
-        # the PIL image exists.
-        img = Image.frombuffer("RGB", (array.shape[1], array.shape[0]), array)
-        img._source_array = array  # noqa: SLF001 — keepalive reference
-        return img
+    if image is not None:
+        return image
 
     source_path = Path(record.source_path)
 

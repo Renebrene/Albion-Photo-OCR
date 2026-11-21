@@ -10,11 +10,14 @@ import {
   browseFolders,
   fetchIngestFolder,
   fetchJob,
+  fetchPreviewsInventory,
   pickFolderNative,
+  purgeOrphanPreviews,
   runIngest,
   saveIngestFolder,
   scanIngestFolder,
 } from '../api/client'
+import { confirmDialog } from '../composables/confirmDialog'
 import { usePoller } from '../composables/usePoller'
 import { PERIODS, periodRange } from '../utils/periodRange'
 
@@ -151,6 +154,28 @@ const browsed = ref({ path: null, parent: null, dirs: [], photos: 0 })
 
 // Error log dialog.
 const logOpen = ref(false)
+
+// Превью: число и вес файлов, «сироты» без оригиналов. Считается по всей базе
+// (производные файлы не привязаны к папке инспекции), поэтому загружается
+// отдельно от статистики папки.
+const previews = ref(null)
+const previewsLoading = ref(false)
+const previewsError = ref('')
+const purgeBusy = ref(false)
+
+const orphanBreakdown = computed(() => {
+  const reasons = previews.value?.orphans?.reasons || {}
+  const labels = {
+    root_unavailable: 'том не подключён',
+    directory_missing: 'папка оригинала переехала',
+    outside_roots: 'оригинал вне корней',
+  }
+
+  return Object.entries(labels)
+    .filter(([key]) => Number(reasons[key]) > 0)
+    .map(([key, label]) => `${label}: ${reasons[key]}`)
+    .join(' · ')
+})
 
 const currentPathChecked = computed(() => checkedPath.value === path.value.trim())
 const showStats = computed(() => Boolean(state.value.exists && currentPathChecked.value))
@@ -303,6 +328,62 @@ async function rebuildPreviews() {
     Notify.create({ type: 'negative', message: err.message })
   } finally {
     busy.value = false
+    // После пересоздания часть «сирот» может исчезнуть, а число фото с
+    // превью — вырасти: пересчитываем сводку.
+    loadPreviews()
+  }
+}
+
+async function loadPreviews() {
+  previewsLoading.value = true
+
+  try {
+    const data = await fetchPreviewsInventory()
+    // Старый сервер без эндпоинта не должен ронять блок: показываем только
+    // ожидаемую форму ответа.
+    previews.value = data && data.previews ? data : null
+    previewsError.value = ''
+  } catch (err) {
+    previews.value = null
+    previewsError.value = err.message
+  } finally {
+    previewsLoading.value = false
+  }
+}
+
+/** Удалить превью без оригиналов — только те, где оригинал точно удалён. */
+async function purgePreviews() {
+  const info = previews.value?.orphans
+
+  if (!info?.purgeable) return
+
+  const ok = await confirmDialog({
+    title: 'Удалить превью без оригиналов?',
+    message:
+      `Будет удалено превью: ${info.purgeable} ` +
+      `(${humanBytes(info.purgeable_bytes)}). Записи фото и оригиналы ` +
+      'не затрагиваются — удаляются только производные файлы и их записи.',
+    okLabel: 'Удалить',
+  })
+
+  if (!ok) return
+
+  purgeBusy.value = true
+
+  try {
+    const result = await purgeOrphanPreviews()
+    Notify.create({
+      type: result.photos ? 'positive' : 'info',
+      message: result.photos
+        ? `Удалено превью: ${result.photos}, файлов: ${result.deleted_files}, ` +
+          `освобождено ${humanBytes(result.freed_bytes)}`
+        : 'Удалять нечего',
+    })
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    purgeBusy.value = false
+    await loadPreviews()
   }
 }
 
@@ -347,7 +428,10 @@ async function pickNative() {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  loadPreviews()
+})
 </script>
 
 <template>
@@ -595,6 +679,65 @@ onMounted(load)
           <span class="text-caption text-grey-7">
             Пригодится после переноса хранилища или очистки производных файлов.
           </span>
+        </div>
+
+        <!-- Превью: сколько создано, сколько занимают и есть ли «сироты».
+             Счёт по всей базе: производные файлы не привязаны к папке. -->
+        <div class="q-mt-sm">
+          <div v-if="previewsLoading" class="text-caption text-grey-7">
+            Считаю превью…
+          </div>
+
+          <div v-else-if="previews" class="text-caption text-grey-8">
+            Превью: <b>{{ previews.previews.photos }}</b> фото ·
+            <b>{{ humanBytes(previews.previews.bytes) }}</b>
+            (SMALL {{ humanBytes(previews.previews.small.bytes) }} ·
+            MIDDLE {{ humanBytes(previews.previews.middle.bytes) }})
+          </div>
+
+          <div v-if="previewsError" class="text-caption text-negative q-mt-xs">
+            Превью: {{ previewsError }}
+          </div>
+
+          <div
+            v-if="previews && previews.orphans.count"
+            class="row items-center q-gutter-sm q-mt-xs"
+          >
+            <q-icon name="warning" color="warning" size="18px" />
+            <span class="text-caption text-warning">
+              Превью без оригиналов: <b>{{ previews.orphans.count }}</b>
+              ({{ humanBytes(previews.orphans.bytes) }}).
+              <template v-if="previews.orphans.purgeable">
+                Можно удалить {{ previews.orphans.purgeable }} — освободит
+                {{ humanBytes(previews.orphans.purgeable_bytes) }}.
+              </template>
+              <template v-else>
+                Удаление недоступно: {{ orphanBreakdown }} — сначала верните
+                оригиналы на место.
+              </template>
+            </span>
+            <q-btn
+              v-if="previews.orphans.purgeable"
+              dense
+              outline
+              color="warning"
+              label="Очистить"
+              :loading="purgeBusy"
+              @click="purgePreviews"
+            >
+              <q-tooltip>
+                Удаляет только превью, чей оригинал точно удалён. Записи фото
+                и оригиналы не трогаются; отчёт пишется в data/reports.
+              </q-tooltip>
+            </q-btn>
+          </div>
+
+          <div
+            v-else-if="previews"
+            class="text-caption text-positive q-mt-xs"
+          >
+            Превью без оригиналов не найдено.
+          </div>
         </div>
       </div>
 

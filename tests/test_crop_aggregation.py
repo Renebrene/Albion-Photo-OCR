@@ -130,3 +130,47 @@ def test_crop_aggregation_ignores_failed_crops_and_deduplicates_tags():
     # Проигравший клиент/бренд сохраняется в тегах, выигравший — в полях.
     assert result["tags"] == ["promo", "2026", "second"]
     assert result["crop_observations"] == 2
+
+
+def test_low_priority_name_never_wins_and_stays_a_tag():
+    """«Низкий приоритет при выдаче»: Sunlight уступает другому кропу,
+    даже если стоит первым и чаще в базе, а сам остаётся тегом."""
+
+    result = aggregate_crop_fields(
+        [
+            {"crop_index": 0, "fields": {"client": "Sunlight", "brand": "Sunlight", "tags": []}},
+            {"crop_index": 1, "fields": {"client": "Бигфест", "brand": "Бигфест", "tags": []}},
+        ],
+        frequencies={"brand": {"sunlight": 500, "бигфест": 159}},
+        low_priority=["Sunlight", "Санлайт"],
+    )
+
+    assert result["client"] == "Бигфест"
+    assert result["brand"] == "Бигфест"
+    assert "Sunlight" in result["tags"]
+
+
+def test_low_priority_only_crops_leave_fields_empty():
+    """Если на фото только «чужая» реклама — клиент/бренд пустые, имя в тегах."""
+
+    result = aggregate_crop_fields(
+        [
+            {"crop_index": 0, "fields": {"client": "Санлайт", "brand": "Sunlight", "tags": []}},
+        ],
+        low_priority=["Sunlight", "Санлайт"],
+    )
+
+    assert result["client"] is None
+    assert result["brand"] is None
+    assert "Санлайт" in result["tags"]
+    assert "Sunlight" in result["tags"]
+
+
+def test_low_priority_list_is_optional_and_keeps_old_behaviour():
+    """Без настройки правило не действует — прежний выбор сохраняется."""
+
+    result = aggregate_crop_fields(
+        [{"crop_index": 0, "fields": {"brand": "Sunlight", "tags": []}}]
+    )
+
+    assert result["brand"] == "Sunlight"

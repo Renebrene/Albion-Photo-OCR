@@ -15,29 +15,40 @@ SNAPSHOT = Path(__file__).resolve().parents[1] / "data/reports/recognition_quali
 
 
 def test_published_snapshot_is_valid_and_keeps_denominators_separate():
+    """
+    Проверяем снимок как контракт, а не конкретные цифры прогона: файл
+    пересобирается после каждого эксперимента, и зашитые итоги устаревают
+    (21.11.2026 он пришёл с 38 190 подписанных вместо 31 983).
+    """
+
     snapshot = recognition_quality._validate(json.loads(SNAPSHOT.read_text(encoding="utf-8")))
 
     assert snapshot["source"]["is_temporal_holdout"] is False
-    assert snapshot["totals"]["labelled"] == 31983
-    assert snapshot["variants"][0]["labelled"] == 31983
-    # The view includes every report row above the 5% error-rate threshold;
-    # address_metrics_source keeps the aggregate denominator for the full report.
-    assert len(snapshot["addresses"]) == 39
+    assert snapshot["totals"]["labelled"] > 0
+
+    # Варианты считаются от той же подписанной базы, что и итог: иначе
+    # проценты несравнимы между собой и с агрегатом адресов.
+    labels = {variant["labelled"] for variant in snapshot["variants"]}
+    assert labels == {snapshot["totals"]["labelled"]}
+
+    for variant in snapshot["variants"]:
+        assert variant["correct"] + variant["wrong"] + variant["review"] == variant["labelled"]
+
+    # В список попадают только адреса выше порога 5 % ошибок, и их не больше,
+    # чем отобрал отчёт (часть строк могла не дойти до снимка).
+    assert snapshot["addresses"]
     assert all(item["error_rate"] > 0.05 for item in snapshot["addresses"])
-    assert sum(item["is_naming_variant"] for item in snapshot["addresses"]) == 17
-    assert snapshot["addresses"][0]["is_naming_variant"] is True
-    assert snapshot["addresses"][14]["is_naming_variant"] is False
-    assert snapshot["addresses"][16]["classification"] == "naming_variant"
-    assert snapshot["addresses"][28]["classification"] == "label_error"
-    assert snapshot["address_metrics_source"]["error_addresses"] == 21
-    assert snapshot["address_metrics_source"]["naming_variant_addresses"] == 17
-    assert snapshot["address_metrics_source"]["label_error_addresses"] == 1
-    assert snapshot["address_metrics_source"]["items"] == 32021
-    assert snapshot["address_metrics_source"]["selection"] == "error_rate > 5% of items"
-    assert snapshot["address_metrics_source"]["selected_addresses"] == 39
-    assert snapshot["address_metrics_source"]["total_addresses"] == 109
-    assert snapshot["address_metrics_source"]["unknown"] == 38
-    assert snapshot["addresses"][0]["address_id"] == 1892
+    assert snapshot["address_metrics_source"]["selected_addresses"] >= len(
+        snapshot["addresses"]
+    )
+
+    for item in snapshot["addresses"]:
+        assert item["correct"] + item["wrong"] + item["unknown"] == item["items"]
+        assert item["classification"] in {
+            "recognition_error",
+            "naming_variant",
+            "label_error",
+        }
 
 
 def test_snapshot_rejects_inconsistent_variant_denominator():
@@ -75,9 +86,15 @@ def test_quality_endpoint_returns_curated_snapshot(monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
+    published = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+
+    # Эндпоинт отдаёт ровно опубликованный снимок (снимок пересобирается
+    # после каждого эксперимента, поэтому сверяем с файлом, а не с номером
+    # прогона из старой зашитой константы).
     assert body["schema_version"] == 1
-    assert body["source"]["run_id"] == 4
+    assert body["source"]["run_id"] == published["source"]["run_id"]
     assert body["source"]["is_temporal_holdout"] is False
+    assert body["totals"] == published["totals"]
 
 
 def test_quality_endpoint_requires_read_scope(monkeypatch):

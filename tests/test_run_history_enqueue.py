@@ -45,7 +45,7 @@ def history_mocks(monkeypatch):
 
 def test_manual_dino_run_links_job_and_preserves_response(history_mocks, monkeypatch):
     h = history_mocks
-    monkeypatch.setattr(h.routes.dino_db, "create_batch", lambda *_: SimpleNamespace(
+    monkeypatch.setattr(h.routes.dino_db, "create_batch", lambda *a, **k: SimpleNamespace(
         batch_id=22, total_count=3, status="PENDING"
     ))
     enqueue = Mock(return_value=74)
@@ -79,7 +79,7 @@ def test_manual_dino_run_links_job_and_preserves_response(history_mocks, monkeyp
 
 def test_zero_work_dino_finishes_history_without_enqueue(history_mocks, monkeypatch):
     h = history_mocks
-    monkeypatch.setattr(h.routes.dino_db, "create_batch", lambda *_: SimpleNamespace(
+    monkeypatch.setattr(h.routes.dino_db, "create_batch", lambda *a, **k: SimpleNamespace(
         batch_id=23, total_count=0, status="DONE"
     ))
     enqueue = Mock()
@@ -97,7 +97,7 @@ def test_zero_work_dino_finishes_history_without_enqueue(history_mocks, monkeypa
 
 def test_dino_enqueue_failure_is_recorded_and_propagated(history_mocks, monkeypatch):
     h = history_mocks
-    monkeypatch.setattr(h.routes.dino_db, "create_batch", lambda *_: SimpleNamespace(
+    monkeypatch.setattr(h.routes.dino_db, "create_batch", lambda *a, **k: SimpleNamespace(
         batch_id=24, total_count=1, status="PENDING"
     ))
     monkeypatch.setattr(h.routes.jobs_db, "enqueue", Mock(side_effect=RuntimeError("queue down")))
@@ -193,7 +193,7 @@ def test_manual_dino_is_not_blocked_when_history_storage_is_unavailable(monkeypa
     monkeypatch.setattr(coordination, "launch_guard", noop_guard)
     monkeypatch.setattr(coordination, "active_operation", lambda: None)
     monkeypatch.setattr(history, "create_run", Mock(side_effect=RuntimeError("history unavailable")))
-    monkeypatch.setattr(routes.dino_db, "create_batch", lambda *_: SimpleNamespace(
+    monkeypatch.setattr(routes.dino_db, "create_batch", lambda *a, **k: SimpleNamespace(
         batch_id=25, total_count=0, status="DONE"
     ))
 

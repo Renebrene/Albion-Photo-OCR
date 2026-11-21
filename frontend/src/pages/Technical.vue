@@ -53,6 +53,7 @@ const canEditClients = computed(() =>
       <span class="tab-sep" />
       <q-tab name="ingest" icon="folder_open" label="Инспектор" />
       <q-tab name="processing" icon="play_circle" label="Сортировка" />
+      <q-tab name="recognition_quality" icon="query_stats" label="Качество" />
       <q-tab name="qwen" icon="auto_awesome" label="Описание" />
       <q-tab name="refine" icon="tune" label="Уточнение" />
       <span class="tab-sep" />
@@ -64,7 +65,6 @@ const canEditClients = computed(() =>
       <q-tab name="data" icon="storage" label="Данные" />
       <span class="tab-sep" />
       <q-tab name="fingerprints" icon="fingerprint" label="Слепки" />
-      <q-tab name="recognition_quality" icon="query_stats" label="Качество распознавания" />
       <q-tab name="addresses" icon="place" label="Адреса" />
       <span class="tab-sep" />
       <q-tab v-if="isAdmin" name="users" icon="group" label="Пользователи" />

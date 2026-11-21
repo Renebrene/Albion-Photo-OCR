@@ -10,6 +10,11 @@ import { createPinia, setActivePinia } from 'pinia'
 import Settings from '../src/pages/Settings.vue'
 import { useSessionStore } from '../src/stores/session'
 
+// Подтверждения (пауза/зависшие/сброс) в тестах соглашаются сразу.
+vi.mock('../src/composables/confirmDialog', () => ({
+  confirmDialog: vi.fn(async () => true),
+}))
+
 // Quasar's Notify is a plugin singleton; outside a full app it may not be
 // installed, so give it a no-op create() for the component to call.
 Notify.create = vi.fn()
@@ -21,6 +26,11 @@ let updated
 let rescanned
 let scanned
 let historyLog
+let previewed
+let pausedCalls
+let resumedCalls
+let stuckCalls
+let resetCalls
 
 function jsonResponse(body, status = 200) {
   return { ok: status < 400, status, json: async () => body }
@@ -69,6 +79,49 @@ function installFetch() {
       return jsonResponse({ photos: 5, jobs: 4, skipped: 1, model: 'qwen3-vl:4b-instruct', run_history_id: 8 }, 202)
     }
 
+    if (method === 'GET' && path === '/api/v1/qwen/addresses') {
+      return jsonResponse({
+        items: [{ address_id: 196, name: 'Нагибина 19 А', photos: 10 }],
+      })
+    }
+
+    if (method === 'POST' && path === '/api/v1/jobs/qwen/preview') {
+      previewed.push(JSON.parse(options.body))
+      return jsonResponse({
+        photos: 4,
+        described: 1,
+        missing: 3,
+        addresses: 1,
+        date_from: '2000-01-01',
+        date_to: '2026-11-21',
+        date_mode: 'capture',
+      })
+    }
+
+    if (method === 'POST' && path === '/api/v1/jobs/qwen/pause') {
+      pausedCalls.push({})
+      return jsonResponse({ paused: 2 })
+    }
+
+    if (method === 'POST' && path === '/api/v1/jobs/qwen/resume') {
+      resumedCalls.push({})
+      return jsonResponse({ resumed: 3 })
+    }
+
+    if (method === 'POST' && path === '/api/v1/jobs/qwen/stuck') {
+      stuckCalls.push(path)
+      return jsonResponse({ cancelled: 2, job_ids: [1, 2], older_than_minutes: 30 })
+    }
+
+    if (method === 'POST' && path === '/api/v1/qwen/reset') {
+      resetCalls.push(JSON.parse(options.body))
+      return jsonResponse({
+        deleted: { photo_qwen: 5, photo_qwen_history: 7 },
+        cancelled_jobs: 1,
+        report: '/tmp/report.json',
+      })
+    }
+
     if (method === 'GET' && path === '/api/v1/client-aliases') {
       return jsonResponse({ items: [] })
     }
@@ -104,6 +157,11 @@ beforeEach(() => {
   rescanned = []
   scanned = []
   historyLog = { items: [], text: '' }
+  previewed = []
+  pausedCalls = []
+  resumedCalls = []
+  stuckCalls = []
+  resetCalls = []
   stats = { counts: { DONE: 256 }, failed_photo_ids: [] }
   qwenSettings = {
     provider: 'ollama',
@@ -207,58 +265,160 @@ describe('Settings.vue', () => {
     wrapper.unmount()
   })
 
-  it('confirms a destructive QWEN rescan for an explicit period', async () => {
+  it('запускает перезапись за выбранный период и адреса', async () => {
     const wrapper = mountSettings({ role: 'Администратор' })
     await flushPromises()
 
-    const openButton = wrapper.findAll('button')
-      .find((button) => button.text().includes('Пересканировать'))
-    expect(openButton).toBeTruthy()
-    await openButton.trigger('click')
+    wrapper.vm.runMode = 'overwrite'
+    wrapper.vm.runPeriod = 'custom'
+    wrapper.vm.runFrom = '2026-01-01'
+    wrapper.vm.runTo = '2026-01-31'
+    wrapper.vm.runDateMode = 'capture'
+    wrapper.vm.selectedAddresses = [196]
     await flushPromises()
 
-    expect(document.body.textContent).toContain('ДЕСТРУКТИВНО')
-    wrapper.vm.rescanFrom = '2026-01-01'
-    wrapper.vm.rescanTo = '2026-01-31'
-    wrapper.vm.rescanDateMode = 'capture'
-    await flushPromises()
-    await wrapper.vm.runRescan()
+    await wrapper.vm.startQwenRun()
     await flushPromises()
 
     expect(rescanned).toEqual([{
       date_from: '2026-01-01',
       date_to: '2026-01-31',
       date_mode: 'capture',
+      address_ids: [196],
     }])
     expect(scanned).toEqual([])
     wrapper.unmount()
   })
 
-  it('enqueues a non-destructive catch-up for a period', async () => {
+  it('дополняет отсутствующие описания пачкой до 5000', async () => {
     const wrapper = mountSettings({ role: 'Администратор' })
     await flushPromises()
 
-    const openButton = wrapper.findAll('button')
-      .find((button) => button.text().includes('Дозаполнить за период'))
-    expect(openButton).toBeTruthy()
-    await openButton.trigger('click')
+    wrapper.vm.runMode = 'skip'
+    wrapper.vm.runPeriod = 'custom'
+    wrapper.vm.runFrom = '2026-02-01'
+    wrapper.vm.runTo = '2026-02-28'
+    wrapper.vm.runDateMode = 'capture'
     await flushPromises()
 
-    expect(document.body.textContent).toContain('только фото без успешного описания')
-    wrapper.vm.rescanFrom = '2026-02-01'
-    wrapper.vm.rescanTo = '2026-02-28'
-    wrapper.vm.rescanDateMode = 'capture'
-    await flushPromises()
-    await wrapper.vm.runRescan()
+    await wrapper.vm.startQwenRun()
     await flushPromises()
 
     expect(scanned).toEqual([{
       date_from: '2026-02-01',
       date_to: '2026-02-28',
       date_mode: 'capture',
+      address_ids: null,
+      limit: 5000,
     }])
     expect(rescanned).toEqual([])
     wrapper.unmount()
+  })
+
+  it('считает, сколько фото попадёт в запуск', async () => {
+    const wrapper = mountSettings({ role: 'Администратор' })
+    await flushPromises()
+
+    expect(previewed.length).toBeGreaterThan(0)
+    expect(wrapper.text()).toContain('фото: 4')
+    expect(wrapper.text()).toContain('будет дополнено: 3')
+    wrapper.unmount()
+  })
+
+  it('одна кнопка: пустая очередь — «Запустить описание»', async () => {
+    const wrapper = mountSettings({ role: 'Менеджер' })
+    await flushPromises()
+
+    const labels = wrapper.findAll('button').map((button) => button.text())
+
+    expect(labels.some((text) => text.includes('Запустить описание'))).toBe(true)
+    expect(labels.some((text) => text.includes('Пауза'))).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('одна кнопка: при активной очереди — «Пауза»', async () => {
+    stats = {
+      counts: { DONE: 1 },
+      queue: { PENDING: 2 },
+      failed_photo_ids: [],
+      timeline: { paused: false, pending: 2, running: 0, stuck: 0 },
+    }
+
+    const wrapper = mountSettings({ role: 'Менеджер' })
+    await flushPromises()
+
+    const button = wrapper.findAll('button')
+      .find((item) => item.text().includes('Пауза'))
+    expect(button).toBeTruthy()
+    await button.trigger('click')
+    await flushPromises()
+
+    expect(pausedCalls).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('показывает «Продолжить» на паузе и возвращает очередь', async () => {
+    stats = {
+      counts: { DONE: 1 },
+      failed_photo_ids: [],
+      timeline: { paused: true, paused_count: 2, pending: 2, running: 0, stuck: 0 },
+    }
+
+    const wrapper = mountSettings({ role: 'Менеджер' })
+    await flushPromises()
+
+    const resume = wrapper.findAll('button')
+      .find((button) => button.text().includes('Продолжить'))
+    expect(resume).toBeTruthy()
+    await resume.trigger('click')
+    await flushPromises()
+
+    expect(resumedCalls).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('предлагает снять зависшие задания', async () => {
+    stats = {
+      counts: { DONE: 1 },
+      failed_photo_ids: [],
+      timeline: { paused: false, pending: 0, running: 1, stuck: 1 },
+    }
+
+    const wrapper = mountSettings({ role: 'Менеджер' })
+    await flushPromises()
+
+    const button = wrapper.findAll('button')
+      .find((item) => item.text().includes('Снять зависшие'))
+    expect(button).toBeTruthy()
+    await button.trigger('click')
+    await flushPromises()
+
+    expect(stuckCalls).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('жёсткий сброс доступен только администратору', async () => {
+    const manager = mountSettings({ role: 'Менеджер' })
+    await flushPromises()
+
+    expect(
+      manager.findAll('button').some((item) =>
+        item.text().includes('Жёсткий сброс'),
+      ),
+    ).toBe(false)
+    manager.unmount()
+
+    const admin = mountSettings({ role: 'Администратор' })
+    await flushPromises()
+
+    const button = admin.findAll('button')
+      .find((item) => item.text().includes('Жёсткий сброс'))
+    expect(button).toBeTruthy()
+    await button.trigger('click')
+    await flushPromises()
+
+    expect(resetCalls).toEqual([{ confirm: true }])
+    admin.unmount()
   })
 
   it('renders QWEN status counts', async () => {
@@ -367,16 +527,15 @@ describe('Settings.vue', () => {
     expect(wrapper.text()).toContain('Выгрузить из памяти')
   })
 
-  it('disables retry when there are no failed photos', async () => {
+  it('не показывает повтор упавших, когда их нет', async () => {
     const wrapper = mountSettings()
     await flushPromises()
 
     const retry = wrapper
       .findAll('button')
-      .find((b) => b.text().includes('Повторить для упавших'))
+      .find((b) => b.text().includes('Повторить упавшие'))
 
-    expect(retry).toBeTruthy()
-    expect(retry.attributes('disabled')).toBeDefined()
+    expect(retry).toBeUndefined()
   })
 
   it('warns when the cloud provider is selected', async () => {
@@ -424,7 +583,7 @@ describe('Settings.vue', () => {
 
     const retry = wrapper
       .findAll('button')
-      .find((b) => b.text().includes('Повторить для упавших'))
+      .find((b) => b.text().includes('Повторить упавшие'))
     expect(retry.text()).toContain('(2)')
 
     await retry.trigger('click')

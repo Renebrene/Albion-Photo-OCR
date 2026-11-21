@@ -32,6 +32,7 @@ def aggregate_crop_fields(
     frequencies: dict[str, Any] | None = None,
     primary_index: int = 0,
     global_frequency: bool = True,
+    low_priority: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build the backward-compatible photo-level fields from successful crops.
 
@@ -39,7 +40,17 @@ def aggregate_crop_fields(
     independent. Ties resolve to the primary/largest crop if it has a tied
     value, otherwise stable lexical order. Secondary advertiser values remain
     present in tags/descriptions.
+
+    *low_priority* — названия, которые не выводятся как клиент/бренд
+    (настройка «Низкий приоритет при выдаче»): их кроп не выигрывает выбор,
+    а само название остаётся тегом (см. ниже «проигравший рекламодатель»).
+    Если у фото только такие кропы, поля клиента/бренда остаются пустыми —
+    название всё равно видно в тегах.
     """
+
+    suppressed = {
+        _compact(str(name)) for name in (low_priority or []) if str(name).strip()
+    }
 
     aliases = {
         (row.get("kind", "client"), row.get("alias", "").casefold()): row.get("canonical", "").strip()
@@ -76,6 +87,16 @@ def aggregate_crop_fields(
                 other = _canonical(fields.get("client"), "client", aliases)
                 if other:
                     counts.setdefault(other, 0)
+        # Низкий приоритет: такой рекламодатель не претендует на поле, даже
+        # если встретился чаще или стоит первым кропом. «Чужая реклама» рядом
+        # с нашим щитом не должна забирать карточку (владелец, 21.11.2026).
+        if suppressed:
+            counts = {
+                value: count
+                for value, count in counts.items()
+                if _compact(value) not in suppressed
+            }
+
         if global_frequency and counts and frequencies and frequencies.get(kind):
             # Crop observations in this photo vote only among their candidates,
             # weighted by the occurrence frequency in the whole QWEN base.

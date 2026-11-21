@@ -97,6 +97,9 @@ def clip_index(tmp_path, monkeypatch):
     monkeypatch.setattr(service, "PENDING_FILE", tmp_path / "pending.jsonl")
     monkeypatch.setattr(service, "get_connection", lambda: FakeConn())
     monkeypatch.setattr(service, "_state", service._State())
+    # Список низкого приоритета читается из настроек БД; в базовом сценарии
+    # он пуст — поведение прежнее (первый кроп). Отдельные тесты подменяют его.
+    monkeypatch.setattr(service, "_low_priority_keys", lambda: set())
 
     faiss.write_index(index, str(tmp_path / "clip_index.faiss"))
     with (tmp_path / "clip_meta.jsonl").open("w", encoding="utf-8") as handle:
@@ -140,6 +143,93 @@ def test_search_by_photo_uses_first_crop(clip_index):
 
     assert result["query_photo_id"] == "PH_aaaaaaaaaaaaaaaaaaaaaaaa"
     assert result["matches"][0]["region_id"] == 2
+
+
+class _RegionsCursor:
+    """Ответ на запрос qwen-полей регионов: region_id, client, brand."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def execute(self, sql, params=None):
+        pass
+
+    def fetchall(self):
+        return self._rows
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+class _RegionsConn:
+    def __init__(self, rows):
+        self._cursor = _RegionsCursor(rows)
+
+    def cursor(self):
+        return self._cursor
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def test_search_by_photo_skips_low_priority_crop(clip_index, monkeypatch):
+    """Первый кроп — Sunlight: поиск идёт по другому щиту того же кадра."""
+
+    monkeypatch.setattr(service, "_low_priority_keys", lambda: {"sunlight"})
+    monkeypatch.setattr(
+        service,
+        "get_connection",
+        lambda: _RegionsConn([(1, "SUNLIGHT", None), (4, None, None)]),
+    )
+
+    result = service.search_by_photo("PH_aaaaaaaaaaaaaaaaaaaaaaaa", top_k=10)
+
+    # Запрос ушёл по r4 (crop_02): ближайший — r3, а не r2, как у r1.
+    assert result["matches"][0]["region_id"] == 3
+
+
+def test_search_by_photo_keeps_first_crop_when_every_crop_is_low_priority(
+    clip_index, monkeypatch
+):
+    monkeypatch.setattr(service, "_low_priority_keys", lambda: {"sunlight"})
+    monkeypatch.setattr(
+        service,
+        "get_connection",
+        lambda: _RegionsConn([(1, "Sunlight", None), (4, "SUNLIGHT", None)]),
+    )
+
+    result = service.search_by_photo("PH_aaaaaaaaaaaaaaaaaaaaaaaa", top_k=10)
+
+    assert result["matches"][0]["region_id"] == 2
+
+
+def test_photo_query_position_falls_back_on_db_error(monkeypatch):
+    """Сбой чтения регионов не должен ломать «Похожие» — остаётся первый кроп."""
+
+    monkeypatch.setattr(service, "_low_priority_keys", lambda: {"sunlight"})
+    monkeypatch.setattr(
+        service._state,
+        "rows",
+        [{"region_id": 1}, {"region_id": 4}],
+        raising=False,
+    )
+
+    class BrokenConn:
+        def __enter__(self):
+            raise RuntimeError("db down")
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(service, "get_connection", lambda: BrokenConn())
+
+    assert service._photo_query_position("PH_" + "a" * 24, [0, 1]) == 0
 
 
 def test_search_by_unknown_photo_raises(clip_index):

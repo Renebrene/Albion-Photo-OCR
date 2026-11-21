@@ -208,3 +208,27 @@ def test_panel_can_be_narrowed_to_a_group(monkeypatch):
     assert seen["group"] == "cities"
     assert len(items) == 1
     assert items[0]["city"] == "Таганрог"
+
+
+def test_group_keeps_archived_fingerprints_apart():
+    """Архивные слепки не смешиваются с активными: в таблице они серые."""
+
+    groups = sides.group_surfaces(
+        [
+            {
+                "address_id": 1,
+                "legal_address": "Мира 1, A",
+                "simple_address": "Мира 1",
+                "format": "Щит",
+                "city": "Ростов-на-Дону",
+                "scope": "other",
+                "fingerprints": ["78_v33"],
+                "inactive_fingerprints": ["77_v33"],
+            }
+        ]
+    )
+
+    surface = groups[0]["surfaces"][0]
+
+    assert surface["fingerprints"] == ["78_v33"]
+    assert surface["inactive_fingerprints"] == ["77_v33"]

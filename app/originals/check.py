@@ -11,6 +11,13 @@
 Тот же обход использует `scripts/check_originals.py` для ручной проверки —
 счётчики и причины у них общие, поэтому «в скрипте одно, в панели другое»
 получиться не может.
+
+Флаг `decode` добавляет полное чтение пикселей: файл может быть на месте, но
+побит (недокопированный JPEG). Ни `stat`, ни `Image.verify()` этого не видят —
+битый оригинал проходит ИНГЕСТ, получает серое превью и остаётся без кропов.
+Обход с декодированием в десятки раз дольше, поэтому включается оператором
+отдельно (`--decode` в скрипте, `?decode=true` у задания) и попадает в отчёт
+счётчиком `damaged`.
 """
 
 from __future__ import annotations
@@ -35,13 +42,43 @@ REPO = Path(__file__).resolve().parents[2]
 PAGE = 2000
 SAMPLE_LIMIT = 50
 
+# Файл на месте, но не декодируется: недокопированный или побитый JPEG.
+# `stat` и `verify()` такой файл пропускают — видно только полным чтением.
+ORIGINAL_DAMAGED = "damaged"
+
 # Причины в том виде, в каком их видит оператор.
 REASONS = {
     ORIGINAL_MISSING: "файл не найден",
     ORIGINAL_OUTSIDE_ROOTS: "путь вне разрешённых корней",
     ORIGINAL_ROOT_UNAVAILABLE: "корень оригиналов не подключён",
     ORIGINAL_NOT_CONFIGURED: "SCENE_ORIGINALS_ROOTS не задан",
+    ORIGINAL_DAMAGED: "файл повреждён: не декодируется",
 }
+
+
+def _decodes(source_path: str) -> tuple[bool, str | None]:
+    """
+    Прочитать пиксели оригинала (первый кадр MPO).
+
+    Дороже, чем `is_file()`, поэтому включается отдельным флагом: PREVIEW
+    декодирует файл терпимым libjpeg-turbo и битый оригинал получает серое
+    превью, а не ошибку. Здесь декодер строгий — именно он показывает, что
+    файл надо перекопировать. Путь в ошибке не возвращается наружу: текст
+    исключения уходит в отчёт только после редактирования путей.
+    """
+
+    from PIL import Image
+
+    from app.core.errors import redact_paths
+
+    try:
+        with Image.open(source_path) as image:
+            if getattr(image, "n_frames", 1) > 1:
+                image.seek(0)
+            image.load()
+        return True, None
+    except Exception as exc:  # noqa: BLE001 — битый файл не должен валить обход
+        return False, redact_paths(str(exc), Path(source_path))
 
 
 def reports_dir() -> Path:
@@ -106,12 +143,17 @@ def scan(
     photo_ids: list[str] | None = None,
     limit: int = 0,
     progress=None,
+    decode: bool = False,
 ) -> dict:
     """
     Обойти записи и посчитать, у каких оригинал недоступен и почему.
 
     `progress(done, total, stage)` — тот же колбэк, что у остальных заданий;
     он же замечает отмену задания (исключение поднимает вызывающий).
+
+    `decode=True` дополнительно полностью читает каждый доступный файл и
+    считает повреждённые (`damaged`): файл есть, а пиксели не читаются.
+    Обход становится в десятки раз дольше — это осознанный выбор оператора.
     """
 
     entries = []
@@ -129,6 +171,7 @@ def scan(
     missing = 0
     outside = 0
     root_unavailable = 0
+    damaged = 0
     samples: list[dict[str, str]] = []
 
     for photo_id, source_path in _rows(photo_ids, max(0, limit)):
@@ -141,6 +184,20 @@ def scan(
             root_unavailable += 1
         elif status != ORIGINAL_OK:
             missing += 1
+        elif decode:
+            readable, detail = _decodes(str(source_path))
+
+            if not readable:
+                damaged += 1
+
+                if len(samples) < SAMPLE_LIMIT:
+                    samples.append(
+                        {
+                            "photo_id": photo_id,
+                            "reason": REASONS[ORIGINAL_DAMAGED],
+                            "detail": detail or "",
+                        }
+                    )
 
         if status != ORIGINAL_OK and len(samples) < SAMPLE_LIMIT:
             samples.append({"photo_id": photo_id, "reason": REASONS.get(status, status)})
@@ -150,10 +207,12 @@ def scan(
 
     return {
         "checked": checked,
-        "available": checked - missing - outside - root_unavailable,
+        "available": checked - missing - outside - root_unavailable - damaged,
         "missing": missing,
         "outside_roots": outside,
         "root_unavailable": root_unavailable,
+        "damaged": damaged,
+        "decode_checked": bool(decode),
         "roots": entries,
         "samples": samples,
     }
@@ -201,7 +260,7 @@ def latest_report() -> dict | None:
         return None
 
 
-def run(*, control=None) -> dict:
+def run(*, control=None, decode: bool = False) -> dict:
     """Задание ORIGINALS_CHECK: обойти корпус, отчёт положить на диск."""
 
     from app.api.config import ORIGINALS_ROOTS
@@ -211,7 +270,7 @@ def run(*, control=None) -> dict:
             "SCENE_ORIGINALS_ROOTS не задан: проверять доступность оригиналов нечего"
         )
 
-    report = scan(ORIGINALS_ROOTS, progress=control)
+    report = scan(ORIGINALS_ROOTS, progress=control, decode=decode)
     path = write_report(report)
 
     return {**report, "report": str(path)}

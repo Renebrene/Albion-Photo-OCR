@@ -56,6 +56,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="проверить только это фото (можно повторить)",
     )
+    parser.add_argument(
+        "--decode",
+        action="store_true",
+        help="полностью декодировать файлы и показать повреждённые (медленно)",
+    )
     return parser.parse_args(argv)
 
 
@@ -74,6 +79,7 @@ def main(argv: list[str] | None = None) -> int:
         ORIGINALS_ROOTS,
         photo_ids=args.photo_ids,
         limit=max(0, args.limit),
+        decode=bool(args.decode),
     )
 
     report = {
@@ -82,6 +88,8 @@ def main(argv: list[str] | None = None) -> int:
         "missing": counts["missing"],
         "outside_roots": counts["outside_roots"],
         "root_unavailable": counts["root_unavailable"],
+        "damaged": counts.get("damaged", 0),
+        "decode_checked": bool(args.decode),
         # В консольном отчёте — число корней; полный список с состоянием
         # каталогов отдаёт /v1/originals/health и файл отчёта задания.
         "roots": len(ORIGINALS_ROOTS),
@@ -94,6 +102,7 @@ def main(argv: list[str] | None = None) -> int:
     missing = counts["missing"]
     outside = counts["outside_roots"]
     root_unavailable = counts["root_unavailable"]
+    damaged = counts.get("damaged", 0)
 
     if args.json:
         print(json.dumps(report, ensure_ascii=False))
@@ -105,6 +114,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"вне разрешённых корней: {outside}")
         if root_unavailable:
             print(f"корень оригиналов не подключён: {root_unavailable}")
+        if args.decode:
+            print(f"повреждено (не декодируется): {damaged}")
         for sample in report["samples"]:
             print(f"  {sample['photo_id']}: {sample['reason']}")
         if root_unavailable:
@@ -113,13 +124,19 @@ def main(argv: list[str] | None = None) -> int:
                 "SCENE_ORIGINALS_ROOTS или перенесите пути "
                 "(scripts/remap_source_root.py)."
             )
+        if damaged:
+            print(
+                "\nПовреждённые оригиналы нужно перекопировать с источника: "
+                "файл на месте, но не читается (обычно серое превью и нет "
+                "кропов щита)."
+            )
         if missing or outside:
             print(
                 "\nЗаписи фото не удаляются: в гриде доступно превью, "
                 "а «посмотреть/скачать» покажет «оригинал недоступен»."
             )
 
-    return 1 if (missing or outside or root_unavailable) else 0
+    return 1 if (missing or outside or root_unavailable or damaged) else 0
 
 
 if __name__ == "__main__":

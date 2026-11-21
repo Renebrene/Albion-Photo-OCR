@@ -50,6 +50,10 @@ import {
 } from '../stores/display'
 import { usePhotosStore } from '../stores/photos'
 import { useAsyncAction } from '../composables/useAsyncAction'
+import {
+  forbiddenFieldHits,
+  loadForbiddenWords,
+} from '../composables/forbiddenWords'
 import { confirmDialog } from '../composables/confirmDialog'
 import { usePipelineStore } from '../stores/pipeline'
 import { useSessionStore } from '../stores/session'
@@ -2684,20 +2688,33 @@ function categoryInsteadOfClientBrand(qwen) {
 
 // Значок QWEN на плитке/в списке: зелёный — описание есть, оранжевый —
 // в очереди/процессе, красный — ошибка, серый — описания ещё нет.
+// Значок QWEN внизу плитки: цвет говорит и о состоянии, и об источнике
+// описания (владелец, 21.11.2026): красный — ошибка, оранжевый — в процессе,
+// серый — описания нет, зелёный — читали кропы щита, голубой — полный кадр.
 function qwenColor(photo) {
   if (photo?.qwen_status === 'FAILED') return 'negative'
   if (photo?.qwen_status === 'PENDING' || photo?.qwen_status === 'RUNNING') {
     return 'orange'
   }
-  if (photo?.qwen_described) return 'positive'
-  return 'grey'
+  if (!photo?.qwen_described) return 'grey'
+
+  // Источник описания приходит из API (`qwen_source`): 'crop' — модель
+  // разбирала вырезанный щит, 'full' — полный кадр (щита не было или кроп
+  // оказался пустым).
+  return photo.qwen_source === 'crop' ? 'positive' : 'light-blue'
 }
 
 function qwenHint(photo) {
   if (photo?.qwen_status === 'FAILED') return 'QWEN: ошибка'
   if (photo?.qwen_status === 'PENDING') return 'QWEN: в очереди'
   if (photo?.qwen_status === 'RUNNING') return 'QWEN: распознаётся'
-  if (photo?.qwen_described) return 'QWEN: описание есть'
+
+  if (photo?.qwen_described) {
+    return photo.qwen_source === 'crop'
+      ? 'QWEN: описание по кропам щита'
+      : 'QWEN: описание по полному кадру'
+  }
+
   return 'QWEN: описания нет'
 }
 
@@ -3029,8 +3046,30 @@ function openQwenEditor() {
   qwenEditOpen.value = true
 }
 
+const QWEN_FIELD_LABELS = {
+  description: 'Описание',
+  client: 'Клиент',
+  brand: 'Бренд',
+  tags: 'Теги',
+}
+
 async function saveQwenEditor() {
   if (!current.value || qwenEditSaving.value) return
+
+  // Список запрещённых слов читаем перед сохранением: ручная правка идёт
+  // мимо обработки QWEN, и такие слова не должны попасть в карточку.
+  const forbidden = await loadForbiddenWords()
+  const hits = forbiddenFieldHits(qwenEditFields.value, forbidden)
+
+  if (hits.length) {
+    Notify.create({
+      type: 'warning',
+      message:
+        `Запрещённое к выдаче слово «${hits[0].word}» в поле ` +
+        `«${QWEN_FIELD_LABELS[hits[0].field] || hits[0].field}» — уберите его`,
+    })
+    return
+  }
 
   qwenEditSaving.value = true
 
@@ -3114,6 +3153,17 @@ async function open(photo) {
  * отмеченные чекбоксами фото уходят в «Избранное» грида.
  */
 async function openSimilar(photo) {
+  // Индекс «Похожих» строится по кропам щитов. Без кропа сервер ответит 404,
+  // поэтому кнопки погашены, а здесь — та же защита для меню и просмотрщика:
+  // лучше подсказка, чем красная ошибка (владелец, 21.11.2026).
+  if (!photo?.has_billboard_crop) {
+    Notify.create({
+      type: 'info',
+      message: 'Щит на фото не найден — искать похожие не по чему',
+    })
+    return
+  }
+
   similarPhotoId.value = photo.photo_id
   similarItems.value = []
   similarChecked.value = {}
@@ -4168,9 +4218,16 @@ function tagList(meta) {
                     round
                     size="sm"
                     icon="image_search"
+                    :disable="!photo.has_billboard_crop"
                     @click.stop="openSimilar(photo)"
                   >
-                    <q-tooltip>Похожие объявления</q-tooltip>
+                    <q-tooltip>
+                      {{
+                        photo.has_billboard_crop
+                          ? 'Похожие объявления'
+                          : 'Щит не найден — искать похожие не по чему'
+                      }}
+                    </q-tooltip>
                   </q-btn>
                 </div>
                 <q-card-section class="q-pa-xs">
@@ -4394,10 +4451,19 @@ function tagList(meta) {
                         <q-item
                           clickable
                           v-close-popup
+                          :disable="!photo.has_billboard_crop"
                           @click="openSimilar(photo)"
                         >
                           <q-item-section avatar><q-icon name="image_search" /></q-item-section>
-                          <q-item-section>Похожие</q-item-section>
+                          <q-item-section>
+                            Похожие
+                            <div
+                              v-if="!photo.has_billboard_crop"
+                              class="text-caption text-grey-6"
+                            >
+                              щит не найден
+                            </div>
+                          </q-item-section>
                         </q-item>
                       </q-list>
                     </q-menu>
@@ -4750,9 +4816,16 @@ function tagList(meta) {
             flat
             icon="image_search"
             :label="'Похожие'"
+            :disable="!current?.has_billboard_crop"
             @click="openSimilar(current)"
           >
-            <q-tooltip>Похожие объявления (визуальный поиск)</q-tooltip>
+            <q-tooltip>
+              {{
+                current?.has_billboard_crop
+                  ? 'Похожие объявления (визуальный поиск)'
+                  : 'Щит не найден — искать похожие не по чему'
+              }}
+            </q-tooltip>
           </q-btn>
           <q-btn dense flat icon="close" v-close-popup />
         </q-card-section>
@@ -5416,13 +5489,16 @@ function tagList(meta) {
                 <div class="text-caption text-grey-8">
                   загрузка {{ day(item.created_at) || '—' }}
                 </div>
-                <div class="row items-center justify-between q-mt-xs">
-                  <q-badge
-                    v-if="canSeeScores"
-                    color="teal"
-                    :label="item.score.toFixed(2)"
-                  />
-                  <span v-else class="text-caption text-grey-7">
+                <!-- Служебные данные кропа (номер вырезки и сходство) —
+                     только администратору: менеджер и гость видят карточку
+                     объявления без внутренней механики поиска
+                     (владелец, 21.11.2026). -->
+                <div
+                  v-if="canSeeScores"
+                  class="row items-center justify-between q-mt-xs"
+                >
+                  <q-badge color="teal" :label="item.score.toFixed(2)" />
+                  <span class="text-caption text-grey-7">
                     кроп {{ (item.crop_index ?? 0) + 1 }}
                   </span>
                 </div>

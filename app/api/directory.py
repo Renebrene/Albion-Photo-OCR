@@ -87,12 +87,27 @@ def list_addresses(scope: str | None = None) -> list[dict]:
                     d.sort_order,
                     COALESCE(
                         array_agg(f.fingerprint_id ORDER BY f.fingerprint_id)
-                            FILTER (WHERE f.fingerprint_id IS NOT NULL),
+                            FILTER (
+                                WHERE f.fingerprint_id IS NOT NULL
+                                  AND fp.active
+                            ),
                         '{}'
-                    ) AS fingerprints
+                    ) AS fingerprints,
+                    -- Архивные слепки остаются в справочнике: в таблице они
+                    -- серые, а в выборе «Идентификаторы» не участвуют.
+                    COALESCE(
+                        array_agg(f.fingerprint_id ORDER BY f.fingerprint_id)
+                            FILTER (
+                                WHERE f.fingerprint_id IS NOT NULL
+                                  AND NOT fp.active
+                            ),
+                        '{}'
+                    ) AS inactive_fingerprints
                 FROM public.address_directory AS d
                 LEFT JOIN public.address_fingerprints AS f
                        ON f.address_id = d.address_id AND f.active
+                LEFT JOIN public.fingerprints AS fp
+                       ON fp.fingerprint_id = f.fingerprint_id
                 """ + where + """
                 GROUP BY d.address_id
                 ORDER BY d.sort_order, d.address_id
@@ -112,6 +127,7 @@ def list_addresses(scope: str | None = None) -> list[dict]:
             "active": bool(row[6]),
             "sort_order": int(row[7]),
             "fingerprints": list(row[8]),
+            "inactive_fingerprints": list(row[9]),
         }
         for row in rows
     ]

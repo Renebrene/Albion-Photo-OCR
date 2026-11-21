@@ -302,7 +302,7 @@ def enqueue_refine(limit: int = 5000) -> int | None:
             return int(row[0]) if row is not None else None
 
 
-def enqueue_originals_check() -> int | None:
+def enqueue_originals_check(*, decode: bool = False) -> int | None:
     """
     Поставить полную проверку доступности оригиналов.
 
@@ -310,7 +310,12 @@ def enqueue_originals_check() -> int | None:
     два одновременных обхода только грузят диск. В этом случае возвращается id
     уже стоящего задания, чтобы вызывающий (кнопка в техническом разделе) мог
     показать его прогресс, а не потерять проверку.
+
+    `decode=True` — дополнительно полностью читать каждый файл и считать
+    повреждённые. Такой обход в десятки раз дольше, поэтому включается явно.
     """
+
+    payload: dict = {"decode": True} if decode else {}
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -325,7 +330,7 @@ def enqueue_originals_check() -> int | None:
                 )
                 RETURNING id
                 """,
-                (Json({}),),
+                (Json(payload),),
             )
             row = cur.fetchone()
 
@@ -1019,3 +1024,80 @@ def mark_failed(job_id: int, error_message: str) -> None:
                 raise ValueError(
                     f"Cannot fail job {job_id}: not RUNNING"
                 )
+
+
+def pause_jobs(job_type: str) -> int:
+    """
+    Поставить на паузу все ждущие задания типа.
+
+    Работающее задание не трогаем: текущий запрос к модели доигрывает, а
+    результат должен остаться. Пауза действует со следующего задания — воркер
+    берёт только PENDING.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.job_queue
+                SET status = 'PAUSED',
+                    progress = COALESCE(progress, '{}'::jsonb)
+                        || jsonb_build_object('paused', TRUE)
+                WHERE job_type = %s
+                  AND status = 'PENDING'
+                """,
+                (job_type,),
+            )
+            return max(0, int(cur.rowcount))
+
+
+def resume_jobs(job_type: str) -> int:
+    """Вернуть приостановленные задания в очередь."""
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.job_queue
+                SET status = 'PENDING',
+                    progress = COALESCE(progress, '{}'::jsonb)
+                        || jsonb_build_object('paused', FALSE)
+                WHERE job_type = %s
+                  AND status = 'PAUSED'
+                """,
+                (job_type,),
+            )
+            return max(0, int(cur.rowcount))
+
+
+def cancel_stale_jobs(job_type: str, *, older_than_minutes: int = 30) -> list[int]:
+    """
+    Снять зависшие задания: RUNNING дольше порога.
+
+    Так бывает после убитого воркера: задание осталось RUNNING, хотя модели
+    уже никто не ждёт. Возвращаем id, чтобы вызывающий назвал их в отчёте.
+    Слишком старым порог быть не может: меньше нуля — ошибка.
+    """
+
+    if older_than_minutes < 0:
+        raise ValueError("older_than_minutes must be >= 0")
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE public.job_queue
+                SET status = 'CANCELLED',
+                    finished_at = CURRENT_TIMESTAMP,
+                    error_message = COALESCE(error_message || ' | ', '')
+                        || 'снято как зависшее задание'
+                WHERE job_type = %s
+                  AND status = 'RUNNING'
+                  AND (started_at IS NULL
+                       OR started_at < CURRENT_TIMESTAMP
+                            - (%s || ' minutes')::interval)
+                RETURNING id
+                """,
+                (job_type, str(int(older_than_minutes))),
+            )
+            return [int(row[0]) for row in cur.fetchall()]

@@ -15,6 +15,7 @@ import uuid
 import shutil
 import subprocess
 from datetime import date as date_type
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 
@@ -85,6 +86,8 @@ from app.api.schemas import (
     RefineApplyRequest,
     QwenPeriodScanRequest,
     QwenPeriodPreviewRequest,
+    QwenSelectionRequest,
+    QwenResetRequest,
     SavedSearchCreate,
     PipelineStartRequest,
     SearchQueryRequest,
@@ -397,6 +400,30 @@ def get_recognition_quality():
     from app.api.recognition_quality import load_snapshot
 
     return load_snapshot()
+
+
+@read_router.get("/v1/recognition-quality/live", response_model=None)
+def get_live_recognition_quality(hybrid_run_id: int | None = Query(None, ge=1)):
+    """
+    Качество по прогону HYBRID (по умолчанию — последний завершённый).
+
+    Эталон — адрес из имени файла; предсказание — `hybrid_final_id`. Сводка
+    по адресам: сколько фото, сколько в слепках, процент совпадений, что
+    повлияло на решение и с каким адресом чаще путается.
+    """
+
+    from app.api.recognition_quality_live import live_snapshot
+
+    return live_snapshot(hybrid_run_id)
+
+
+@read_router.get("/v1/recognition-quality/runs", response_model=None)
+def list_recognition_quality_runs(limit: int = Query(20, ge=1, le=100)):
+    """Последние завершённые HYBRID-прогоны (выбор периода в «Качестве»)."""
+
+    from app.api.recognition_quality_live import recent_runs
+
+    return {"items": recent_runs(limit)}
 
 
 @read_router.get("/v1/system", response_model=None)
@@ -890,9 +917,34 @@ def update_photo_qwen_text(photo_id: str, request: QwenTextUpdate):
     if repository.get_photo(photo_id) is None:
         raise HTTPException(status_code=404, detail="photo not found")
 
+    # Ручная правка идёт мимо обработки QWEN, поэтому запрещённые к выдаче
+    # слова проверяются здесь: сохранить их молча нельзя (владелец, 21.11.2026).
+    from app.qwen import processor as qwen_processor
+    from app.qwen.sanitize import forbidden_hits
+
+    payload = {**request.model_dump(), "tags": request.tags}
+    hits = forbidden_hits(payload, qwen_processor.forbidden_words())
+
+    if hits:
+        labels = {
+            "description": "описание",
+            "client": "клиент",
+            "brand": "бренд",
+            "tags": "теги",
+        }
+        first = hits[0]
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Запрещённое к выдаче слово «{first['word']}» "
+                f"в поле «{labels.get(first['field'], first['field'])}» — "
+                "уберите его и сохраните снова"
+            ),
+        )
+
     qwen_db.save_manual(
         photo_id,
-        fields={**request.model_dump(), "tags": request.tags},
+        fields=payload,
     )
 
     return qwen_db.get(photo_id)
@@ -1026,13 +1078,17 @@ def get_originals_check_latest() -> dict:
     status_code=202,
     dependencies=[Depends(require_scope("jobs:write"))],
 )
-def start_originals_check() -> dict:
+def start_originals_check(decode: bool = Query(False)) -> dict:
     """
     Поставить полную проверку оригиналов заданием.
 
     Обход 57 тыс. файлов идёт в воркере: обработчик ждать его не должен.
     Прогресс — `GET /api/v1/jobs/{id}`, готовый отчёт —
     `GET /api/v1/originals/check/latest`.
+
+    `?decode=true` — дополнительно полностью читать каждый файл и считать
+    повреждённые (файл есть, но не декодируется). Такой обход в десятки раз
+    дольше, поэтому по умолчанию выключен.
     """
 
     from app.originals import check as originals_check
@@ -1043,12 +1099,13 @@ def start_originals_check() -> dict:
             detail="SCENE_ORIGINALS_ROOTS не задан: проверять нечего",
         )
 
-    job_id = jobs_db.enqueue_originals_check()
+    job_id = jobs_db.enqueue_originals_check(decode=decode)
 
     return {
         # Если такая проверка уже стоит в очереди или идёт, вернётся её id:
         # кнопка показывает прогресс существующего задания, а не создаёт второе.
         "job_id": job_id,
+        "decode": decode,
         "report_dir": str(originals_check.reports_dir()),
     }
 
@@ -1745,9 +1802,13 @@ def rescan_qwen_period(request: QwenRescanRequest):
         date_from=request.date_from,
         date_to=request.date_to,
         date_mode=request.date_mode,
+        address_ids=request.address_ids,
     )
     if not photo_ids:
-        raise HTTPException(status_code=422, detail="За выбранный период фотографии не найдены")
+        raise HTTPException(
+            status_code=422,
+            detail="За выбранный период и адреса фотографии не найдены",
+        )
 
     config = qwen.resolve_settings()
     if not config.get("provider") or not config.get("model"):
@@ -1843,6 +1904,7 @@ def scan_qwen_period(request: QwenPeriodScanRequest):
         date_to=request.date_to,
         date_mode=request.date_mode,
         limit=request.limit,
+        address_ids=request.address_ids,
     )
 
     if not photo_ids:
@@ -1934,6 +1996,110 @@ def clear_qwen_jobs():
     """
 
     return {"deleted": jobs_db.clear_finished_jobs("QWEN_PHOTO")}
+
+
+@jobs_router.post(
+    "/v1/jobs/qwen/pause",
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def pause_qwen_jobs():
+    """
+    Пауза описания: ждущие задания уходят в PAUSED.
+
+    Текущее задание доигрывает — модель не бросают на середине, иначе
+    результат пропал бы. Воркер берёт только PENDING, поэтому после паузы
+    очередь останавливается между фото.
+    """
+
+    paused = jobs_db.pause_jobs("QWEN_PHOTO")
+
+    try:
+        from app import settings_store
+
+        settings_store.set_value(
+            "qwen_paused_at", datetime.now(timezone.utc).isoformat()
+        )
+    except Exception:  # noqa: BLE001 - время паузы не должно ломать паузу
+        pass
+
+    return {"paused": paused}
+
+
+@jobs_router.post(
+    "/v1/jobs/qwen/resume",
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def resume_qwen_jobs():
+    """Продолжить описание: приостановленные задания возвращаются в очередь."""
+
+    resumed = jobs_db.resume_jobs("QWEN_PHOTO")
+
+    try:
+        from app import settings_store
+
+        settings_store.set_value("qwen_paused_at", None)
+    except Exception:  # noqa: BLE001
+        pass
+
+    return {"resumed": resumed}
+
+
+@jobs_router.post(
+    "/v1/jobs/qwen/stuck",
+    dependencies=[Depends(require_scope("jobs:write"))],
+)
+def clear_stuck_qwen_jobs(older_than_minutes: int = Query(30, ge=1, le=1440)):
+    """
+    Снять зависшие задания описания (RUNNING дольше порога).
+
+    Так остаются задания после убитого воркера: модели уже никто не ждёт, а
+    строка висит «в работе». Снимаем в CANCELLED, описания не трогаем.
+    """
+
+    cancelled = jobs_db.cancel_stale_jobs(
+        "QWEN_PHOTO", older_than_minutes=older_than_minutes
+    )
+
+    return {
+        "cancelled": len(cancelled),
+        "job_ids": cancelled,
+        "older_than_minutes": older_than_minutes,
+    }
+
+
+@read_router.post("/v1/jobs/qwen/preview", response_model=None)
+def preview_qwen_selection(request: QwenSelectionRequest):
+    """
+    Сколько фото попадёт в запуск описания при выбранных периоде и адресах.
+
+    Ничего не меняет: считает по тем же условиям, что и сами запуски.
+    `to_run` — сколько заданий поставит «дополнять» (только без успешного
+    описания); «перезаписать» поставит все `photos`.
+    """
+
+    photos = qwen_db.photo_ids_in_period(
+        date_from=request.date_from,
+        date_to=request.date_to,
+        date_mode=request.date_mode,
+        address_ids=request.address_ids,
+    )
+    missing = qwen_db.photo_ids_missing_in_period(
+        date_from=request.date_from,
+        date_to=request.date_to,
+        date_mode=request.date_mode,
+        limit=5000,
+        address_ids=request.address_ids,
+    )
+
+    return {
+        "photos": len(photos),
+        "described": len(photos) - len(missing),
+        "missing": len(missing),
+        "addresses": len(request.address_ids or []),
+        "date_from": str(request.date_from),
+        "date_to": str(request.date_to),
+        "date_mode": request.date_mode,
+    }
 
 
 @jobs_router.post(
@@ -3080,9 +3246,92 @@ def qwen_stats():
     # Очередь — отдельно от статусов строк: «в работе» считается по заданиям
     # (см. repository.qwen_queue_counts).
     result["queue"] = repository.qwen_queue_counts()
+    # Старт/пауза/оценка остатка — для панели запуска описания.
+    result["timeline"] = repository.qwen_run_timeline()
     result["failed_photo_ids"] = repository.photo_ids_with_qwen_status("FAILED")
 
     return result
+
+
+@read_router.get("/v1/qwen/addresses", response_model=None)
+def qwen_address_choices():
+    """
+    Адреса после HYBRID с числом фото — для выбора адресов в запуске описания.
+
+    Список строится тем же правилом, что адрес в гриде: ручное
+    переопределение важнее вердикта HYBRID.
+    """
+
+    return {"items": repository.qwen_address_choices()}
+
+
+@jobs_router.post(
+    "/v1/qwen/reset",
+    dependencies=[Depends(require_scope("settings:write"))],
+)
+def reset_qwen_results(request: QwenResetRequest):
+    """
+    Жёсткий сброс описаний: карточки, история, архивы и разбор кропов.
+
+    Работающие задания снимаются, завершённые убираются из журнала. Фото,
+    превью, кропы и распознавание не трогаются: после сброса описание можно
+    запускать заново любым режимом. Требует `{"confirm": true}` и пишет
+    отчёт `data/reports/qwen_reset_<штамп>.json` до удаления.
+    """
+
+    if not request.confirm:
+        raise HTTPException(
+            status_code=422,
+            detail="Сброс удаляет все описания и историю: передайте confirm=true",
+        )
+
+    cancelled = jobs_db.cancel_jobs("QWEN_PHOTO")
+    jobs_db.clear_finished_jobs("QWEN_PHOTO")
+
+    deleted = qwen_db.reset_all()
+
+    try:
+        from app import settings_store
+
+        settings_store.set_value("qwen_paused_at", None)
+    except Exception:  # noqa: BLE001
+        pass
+
+    import json
+    import os
+    import tempfile
+    from pathlib import Path
+
+    data = Path(os.getenv("SCENE_DATA", "data")).expanduser()
+    folder = data / "reports"
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    target = folder / f"qwen_reset_{stamp}.json"
+
+    handle, temporary = tempfile.mkstemp(dir=folder, suffix=".tmp")
+
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            json.dump(
+                {
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                    "deleted": deleted,
+                    "cancelled_jobs": cancelled,
+                },
+                stream,
+                ensure_ascii=False,
+                indent=2,
+            )
+        os.replace(temporary, target)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
+
+    return {
+        "deleted": deleted,
+        "cancelled_jobs": cancelled,
+        "report": str(target),
+    }
 
 
 @read_router.get("/v1/hybrid/settings", response_model=None)
@@ -3338,6 +3587,8 @@ def update_qwen_settings(request: QwenSettingsUpdate):
             in_pipeline=request.in_pipeline,
             prompt=request.prompt,
             crop_prompt=request.crop_prompt,
+            low_priority=request.low_priority_names,
+            forbidden=request.forbidden_words,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -3456,6 +3707,41 @@ def queue_missing_previews(
         limit=limit,
         photo_ids=request.photo_ids if request and request.photo_ids else None,
     )
+
+
+@read_router.get("/v1/previews/inventory", response_model=None)
+def get_previews_inventory() -> dict:
+    """
+    Сколько превью создано, сколько они занимают и какие остались без
+    оригиналов (с причинами).
+
+    Обход каталогов и `stat` по файлам — секунды; выполняется по кнопке
+    инспектора, в списке фото не участвует. Пути файлов наружу не отдаются:
+    только `photo_id`, причина и размер.
+    """
+
+    from app.preview import inventory
+
+    return inventory.scan()
+
+
+@jobs_router.post(
+    "/v1/previews/orphans/purge",
+    dependencies=[Depends(require_scope("settings:write"))],
+)
+def purge_orphan_previews() -> dict:
+    """
+    Удалить превью без оригиналов (записи и файлы).
+
+    Чистятся только безопасные причины: записи фото нет или оригинал удалён
+    при живом каталоге. Отключённый том, отсутствующий каталог и путь вне
+    корней пропускаются — иначе одна отмонтированная папка стёрла бы весь
+    корпус превью. Перед удалением пишется отчёт в `data/reports`.
+    """
+
+    from app.preview import inventory
+
+    return inventory.purge_orphans()
 
 
 @jobs_router.post(

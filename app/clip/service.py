@@ -65,6 +65,9 @@ class _State:
         # Первый кроп каждого фото (минимальный region_id встречается первым:
         # мета собирается ORDER BY region_id) — для поиска «Похожие» по фото.
         self.by_photo: dict[str, int] = {}
+        # Все кропы фото по порядку: нужно, чтобы пропустить низкоприоритетный
+        # щит (Sunlight) и искать по другому объявлению того же кадра.
+        self.by_photo_positions: dict[str, list[int]] = {}
         self.info: dict = {}
         self.loaded = False
         # Поглощено из pending, но ещё не сброшено на диск.
@@ -89,6 +92,7 @@ class _State:
             rows: list[dict] = []
             by_region: dict[int, int] = {}
             by_photo: dict[str, int] = {}
+            by_photo_positions: dict[str, list[int]] = {}
             with META_FILE.open(encoding="utf-8") as handle:
                 for position, line in enumerate(handle):
                     line = line.strip()
@@ -98,6 +102,9 @@ class _State:
                     rows.append(row)
                     by_region[int(row["region_id"])] = position
                     by_photo.setdefault(str(row["photo_id"]), position)
+                    by_photo_positions.setdefault(
+                        str(row["photo_id"]), []
+                    ).append(position)
             if index.ntotal != len(rows):
                 # Частично заменённые файлы после сбоя ребилда: поиск по
                 # рассогласованному индексу даёт неверные region_id.
@@ -115,6 +122,7 @@ class _State:
             self.rows = rows
             self.by_region = by_region
             self.by_photo = by_photo
+            self.by_photo_positions = by_photo_positions
             self.info = info
             self.loaded = True
 
@@ -352,6 +360,9 @@ def _absorb_pending() -> None:
             _state.rows.append(row)
             _state.by_region[row["region_id"]] = position
             _state.by_photo.setdefault(row["photo_id"], position)
+            _state.by_photo_positions.setdefault(row["photo_id"], []).append(
+                position
+            )
 
         _state.pending_absorbed += len(fresh_rows)
         if _state.pending_first_ts is None:
@@ -557,19 +568,94 @@ def search_by_region(
     )
 
 
+def _compact_name(value: object) -> str:
+    """«Sunlight» и «SUNLIGHT» → одна ключевая строка для сравнения списков."""
+
+    return "".join(ch for ch in str(value or "").casefold() if ch.isalnum())
+
+
+def _low_priority_keys() -> set[str]:
+    """Названия с низким приоритетом выдачи (настройка QWEN); сбой — пусто."""
+
+    try:
+        from app.qwen.processor import low_priority_names
+
+        return {
+            key
+            for name in low_priority_names()
+            if (key := _compact_name(name))
+        }
+    except Exception:  # noqa: BLE001 — настройка не должна ломать поиск
+        return set()
+
+
+def _photo_query_position(photo_id: str, positions: list[int]) -> int:
+    """
+    Какой кроп фото станет запросом «Похожих».
+
+    Обычно — первый (самый большой щит). Но если этот щит из списка «низкий
+    приоритет» (Sunlight), поиск шёл бы по чужой рекламе, которая в карточке
+    даже не показывается. Тогда берём следующий кроп того же фото, у которого
+    название не из списка. Ошибки чтения настроек/БД возвращают первый кроп:
+    поиск не должен падать из-за вспомогательной настройки.
+    """
+
+    if len(positions) <= 1:
+        return positions[0]
+
+    keys = _low_priority_keys()
+
+    if not keys:
+        return positions[0]
+
+    region_ids = [int(_state.rows[position]["region_id"]) for position in positions]
+
+    try:
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT region_id, qwen_fields ->> 'client', qwen_fields ->> 'brand'
+                FROM public.photo_regions
+                WHERE region_id = ANY(%s)
+                """,
+                (region_ids,),
+            )
+            parsed = {
+                int(row[0]): (row[1], row[2]) for row in cur.fetchall()
+            }
+    except Exception:  # noqa: BLE001 — без БД остаётся прежнее поведение
+        return positions[0]
+
+    for position, region_id in zip(positions, region_ids):
+        client, brand = parsed.get(region_id, (None, None))
+
+        if _compact_name(client) not in keys and _compact_name(brand) not in keys:
+            return position
+
+    return positions[0]
+
+
 def search_by_photo(
     photo_id: str, *, top_k: int = 24, days: int = 0
 ) -> dict:
-    """Похожие кропы для фото: берётся его первый кроп (минимальный region_id)."""
+    """
+    Похожие кропы для фото.
+
+    Запрос — первый кроп, кроме случая, когда он низкоприоритетный: тогда
+    берётся другой щит этого кадра (см. `_photo_query_position`).
+    """
 
     _absorb_pending()
     _state.ensure()
-    position = _state.by_photo.get(str(photo_id))
-    if position is None:
+    positions = _state.by_photo_positions.get(str(photo_id))
+
+    if not positions:
         raise KeyError(
             f"у фото {photo_id} нет кропов щитов в CLIP-индексе "
             "(нет детекции или индекс не пересобран)"
         )
+
+    position = _photo_query_position(str(photo_id), positions)
 
     return _similar_for_row(
         position, top_k, days=days, query_photo_id=str(photo_id)

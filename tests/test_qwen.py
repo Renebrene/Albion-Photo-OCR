@@ -824,8 +824,8 @@ def test_run_photo_keeps_primary_result_when_second_crop_fails(monkeypatch, tmp_
     assert result["crop_errors"] == ["second crop failed"]
 
 
-def test_run_photo_reads_full_frame_when_crop_description_empty(monkeypatch, tmp_path):
-    """Ложная детекция: кроп дал пустое описание — фото описывается целиком."""
+def test_run_photo_retries_empty_crop_before_giving_up(monkeypatch, tmp_path):
+    """Пустой ответ кропа — один повтор, и только по кропу (без полного кадра)."""
 
     from app.billboard import pipeline as billboard_pipeline
 
@@ -851,44 +851,36 @@ def test_run_photo_reads_full_frame_when_crop_description_empty(monkeypatch, tmp
 
     def fake_analyze(path, config=None):
         calls.append(str(path))
-        if str(path) == str(crop):
-            # Кроп ложной детекции: модель отвечает пустым JSON.
+        if str(path) != str(crop):
+            raise AssertionError("полный кадр при найденном щите читать нельзя")
+        # Первое чтение пустое (нагрузка/прогрев), повтор — с описанием.
+        if calls.count(str(crop)) == 1:
             return ({}, {}, 1.0)
         return (
             {
-                "description": "Городская улица",
-                "client": "Магазин",
-                "brand": "Магазин",
-                "category": "торговля",
-                "tags": ["город"],
-                "address": "ул. Ленина, 10",
+                "description": "Реклама шин Pirelli",
+                "client": "ООО «САМ-МБ»",
+                "brand": "Pirelli",
+                "category": "автомобили",
+                "tags": ["шины"],
+                "address": None,
             },
-            {"usage": {"prompt_tokens": 100, "completion_tokens": 20,
-                       "total_tokens": 120}},
-            2.0,
+            {"usage": {"total_tokens": 120}},
+            1.5,
         )
 
     monkeypatch.setattr(processor, "analyze_image", fake_analyze)
 
     result = processor.run_photo("PH_" + "7c" * 12)
 
-    assert calls == [str(crop), "full.jpg"]
-    assert result["full_frame_fallback"] is True
+    assert calls == [str(crop), str(crop)]
     assert result["billboards"] == 1
-    fields = saved["fields"]
-    assert fields["description"] == "Городская улица"
-    assert fields["client"] == "Магазин"
-    assert fields["brand"] == "Магазин"
-    assert fields["category"] == "торговля"
-    assert fields["tags"] == ["город"]
-    assert fields["address"] == "ул. Ленина, 10"
-    # Токены и время — полнокадрового чтения: кропы заменены, а не сложены.
-    assert saved["raw"]["usage"]["total_tokens"] == 120
-    assert result["time_sec"] == 2.0
+    assert saved["fields"]["description"] == "Реклама шин Pirelli"
+    assert saved["fields"]["brand"] == "Pirelli"
 
 
-def test_run_photo_keeps_empty_crop_result_when_fallback_full_frame_fails(monkeypatch, tmp_path):
-    """Фолбэк — best-effort: ошибка полнокадрового чтения не ломает задание."""
+def test_run_photo_keeps_empty_description_when_retry_is_also_empty(monkeypatch, tmp_path):
+    """Нечитаемый щит: после повтора описание остаётся пустым, сцена не читается."""
 
     from app.billboard import pipeline as billboard_pipeline
 
@@ -910,18 +902,20 @@ def test_run_photo_keeps_empty_crop_result_when_fallback_full_frame_fails(monkey
     )
     monkeypatch.setattr(billboard_pipeline, "discard_crops", lambda paths: None)
 
+    calls = []
+
     def fake_analyze(path, config=None):
-        if str(path) == str(crop):
-            return ({}, {}, 1.0)
-        raise RuntimeError("full frame failed")
+        calls.append(str(path))
+        if str(path) != str(crop):
+            raise AssertionError("полный кадр при найденном щите читать нельзя")
+        return ({}, {}, 1.0)
 
     monkeypatch.setattr(processor, "analyze_image", fake_analyze)
 
     result = processor.run_photo("PH_" + "8d" * 12)
 
-    # Фото остаётся DONE с пустым описанием; ошибка фолбэка — в crop_errors.
+    assert calls == [str(crop), str(crop)]
     assert "full_frame_fallback" not in result
-    assert result["crop_errors"] == ["full frame failed"]
     assert saved["fields"]["description"] is None
 
 
@@ -1001,3 +995,113 @@ def test_run_photo_falls_back_to_full_frame(monkeypatch):
 
     assert seen["path"] == "/tmp/source.jpg"
     assert "prompt" not in seen["config"]
+
+
+# ---- «Низкий приоритет при выдаче» ---------------------------------------
+
+
+def test_low_priority_defaults_to_sunlight(monkeypatch):
+    """Без сохранённой настройки действует встроенный список."""
+
+    monkeypatch.setattr(processor, "_stored", lambda _key: None)
+
+    assert processor.low_priority_names() == ["Sunlight", "Санлайт"]
+
+
+def test_low_priority_uses_saved_list_and_can_be_disabled(monkeypatch):
+    monkeypatch.setattr(processor, "_stored", lambda _key: ["Лента"])
+    assert processor.low_priority_names() == ["Лента"]
+
+    # Явно сохранённый пустой список выключает правило.
+    monkeypatch.setattr(processor, "_stored", lambda _key: [])
+    assert processor.low_priority_names() == []
+
+
+def test_update_settings_cleans_the_low_priority_list(monkeypatch):
+    saved = {}
+    monkeypatch.setattr(
+        processor.settings_store,
+        "set_value",
+        lambda key, value: saved.__setitem__(key, value),
+    )
+    monkeypatch.setattr(processor, "public_settings", lambda: {})
+
+    processor.update_settings(
+        low_priority=[" Sunlight ", "sunlight", "", "Санлайт"]
+    )
+
+    assert saved[processor.QWEN_LOW_PRIORITY_KEY] == ["Sunlight", "Санлайт"]
+
+
+# ---- «Запрещённые к выдаче слова» ----------------------------------------
+
+
+def test_forbidden_words_default_to_empty(monkeypatch):
+    monkeypatch.setattr(processor, "_stored", lambda _key: None)
+
+    assert processor.forbidden_words() == []
+
+
+def test_forbidden_words_read_stored_list_and_string(monkeypatch):
+    monkeypatch.setattr(processor, "_stored", lambda _key: ["мат", " спам "])
+    assert processor.forbidden_words() == ["мат", "спам"]
+
+    monkeypatch.setattr(processor, "_stored", lambda _key: "мат, спам")
+    assert processor.forbidden_words() == ["мат", "спам"]
+
+
+def test_update_settings_cleans_forbidden_words(monkeypatch):
+    saved = {}
+    monkeypatch.setattr(
+        processor.settings_store,
+        "set_value",
+        lambda key, value: saved.__setitem__(key, value),
+    )
+    monkeypatch.setattr(processor, "public_settings", lambda: {})
+
+    processor.update_settings(forbidden=[" мат ", "МАТ", "", "спам"])
+
+    assert saved[processor.QWEN_FORBIDDEN_KEY] == ["мат", "спам"]
+
+
+def test_run_photo_drops_forbidden_words_from_the_card(monkeypatch, tmp_path):
+    """Мат и мусор не попадают в клиента, бренд, теги и описание."""
+
+    from app.billboard import pipeline as billboard_pipeline
+
+    monkeypatch.setattr(processor.db, "get_photo_source", lambda pid: "/tmp/source.jpg")
+    monkeypatch.setattr(processor.db, "mark_running", lambda pid: None)
+    saved = {}
+    monkeypatch.setattr(
+        processor.db, "save_success",
+        lambda pid, **kw: saved.update(kw),
+    )
+    monkeypatch.setattr(processor, "resolve_settings", _qwen_base_settings)
+    monkeypatch.setattr(processor, "analysis_input", lambda pid, src: "full.jpg")
+    monkeypatch.setattr(billboard_pipeline, "ensure_crops", lambda pid: [])
+    monkeypatch.setattr(processor, "forbidden_words", lambda: ["мат"])
+    monkeypatch.setattr(processor, "low_priority_names", lambda: [])
+
+    monkeypatch.setattr(
+        processor,
+        "analyze_image",
+        lambda path, config=None: (
+            {
+                "description": "Реклама щита, мат и акция",
+                "client": "МАТ",
+                "brand": "Чистый бренд",
+                "category": "торговля",
+                "tags": ["мат", "акция", "чисто"],
+            },
+            {"usage": {"total_tokens": 10}},
+            1.0,
+        ),
+    )
+
+    processor.run_photo("PH_" + "ad" * 12)
+
+    fields = saved["fields"]
+    assert fields["client"] is None
+    assert fields["brand"] == "Чистый бренд"
+    assert fields["description"] == "Реклама щита, и акция"
+    assert fields["tags"] == ["акция", "чисто"]

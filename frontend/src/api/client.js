@@ -528,6 +528,41 @@ export function scanQwenPeriod(payload) {
   return postJson(`${BASE}/v1/jobs/qwen/scan`, payload)
 }
 
+// --- Панель запуска описания ------------------------------------------------
+
+/** Адреса после HYBRID с числом фото — для выбора адресов в запуске. */
+export function fetchQwenAddresses() {
+  return getJson(`${BASE}/v1/qwen/addresses`)
+}
+
+/** Сколько фото попадёт в запуск при выбранных периоде и адресах (read-only). */
+export function previewQwenSelection(payload) {
+  return postJson(`${BASE}/v1/jobs/qwen/preview`, payload)
+}
+
+/** Пауза: ждущие задания уходят в PAUSED, текущее фото доигрывает. */
+export function pauseQwenJobs() {
+  return postJson(`${BASE}/v1/jobs/qwen/pause`, {})
+}
+
+/** Продолжить описание: приостановленные задания возвращаются в очередь. */
+export function resumeQwenJobs() {
+  return postJson(`${BASE}/v1/jobs/qwen/resume`, {})
+}
+
+/** Снять задания, зависшие в RUNNING дольше порога. */
+export function clearStuckQwenJobs(olderThanMinutes = 30) {
+  return postJson(
+    `${BASE}/v1/jobs/qwen/stuck?older_than_minutes=${olderThanMinutes}`,
+    {},
+  )
+}
+
+/** Жёсткий сброс: все описания, история и архивы. Только с подтверждением. */
+export function resetQwenResults() {
+  return postJson(`${BASE}/v1/qwen/reset`, { confirm: true })
+}
+
 // Durable video library (separate from photo-only DINO/HYBRID/QWEN).
 export function fetchVideos({ limit = 50, cursor = null, q = null, date_from = null, date_to = null, date_mode = 'upload' } = {}) {
   const params = new URLSearchParams()
@@ -601,6 +636,16 @@ export function fetchMediaStatistics() {
 
 export function fetchRecognitionQuality() {
   return getJson(`${BASE}/v1/recognition-quality`)
+}
+
+// Живая сводка по прогону HYBRID (последнему или выбранному).
+export function fetchRecognitionQualityLive(hybridRunId = null) {
+  const query = hybridRunId ? `?hybrid_run_id=${encodeURIComponent(hybridRunId)}` : ''
+  return getJson(`${BASE}/v1/recognition-quality/live${query}`)
+}
+
+export function fetchRecognitionQualityRuns() {
+  return getJson(`${BASE}/v1/recognition-quality/runs`)
 }
 
 // Albion cloud links (schema/039): upload selected media and list ready links.
@@ -937,8 +982,10 @@ export function fetchOriginalsHealth() {
 }
 
 // Полная проверка файлов — заданием: 57 тыс. stat не ждут в HTTP-запросе.
-export function startOriginalsCheck() {
-  return postJson(`${BASE}/v1/originals/check`, {})
+export function startOriginalsCheck(decode = false) {
+  // decode=true — полное чтение файлов: находит оригиналы, которые есть, но
+  // не декодируются (недокопированные JPEG). Обход в десятки раз дольше.
+  return postJson(`${BASE}/v1/originals/check?decode=${decode ? 'true' : 'false'}`, {})
 }
 
 export function fetchOriginalsCheckLatest() {
@@ -1282,6 +1329,19 @@ export function backfillPreviews({ photoIds = null, limit = 500 } = {}) {
     `${BASE}/v1/previews/backfill?${query.toString()}`,
     photoIds && photoIds.length ? { photo_ids: photoIds } : {},
   )
+}
+
+/**
+ * Превью: сколько фото, сколько занимают (SMALL/MIDDLE отдельно) и какие
+ * остались без оригиналов — с причинами.
+ */
+export function fetchPreviewsInventory() {
+  return getJson(`${BASE}/v1/previews/inventory`)
+}
+
+/** Удалить превью без оригиналов (записи и файлы). Только безопасные случаи. */
+export function purgeOrphanPreviews() {
+  return postJson(`${BASE}/v1/previews/orphans/purge`, {})
 }
 
 async function postJson(url, body) {

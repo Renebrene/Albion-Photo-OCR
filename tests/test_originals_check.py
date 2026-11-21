@@ -278,15 +278,40 @@ def test_enqueue_returns_the_active_check(monkeypatch):
 
 def test_route_queues_the_check(tmp_path, monkeypatch):
     live, _dead, _outside = _roots(tmp_path)
+    calls = []
     monkeypatch.setattr(routes, "ORIGINALS_ROOTS", [live])
-    monkeypatch.setattr(jobs_db, "enqueue_originals_check", lambda: 42)
+    monkeypatch.setattr(
+        jobs_db,
+        "enqueue_originals_check",
+        lambda **kwargs: calls.append(kwargs) or 42,
+    )
 
     response = client.post("/api/v1/originals/check")
 
     assert response.status_code == 202
     body = response.json()
     assert body["job_id"] == 42
+    assert body["decode"] is False
     assert body["report_dir"].endswith("reports")
+    # По умолчанию полного чтения файлов нет: оно в десятки раз дольше.
+    assert calls == [{"decode": False}]
+
+
+def test_route_queues_the_deep_check(tmp_path, monkeypatch):
+    live, _dead, _outside = _roots(tmp_path)
+    calls = []
+    monkeypatch.setattr(routes, "ORIGINALS_ROOTS", [live])
+    monkeypatch.setattr(
+        jobs_db,
+        "enqueue_originals_check",
+        lambda **kwargs: calls.append(kwargs) or 43,
+    )
+
+    response = client.post("/api/v1/originals/check?decode=true")
+
+    assert response.status_code == 202
+    assert response.json()["decode"] is True
+    assert calls == [{"decode": True}]
 
 
 def test_route_refuses_without_configured_roots(monkeypatch):
@@ -310,3 +335,49 @@ def test_route_returns_none_without_reports(tmp_path, monkeypatch):
     monkeypatch.setenv("SCENE_DATA", str(tmp_path))
 
     assert client.get("/api/v1/originals/check/latest").json() == {"report": None}
+
+
+def test_scan_with_decode_counts_broken_files(tmp_path, monkeypatch):
+    """Файл на месте, но не декодируется: stat его видит, чтение — нет."""
+
+    from PIL import Image
+
+    live = tmp_path / "TEST"
+    live.mkdir()
+    good = live / "ok.jpg"
+    Image.new("RGB", (40, 30), (10, 20, 30)).save(good)
+
+    broken = live / "broken.jpg"
+    data = good.read_bytes()
+    broken.write_bytes(data[: len(data) // 2])
+
+    _fake_rows(
+        monkeypatch,
+        [[(LIVE, str(good)), (GONE, str(broken))], []],
+    )
+
+    report = check.scan([live], decode=True)
+
+    assert report["checked"] == 2
+    assert report["damaged"] == 1
+    assert report["available"] == 1
+    assert report["decode_checked"] is True
+    assert any(
+        sample["reason"] == check.REASONS[check.ORIGINAL_DAMAGED]
+        for sample in report["samples"]
+    )
+
+
+def test_scan_without_decode_does_not_read_pixels(tmp_path, monkeypatch):
+    live = tmp_path / "TEST"
+    live.mkdir()
+    broken = live / "broken.jpg"
+    broken.write_bytes(b"not an image")
+
+    _fake_rows(monkeypatch, [[(LIVE, str(broken))], []])
+
+    report = check.scan([live])
+
+    assert report["damaged"] == 0
+    assert report["decode_checked"] is False
+    assert report["available"] == 1

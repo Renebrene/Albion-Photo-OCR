@@ -7,7 +7,7 @@ Several long-running services cover the web app:
 | `scene-api.service` | FastAPI app + built Quasar SPA (`app.api.main:app`) | `dashboard.service` |
 | `scene-worker.service` | general queue: DINO/HYBRID/INSPECT/MEDIA_EXPORT/NL; excludes preview, QWEN, video and billboard jobs | `lora.service` (worker) |
 | `scene-builder.service` (user unit) | parallel fingerprint builder (`--only FINGERPRINT_BUILD --parallel 3`) | — |
-| `scene-qwen-worker.service` (user unit) | isolated `QWEN_PHOTO` queue poller | — |
+| `scene-qwen-worker.service` (user unit) | isolated `QWEN_PHOTO` queue poller, `--parallel 1`: local VLM не параллелится, а под нагрузкой отдаёт пустые ответы | — |
 | `scene-video-worker.service` (user unit) | isolated `VIDEO_TRANSCODE` / `VIDEO_TRIM` / `VIDEO_STORYBOARD` jobs; smoke-gated NVENC or CPU | — |
 | `scene-preview-worker.service` (user unit) | `PHOTO_PREVIEW --parallel 3`: each job is one photo, so the job-level parallelism is what speeds the stage up | — |
 | `scene-billboard-worker.service` (user unit) | `BILLBOARD_DETECT --parallel 2`: detector/crop branch for QWEN, kept off the general queue | — |

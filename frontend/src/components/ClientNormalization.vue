@@ -13,7 +13,9 @@ import {
   fetchClientAliasAudit,
   fetchClientAliases,
   fetchQwenClientNames,
+  fetchQwenSettings,
   saveClientAlias,
+  updateQwenSettings,
 } from '../api/client'
 
 // Справочник один на клиентов и брендов: колонка kind выбирает, что правим
@@ -31,6 +33,22 @@ const newAlias = ref('')
 const newCanonical = ref('')
 const qwenNames = ref([])
 const audit = ref([])
+
+// «Низкий приоритет при выдаче»: такие названия не показываются как
+// клиент/бренд фото, а уходят в теги — чужая реклама рядом с нашим щитом
+// не должна забирать карточку (владелец, 21.11.2026).
+const lowPriority = ref([])
+const lowPriorityDefault = ref([])
+const newLowPriority = ref('')
+const lowPrioritySaving = ref(false)
+const lowPriorityError = ref('')
+
+// «Запрещённые к выдаче слова»: мат и случайные обрывки распознавания не
+// попадают в клиента, бренд, теги и описание (владелец, 21.11.2026).
+const forbiddenWords = ref([])
+const newForbidden = ref('')
+const forbiddenSaving = ref(false)
+const forbiddenError = ref('')
 
 const titleWord = computed(() => (kind.value === 'brand' ? 'брендов' : 'клиентов'))
 
@@ -60,6 +78,80 @@ async function loadQwenNames() {
   } catch (err) {
     errors.value.names = err.message || 'Не удалось загрузить названия QWEN'
   }
+}
+
+async function loadDeliveryLists() {
+  try {
+    const data = await fetchQwenSettings()
+    lowPriority.value = data.low_priority_names || []
+    lowPriorityDefault.value = data.low_priority_default || []
+    forbiddenWords.value = data.forbidden_words || []
+    lowPriorityError.value = ''
+    forbiddenError.value = ''
+  } catch (err) {
+    lowPriorityError.value = err.message || 'Не удалось загрузить настройку'
+    forbiddenError.value = err.message || 'Не удалось загрузить настройку'
+  }
+}
+
+async function saveLowPriority(next) {
+  lowPrioritySaving.value = true
+  try {
+    const data = await updateQwenSettings({ low_priority_names: next })
+    lowPriority.value = data.low_priority_names || next
+    lowPriorityError.value = ''
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    lowPrioritySaving.value = false
+  }
+}
+
+async function addLowPriority() {
+  const name = newLowPriority.value.trim()
+  if (!name) return
+
+  if (lowPriority.value.some((item) => item.toLowerCase() === name.toLowerCase())) {
+    Notify.create({ type: 'warning', message: 'Такое название уже в списке' })
+    return
+  }
+
+  await saveLowPriority([...lowPriority.value, name])
+  newLowPriority.value = ''
+}
+
+async function removeLowPriority(name) {
+  await saveLowPriority(lowPriority.value.filter((item) => item !== name))
+}
+
+async function saveForbidden(next) {
+  forbiddenSaving.value = true
+  try {
+    const data = await updateQwenSettings({ forbidden_words: next })
+    forbiddenWords.value = data.forbidden_words || next
+    forbiddenError.value = ''
+  } catch (err) {
+    Notify.create({ type: 'negative', message: err.message })
+  } finally {
+    forbiddenSaving.value = false
+  }
+}
+
+async function addForbidden() {
+  const word = newForbidden.value.trim()
+  if (!word) return
+
+  if (forbiddenWords.value.some((item) => item.toLowerCase() === word.toLowerCase())) {
+    Notify.create({ type: 'warning', message: 'Такое слово уже в списке' })
+    return
+  }
+
+  await saveForbidden([...forbiddenWords.value, word])
+  newForbidden.value = ''
+}
+
+async function removeForbidden(word) {
+  await saveForbidden(forbiddenWords.value.filter((item) => item !== word))
 }
 
 async function loadAudit() {
@@ -128,6 +220,10 @@ onMounted(() => {
   loadAliases()
   loadQwenNames()
   loadAudit()
+
+  // Блок «низкий приоритет» есть только в техразделе; в компактном окне над
+  // гридом он лишний — там правят сопоставления, а не глобальные правила.
+  if (!props.compact) loadDeliveryLists()
 })
 </script>
 
@@ -229,6 +325,120 @@ onMounted(() => {
     </div>
     <div v-else-if="!aliases.length" class="text-caption text-grey">
       Алиасов нет
+    </div>
+
+    <!-- Низкий приоритет при выдаче (владелец, 21.11.2026): названия, которые
+         не выводятся как клиент/бренд фото, а остаются тегами. По умолчанию —
+         Sunlight/Санлайт: их щиты часто попадают в кадр рядом с нужным. -->
+    <div v-if="!compact" class="q-mt-lg delivery-block delivery-block--low">
+      <div class="text-subtitle2">Низкий приоритет при выдаче</div>
+      <div class="text-caption text-grey q-mb-sm">
+        Такие названия не становятся клиентом или брендом фото — предпочтение
+        отдаётся другим кропам, а имя остаётся в тегах. Для фото, где есть
+        только такая реклама, поля клиента и бренда останутся пустыми.
+      </div>
+
+      <div class="row q-gutter-xs q-mb-sm">
+        <q-chip
+          v-for="name in lowPriority"
+          :key="name"
+          dense
+          removable
+          :disable="lowPrioritySaving"
+          @remove="removeLowPriority(name)"
+        >
+          {{ name }}
+        </q-chip>
+        <span v-if="!lowPriority.length" class="text-caption text-grey">
+          Список пуст — правило выключено
+        </span>
+      </div>
+
+      <div class="row q-gutter-sm items-center">
+        <q-input
+          v-model="newLowPriority"
+          dense
+          outlined
+          label="Название клиента или бренда"
+          style="min-width: 260px"
+          @keyup.enter="addLowPriority"
+        />
+        <q-btn
+          color="primary"
+          icon="add"
+          label="Добавить"
+          :loading="lowPrioritySaving"
+          @click="addLowPriority"
+        />
+        <q-btn
+          v-if="lowPriorityDefault.length && lowPriority.length !== lowPriorityDefault.length"
+          flat
+          no-caps
+          label="Вернуть Sunlight/Санлайт"
+          :disable="lowPrioritySaving"
+          @click="saveLowPriority([...lowPriorityDefault])"
+        />
+      </div>
+      <div v-if="lowPriorityError" class="row items-center no-wrap q-gutter-sm q-mt-xs">
+        <q-icon name="error_outline" color="negative" size="16px" />
+        <div class="col text-caption text-negative">{{ lowPriorityError }}</div>
+        <q-btn dense flat no-caps size="sm" label="Повторить" @click="loadDeliveryLists" />
+      </div>
+    </div>
+
+    <!-- Запрещённые к выдаче слова: мат и обрывки распознавания не попадают
+         в клиента/бренд/теги/описание (владелец, 21.11.2026). -->
+    <div v-if="!compact" class="q-mt-lg delivery-block delivery-block--forbidden">
+      <div class="text-subtitle2">Запрещённые к выдаче слова</div>
+      <div class="text-caption text-grey q-mb-sm">
+        Слова, которые не должны появляться в карточке фото: мат и случайные
+        обрывки распознавания. Совпадение — по целому слову, без учёта
+        регистра: «педо» не тронет «торпедо». Такие значения не попадают в
+        клиента, бренд, теги и описание.
+      </div>
+
+      <div class="row q-gutter-xs q-mb-sm">
+        <q-chip
+          v-for="word in forbiddenWords"
+          :key="word"
+          dense
+          removable
+          color="grey-3"
+          :disable="forbiddenSaving"
+          @remove="removeForbidden(word)"
+        >
+          {{ word }}
+        </q-chip>
+        <span v-if="!forbiddenWords.length" class="text-caption text-grey">
+          Список пуст — фильтр выключен
+        </span>
+      </div>
+
+      <div class="row q-gutter-sm items-center">
+        <q-input
+          v-model="newForbidden"
+          dense
+          outlined
+          label="Слово или часть слова"
+          style="min-width: 260px"
+          @keyup.enter="addForbidden"
+        />
+        <q-btn
+          color="primary"
+          icon="add"
+          label="Добавить"
+          :loading="forbiddenSaving"
+          @click="addForbidden"
+        />
+      </div>
+      <div
+        v-if="forbiddenError"
+        class="row items-center no-wrap q-gutter-sm q-mt-xs"
+      >
+        <q-icon name="error_outline" color="negative" size="16px" />
+        <div class="col text-caption text-negative">{{ forbiddenError }}</div>
+        <q-btn dense flat no-caps size="sm" label="Повторить" @click="loadDeliveryLists" />
+      </div>
     </div>
 
     <!-- Журнал правок: кто, что и когда изменил (в компактном режиме скрыт). -->

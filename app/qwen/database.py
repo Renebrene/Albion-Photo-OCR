@@ -306,21 +306,49 @@ def list_global_history(*, limit: int = 200) -> list[dict]:
     ]
 
 
+# Адрес фото так же, как в гриде: ручное переопределение важнее вердикта,
+# вердикт — последний DONE HYBRID, активный слепок и активный адрес. Пустой
+# список адресов означает «все адреса», условие тогда не добавляется.
+_ADDRESS_CLAUSE = """
+    AND COALESCE(
+        (SELECT ov.address_id FROM public.photo_address_overrides AS ov
+          WHERE ov.photo_id = p.photo_id),
+        (SELECT af.address_id
+           FROM public.hybrid_results AS h
+           JOIN public.address_fingerprints AS af
+             ON af.fingerprint_id = h.hybrid_final_id AND af.active
+           JOIN public.fingerprints AS fp
+             ON fp.fingerprint_id = af.fingerprint_id AND fp.active
+          WHERE h.photo_id = p.photo_id AND h.status = 'DONE'
+          ORDER BY h.hybrid_run_id DESC
+          LIMIT 1)
+    ) = ANY(%s)
+"""
+
+
 def photo_ids_in_period(
-    *, date_from, date_to, date_mode: str = "upload"
+    *, date_from, date_to, date_mode: str = "upload", address_ids: list[int] | None = None
 ) -> list[str]:
     """Registered photo ids whose upload or capture date is in [from, to]."""
     if date_mode not in {"upload", "capture"}:
         raise ValueError("date_mode must be upload or capture")
     date_column = "taken_at" if date_mode == "capture" else "created_at"
+
+    address_clause = _ADDRESS_CLAUSE if address_ids else ""
+    params: list[object] = [date_from, date_to]
+
+    if address_ids:
+        params.append(sorted({int(value) for value in address_ids}))
+
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                f"SELECT photo_id FROM public.photos "
-                f"WHERE {date_column} >= %s::date "
-                f"AND {date_column} < (%s::date + interval '1 day') "
-                f"ORDER BY photo_id",  # noqa: S608 - date_column is allowlisted above
-                (date_from, date_to),
+                f"SELECT p.photo_id FROM public.photos AS p "
+                f"WHERE p.{date_column} >= %s::date "
+                f"AND p.{date_column} < (%s::date + interval '1 day') "
+                + address_clause
+                + " ORDER BY p.photo_id",  # noqa: S608 - date_column is allowlisted above
+                params,
             )
             return [str(row[0]) for row in cur.fetchall()]
 
@@ -331,6 +359,7 @@ def photo_ids_missing_in_period(
     date_to,
     date_mode: str = "capture",
     limit: int = 1000,
+    address_ids: list[int] | None = None,
 ) -> list[str]:
     """
     Photo ids in [from, to] that have no successful QWEN row yet.
@@ -345,6 +374,14 @@ def photo_ids_missing_in_period(
     date_column = "p.taken_at" if date_mode == "capture" else "p.created_at"
     limit = max(1, min(int(limit), 5000))
 
+    address_clause = _ADDRESS_CLAUSE if address_ids else ""
+    params: list[object] = [date_from, date_to]
+
+    if address_ids:
+        params.append(sorted({int(value) for value in address_ids}))
+
+    params.append(limit)
+
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -358,10 +395,13 @@ def photo_ids_missing_in_period(
                       WHERE q.photo_id = p.photo_id
                         AND q.status = 'DONE'
                   )
+                """
+                + address_clause
+                + """
                 ORDER BY p.photo_id
                 LIMIT %s
                 """,  # noqa: S608 - date_column is allowlisted above
-                (date_from, date_to, limit),
+                params,
             )
             return [str(row[0]) for row in cur.fetchall()]
 
@@ -579,6 +619,17 @@ def apply_refined_values(
     if not fields:
         return False
 
+    # «Уточнение» берёт значения из соседних кадров серии, поэтому фильтр
+    # запрещённых слов применяется и здесь: иначе слово вернулось бы в
+    # карточку мимо QWEN-прогона.
+    from app.qwen.processor import forbidden_words
+    from app.qwen.sanitize import sanitize_fields
+
+    fields = sanitize_fields(fields, forbidden_words())
+
+    if not fields or all(value in (None, "", []) for value in fields.values()):
+        return False
+
     assignments: list[str] = []
     values: list[object] = []
     for key, value in fields.items():
@@ -655,3 +706,54 @@ def get(photo_id: str) -> dict | None:
             row = cur.fetchone()
 
     return _row_to_dict(row) if row is not None else None
+
+
+def reset_all() -> dict:
+    """
+    Жёсткий сброс описаний: карточки, история и архивы.
+
+    Фото, превью, кропы и распознавание не трогаются. Qwen-поля регионов
+    очищаются вместе с карточками — иначе `qwen_source` в гриде показывал бы
+    «по кропам», хотя описания уже нет. Задания очереди снимает маршрут:
+    здесь только данные.
+
+    Возвращает число удалённых строк по таблицам; вызывающий пишет отчёт.
+    """
+
+    tables = (
+        "photo_qwen",
+        "photo_qwen_history",
+        "photo_qwen_archive",
+        "photo_qwen_history_archive",
+    )
+    deleted: dict[str, int] = {}
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            for table in tables:
+                cur.execute("SELECT to_regclass(%s)", (f"public.{table}",))
+                exists = cur.fetchone()[0] is not None
+
+                if not exists:
+                    deleted[table] = 0
+                    continue
+
+                cur.execute(f"DELETE FROM public.{table}")  # noqa: S608 - имя из фиксированного списка
+                deleted[table] = max(0, int(cur.rowcount))
+
+            cur.execute(
+                """
+                UPDATE public.photo_regions
+                   SET qwen_status = NULL,
+                       qwen_fields = NULL,
+                       qwen_model = NULL,
+                       qwen_error = NULL,
+                       qwen_finished_at = NULL,
+                       qwen_time_sec = NULL
+                 WHERE qwen_status IS NOT NULL
+                    OR qwen_fields IS NOT NULL
+                """
+            )
+            deleted["photo_regions"] = max(0, int(cur.rowcount))
+
+    return deleted

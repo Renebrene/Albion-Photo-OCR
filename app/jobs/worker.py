@@ -429,7 +429,10 @@ def _execute(job: dict) -> dict:
     if job_type == "ORIGINALS_CHECK":
         from app.originals import check as originals_check
 
-        return originals_check.run(control=job_control(int(job["id"])))
+        return originals_check.run(
+            control=job_control(int(job["id"])),
+            decode=bool(payload.get("decode")),
+        )
 
     raise ValueError(f"Unsupported job type: {job_type}")
 

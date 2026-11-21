@@ -135,6 +135,10 @@ def group_surfaces(rows: list[dict]) -> list[dict]:
                 "simple_address": item.get("simple_address") or "",
                 "side": side,
                 "fingerprints": list(item.get("fingerprints") or []),
+                # Архивные слепки показываются серым, но не выбираются.
+                "inactive_fingerprints": list(
+                    item.get("inactive_fingerprints") or []
+                ),
             }
         )
 

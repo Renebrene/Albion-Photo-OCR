@@ -48,11 +48,14 @@ function installFetch({
   job = { status: 'DONE', result: REPORT },
 } = {}) {
   const calls = []
+  // Полные URL: нужны, чтобы проверить параметр ?decode= у постановки задания.
+  calls.raw = []
 
   global.fetch = vi.fn((url, options = {}) => {
     const path = new URL(String(url), 'http://localhost').pathname
     const method = (options.method || 'GET').toUpperCase()
     calls.push(`${method} ${path}`)
+    calls.raw.push(String(url))
 
     if (path.endsWith('/v1/originals/health')) return reply(health, healthStatus)
     if (path.endsWith('/v1/originals/check/latest')) return reply(latest)
@@ -214,5 +217,46 @@ describe('доступность оригиналов в техническом 
       .find((element) => element.text().includes('Проверить файлы'))
 
     expect(button).toBeUndefined()
+  })
+
+  it('флажок декодирования уходит в задание', async () => {
+    const calls = installFetch()
+    const wrapper = await mountPanel()
+
+    const checkbox = wrapper.findComponent({ name: 'QCheckbox' })
+    expect(checkbox.exists()).toBe(true)
+    await checkbox.setValue(true)
+    await flushPromises()
+
+    const button = wrapper
+      .findAll('button')
+      .find((element) => element.text().includes('Проверить файлы'))
+    await button.trigger('click')
+    await flushPromises()
+
+    expect(
+      calls.raw.some((url) => url.includes('/v1/originals/check?decode=true')),
+    ).toBe(true)
+  })
+
+  it('в отчёте видны повреждённые оригиналы и оговорка про декодирование', async () => {
+    installFetch({
+      latest: {
+        report: { ...REPORT, damaged: 23, decode_checked: true },
+      },
+    })
+    const wrapper = await mountPanel()
+    const text = wrapper.text()
+
+    expect(text).toContain('повреждено 23')
+    expect(text).toContain('недоступно 1541')
+    expect(text).not.toContain('Декодирование не проверялось')
+  })
+
+  it('без проверки декодирования честно говорит об этом', async () => {
+    installFetch({ latest: { report: REPORT } })
+    const wrapper = await mountPanel()
+
+    expect(wrapper.text()).toContain('Декодирование не проверялось')
   })
 })

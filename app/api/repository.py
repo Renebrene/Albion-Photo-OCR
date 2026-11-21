@@ -508,6 +508,40 @@ _PHOTO_BASE = """
         q.status AS qwen_status,
         (q.description IS NOT NULL AND btrim(q.description) <> '')
             AS qwen_described,
+        -- Откуда взялось описание: 'crop' — модель читала кроп щита (в ledger
+        -- регионов есть ОСМЫСЛЕННЫЙ разбор), 'full' — полный кадр. В гриде это
+        -- зелёный и голубой значки (владелец, 21.11.2026). Пустое описание —
+        -- NULL: значка нет, показывается серый «нет описания».
+        CASE
+            WHEN q.description IS NULL OR btrim(q.description) = '' THEN NULL
+            WHEN EXISTS (
+                SELECT 1 FROM public.photo_regions AS r
+                WHERE r.photo_id = p.photo_id
+                  AND r.qwen_status = 'DONE'
+                  AND (
+                      coalesce(r.qwen_fields ->> 'description', '') <> ''
+                      OR coalesce(r.qwen_fields ->> 'client', '') <> ''
+                      OR coalesce(r.qwen_fields ->> 'brand', '') <> ''
+                      OR coalesce(r.qwen_fields ->> 'category', '') <> ''
+                      OR jsonb_array_length(
+                             CASE
+                                 WHEN jsonb_typeof(r.qwen_fields -> 'tags') = 'array'
+                                 THEN r.qwen_fields -> 'tags'
+                                 ELSE '[]'::jsonb
+                             END
+                         ) > 0
+                  )
+            ) THEN 'crop'
+            ELSE 'full'
+        END AS qwen_source,
+        -- Есть ли кроп щита: без него «Похожие» искать не по чему (индекс
+        -- CLIP строится по billboard-кропам). Кнопка в гриде гаснет, чтобы
+        -- вместо красной ошибки 404 была подсказка «щит не найден».
+        EXISTS (
+            SELECT 1 FROM public.photo_regions AS br
+            WHERE br.photo_id = p.photo_id
+              AND br.kind = 'billboard'
+        ) AS has_billboard_crop,
         p.created_at AS created_at,
         p.taken_at AS taken_at,
         p.size_bytes AS size_bytes,
@@ -563,7 +597,8 @@ _PHOTO_SELECT = (
     "SELECT photo_id, filename, width, height, container_format, "
     "address, client, brand, category, created_at, taken_at, size_bytes, source_path, "
     "legal_address, simple_address, qwen_status, qwen_described, confidence, "
-    "suggested_fingerprint, suggested_address, margin, runner_up_address, runner_up_score "
+    "suggested_fingerprint, suggested_address, margin, runner_up_address, runner_up_score, "
+    "qwen_source, has_billboard_crop "
     "FROM (" + _PHOTO_DERIVED + ") AS t"
 )
 
@@ -671,11 +706,15 @@ def _photo_row(row) -> PhotoSummary:
         margin=float(row[20]) if row[20] is not None else None,
         runner_up_address=row[21],
         runner_up_score=float(row[22]) if row[22] is not None else None,
+        # 'crop' | 'full' | None — зелёный/голубой/без значка в гриде.
+        qwen_source=row[23],
+        # Кроп щита есть — «Похожие» работает; нет — кнопка погашена.
+        has_billboard_crop=bool(row[24]),
         # Дополнительный столбец есть только у временной сортировки по
         # сходству с выбранным слепком; в остальных запросах его нет.
         similarity=(
-            float(row[23])
-            if len(row) > 23 and row[23] is not None
+            float(row[25])
+            if len(row) > 25 and row[25] is not None
             else None
         ),
     )
@@ -2304,13 +2343,30 @@ def suggest_terms(term: str, *, limit: int = 8) -> list[dict]:
         LIMIT %s
     """
 
+    # Запрещённые к выдаче слова не предлагаются в строке поиска даже если
+    # остались в старых строках: запрашиваем с запасом и режем перед выдачей.
+    try:
+        from app.qwen.processor import forbidden_words
+        from app.qwen.sanitize import contains_forbidden
+
+        forbidden = forbidden_words()
+    except Exception:  # noqa: BLE001 — настройка не должна ломать подсказки
+        forbidden = []
+
+    pool = limit + 12 if forbidden else limit
+
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, (like, term, prefix, term, limit))
-            return [
-                {"value": row[0], "kind": row[1], "uses": int(row[2])}
-                for row in cur.fetchall()
-            ]
+            cur.execute(sql, (like, term, prefix, term, pool))
+            rows = cur.fetchall()
+
+    items = [
+        {"value": row[0], "kind": row[1], "uses": int(row[2])}
+        for row in rows
+        if not contains_forbidden(row[0], forbidden)
+    ]
+
+    return items[:limit]
 
 
 def search_matches(
@@ -3467,3 +3523,117 @@ def save_manager_selection(user_id: str, state: dict) -> None:
                 """,
                 (user_id, Json(state or {})),
             )
+
+
+def qwen_address_choices() -> list[dict]:
+    """
+    Адреса, к которым HYBRID отнёс фото: для выбора в запуске описания.
+
+    Адрес считается так же, как в гриде: ручное переопределение важнее
+    вердикта, вердикт — последний завершённый HYBRID с активным слепком.
+    Фото без адреса в список не попадают — их можно прогнать без фильтра.
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH resolved AS (
+                    SELECT p.photo_id,
+                           COALESCE(
+                               (SELECT ov.address_id
+                                  FROM public.photo_address_overrides AS ov
+                                 WHERE ov.photo_id = p.photo_id),
+                               verdict.address_id
+                           ) AS address_id
+                    FROM public.photos AS p
+                    LEFT JOIN LATERAL (
+                        SELECT af.address_id
+                        FROM public.hybrid_results AS h
+                        JOIN public.address_fingerprints AS af
+                          ON af.fingerprint_id = h.hybrid_final_id AND af.active
+                        JOIN public.fingerprints AS fp
+                          ON fp.fingerprint_id = af.fingerprint_id AND fp.active
+                        WHERE h.photo_id = p.photo_id AND h.status = 'DONE'
+                        ORDER BY h.hybrid_run_id DESC
+                        LIMIT 1
+                    ) AS verdict ON TRUE
+                )
+                SELECT r.address_id,
+                       COALESCE(d.simple_address, d.legal_address) AS name,
+                       count(*) AS photos
+                FROM resolved AS r
+                JOIN public.address_directory AS d
+                  ON d.address_id = r.address_id AND d.active
+                WHERE r.address_id IS NOT NULL
+                GROUP BY r.address_id, COALESCE(d.simple_address, d.legal_address)
+                ORDER BY count(*) DESC, name
+                """
+            )
+            return [
+                {"address_id": int(row[0]), "name": row[1], "photos": int(row[2])}
+                for row in cur.fetchall()
+            ]
+
+
+def qwen_run_timeline() -> dict:
+    """
+    Время старта, пауза и оценка остатка для карточки описаний.
+
+    Старт — самое раннее `started_at` активных заданий QWEN; пауза хранится
+    в `app_settings.qwen_paused_at` (её ставит маршрут паузы). Ожидание —
+    фактическое среднее время последних 200 описаний × длина очереди:
+    точнее любой константы, но всё равно «≈» (щиты читаются по-разному).
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) FILTER (WHERE status = 'PENDING'), "
+                "       count(*) FILTER (WHERE status = 'RUNNING'), "
+                "       count(*) FILTER (WHERE status = 'PAUSED'), "
+                "       min(started_at) FILTER ("
+                "           WHERE status IN ('PENDING', 'RUNNING', 'PAUSED')) "
+                "FROM public.job_queue WHERE job_type = 'QWEN_PHOTO'"
+            )
+            pending, running, paused, started_at = cur.fetchone()
+
+            cur.execute(
+                "SELECT avg(qwen_time_sec) FROM ("
+                "    SELECT qwen_time_sec FROM public.photo_qwen"
+                "    WHERE qwen_time_sec IS NOT NULL AND qwen_time_sec > 0"
+                "    ORDER BY finished_at DESC NULLS LAST"
+                "    LIMIT 200"
+                ") AS recent"
+            )
+            average = cur.fetchone()[0]
+
+            cur.execute(
+                "SELECT count(*) FROM public.job_queue "
+                "WHERE job_type = 'QWEN_PHOTO' AND status = 'RUNNING' "
+                "  AND (started_at IS NULL "
+                "       OR started_at < CURRENT_TIMESTAMP - interval '30 minutes')"
+            )
+            stuck = int(cur.fetchone()[0])
+
+    try:
+        from app import settings_store
+
+        paused_at = settings_store.get("qwen_paused_at")
+    except Exception:  # noqa: BLE001 - настройка не должна ломать статистику
+        paused_at = None
+
+    active = int(pending) + int(running)
+
+    return {
+        "started_at": started_at,
+        "paused": bool(paused),
+        "paused_at": paused_at,
+        "pending": int(pending),
+        "running": int(running),
+        "paused_count": int(paused),
+        "eta_seconds": (
+            round(float(average) * active) if average and active else None
+        ),
+        "stuck": stuck,
+    }

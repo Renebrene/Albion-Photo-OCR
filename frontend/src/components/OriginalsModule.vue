@@ -36,6 +36,9 @@ const reportError = ref(null)
 const checkRunning = ref(false)
 const jobProgress = ref(null)
 const checkJobId = ref(null)
+// Полное чтение файлов находит повреждённые оригиналы (файл есть, но не
+// декодируется), но идёт в десятки раз дольше — поэтому флаг, а не умолчание.
+const deepCheck = ref(false)
 
 async function load() {
   loading.value = true
@@ -97,7 +100,7 @@ async function runCheck() {
   jobProgress.value = null
 
   try {
-    const started = await startOriginalsCheck()
+    const started = await startOriginalsCheck(deepCheck.value)
     checkJobId.value = started.job_id || null
 
     if (!started.job_id) {
@@ -131,7 +134,8 @@ const reportUnavailable = computed(() => {
   return (
     (report.value.missing || 0) +
     (report.value.outside_roots || 0) +
-    (report.value.root_unavailable || 0)
+    (report.value.root_unavailable || 0) +
+    (report.value.damaged || 0)
   )
 })
 
@@ -202,6 +206,19 @@ function shortDate(value) {
             :loading="checkRunning"
             @click="runCheck"
           />
+          <q-checkbox
+            v-if="canManage"
+            v-model="deepCheck"
+            dense
+            label="проверять декодирование"
+            :disable="checkRunning"
+          >
+            <q-tooltip>
+              Полностью читает каждый файл и находит повреждённые оригиналы:
+              файл на месте, но не открывается. Обход идёт в десятки раз
+              дольше.
+            </q-tooltip>
+          </q-checkbox>
           <div v-if="checkRunning" class="text-caption text-grey">
             <template v-if="jobProgress?.total">
               проверено {{ jobProgress.done }} из {{ jobProgress.total }}
@@ -214,7 +231,15 @@ function shortDate(value) {
           Последняя полная проверка: {{ shortDate(report.generated_at) }} ·
           проверено {{ report.checked }} · недоступно {{ reportUnavailable }}
           (вне корней {{ report.outside_roots }}, корень не подключён
-          {{ report.root_unavailable }}, файла нет {{ report.missing }})
+          {{ report.root_unavailable }}, файла нет {{ report.missing }},
+          повреждено {{ report.damaged || 0 }})
+        </div>
+        <div
+          v-if="report && !report.decode_checked"
+          class="text-caption text-grey-7 q-mt-xs"
+        >
+          Декодирование не проверялось: включите «проверять декодирование»,
+          чтобы увидеть оригиналы, которые есть, но не открываются.
         </div>
         <div v-else class="text-caption text-grey q-mt-xs">
           Полная проверка файлов ещё не запускалась.

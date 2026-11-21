@@ -90,6 +90,16 @@ BILLBOARD_CROP_ENABLED_KEY = "billboard_detect"
 # in «Распознавание» without a restart.
 QWEN_PROMPT_KEY = "qwen_prompt"
 QWEN_CROP_PROMPT_KEY = "qwen_crop_prompt"
+# «Низкий приоритет при выдаче»: названия, которые не выводятся как
+# клиент/бренд фото, а остаются тегами (чужая реклама рядом с нашим щитом).
+QWEN_LOW_PRIORITY_KEY = "qwen_low_priority_names"
+# По умолчанию в списке — Sunlight в обоих написаниях: его щиты часто
+# попадают в кадр рядом с нужным, и модель записывает его клиентом.
+QWEN_LOW_PRIORITY_DEFAULT = ["Sunlight", "Санлайт"]
+# «Запрещённые к выдаче слова»: мат и случайные обрывки распознавания,
+# которые не должны попадать в клиента/бренд/теги/описание. По умолчанию
+# список пуст — владелец пополняет его сам.
+QWEN_FORBIDDEN_KEY = "qwen_forbidden_words"
 
 
 def _stored(key: str):
@@ -227,6 +237,45 @@ def crop_prompt_override() -> str:
     return str(_stored(QWEN_CROP_PROMPT_KEY) or "").strip()
 
 
+def forbidden_words() -> list[str]:
+    """Список запрещённых к выдаче слов (пусто — правило выключено)."""
+
+    stored = _stored(QWEN_FORBIDDEN_KEY)
+
+    if isinstance(stored, str):
+        parts = [part.strip() for part in stored.split(",")]
+    elif isinstance(stored, (list, tuple)):
+        parts = [str(part).strip() for part in stored]
+    else:
+        return []
+
+    return [part for part in parts if part]
+
+
+def low_priority_names() -> list[str]:
+    """
+    Названия с низким приоритетом при выдаче (клиент/бренд → теги).
+
+    Хранится список в `app_settings`; пустое значение — встроенный список
+    (Sunlight/Санлайт). Явно сохранённый пустой список тоже пуст: настройка
+    должна уметь выключить правило.
+    """
+
+    stored = _stored(QWEN_LOW_PRIORITY_KEY)
+
+    if stored is None:
+        return list(QWEN_LOW_PRIORITY_DEFAULT)
+
+    if isinstance(stored, str):
+        parts = [part.strip() for part in stored.split(",")]
+    elif isinstance(stored, (list, tuple)):
+        parts = [str(part).strip() for part in stored]
+    else:
+        return list(QWEN_LOW_PRIORITY_DEFAULT)
+
+    return [part for part in parts if part]
+
+
 def default_crop_prompt() -> str:
     """Built-in billboard prompt (empty when the detector is not installed)."""
 
@@ -318,6 +367,11 @@ def public_settings() -> dict:
         "default_prompt": PROMPT,
         "crop_prompt": crop_prompt_override() or default_crop_prompt(),
         "default_crop_prompt": default_crop_prompt(),
+        # Названия с низким приоритетом при выдаче (клиент/бренд → теги).
+        "low_priority_names": low_priority_names(),
+        "low_priority_default": list(QWEN_LOW_PRIORITY_DEFAULT),
+        # Слова, которые не показываются в карточке вовсе.
+        "forbidden_words": forbidden_words(),
     }
 
 
@@ -333,6 +387,8 @@ def update_settings(
     in_pipeline: bool | None = None,
     prompt: str | None = None,
     crop_prompt: str | None = None,
+    low_priority: list[str] | None = None,
+    forbidden: list[str] | None = None,
 ) -> dict:
     """Persist the supplied settings; return the public view."""
 
@@ -382,6 +438,39 @@ def update_settings(
 
     if crop_prompt is not None:
         settings_store.set_value(QWEN_CROP_PROMPT_KEY, str(crop_prompt).strip())
+
+    # Список «низкого приоритета»: чистим пробелы и повторы, порядок храним.
+    # Пустой список — правило выключено; None — настройка не меняется.
+    if low_priority is not None:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+
+        for name in low_priority:
+            text = str(name).strip()[:120]
+
+            if not text or text.casefold() in seen:
+                continue
+
+            seen.add(text.casefold())
+            cleaned.append(text)
+
+        settings_store.set_value(QWEN_LOW_PRIORITY_KEY, cleaned)
+
+    # Тот же разбор для запрещённых слов: None — не менять, [] — очистить.
+    if forbidden is not None:
+        cleaned_forbidden: list[str] = []
+        seen_forbidden: set[str] = set()
+
+        for word in forbidden:
+            text = str(word).strip()[:120]
+
+            if not text or text.casefold() in seen_forbidden:
+                continue
+
+            seen_forbidden.add(text.casefold())
+            cleaned_forbidden.append(text)
+
+        settings_store.set_value(QWEN_FORBIDDEN_KEY, cleaned_forbidden)
 
     return public_settings()
 
@@ -1003,6 +1092,7 @@ def merge_crop_results(
     frequencies: dict[str, dict[str, int]] | None = None,
     primary_index: int = 0,
     global_frequency: bool = True,
+    low_priority: list[str] | None = None,
 ) -> tuple[dict, dict, float]:
     """
     Merge QWEN results of several billboard crops of ONE photo.
@@ -1024,6 +1114,7 @@ def merge_crop_results(
         frequencies=frequencies,
         primary_index=primary_index,
         global_frequency=global_frequency,
+        low_priority=low_priority,
     )
     primary = {
         key: aggregate[key]
@@ -1080,9 +1171,10 @@ def run_photo(
     # yet). A photo may show two side-by-side billboards: each crop is
     # analysed and the results are merged into one photo_qwen row. Without a
     # billboard the full frame is analysed as before. When every crop comes
-    # back without a description (false detection, unreadable banner), the
-    # full frame is analysed as a fallback. A crop failure must never break
-    # QWEN.
+    # back without a description, the crops are read once more; if they are
+    # still empty the description stays empty — a detected billboard is never
+    # replaced by a scene description (owner, 2026-11-21). A crop failure must
+    # never break QWEN.
     image_path = analysis_input(photo_id, source_path)
     crop_paths: list[str] = []
     discard_crops = None
@@ -1126,7 +1218,6 @@ def run_photo(
     per_crop_results: list[tuple[dict, dict, float]] = []
     crop_errors: list[str] = []
     per_crop_regions = []
-    full_frame_fallback = False
     if crop_paths:
         try:
             from app.billboard import database as billboard_db
@@ -1181,29 +1272,47 @@ def run_photo(
             except Exception as exc:  # noqa: BLE001 - кропы уже дали результат
                 crop_errors.append(redact_absolute_paths(str(exc)))
 
-        # Ложное срабатывание детектора или нечитаемый щит: все кропы вернули
-        # пустое описание. Читаем полный кадр — общее чтение описывает сцену
-        # и рекламодателя там, где вырезка этого не позволила. Результат фото
-        # целиком берётся с полнокадрового чтения: ложный кроп не должен
-        # тянуть в карточку мусорные клиента/бренд/теги. Разбор кропов остаётся
-        # в ledger регионов (photo_regions.qwen_fields).
+        # Пустой ответ по всем кропам: локальная модель иногда отдаёт пустоту
+        # с первого раза (нагрузка, прогрев). Повторяем чтение кропов ОДИН
+        # раз. Если и повтор пуст — оставляем пустой результат: щит найден,
+        # значит описывать надо его, а не сцену вокруг (владелец, 21.11.2026).
+        # Полный кадр читается только когда детектор не нашёл щитов вовсе.
         if (
-            not full_frame_read
-            and per_crop_results
+            per_crop_results
             and all(
                 not str((fields or {}).get("description") or "").strip()
                 for fields, _raw, _time_sec in per_crop_results
             )
         ):
-            try:
-                full_frame_result = analyze_image(
-                    full_frame_image, config=full_frame_config
+            retried: list[tuple[dict, dict, float]] = []
+
+            for crop_index, crop_path in enumerate(crop_paths):
+                region = (
+                    per_crop_regions[crop_index]
+                    if crop_index < len(per_crop_regions)
+                    else None
                 )
-            except Exception as exc:  # noqa: BLE001 - пустое описание лучше ошибки
-                crop_errors.append(redact_absolute_paths(str(exc)))
-            else:
-                full_frame_fallback = True
-                per_crop_results = [full_frame_result]
+
+                try:
+                    result = analyze_image(crop_path, config=config)
+                except Exception as exc:  # noqa: BLE001 - повтор не обязателен
+                    crop_errors.append(redact_absolute_paths(str(exc)))
+                    continue
+
+                retried.append(result)
+
+                if region is not None:
+                    from app.billboard import database as billboard_db
+
+                    billboard_db.save_qwen_success(
+                        region["region_id"],
+                        fields=result[0],
+                        model=model,
+                        time_sec=result[2],
+                    )
+
+            if retried:
+                per_crop_results = retried
 
         if not per_crop_results:
             error = "; ".join(crop_errors) or "all billboard crops failed"
@@ -1243,7 +1352,15 @@ def run_photo(
         alias_rows=alias_rows,
         frequencies=(crop_aggregation or {}).get("frequencies"),
         global_frequency=bool((crop_aggregation or {}).get("global_frequency", True)),
+        # «Низкий приоритет при выдаче»: такие названия уходят в теги.
+        low_priority=low_priority_names(),
     )
+
+    # Запрещённые слова вырезаются из готовых полей карточки: мат и обрывки
+    # распознавания не должны попадать в клиента/бренд/теги/описание.
+    from app.qwen.sanitize import sanitize_fields
+
+    fields = sanitize_fields(fields, forbidden_words())
 
     db.save_success(
         photo_id,
@@ -1268,6 +1385,5 @@ def run_photo(
         "time_sec": round(elapsed, 2),
         "billboards": len(crop_paths),
         **({"crop_errors": crop_errors} if crop_errors else {}),
-        **({"full_frame_fallback": True} if full_frame_fallback else {}),
         **fields,
     }

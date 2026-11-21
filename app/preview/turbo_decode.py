@@ -81,3 +81,27 @@ def turbo_decode(path: str | Path) -> np.ndarray | None:
         return np.require(array, dtype=np.uint8, requirements="C")
     except Exception:  # noqa: BLE001 — CPU fallback
         return None
+
+
+def decode_rgb(path: str | Path) -> "Image.Image | None":
+    """
+    Tolerant RGB decode of a JPEG/MPO source, or None when TurboJPEG is absent.
+
+    libjpeg-turbo decodes truncated files that Pillow and OpenCV reject (it
+    fills the missing scanlines with grey), so derived artifacts — previews and
+    billboard crops — are still produced from a partially copied original.
+    Callers must keep a Pillow fallback for the None case.
+    """
+
+    from PIL import Image
+
+    array = turbo_decode(path)
+
+    if array is None:
+        return None
+
+    # Image.frombuffer shares the buffer — keep the array alive as long as the
+    # PIL image exists.
+    image = Image.frombuffer("RGB", (array.shape[1], array.shape[0]), array)
+    image._source_array = array  # noqa: SLF001 — keepalive reference
+    return image

@@ -157,6 +157,13 @@ function sideFingerprints(row) {
   return [...new Set((row.surfaces || []).flatMap((item) => item.fingerprints || []))]
 }
 
+/** Архивные слепки стороны: показываются серым, в выборе не участвуют. */
+function sideInactiveFingerprints(row) {
+  return [
+    ...new Set((row.surfaces || []).flatMap((item) => item.inactive_fingerprints || [])),
+  ]
+}
+
 const columns = [
   { name: 'num', label: '№', field: 'row_number', align: 'left' },
   { name: 'base', label: 'Адрес', field: 'base', align: 'left' },
@@ -454,7 +461,23 @@ async function saveMap() {
             >
               {{ id }}
             </q-chip>
-            <span v-if="!sideFingerprints(props.row).length" class="text-caption text-grey">
+            <!-- Архивный слепок остаётся видимым, но серым: у адреса был
+                 идентификатор, и его не нужно искать в другом месте. -->
+            <q-chip
+              v-for="id in sideInactiveFingerprints(props.row)"
+              :key="`off:${id}`"
+              dense
+              size="sm"
+              color="grey-4"
+              text-color="grey-8"
+            >
+              {{ id }}
+              <q-tooltip>Слепок в архиве — в выборе идентификаторов не участвует</q-tooltip>
+            </q-chip>
+            <span
+              v-if="!sideFingerprints(props.row).length && !sideInactiveFingerprints(props.row).length"
+              class="text-caption text-grey"
+            >
               не сопоставлено
             </span>
           </q-td>

@@ -49,6 +49,7 @@ function installFetch() {
             legal_address: row.legal_address,
             side: index === 0 ? 'A' : 'B',
             fingerprints: row.fingerprints || [],
+            inactive_fingerprints: row.inactive_fingerprints || [],
           },
         ],
       }))
@@ -131,6 +132,23 @@ async function chooseFile(wrapper, name = 'возможности.xlsx') {
 }
 
 describe('AddressDirectory.vue', () => {
+  it('архивные слепки в колонке «Идентификаторы» серые', async () => {
+    directory[0].inactive_fingerprints = ['old_v33']
+
+    const wrapper = mountDirectory()
+    await flushPromises()
+
+    const chip = wrapper
+      .findAll('.q-chip')
+      .find((item) => item.text().includes('old_v33'))
+
+    expect(chip).toBeTruthy()
+    // Серый фон и серый текст: активные чипы — синие (bg-primary).
+    expect(chip.classes()).toContain('bg-grey-4')
+    expect(chip.classes()).toContain('text-grey-8')
+    expect(wrapper.text()).not.toContain('не сопоставлено')
+  })
+
   it('нумерует строки и показывает сторону в адресе', async () => {
     // Отдельной колонки «Сторона» больше нет: сторона — часть строки адреса,
     // а первая колонка — порядковый номер (задание, 28.10.2026).

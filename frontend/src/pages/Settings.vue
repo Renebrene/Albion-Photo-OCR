@@ -6,12 +6,18 @@ import { usePoller } from '../composables/usePoller'
 
 import {
   clearQwenJobs,
+  clearStuckQwenJobs,
   enqueueQwen,
+  fetchQwenAddresses,
   fetchQwenHistoryLog,
   fetchQwenModels,
   fetchQwenSettings,
   fetchQwenStats,
+  pauseQwenJobs,
+  previewQwenSelection,
   rescanQwenPeriod,
+  resetQwenResults,
+  resumeQwenJobs,
   scanQwenPeriod,
   stopQwenJobs,
   unloadQwen,
@@ -20,6 +26,7 @@ import {
 import { useSessionStore } from '../stores/session'
 import { useAsyncAction } from '../composables/useAsyncAction'
 import { confirmDialog } from '../composables/confirmDialog'
+import { PERIODS, periodRange } from '../utils/periodRange'
 
 const session = useSessionStore()
 const canConfigure = computed(
@@ -33,8 +40,6 @@ const error = ref(null)
 // Кнопки с асинхронным действием: защита от двойного клика и индикатор.
 // Разбираем на верхнеуровневые ref'ы: вложенные в объект не разворачиваются
 // в шаблоне, и `:loading` получил бы объект вместо boolean.
-const { busy: runAllBusy, run: runAllRun } = useAsyncAction()
-const { busy: runMissingBusy, run: runMissingRun } = useAsyncAction()
 const { busy: retryBusy, run: retryRun } = useAsyncAction()
 const { busy: stopQueueBusy, run: stopQueueRun } = useAsyncAction()
 const { busy: clearQueueBusy, run: clearQueueRun } = useAsyncAction()
@@ -76,14 +81,128 @@ const stats = ref(null)
 const historyLog = ref({ items: [], text: '' })
 const historyLoading = ref(false)
 const historyError = ref('')
-const rescanOpen = ref(false)
-const rescanMode = ref('destructive')
-const rescanBusy = ref(false)
-const rescanDateMode = ref('upload')
-const rescanFrom = ref('')
-const rescanTo = ref('')
-const rescanError = ref('')
-const isDestructiveRescan = computed(() => rescanMode.value === 'destructive')
+
+// ---- Панель запуска описания ----------------------------------------------
+// Один блок вместо россыпи кнопок: режим, период и адреса выбираются до
+// запуска, пауза/продолжение — по очереди, сбросы — отдельными опасными
+// действиями (владелец, 21.11.2026).
+const runMode = ref('skip') // 'skip' — дополнить, 'overwrite' — перезаписать
+const runPeriod = ref('all')
+const runFrom = ref('')
+const runTo = ref('')
+const runDateMode = ref('capture')
+const runNotice = ref('')
+
+const dateModeOptions = [
+  { label: 'Дата съёмки', value: 'capture' },
+  { label: 'Дата загрузки', value: 'upload' },
+]
+
+const addressChoices = ref([])
+const addressOptions = ref([])
+const selectedAddresses = ref([])
+const addressesLoading = ref(false)
+
+const selection = ref(null)
+const selectionBusy = ref(false)
+let selectionTimer = null
+
+const { busy: runStartBusy, run: runStartRun } = useAsyncAction()
+const { busy: pauseBusy, run: pauseRun } = useAsyncAction()
+const { busy: resumeBusy, run: resumeRun } = useAsyncAction()
+const { busy: stuckBusy, run: stuckRun } = useAsyncAction()
+const { busy: resetBusy, run: resetRun } = useAsyncAction()
+
+const runDates = computed(() => {
+  const [from, to] = periodRange(runPeriod.value, {
+    customFrom: runFrom.value || null,
+    customTo: runTo.value || null,
+  })
+
+  // «Период…» без границ — незаполненная форма, а не «всё время»: иначе
+  // запуск молча пошёл бы по всему корпусу.
+  if (runPeriod.value === 'custom') return [from, to]
+
+  // Остальные варианты всегда дают границы; «Все даты» уходит широким
+  // интервалом, потому что сервер ждёт даты.
+  return [from || '2000-01-01', to || new Date().toISOString().slice(0, 10)]
+})
+
+const runDatesValid = computed(
+  () => runDates.value[0] && runDates.value[1] && runDates.value[1] >= runDates.value[0],
+)
+
+const selectedAddressIds = computed(() =>
+  selectedAddresses.value.map((item) => Number(item.address_id ?? item)),
+)
+
+const runPayload = computed(() => ({
+  date_from: runDates.value[0],
+  date_to: runDates.value[1],
+  date_mode: runDateMode.value,
+  address_ids: selectedAddressIds.value.length
+    ? selectedAddressIds.value
+    : null,
+}))
+
+const timeline = computed(() => stats.value?.timeline || null)
+const runPaused = computed(() => Boolean(timeline.value?.paused))
+const runStuck = computed(() => Number(timeline.value?.stuck || 0))
+
+// Оценка остатка: среднее по последним описаниям × очередь. Округляем до
+// минут — это всё равно «≈».
+const etaLabel = computed(() => {
+  const seconds = Number(timeline.value?.eta_seconds || 0)
+
+  if (!seconds) return ''
+
+  const minutes = Math.max(1, Math.round(seconds / 60))
+
+  if (minutes < 60) return `${minutes} мин`
+
+  return `${Math.floor(minutes / 60)} ч ${minutes % 60} мин`
+})
+
+// Одна кнопка на все состояния: пусто — «Запустить», очередь идёт — «Пауза»,
+// на паузе — «Продолжить». «Остановить» стоит рядом отдельно.
+const runAction = computed(() => {
+  if (runPaused.value) {
+    return {
+      label: 'Продолжить',
+      icon: 'play_circle',
+      color: 'positive',
+      loading: resumeBusy.value,
+      action: resumeDescription,
+      hint: 'Вернуть приостановленные задания в очередь',
+    }
+  }
+
+  if (qwenQueue.value) {
+    return {
+      label: 'Пауза',
+      icon: 'pause',
+      color: 'orange',
+      loading: pauseBusy.value,
+      action: pauseDescription,
+      hint: 'Текущее фото дочитывается, следующие в работу не берутся',
+    }
+  }
+
+  return {
+    label: 'Запустить описание',
+    icon: 'play_arrow',
+    color: 'primary',
+    loading: runStartBusy.value,
+    action: startQwenRun,
+    hint:
+      'Перезапись сохраняет прежние результаты в историю; дополнение ставит ' +
+      'только фото без успешного описания',
+  }
+})
+
+const runActionDisabled = computed(() =>
+  runPaused.value || qwenQueue.value ? false : !runDatesValid.value,
+)
 
 
 function sizeLabel(size) {
@@ -244,56 +363,220 @@ async function loadHistoryLog() {
   }
 }
 
-function canRescan() {
-  // Мешает только работающая модель; ждущие задания — не повод (29.10.2026).
-  return !qwenRunning.value
-    && Boolean(rescanFrom.value)
-    && Boolean(rescanTo.value)
-    && rescanTo.value >= rescanFrom.value
-}
+async function loadAddressChoices() {
+  addressesLoading.value = true
 
-function openRescan(mode = 'destructive') {
-  rescanMode.value = mode
-  rescanFrom.value = ''
-  rescanTo.value = ''
-  rescanError.value = ''
-  rescanOpen.value = true
-}
-
-function openScan() {
-  openRescan('scan')
-}
-
-async function runRescan() {
-  if (!canRescan() || rescanBusy.value) return
-  rescanBusy.value = true
-  rescanError.value = ''
   try {
-    const payload = {
-      date_from: rescanFrom.value,
-      date_to: rescanTo.value,
-      date_mode: rescanDateMode.value,
-    }
-    const result = isDestructiveRescan.value
-      ? await rescanQwenPeriod(payload)
-      : await scanQwenPeriod(payload)
-
-    rescanOpen.value = false
-    Notify.create({
-      type: 'positive',
-      message: isDestructiveRescan.value
-        ? `В историю сохранено: ${result.archived}; новых заданий: ${result.jobs}`
-        : result.photos
-          ? `Фото без описания: ${result.photos}; поставлено заданий: ${result.jobs}`
-          : 'За выбранный период нет фото без описания',
-    })
-    await loadStats()
-    await loadHistoryLog()
-  } catch (err) {
-    rescanError.value = err.message || 'Запуск не выполнен'
+    const data = await fetchQwenAddresses()
+    addressChoices.value = data.items || []
+    addressOptions.value = addressChoices.value.map((item) => ({
+      label: `${item.name} · ${item.photos}`,
+      value: item.address_id,
+      name: item.name,
+      photos: item.photos,
+    }))
+  } catch {
+    // Список адресов — подсказка: без него запуск работает по всем адресам.
+    addressChoices.value = []
+    addressOptions.value = []
   } finally {
-    rescanBusy.value = false
+    addressesLoading.value = false
   }
+}
+
+function scheduleSelectionRefresh() {
+  if (selectionTimer) clearTimeout(selectionTimer)
+
+  selectionTimer = setTimeout(() => {
+    selectionTimer = null
+    refreshSelection()
+  }, 250)
+}
+
+async function refreshSelection() {
+  if (!runDatesValid.value) {
+    selection.value = null
+    return
+  }
+
+  selectionBusy.value = true
+
+  try {
+    selection.value = await previewQwenSelection(runPayload.value)
+  } catch {
+    selection.value = null
+  } finally {
+    selectionBusy.value = false
+  }
+}
+
+const selectionText = computed(() => {
+  const data = selection.value
+
+  if (!data) return ''
+
+  const parts = [`фото: ${data.photos}`, `с описанием: ${data.described}`]
+
+  if (runMode.value === 'skip') parts.push(`будет дополнено: ${data.missing}`)
+  else parts.push(`будет перезаписано: ${data.photos}`)
+
+  if (data.addresses) parts.push(`адресов: ${data.addresses}`)
+
+  return parts.join(' · ')
+})
+
+// Что именно выбрано — до запуска: даты и адреса (имена из справочника).
+const selectionScope = computed(() => {
+  const [from, to] = runDates.value
+  const dates = from && to ? `период ${from} — ${to}` : 'период не задан'
+  const names = selectedAddresses.value
+    .map((item) => item?.name || addressChoices.value.find(
+      (entry) => entry.address_id === Number(item),
+    )?.name)
+    .filter(Boolean)
+
+  const addresses = names.length
+    ? `адреса: ${names.join(', ')}`
+    : 'все адреса'
+
+  return `${dates} · ${addresses}`
+})
+
+/** Запуск описания: режим выбирает неразрушающий догон или перезапись. */
+async function startQwenRun() {
+  await runStartRun(async () => {
+    if (!runDatesValid.value) {
+      Notify.create({ type: 'warning', message: 'Проверьте границы периода' })
+      return
+    }
+
+    runNotice.value = ''
+
+    try {
+      const payload = { ...runPayload.value }
+
+      const result =
+        runMode.value === 'overwrite'
+          ? await rescanQwenPeriod(payload)
+          : await scanQwenPeriod({ ...payload, limit: 5000 })
+
+      Notify.create({
+        type: 'positive',
+        message:
+          runMode.value === 'overwrite'
+            ? `В историю сохранено: ${result.archived}; новых заданий: ${result.jobs}`
+            : result.photos
+              ? `Фото без описания: ${result.photos}; поставлено заданий: ${result.jobs}`
+              : 'За выбранный период и адреса нет фото без описания',
+      })
+
+      await loadStats()
+      await loadHistoryLog()
+      scheduleSelectionRefresh()
+    } catch (err) {
+      runNotice.value = err.message || 'Запуск не выполнен'
+    }
+  })
+}
+
+/** Пауза: текущее фото доигрывает, следующие не берутся. */
+async function pauseDescription() {
+  await pauseRun(async () => {
+    try {
+      const result = await pauseQwenJobs()
+      Notify.create({
+        type: result.paused ? 'info' : 'warning',
+        message: result.paused
+          ? `На паузу поставлено заданий: ${result.paused}. Текущее фото дочитывается.`
+          : 'Ждущих заданий нет — пауза не нужна',
+      })
+      await loadStats()
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
+  })
+}
+
+async function resumeDescription() {
+  await resumeRun(async () => {
+    try {
+      const result = await resumeQwenJobs()
+      Notify.create({
+        type: result.resumed ? 'positive' : 'info',
+        message: result.resumed
+          ? `Возвращено в очередь: ${result.resumed}`
+          : 'Приостановленных заданий нет',
+      })
+      await loadStats()
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
+  })
+}
+
+/** Зависшие задания: RUNNING дольше получаса (обычно после убитого воркера). */
+async function clearStuck() {
+  if (!runStuck.value) return
+
+  const ok = await confirmDialog({
+    title: 'Снять зависшие задания?',
+    message:
+      `Заданий в RUNNING дольше 30 минут: ${runStuck.value}. ` +
+      'Они перейдут в CANCELLED; сделанные описания не затрагиваются.',
+    okLabel: 'Снять',
+    color: 'warning',
+  })
+
+  if (!ok) return
+
+  await stuckRun(async () => {
+    try {
+      const result = await clearStuckQwenJobs(30)
+      Notify.create({
+        type: result.cancelled ? 'positive' : 'info',
+        message: result.cancelled
+          ? `Снято зависших заданий: ${result.cancelled}`
+          : 'Зависших заданий не найдено',
+      })
+      await loadStats()
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
+  })
+}
+
+/** Жёсткий сброс: описания, история и архивы. Фото и распознавание целы. */
+async function hardReset() {
+  if (!canConfigure.value) return
+
+  const ok = await confirmDialog({
+    title: 'Жёсткий сброс описаний',
+    message:
+      'Будут удалены ВСЕ описания QWEN, история и архивы, разбор кропов ' +
+      'и задания описаний. Фото, превью, кропы и распознавание остаются. ' +
+      'Отменить это нельзя — перед удалением пишется отчёт.',
+    okLabel: 'Удалить всё',
+  })
+
+  if (!ok) return
+
+  await resetRun(async () => {
+    try {
+      const result = await resetQwenResults()
+      Notify.create({
+        type: 'positive',
+        message:
+          `Сброшено: карточки ${result.deleted.photo_qwen ?? 0}, ` +
+          `история ${result.deleted.photo_qwen_history ?? 0}. ` +
+          'Фото и распознавание не тронуты.',
+      })
+      await loadStats()
+      await loadHistoryLog()
+      scheduleSelectionRefresh()
+    } catch (err) {
+      Notify.create({ type: 'negative', message: err.message })
+    }
+  })
 }
 
 // Показ триггера запуска: он записан в payload задания.
@@ -388,33 +671,6 @@ async function retryFailed() {
         type: 'positive',
         message: `В очередь: ${result.jobs} фото`,
       })
-      await loadStats()
-    } catch (err) {
-      Notify.create({ type: 'negative', message: err.message })
-    }
-  })
-}
-async function runAll() {
-  await runAllRun(async () => {
-    try {
-      const result = await enqueueQwen(null, false)
-      Notify.create({ type: 'positive', message: `QWEN заданий: ${result.jobs}` })
-      await loadStats()
-    } catch (err) {
-      Notify.create({ type: 'negative', message: err.message })
-    }
-  })
-}
-
-/**
- * «Дописать отсутствующие»: в очередь ставятся только фото без описания,
- * уже описанные не трогаются (владелец, 19.11.2026).
- */
-async function runMissing() {
-  await runMissingRun(async () => {
-    try {
-      const result = await enqueueQwen(null, false, { only_missing: true })
-      Notify.create({ type: 'positive', message: `QWEN заданий: ${result.jobs}` })
       await loadStats()
     } catch (err) {
       Notify.create({ type: 'negative', message: err.message })
@@ -553,9 +809,22 @@ onMounted(async () => {
   await loadModels()
   loadStats()
   loadHistoryLog()
+  loadAddressChoices()
+  refreshSelection()
 })
 
-onBeforeUnmount(stopStatsPolling)
+// Период, режим и адреса влияют на счётчик «сколько фото попадёт».
+watch(
+  [runMode, runPeriod, runFrom, runTo, runDateMode, selectedAddresses],
+  scheduleSelectionRefresh,
+  { deep: true },
+)
+
+onBeforeUnmount(() => {
+  stopStatsPolling()
+
+  if (selectionTimer) clearTimeout(selectionTimer)
+})
 </script>
 
 <template>
@@ -837,51 +1106,155 @@ onBeforeUnmount(stopStatsPolling)
           </div>
         </div>
 
-        <div class="row q-gutter-sm">
-          <q-btn
-            color="primary"
-            icon="playlist_add_check"
-            label="Дописать отсутствующие"
-            :loading="runMissingBusy"
-            @click="runMissing"
-          >
-            <q-tooltip>
-              Поставить только фото без описания. Уже описанные не
-              затрагиваются — их результаты сохраняются как есть.
-            </q-tooltip>
-          </q-btn>
-          <q-btn
-            flat
-            color="secondary"
-            icon="auto_awesome"
-            label="Запустить QWEN (все фото)"
-            :loading="runAllBusy"
-            @click="runAll"
-          >
-            <q-tooltip>
-              Полный прогон: ставит ВСЕ фото, включая уже описанные —
-              их описания будут перезаписаны новым результатом
-              (прежние сохраняются в истории).
-            </q-tooltip>
-          </q-btn>
-          <q-btn
-            flat
-            color="teal"
-            icon="replay"
-            :label="`Повторить для упавших (${stats.failed_photo_ids.length})`"
-            :disable="!stats.failed_photo_ids.length"
-            :loading="retryBusy"
-            @click="retryFailed"
+        <!-- Панель запуска описания: режим, период и адреса выбираются до
+             запуска; пауза действует со следующего фото (владелец, 21.11.2026). -->
+        <q-separator class="q-my-sm" />
+        <div class="text-subtitle2 q-mb-sm">Запуск описания</div>
+
+        <!-- Поля — в столбик и во всю ширину блока: длинные названия адресов
+             не обрезаются, выбирать проще. -->
+        <div class="column q-gutter-sm" style="max-width: 640px">
+          <q-select
+            v-model="runMode"
+            :options="[
+              { label: 'Дополнять — только фото без описания', value: 'skip' },
+              { label: 'Перезаписывать — старое уйдёт в историю', value: 'overwrite' },
+            ]"
+            emit-value
+            map-options
+            dense
+            outlined
+            label="Режим"
+            :disable="runStartBusy"
           />
+
+          <q-select
+            v-model="runDateMode"
+            :options="dateModeOptions"
+            emit-value
+            map-options
+            dense
+            outlined
+            label="Дата"
+            :disable="runStartBusy"
+          />
+
+          <q-select
+            v-model="runPeriod"
+            :options="PERIODS"
+            emit-value
+            map-options
+            dense
+            outlined
+            label="Период"
+            :disable="runStartBusy"
+          />
+
+          <template v-if="runPeriod === 'custom'">
+            <q-input
+              v-model="runFrom"
+              type="date"
+              dense
+              outlined
+              label="С даты"
+              :disable="runStartBusy"
+            />
+            <q-input
+              v-model="runTo"
+              type="date"
+              dense
+              outlined
+              label="По дату"
+              :disable="runStartBusy"
+            />
+          </template>
+
+          <q-select
+            v-model="selectedAddresses"
+            :options="addressOptions"
+            multiple
+            use-chips
+            emit-value
+            map-options
+            dense
+            outlined
+            input-debounce="200"
+            :loading="addressesLoading"
+            label="Адреса (пусто — все)"
+            :disable="runStartBusy"
+          >
+            <q-tooltip>
+              Адреса после HYBRID: список и число фото в нём. Пусто — запуск
+              по всем адресам выбранного периода.
+            </q-tooltip>
+          </q-select>
+        </div>
+
+        <div class="text-caption text-grey-8 q-mt-xs">{{ selectionScope }}</div>
+        <div class="text-caption text-grey-7 q-mt-xs">
+          <template v-if="runNotice">{{ runNotice }}</template>
+          <template v-else-if="selection">{{ selectionText }}</template>
+          <template v-else-if="selectionBusy">Считаю, сколько фото попадёт…</template>
+          <template v-else>Выберите период и адреса — покажу, сколько фото попадёт.</template>
+        </div>
+
+        <div class="row q-gutter-sm q-mt-sm items-center">
+          <!-- Одна кнопка на запуск/паузу/продолжение; «Остановить» рядом. -->
+          <q-btn
+            :color="runAction.color"
+            :icon="runAction.icon"
+            :label="runAction.label"
+            :loading="runAction.loading"
+            :disable="runActionDisabled"
+            @click="runAction.action"
+          >
+            <q-tooltip>{{ runAction.hint }}</q-tooltip>
+          </q-btn>
           <q-btn
             flat
             color="orange"
             icon="stop"
-            label="Остановить описание"
+            label="Остановить"
             :disable="!qwenQueue"
             :loading="stopQueueBusy"
             @click="stopQueue"
           />
+          <q-btn
+            v-if="stats.failed_photo_ids.length"
+            flat
+            color="teal"
+            icon="replay"
+            :label="`Повторить упавшие (${stats.failed_photo_ids.length})`"
+            :loading="retryBusy"
+            @click="retryFailed"
+          />
+        </div>
+
+        <div v-if="timeline" class="text-caption text-grey-8 q-mt-xs">
+          <span v-if="timeline.started_at">старт {{ fmtDate(timeline.started_at) }}</span>
+          <span v-if="timeline.paused"> · пауза {{ fmtDate(timeline.paused_at) }}</span>
+          <span v-if="timeline.pending || timeline.running">
+            · в очереди {{ timeline.pending + timeline.running }}
+          </span>
+          <span v-if="timeline.eta_seconds"> · осталось ≈ {{ etaLabel }}</span>
+          <span v-else-if="!timeline.pending && !timeline.running"> · очередь пуста</span>
+        </div>
+
+        <div class="row q-gutter-sm q-mt-sm items-center">
+          <q-btn
+            v-if="runStuck"
+            flat
+            color="warning"
+            icon="build"
+            :label="`Снять зависшие (${runStuck})`"
+            :loading="stuckBusy"
+            @click="clearStuck"
+          >
+            <q-tooltip>
+              Задания в RUNNING дольше 30 минут — обычно после убитого воркера.
+              Переводим в CANCELLED, описания не трогаем.
+            </q-tooltip>
+          </q-btn>
           <q-btn
             flat
             color="grey-8"
@@ -890,33 +1263,20 @@ onBeforeUnmount(stopStatsPolling)
             :loading="clearQueueBusy"
             @click="clearQueue"
           />
-        </div>
-
-        <!-- Периодические операции: пересканирование и дозаполнение за
-             выбранный период (перенесено из удалённой карточки статистики). -->
-        <q-separator class="q-my-sm" />
-        <div class="row q-gutter-sm">
           <q-btn
-            outline
+            v-if="canConfigure"
+            flat
             color="negative"
-            icon="restart_alt"
-            label="Пересканировать"
-            :disable="qwenQueue > 0"
-            @click="openRescan()"
-          />
-          <q-btn
-            outline
-            color="primary"
-            icon="playlist_add"
-            label="Дозаполнить за период"
-            @click="openScan"
-          />
-        </div>
-        <div class="text-caption text-grey-7 q-mt-xs">
-          «Пересканировать» удалит текущие QWEN-результаты за выбранный
-          период (сохранив их в историю) и запустит описание заново;
-          «Дозаполнить за период» поставит только фото без успешного
-          описания — существующие результаты не меняются.
+            icon="delete_forever"
+            label="Жёсткий сброс описаний"
+            :loading="resetBusy"
+            @click="hardReset"
+          >
+            <q-tooltip>
+              Удаляет все описания, историю, архивы и разбор кропов. Фото и
+              распознавание остаются.
+            </q-tooltip>
+          </q-btn>
         </div>
       </q-card-section>
     </q-card>
@@ -1017,66 +1377,6 @@ onBeforeUnmount(stopStatsPolling)
       </div>
     </div>
 
-    <q-dialog v-model="rescanOpen">
-      <q-card style="width: 520px; max-width: calc(100vw - 32px)">
-        <q-card-section class="text-subtitle1">
-          {{ isDestructiveRescan ? 'Пересканировать QWEN за период' : 'Дозаполнить QWEN за период' }}
-        </q-card-section>
-        <q-card-section class="q-gutter-sm">
-          <q-banner
-            v-if="isDestructiveRescan"
-            class="bg-red-1 text-negative text-caption"
-            rounded
-          >
-            ДЕСТРУКТИВНО: текущие результаты QWEN за выбранный период будут удалены.
-            Сначала они сохраняются в историю, затем для выбранных фото запускается
-            новое описание с текущей моделью <b>{{ current || '—' }}</b>.
-          </q-banner>
-          <q-banner v-else class="bg-blue-1 text-caption" rounded>
-            В очередь попадут только фото без успешного описания за выбранный
-            период. Существующие результаты не удаляются и не перезаписываются;
-            модель — <b>{{ current || '—' }}</b>.
-          </q-banner>
-          <q-select
-            v-model="rescanDateMode"
-            :options="[{ label: 'Дата загрузки', value: 'upload' }, { label: 'Дата съёмки', value: 'capture' }]"
-            emit-value
-            map-options
-            dense
-            outlined
-            label="Фильтр периода"
-          />
-          <div class="row q-col-gutter-sm">
-            <div class="col-6">
-              <q-input v-model="rescanFrom" type="date" dense outlined label="С даты" />
-            </div>
-            <div class="col-6">
-              <q-input v-model="rescanTo" type="date" dense outlined label="По дату" />
-            </div>
-          </div>
-          <div v-if="qwenRunning" class="text-negative text-caption">
-            Модель сейчас занята ({{ qwenRunning }} в работе) — дождитесь или
-            нажмите «Остановить описание».
-          </div>
-          <div v-else-if="qwenPending" class="text-caption text-grey-7">
-            В очереди уже ждут {{ qwenPending }} заданий описания: они
-            обработаются, когда запустится воркер, а в очередь попадут только
-            фото из выбранного периода. Снять их — кнопка «Остановить описание».
-          </div>
-          <div v-if="rescanError" class="text-negative text-caption">{{ rescanError }}</div>
-        </q-card-section>
-        <q-card-actions align="right">
-          <q-btn flat label="Отмена" v-close-popup :disable="rescanBusy" />
-          <q-btn
-            :color="isDestructiveRescan ? 'negative' : 'primary'"
-            :label="isDestructiveRescan ? 'Пересканировать' : 'Поставить в очередь'"
-            :disable="!canRescan() || rescanBusy"
-            :loading="rescanBusy"
-            @click="runRescan"
-          />
-        </q-card-actions>
-      </q-card>
-    </q-dialog>
   </div>
 </template>
 

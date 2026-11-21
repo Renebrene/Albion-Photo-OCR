@@ -282,6 +282,62 @@ def test_save_manual_qwen_text(monkeypatch):
     assert calls[0][1]["tags"] == ["тег", "ещё"]
 
 
+def test_manual_qwen_text_rejects_forbidden_words(monkeypatch):
+    """Ручная правка не сохраняет мат: 422 с названием поля и слова."""
+
+    photo = SimpleNamespace(model_dump=lambda: {"photo_id": PHOTO_ID})
+    calls = []
+    monkeypatch.setattr(routes.repository, "get_photo", lambda _pid: photo)
+    monkeypatch.setattr(
+        routes.qwen_db, "save_manual",
+        lambda pid, fields: calls.append((pid, fields)),
+    )
+
+    from app.qwen import processor as qwen_processor
+
+    monkeypatch.setattr(qwen_processor, "forbidden_words", lambda: ["мат"])
+
+    response = client.put(
+        f"/api/v1/photos/{PHOTO_ID}/qwen-text",
+        json={
+            "description": "Реклама щита",
+            "client": "ООО «Ромашка»",
+            "brand": "МАТ",
+            "category": "Реклама",
+            "tags": ["акция"],
+        },
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert "мат" in detail.lower()
+    assert "бренд" in detail.lower()
+    assert calls == []
+
+
+def test_manual_qwen_text_allows_clean_fields(monkeypatch):
+    photo = SimpleNamespace(model_dump=lambda: {"photo_id": PHOTO_ID})
+    calls = []
+    monkeypatch.setattr(routes.repository, "get_photo", lambda _pid: photo)
+    monkeypatch.setattr(
+        routes.qwen_db, "save_manual",
+        lambda pid, fields: calls.append((pid, fields)),
+    )
+    monkeypatch.setattr(routes.qwen_db, "get", lambda _pid: {"status": "DONE"})
+
+    from app.qwen import processor as qwen_processor
+
+    monkeypatch.setattr(qwen_processor, "forbidden_words", lambda: ["мат"])
+
+    response = client.put(
+        f"/api/v1/photos/{PHOTO_ID}/qwen-text",
+        json={"description": "Реклама щита", "tags": ["акция"]},
+    )
+
+    assert response.status_code == 200
+    assert len(calls) == 1
+
+
 def test_save_manual_qwen_text_requires_photo(monkeypatch):
     monkeypatch.setattr(routes.repository, "get_photo", lambda _pid: None)
 
