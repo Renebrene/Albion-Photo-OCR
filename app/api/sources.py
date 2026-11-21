@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import time
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -76,11 +76,46 @@ def resolve_directory(raw: str) -> Path:
     return resolved
 
 
+def last_ingest_finished_at(directory: str | Path) -> datetime | None:
+    """
+    Когда последняя инспекция этой папки завершилась успешно.
+
+    Берётся из журнала заданий (`INGEST_DIR`, статус DONE): папка в payload
+    записана в разрешённом виде, том же, что отдаёт resolve_directory().
+    None — инспекции ещё не было, и «новых файлов» посчитать не от чего.
+    """
+
+    from app.ingest.database import get_connection
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT max(finished_at)
+                FROM public.job_queue
+                WHERE job_type = 'INGEST_DIR'
+                  AND status = 'DONE'
+                  AND (
+                    payload ->> 'directory' = %s
+                    -- Инспекция корня покрывает и подпапку: её прогон тоже
+                    -- считается прошлой проверкой для выбранного каталога.
+                    OR left(%s, length(payload ->> 'directory') + 1)
+                       = (payload ->> 'directory') || '/'
+                  )
+                """,
+                (str(directory), str(directory)),
+            )
+            row = cur.fetchone()
+
+    return row[0] if row and row[0] is not None else None
+
+
 def folder_stats(
     path: Path,
     *,
     since: date | None = None,
     until: date | None = None,
+    appeared_after: datetime | None = None,
 ) -> dict:
     """
     Count supported photos and videos below *path* without reading contents.
@@ -94,6 +129,11 @@ def folder_stats(
     own date — the same cheap filter the worker uses in "дата загрузки" mode.
     Files outside the window are counted separately in *excluded_by_period*,
     so the counters keep describing the whole folder.
+
+    *appeared_after* — время последней инспекции. Файлы, появившиеся на этом
+    носителе позже (ctime), считаются отдельно: по ним видно, что именно
+    добавится при следующем прогоне. ctime, а не mtime: копирование сохраняет
+    дату съёмки, а «появился в папке» — это время записи на диск.
     """
 
     photos = 0
@@ -101,6 +141,10 @@ def folder_stats(
     photo_bytes = 0
     video_bytes = 0
     excluded = 0
+    new_photos = 0
+    new_videos = 0
+    new_bytes = 0
+    appeared_ts = appeared_after.timestamp() if appeared_after is not None else None
     extensions: dict[str, int] = {}
     problems: list[dict[str, str]] = []
     problem_count = 0
@@ -150,10 +194,21 @@ def folder_stats(
                 break
 
             try:
-                size = entry.stat().st_size
+                info = entry.stat()
             except OSError:
                 note_problem(name, "не удалось прочитать размер файла")
             else:
+                size = info.st_size
+
+                # «Появился после инспекции» — по ctime и независимо от
+                # периода: это ответ на вопрос «что добавит следующий прогон».
+                if appeared_ts is not None and info.st_ctime > appeared_ts:
+                    new_bytes += size
+                    if is_video:
+                        new_videos += 1
+                    else:
+                        new_photos += 1
+
                 if not date_in_period(file_date(entry), since, until):
                     excluded += 1
                 else:
@@ -185,6 +240,11 @@ def folder_stats(
         "excluded_by_period": excluded,
         "in_period": photos + videos - excluded,
         "period_applied": bool(since or until),
+        # Дельта к прошлой инспекции: None — инспекции ещё не было.
+        "last_inspection_at": appeared_after.isoformat() if appeared_after else None,
+        "new_photos": new_photos if appeared_ts is not None else None,
+        "new_videos": new_videos if appeared_ts is not None else None,
+        "new_bytes": new_bytes if appeared_ts is not None else None,
         "problem_count": problem_count,
         "problems": problems,
         "preliminary": True,
@@ -234,7 +294,9 @@ def folder_state() -> dict:
     if not path.is_dir():
         return state
 
-    stats = folder_stats(path)
+    stats = folder_stats(
+        path, appeared_after=last_ingest_finished_at(path)
+    )
 
     state.update(
         files=stats["files"],
@@ -250,6 +312,10 @@ def folder_state() -> dict:
         preliminary=stats["preliminary"],
         truncated=stats["truncated"],
         timed_out=stats["timed_out"],
+        last_inspection_at=stats["last_inspection_at"],
+        new_photos=stats["new_photos"],
+        new_videos=stats["new_videos"],
+        new_bytes=stats["new_bytes"],
         exists=True,
     )
 

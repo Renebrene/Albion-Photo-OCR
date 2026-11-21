@@ -18,6 +18,19 @@ from app.api.main import app
 client = TestClient(app, raise_server_exceptions=False)
 
 
+@pytest.fixture(autouse=True)
+def _no_last_inspection_lookup(monkeypatch):
+    """Скан не ходит в базу в юнит-тестах: прошлую инспекцию подменяем.
+
+    В рабочем режиме её время читается из журнала заданий и используется для
+    дельты «сколько появилось после последней инспекции».
+    """
+
+    from app.api import sources
+
+    monkeypatch.setattr(sources, "last_ingest_finished_at", lambda _path: None)
+
+
 def _db_available() -> bool:
     if not os.getenv("INGEST_DB_PASSWORD"):
         return False
@@ -166,6 +179,61 @@ def test_scan_reports_empty_supported_files_as_problems(tmp_path):
     assert body["videos"] == 1
     assert body["problem_count"] == 1
     assert body["problems"] == [{"filename": "empty.mp4", "reason": "файл пуст"}]
+
+
+def test_scan_counts_files_that_appeared_after_the_last_inspection(tmp_path):
+    """Проверка отвечает, что добавит следующий прогон: файл, скопированный
+    после инспекции, считается новым даже если его дата съёмки старая."""
+
+    import os
+    from datetime import datetime, timedelta, timezone
+
+    from app.api import sources
+
+    fresh = tmp_path / "fresh.mp4"
+    fresh.write_bytes(b"v" * 20)
+    # Копирование сохраняет дату съёмки (mtime), но ctime — время записи на
+    # этот носитель; именно он и означает «появился в папке».
+    os.utime(fresh, (1_700_000_000, 1_700_000_000))
+
+    last = datetime.now(timezone.utc) - timedelta(minutes=5)
+    body = sources.folder_stats(tmp_path, appeared_after=last)
+
+    assert body["last_inspection_at"] == last.isoformat()
+    assert body["new_videos"] == 1
+    assert body["new_photos"] == 0
+    assert body["new_bytes"] == 20
+
+    later = datetime.now(timezone.utc) + timedelta(hours=1)
+    assert sources.folder_stats(tmp_path, appeared_after=later)["new_videos"] == 0
+
+
+def test_scan_without_previous_inspection_reports_unknown_delta(tmp_path):
+    from app.api import sources
+
+    (tmp_path / "a.jpg").write_bytes(b"x")
+
+    body = sources.folder_stats(tmp_path, appeared_after=None)
+
+    assert body["last_inspection_at"] is None
+    assert body["new_photos"] is None
+    assert body["new_videos"] is None
+    assert body["new_bytes"] is None
+
+
+def test_scan_endpoint_uses_the_last_inspection_time(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from app.api import sources
+
+    (tmp_path / "a.jpg").write_bytes(b"x")
+    last = datetime.now(timezone.utc) - timedelta(minutes=1)
+    monkeypatch.setattr(sources, "last_ingest_finished_at", lambda _path: last)
+
+    body = client.post("/api/v1/ingest/scan", json={"path": str(tmp_path)}).json()
+
+    assert body["last_inspection_at"] == last.isoformat()
+    assert body["new_photos"] == 1
 
 
 def test_scan_is_bounded_by_file_count(tmp_path, monkeypatch):

@@ -3421,10 +3421,15 @@ def update_ingest_folder(request: SourcePathRequest):
 def scan_ingest_folder(request: SourcePathRequest):
     """Shallow photo/video count and size check; never decodes or saves."""
 
+    directory = sources.resolve_directory(request.path)
+
+    # Дельта к прошлой инспекции: сколько фото и видео появилось в папке
+    # после неё (по ctime), чтобы до запуска было видно, что добавится.
     return sources.folder_stats(
-        sources.resolve_directory(request.path),
+        directory,
         since=request.date_from,
         until=request.date_to,
+        appeared_after=sources.last_ingest_finished_at(directory),
     )
 
 

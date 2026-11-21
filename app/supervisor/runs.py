@@ -268,6 +268,16 @@ def create_run(
                     WHERE status = 'STOPPED'
                     """
                 )
+                # Граница «новых» фото: всё, что зарегистрировано после
+                # прошлого завершённого прогона. Старый корпус автоматически
+                # не переобрабатывается (владелец, 21.11.2026); для него есть
+                # ручные «Дописать отсутствующие», DINO-батч и дозаполнение.
+                cur.execute(
+                    "SELECT max(finished_at) FROM public.pipeline_runs"
+                    " WHERE status = 'DONE'"
+                )
+                previous_finished = cur.fetchone()[0]
+
                 cur.execute(
                     """
                     INSERT INTO public.pipeline_runs
@@ -286,6 +296,11 @@ def create_run(
                                 **({"skip_qwen": True} if skip_qwen else {}),
                                 **({"skip_refine": True} if skip_refine else {}),
                                 **({"scan_days": int(scan_days)} if scan_days else {}),
+                                **(
+                                    {"photo_since": previous_finished.isoformat(sep=" ")}
+                                    if previous_finished is not None
+                                    else {}
+                                ),
                             }
                         ),
                     ),
@@ -520,7 +535,7 @@ def _enqueue_early_qwen(run: dict, manifest: dict) -> None:
         return
 
     manifest["qwen_early"] = True
-    photo_ids = _photos_without_qwen(manifest.get("photo_cutoff"))
+    photo_ids = _photos_without_qwen(run)
 
     if not photo_ids:
         return
@@ -557,13 +572,11 @@ def _sync_qwen_progress(run: dict) -> None:
     if run.get("stage") == "QWEN":
         return
 
-    cutoff = _cutoff(run)
-
     _set_stage(
         run["run_id"], "QWEN",
-        done_count=_qwen_count(cutoff, "DONE"),
-        failed_count=_qwen_count(cutoff, "FAILED"),
-        total_count=_photos_total(cutoff),
+        done_count=_qwen_count(run, "DONE"),
+        failed_count=_qwen_count(run, "FAILED"),
+        total_count=_photos_total(run),
     )
 
 
@@ -594,10 +607,12 @@ def _stage_ingest(run: dict, stage: dict) -> dict:
             except OSError as exc:
                 return {"outcome": "FAILED", "message": f"не удалось прочитать папку: {exc}"}
 
+        # Период уже применён к снимку: повторная фильтрация по mtime внутри
+        # задания отбросила бы копии с сохранённой датой съёмки, которые снимок
+        # как раз и включил (ctime). Снимок и есть граница прогона.
         job_id = jobs_db.enqueue_ingest(
             folder,
             only_files=manifest.get("files"),
-            date_from=manifest.get("scan_from"),
         )
 
         if job_id is None:
@@ -681,19 +696,18 @@ def _stage_preview(run: dict, stage: dict) -> dict:
     сообщением, сколько фото осталось без превью.
     """
 
-    cutoff = _cutoff(run)
     ref = dict(stage["ref"] or {})
 
     if stage["status"] == "PENDING":
-        total = _photos_total(cutoff)
+        total = _photos_total(run)
         _set_stage(
             run["run_id"], "PREVIEW",
             status="RUNNING", started_at_sql=True, total_count=total,
         )
 
     active = _active_type_count("PHOTO_PREVIEW")
-    done = _preview_ready_count(cutoff)
-    total = _photos_total(cutoff)
+    done = _preview_ready_count(run)
+    total = _photos_total(run)
     missing = max(0, total - done)
     last_done = int(ref.get("last_done") or -1)
     stall = int(ref.get("stall") or 0)
@@ -707,8 +721,13 @@ def _stage_preview(run: dict, stage: dict) -> dict:
     stall = 0 if done > last_done else stall + 1
 
     if active == 0:
-        # Очередь опустела, а превью ещё не хватает: доливаем.
-        enqueue_missing_previews(limit=PREVIEW_ENQUEUE_PAGE)
+        # Очередь опустела, а превью ещё не хватает: доливаем — только по фото
+        # этого прогона, чтобы «Обновление базы» не строило превью старого
+        # корпуса (владелец, 21.11.2026).
+        ids = _photos_without_preview_ids(run, PREVIEW_ENQUEUE_PAGE)
+
+        if ids:
+            enqueue_missing_previews(limit=PREVIEW_ENQUEUE_PAGE, photo_ids=ids)
 
     ref.update({"last_done": done, "stall": stall})
     message = _preview_message(done, total, missing)
@@ -738,12 +757,11 @@ def _preview_message(done: int, total: int, missing: int) -> str | None:
 
 
 def _stage_dino(run: dict, stage: dict) -> dict:
-    cutoff = _cutoff(run)
     ref = stage["ref"] or {}
 
     if stage["status"] == "PENDING":
-        photo_ids = _photos_without_dino(cutoff)
-        skipped = _photos_without_preview(cutoff)
+        photo_ids = _photos_without_dino(run)
+        skipped = _photos_without_preview(run)
 
         if not photo_ids:
             return {
@@ -773,7 +791,7 @@ def _stage_dino(run: dict, stage: dict) -> dict:
 
     batch = dino_db.get_batch(int(batch_id))
     status = batch.status
-    skipped = _photos_without_preview(cutoff)
+    skipped = _photos_without_preview(run)
     counts = _batch_run_counts(int(batch_id))
 
     if status == "FAILED":
@@ -781,7 +799,7 @@ def _stage_dino(run: dict, stage: dict) -> dict:
         # over what is still missing: a transient model/host failure should not
         # end the whole run, and unreadable files already failed individually.
         attempt = int(ref.get("attempt") or 1)
-        retry_ids = _photos_without_dino(cutoff) if attempt < 2 else []
+        retry_ids = _photos_without_dino(run) if attempt < 2 else []
 
         if not retry_ids:
             return {
@@ -887,10 +905,8 @@ def _stage_qwen(run: dict, stage: dict) -> dict:
             ),
         }
 
-    cutoff = _cutoff(run)
-
     if stage["status"] == "PENDING":
-        photo_ids = _photos_without_qwen(cutoff)
+        photo_ids = _photos_without_qwen(run)
 
         for photo_id in photo_ids:
             jobs_db.enqueue_qwen(photo_id, source="pipeline")
@@ -901,9 +917,9 @@ def _stage_qwen(run: dict, stage: dict) -> dict:
         )
 
     active = _active_type_count("QWEN_PHOTO")
-    done = _qwen_count(cutoff, "DONE")
-    failed = _qwen_count(cutoff, "FAILED")
-    total = _photos_total(cutoff)
+    done = _qwen_count(run, "DONE")
+    failed = _qwen_count(run, "FAILED")
+    total = _photos_total(run)
 
     if active:
         return {
@@ -1028,7 +1044,23 @@ def _next_stage(stage: str) -> str | None:
 
 
 def _cutoff(run: dict) -> str | None:
-    return (run["manifest"] or {}).get("photo_cutoff")
+    return (run.get("manifest") or {}).get("photo_cutoff")
+
+
+def _window(run: dict) -> tuple[str | None, str | None]:
+    """
+    Какие фото относятся к прогону: (since, cutoff).
+
+    «Обновление базы» затягивает только новые файлы (владелец, 21.11.2026):
+    стадии берут фото, зарегистрированные после завершения прошлого прогона
+    (`photo_since`) и до конца инспекции этого (`photo_cutoff`). Старый корпус
+    автоматически не переобрабатывается — для него есть ручные «Дописать
+    отсутствующие», DINO-батч и «Дозаполнить за период».
+    """
+
+    manifest = run.get("manifest") or {}
+
+    return manifest.get("photo_since"), manifest.get("photo_cutoff")
 
 
 def _raw_stage(run_id: int, stage: str):
@@ -1178,42 +1210,95 @@ def _db_now() -> str:
 
 def _snapshot_files(folder: str, scan_from: str | None = None) -> list[str]:
     """
-    Снимок файлов прогона.
+    Снимок файлов прогона — только новые файлы.
 
-    *scan_from* (YYYY-MM-DD) — глубина сканирования: файлы старше этой даты по
-    собственному времени изменения в снимок не попадают. Так «Обновление базы»
-    с глубиной «1 неделя» не обходит и не проверяет весь том.
+    *scan_from* (YYYY-MM-DD) — глубина сканирования по **ctime**: копия старого
+    снимка, положенная на носитель сегодня, для прогона новая (mtime при
+    копировании сохраняется и обманул бы глубину).
+
+    Уже зарегистрированные фото (совпадение имени и размера) в снимок не
+    попадают: «Обновление базы» затягивает только новые файлы (владелец,
+    21.11.2026), а не весь корпус повторно. Видео остаются в снимке целиком —
+    их мало, а повторную проверку делает реестр видео.
     """
 
     from datetime import date as date_type
-    from datetime import datetime as datetime_type
 
-    from app.ingest.integrity import discover_files
+    from app.ingest.database import known_source_files
+    from app.ingest.integrity import SUPPORTED_EXTENSIONS, discover_files
     from app.ingest.video_integrity import discover_video_files
     from pathlib import Path
 
     root = Path(folder)
-    names: list[str] = []
     since = date_type.fromisoformat(scan_from) if scan_from else None
+    photos: list[Path] = []
+    videos: list[Path] = []
 
-    for path in list(discover_files(folder, recursive=True)) + list(
-        discover_video_files(folder, recursive=True)
-    ):
-        if since is not None:
+    for path in discover_files(folder, recursive=True):
+        photos.append(Path(path))
+
+    for path in discover_video_files(folder, recursive=True):
+        videos.append(Path(path))
+
+    if since is not None:
+        photos = [path for path in photos if _fresh_enough(path, since)]
+        videos = [path for path in videos if _fresh_enough(path, since)]
+
+    known = known_source_files(_pairs(photos)) if photos else set()
+    names: list[str] = []
+
+    for path in photos + videos:
+        if path.suffix.lower() in SUPPORTED_EXTENSIONS:
             try:
-                changed = datetime_type.fromtimestamp(Path(path).stat().st_mtime).date()
+                size = path.stat().st_size
             except OSError:
-                continue
+                size = None
 
-            if changed < since:
+            if size is not None and (path.name, size) in known:
                 continue
 
         try:
-            names.append(str(Path(path).relative_to(root)))
+            names.append(str(path.relative_to(root)))
         except ValueError:
-            names.append(Path(path).name)
+            names.append(path.name)
 
     return sorted(set(names))
+
+
+def _appeared_on(path: Path) -> Any:
+    """
+    Дата появления файла на носителе (ctime) или None, если файл не читается.
+
+    Именно ctime, а не mtime: копирование сохраняет дату съёмки, поэтому
+    скопированный сегодня архив 2024 года по mtime «старый».
+    """
+
+    from datetime import datetime as datetime_type
+
+    try:
+        return datetime_type.fromtimestamp(path.stat().st_ctime).date()
+    except OSError:
+        return None
+
+
+def _fresh_enough(path: Path, since: Any) -> bool:
+    appeared = _appeared_on(path)
+
+    return appeared is not None and appeared >= since
+
+
+def _pairs(files: list[Any]) -> list[tuple[str, int]]:
+    """(имя, размер) для предварительной проверки «уже в базе»."""
+
+    pairs: list[tuple[str, int]] = []
+
+    for path in files:
+        try:
+            pairs.append((path.name, path.stat().st_size))
+        except OSError:
+            continue
+
+    return pairs
 
 
 def _find_active_job(job_type: str, key: str, value: str) -> int | None:
@@ -1244,14 +1329,24 @@ def _active_type_count(job_type: str) -> int:
             return int(cur.fetchone()[0])
 
 
-def _cutoff_clause(cutoff: str | None) -> tuple[str, list[Any]]:
-    if cutoff is None:
-        return "", []
-    return " AND p.created_at <= %s::timestamp", [cutoff]
+def _cutoff_clause(run: dict) -> tuple[str, list[Any]]:
+    since, cutoff = _window(run)
+    clause = ""
+    params: list[Any] = []
+
+    if since:
+        clause += " AND p.created_at > %s::timestamp"
+        params.append(since)
+
+    if cutoff:
+        clause += " AND p.created_at <= %s::timestamp"
+        params.append(cutoff)
+
+    return clause, params
 
 
-def _photos_total(cutoff: str | None) -> int:
-    clause, params = _cutoff_clause(cutoff)
+def _photos_total(run: dict) -> int:
+    clause, params = _cutoff_clause(run)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1261,8 +1356,8 @@ def _photos_total(cutoff: str | None) -> int:
             return int(cur.fetchone()[0])
 
 
-def _preview_ready_count(cutoff: str | None) -> int:
-    clause, params = _cutoff_clause(cutoff)
+def _preview_ready_count(run: dict) -> int:
+    clause, params = _cutoff_clause(run)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1277,7 +1372,7 @@ def _preview_ready_count(cutoff: str | None) -> int:
             return int(cur.fetchone()[0])
 
 
-def _photos_without_dino(cutoff: str | None) -> list[str]:
+def _photos_without_dino(run: dict) -> list[str]:
     """Фото для DINO: нет готового результата и есть превью-вход.
 
     DINO работает по MIDDLE-превью. Фото без превью — это либо битый файл,
@@ -1286,7 +1381,7 @@ def _photos_without_dino(cutoff: str | None) -> list[str]:
     показывается в сообщении стадии.
     """
 
-    clause, params = _cutoff_clause(cutoff)
+    clause, params = _cutoff_clause(run)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1307,10 +1402,32 @@ def _photos_without_dino(cutoff: str | None) -> list[str]:
             return [row[0] for row in cur.fetchall()]
 
 
-def _photos_without_preview(cutoff: str | None) -> int:
+def _photos_without_preview_ids(run: dict, limit: int) -> list[str]:
+    """Фото прогона без превью — их ставит стадия PREVIEW."""
+
+    clause, params = _cutoff_clause(run)
+    params.append(int(limit))
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT p.photo_id
+                FROM public.photos AS p
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM public.photo_previews AS v
+                    WHERE v.photo_id = p.photo_id
+                )
+                """ + clause + " ORDER BY p.photo_id LIMIT %s",
+                params,
+            )
+            return [row[0] for row in cur.fetchall()]
+
+
+def _photos_without_preview(run: dict) -> int:
     """Сколько фото прогона остались без превью — они вне DINO."""
 
-    clause, params = _cutoff_clause(cutoff)
+    clause, params = _cutoff_clause(run)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1360,7 +1477,7 @@ def _dino_message(prefix: str | None, failed: int, skipped: int) -> str | None:
     return "; ".join(parts) or None
 
 
-def _photos_without_qwen(cutoff: str | None) -> list[str]:
+def _photos_without_qwen(run: dict) -> list[str]:
     """
     Фото без УСПЕШНОГО описания — включая те, что в прошлый раз упали.
 
@@ -1369,7 +1486,7 @@ def _photos_without_qwen(cutoff: str | None) -> list[str]:
     видеть исправленной на следующем запуске, а не исключённой навсегда.
     Исключить фото вручную можно там же, где оно видно (карточка «Описание»).
     """
-    clause, params = _cutoff_clause(cutoff)
+    clause, params = _cutoff_clause(run)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1387,8 +1504,8 @@ def _photos_without_qwen(cutoff: str | None) -> list[str]:
             return [row[0] for row in cur.fetchall()]
 
 
-def _qwen_count(cutoff: str | None, status: str) -> int:
-    clause, params = _cutoff_clause(cutoff)
+def _qwen_count(run: dict, status: str) -> int:
+    clause, params = _cutoff_clause(run)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(

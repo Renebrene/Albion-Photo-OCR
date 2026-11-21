@@ -9,11 +9,13 @@ import {
   backfillPreviews,
   browseFolders,
   fetchIngestFolder,
+  fetchJob,
   pickFolderNative,
   runIngest,
   saveIngestFolder,
   scanIngestFolder,
 } from '../api/client'
+import { usePoller } from '../composables/usePoller'
 import { PERIODS, periodRange } from '../utils/periodRange'
 
 const path = ref('')
@@ -37,10 +39,74 @@ const state = ref({
   excluded_by_period: 0,
   in_period: 0,
   period_applied: false,
+  last_inspection_at: null,
+  new_photos: null,
+  new_videos: null,
+  new_bytes: null,
 })
 const busy = ref(false)
 const nativeBusy = ref(false)
 const jobId = ref(null)
+// Итог задания: без него «зарегистрировано 0» выглядит так, будто инспектор
+// не увидел файлы, хотя они просто уже есть в базе (владелец, 21.11.2026).
+const job = ref(null)
+const jobError = ref('')
+
+const JOB_STATES = {
+  PENDING: 'в очереди',
+  RUNNING: 'выполняется',
+  PAUSED: 'пауза',
+  DONE: 'готово',
+  FAILED: 'ошибка',
+  CANCELLED: 'отменено',
+}
+const JOB_ACTIVE = ['PENDING', 'RUNNING', 'PAUSED']
+
+async function pollJob() {
+  const id = jobId.value
+  if (!id) return
+
+  try {
+    // Прогресс и итог читаются тем же endpoint'ом, что у остальных заданий.
+    job.value = await fetchJob(id)
+    jobError.value = ''
+  } catch (err) {
+    jobError.value = err.message
+  } finally {
+    if (!job.value || !JOB_ACTIVE.includes(job.value.status)) jobPoller.stop()
+  }
+}
+
+const jobPoller = usePoller(pollJob, { intervalMs: 2000, immediate: true })
+
+// Числа из result задания: что нашлось, что нового, что уже было в базе.
+const jobSummary = computed(() => {
+  const result = job.value?.result
+
+  if (!result) return []
+
+  const counters = result.counters || {}
+  const videos = result.videos || {}
+
+  const items = [
+    { label: 'файлов найдено', value: Number(result.discovered || 0) },
+    { label: 'новых фото', value: Number(result.registered || 0) },
+    { label: 'уже в базе', value: Number(result.existing || 0) },
+    // Превью для новых фото ставит сама инспекция — видно, что работа сделана.
+    { label: 'превью поставлено', value: Number(result.preview?.queued || 0) },
+    { label: 'битых', value: Number(counters.INVALID || 0) },
+    { label: 'видео новых', value: Number(videos.registered || 0) },
+    { label: 'видео уже в базе', value: Number(videos.existing || 0) },
+  ]
+
+  if (videos.removed_missing) {
+    items.push({ label: 'записей видео без файла удалено', value: Number(videos.removed_missing) })
+  }
+
+  return items
+})
+
+const jobStateLabel = computed(() => JOB_STATES[job.value?.status] || job.value?.status || '')
 
 // ---- глубина сканирования по времени --------------------------------------
 // Тот же выбор периода и режима даты, что и в фильтре Грида («Дата» +
@@ -101,6 +167,19 @@ function humanBytes(bytes) {
   return `${(value / 1024 ** 3).toFixed(2)} ГБ`
 }
 
+// «21.11 01:26» — время последней инспекции без года: в панели оно рядом с
+// сегодняшними числами, год только мешает.
+function fmtWhen(value) {
+  if (!value) return ''
+
+  const [date, time = ''] = String(value).replace('T', ' ').split(' ')
+  const [, month, day] = date.split('-')
+
+  if (!month || !day) return String(value).slice(0, 16)
+
+  return `${day}.${month} ${time.slice(0, 5)}`.trim()
+}
+
 async function load() {
   try {
     state.value = await fetchIngestFolder()
@@ -137,13 +216,21 @@ async function check() {
     const stats = await scanIngestFolder(target, period)
     state.value = { ...state.value, ...stats, configured: target, exists: true }
     checkedPath.value = target
+
+    // Дельта к прошлой инспекции: главное число для ответа «что добавится».
+    const fresh = stats.last_inspection_at
+      ? `; новых после инспекции ${fmtWhen(stats.last_inspection_at)}: ` +
+        `${stats.new_photos ?? 0} фото, ${stats.new_videos ?? 0} видео`
+      : '; прошлой инспекции этой папки нет'
+
     Notify.create({
       type: stats.problem_count ? 'warning' : 'positive',
       message:
         `Найдено: ${stats.photos} фото, ${stats.videos} видео ` +
         `(${humanBytes(stats.bytes)})` +
         (stats.problem_count ? `, проблем: ${stats.problem_count}` : '') +
-        (stats.period_applied ? `, в периоде: ${stats.in_period}` : ''),
+        (stats.period_applied ? `, в периоде: ${stats.in_period}` : '') +
+        fresh,
     })
   } catch (err) {
     Notify.create({ type: 'negative', message: err.message })
@@ -161,6 +248,9 @@ async function start() {
   try {
     const result = await runIngest(target, requestPeriod.value)
     jobId.value = result.job_id
+    job.value = null
+    jobError.value = ''
+    if (result.job_id) jobPoller.start()
     const depth = periodActive.value
       ? ` (${dateMode.value === 'capture' ? 'дата съёмки' : 'дата загрузки'}: ` +
         `${periodBounds.value[0] || '…'} — ${periodBounds.value[1] || '…'})`
@@ -460,9 +550,25 @@ onMounted(load)
           </div>
         </q-banner>
 
-        <div v-if="jobId" class="text-caption text-grey-8 q-mt-sm">
-          Задание №{{ jobId }} выполняется воркером. Уже зарегистрированные файлы
-          (совпадение имени и размера) пропускаются без хеширования.
+        <div v-if="jobId" class="q-mt-sm">
+          <div class="text-caption text-grey-8">
+            Задание №{{ jobId }}<template v-if="jobStateLabel">: {{ jobStateLabel }}</template>
+          </div>
+
+          <div v-if="jobSummary.length" class="row q-gutter-lg q-mt-xs">
+            <div v-for="item in jobSummary" :key="item.label">
+              <div class="text-subtitle1">{{ item.value }}</div>
+              <div class="text-caption text-grey-7">{{ item.label }}</div>
+            </div>
+          </div>
+
+          <div v-else class="text-caption text-grey-8 q-mt-xs">
+            Уже зарегистрированные фото и видео пропускаются: совпали метаданные
+            снимка (камера, время, размер) или имя и размер файла. Поэтому
+            «новых» может быть 0, хотя файлы на месте.
+          </div>
+
+          <div v-if="jobError" class="text-caption text-negative q-mt-xs">{{ jobError }}</div>
         </div>
 
         <div class="text-caption text-grey-7 q-mt-sm">
@@ -526,6 +632,29 @@ onMounted(load)
                   <div class="text-caption text-grey">Вне периода</div>
                   <div class="text-grey-7">{{ state.excluded_by_period }}</div>
                 </div>
+              </div>
+
+              <div v-if="state.last_inspection_at" class="q-mt-md">
+                <div class="text-caption text-grey">
+                  Новых после инспекции {{ fmtWhen(state.last_inspection_at) }}
+                </div>
+                <div class="row q-gutter-md items-baseline">
+                  <div>
+                    <span class="text-h6">{{ state.new_photos ?? 0 }}</span>
+                    <span class="text-caption text-grey q-ml-xs">фото</span>
+                  </div>
+                  <div>
+                    <span class="text-h6">{{ state.new_videos ?? 0 }}</span>
+                    <span class="text-caption text-grey q-ml-xs">видео</span>
+                  </div>
+                  <div class="text-caption text-grey-7">
+                    {{ humanBytes(state.new_bytes) }}
+                  </div>
+                </div>
+              </div>
+              <div v-else class="text-caption text-grey-7 q-mt-md">
+                Прошлой инспекции этой папки нет — следующая прогонит всё, что
+                найдёт.
               </div>
 
               <div v-if="extensionEntries.length" class="q-mt-sm">

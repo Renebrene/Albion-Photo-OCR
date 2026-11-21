@@ -63,6 +63,32 @@ def test_cutoff_reads_manifest():
     assert pipeline_runs._cutoff({"manifest": {}}) is None
 
 
+def test_stage_window_takes_only_new_photos():
+    """Стадии прогона видят фото, зарегистрированные после прошлого прогона."""
+
+    run = {
+        "manifest": {
+            "photo_since": "2026-11-14 13:13:52",
+            "photo_cutoff": "2026-11-21 01:26:00",
+        }
+    }
+
+    clause, params = pipeline_runs._cutoff_clause(run)
+
+    assert clause == (
+        " AND p.created_at > %s::timestamp"
+        " AND p.created_at <= %s::timestamp"
+    )
+    assert params == ["2026-11-14 13:13:52", "2026-11-21 01:26:00"]
+
+    # Первый прогон: прошлого нет — нижней границы нет, только cutoff.
+    since, cutoff = pipeline_runs._window(
+        {"manifest": {"photo_cutoff": "2026-11-21 01:26:00"}}
+    )
+    assert (since, cutoff) == (None, "2026-11-21 01:26:00")
+    assert pipeline_runs._cutoff_clause({"manifest": {}}) == ("", [])
+
+
 # ---------------------------------------------------------------------------
 # Frozen file snapshot (INGEST filter)
 # ---------------------------------------------------------------------------
@@ -336,11 +362,11 @@ def test_dino_selector_needs_a_middle_preview(tmp_path):
                     (ready_id, "/tmp/small.webp", "/tmp/middle.webp"),
                 )
 
-        selected = pipeline_runs._photos_without_dino(None)
+        selected = pipeline_runs._photos_without_dino({})
 
         assert ready_id in selected
         assert broken_id not in selected
-        assert pipeline_runs._photos_without_preview(None) >= 1
+        assert pipeline_runs._photos_without_preview({}) >= 1
     finally:
         with ingest_db.get_connection() as conn:
             with conn.cursor() as cur:
@@ -415,6 +441,11 @@ def _preview_env(monkeypatch, *, total, done, active, ref=None):
     )
     monkeypatch.setattr(
         pipeline_runs, "_active_type_count", lambda job_type: active
+    )
+    monkeypatch.setattr(
+        pipeline_runs,
+        "_photos_without_preview_ids",
+        lambda run, limit: [f"PH_{index:024d}" for index in range(min(limit, 3))],
     )
     monkeypatch.setattr(
         pipeline_runs,
@@ -531,10 +562,9 @@ def test_start_passes_the_scan_depth(monkeypatch):
 
 
 def test_the_snapshot_respects_the_scan_window(tmp_path, monkeypatch):
-    """Файлы старше окна в снимок прогона не попадают."""
+    """Окно считается по появлению файла на носителе (ctime), а не по mtime."""
 
-    import os
-    import time
+    from datetime import date, timedelta
 
     from app.supervisor import runs as supervisor
 
@@ -544,10 +574,6 @@ def test_the_snapshot_respects_the_scan_window(tmp_path, monkeypatch):
     for path in (old, fresh):
         path.write_bytes(b"x")
 
-    # Старый файл: изменён 30 дней назад.
-    month_ago = time.time() - 30 * 24 * 3600
-    os.utime(old, (month_ago, month_ago))
-
     monkeypatch.setattr(
         "app.ingest.integrity.discover_files",
         lambda _folder, recursive=True: [str(old), str(fresh)],
@@ -556,10 +582,49 @@ def test_the_snapshot_respects_the_scan_window(tmp_path, monkeypatch):
         "app.ingest.video_integrity.discover_video_files",
         lambda _folder, recursive=True: [],
     )
+    monkeypatch.setattr(
+        "app.ingest.database.known_source_files", lambda _pairs: set()
+    )
 
-    from datetime import date, timedelta
+    # Копия старого снимка, положенная на носитель 30 дней назад, в недельное
+    # окно не попадает; появившаяся сегодня — попадает.
+    appeared = {
+        old.name: date.today() - timedelta(days=30),
+        fresh.name: date.today(),
+    }
+    monkeypatch.setattr(
+        supervisor, "_appeared_on", lambda path: appeared[path.name]
+    )
 
     week_ago = (date.today() - timedelta(days=7)).isoformat()
 
     assert supervisor._snapshot_files(str(tmp_path)) == ["fresh.jpg", "old.jpg"]
     assert supervisor._snapshot_files(str(tmp_path), week_ago) == ["fresh.jpg"]
+
+
+def test_the_snapshot_takes_only_unregistered_files(tmp_path, monkeypatch):
+    """«Обновление базы» затягивает только новые файлы: уже зарегистрированные
+    (имя + размер) в снимок не попадают."""
+
+    from app.supervisor import runs as supervisor
+
+    new = tmp_path / "new.jpg"
+    known = tmp_path / "known.jpg"
+
+    for path in (new, known):
+        path.write_bytes(b"x")
+
+    monkeypatch.setattr(
+        "app.ingest.integrity.discover_files",
+        lambda _folder, recursive=True: [str(new), str(known)],
+    )
+    monkeypatch.setattr(
+        "app.ingest.video_integrity.discover_video_files",
+        lambda _folder, recursive=True: [],
+    )
+    monkeypatch.setattr(
+        "app.ingest.database.known_source_files",
+        lambda pairs: {(name, size) for name, size in pairs if name == "known.jpg"},
+    )
+
+    assert supervisor._snapshot_files(str(tmp_path)) == ["new.jpg"]

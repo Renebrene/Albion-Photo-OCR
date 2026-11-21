@@ -56,7 +56,7 @@ def test_pipeline_retries_photos_that_failed(monkeypatch):
 
     cursor = _patch(monkeypatch, supervisor, _Cursor(rows=[]))
 
-    supervisor._photos_without_qwen(None)
+    supervisor._photos_without_qwen({"manifest": {}})
 
     sql, _params = cursor.queries[0]
     assert "q.status IN ('DONE', 'RUNNING')" in sql

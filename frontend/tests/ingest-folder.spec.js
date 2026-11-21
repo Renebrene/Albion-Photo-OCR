@@ -44,7 +44,7 @@ const scanWithErrors = {
   problems: [{ filename: 'empty.mp4', reason: 'файл пуст' }],
 }
 
-function installFetch({ scan = scanWithErrors, previews = null } = {}) {
+function installFetch({ scan = scanWithErrors, previews = null, job = null } = {}) {
   const calls = []
 
   global.fetch = vi.fn(async (url, options = {}) => {
@@ -57,6 +57,9 @@ function installFetch({ scan = scanWithErrors, previews = null } = {}) {
 
     if (path.includes('/v1/previews/backfill')) {
       return json(previews || { selected: 3, queued: 3, already_active: 0 })
+    }
+    if (path.includes('/v1/jobs/42')) {
+      return json(job || { id: 42, status: 'RUNNING', progress: {}, result: null })
     }
     if (path.includes('/v1/ingest/scan')) return json(scan)
     if (path.includes('/v1/ingest/run')) return json({ job_id: 42 })
@@ -158,6 +161,41 @@ describe('папка INGEST', () => {
     expect(run).toBeTruthy()
   })
 
+  it('показывает итог задания: найдено, новых, уже в базе', async () => {
+    // «Зарегистрировано 0» без пояснения выглядит как «инспектор не увидел
+    // файлы»; итог показывает, что они уже были в базе (владелец, 21.11.2026).
+    const calls = installFetch({
+      job: {
+        id: 42,
+        status: 'DONE',
+        progress: {},
+        result: {
+          discovered: 426,
+          registered: 0,
+          existing: 426,
+          counters: { VALID: 426, INVALID: 0, SKIPPED: 0 },
+          videos: { registered: 0, existing: 21, removed_missing: 3 },
+        },
+      },
+    })
+    const wrapper = mountFolder()
+    await flushPromises()
+
+    await clickButton(wrapper, 'Инспектировать')
+    await flushPromises()
+    await flushPromises()
+
+    expect(calls.some((call) => call.path.includes('/v1/jobs/42'))).toBe(true)
+
+    const text = wrapper.text()
+    expect(text).toContain('готово')
+    expect(text).toContain('файлов найдено')
+    expect(text).toContain('426')
+    expect(text).toContain('уже в базе')
+    expect(text).toContain('видео уже в базе')
+    expect(text).toContain('записей видео без файла удалено')
+  })
+
   it('выбирает папку во встроенном браузере сервера', async () => {
     const calls = installFetch()
     const wrapper = mountFolder()
@@ -247,6 +285,33 @@ describe('глубина сканирования по времени', () => {
 
     const run = calls.find((call) => call.path.includes('/v1/ingest/run'))
     expect(run.body).toEqual({ path: '/photos' })
+  })
+
+  it('показывает, сколько фото и видео появилось после последней инспекции', async () => {
+    installFetch({
+      scan: {
+        ...scanWithErrors,
+        last_inspection_at: '2026-11-21T01:26:00',
+        new_photos: 12,
+        new_videos: 2,
+        new_bytes: 4096,
+      },
+    })
+    const wrapper = mountFolder()
+    await flushPromises()
+
+    await clickButton(wrapper, 'Проверить')
+
+    const text = wrapper.text()
+    expect(text).toContain('Новых после инспекции')
+    expect(text).toContain('21.11 01:26')
+    expect(text).toContain('12')
+    expect(text).toContain('2')
+    expect(
+      Notify.create.mock.calls.some((call) =>
+        String(call[0]?.message || '').includes('новых после инспекции'),
+      ),
+    ).toBe(true)
   })
 
   it('«Проверить» с периодом показывает счёт вне периода', async () => {
