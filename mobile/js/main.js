@@ -13,10 +13,12 @@ import { registerPwa, forceUpdatePwa } from './pwa.js';
 
 // ===== Constants =====
 
-// Период подвала: от «вчера/позавчера» до года. Фильтр — по дате загрузки
-// (date_mode=upload), как в десктопном гриде по умолчанию.
+// Период подвала: от «вчера/позавчера» до года. Фильтр — по дате съёмки
+// (`date_mode=capture`, как у десктопного «Сбросить фильтры»).
+// `days` — число календарных дней включительно; `endOffset` сдвигает конец
+// периода назад (у «вчера/позавчера» сегодняшний день не входит).
 const PERIODS = [
-  { label: 'Вчера/позавчера', days: 2 },
+  { label: 'Вчера/позавчера', days: 2, endOffset: 1 },
   { label: 'Неделя', days: 7 },
   { label: '2 недели', days: 14 },
   { label: 'Месяц', days: 30 },
@@ -27,6 +29,14 @@ const PERIODS = [
 
 const COLUMN_OPTIONS = ['3×4', '4×4', '5×4', '6×4'];
 const PAGE_SIZE = 100;
+// Адреса рисуем порциями: при 2000 адресов в группе весь список в DOM
+// держать не нужно, «Показать ещё» добавляет следующую порцию.
+const ADDRESS_PAGE_SIZE = 200;
+// «Все группы» — только пока адресов немного. На большой базе нужно
+// выбрать группу: иначе на экране окажется весь справочник.
+const ADDRESS_ALL_LIMIT = 200;
+// Имя служебной фото-подборки; сервер резервирует его под «Избранное».
+const FAVORITES_COLLECTION_NAME = 'Избранные фото';
 
 // ===== State =====
 
@@ -48,6 +58,10 @@ const state = {
 
   collections: [],
   addresses: [],
+  addressLimit: ADDRESS_PAGE_SIZE, // сколько плиток-адресов рисуем сейчас
+  addressPickerLimit: ADDRESS_PAGE_SIZE, // сколько строк в панели выбора
+  addressPanelKey: null,  // группа|период, для которых загружены адреса
+  addressPickerLoading: false,
   addressFilter: [],      // выбранные значения addr:<id>
   searchQuery: '',
   searchSuggestions: [],
@@ -259,8 +273,11 @@ function periodParams() {
   const period = PERIODS[state.periodIndex];
   const to = new Date();
   const from = new Date();
+  const endOffset = period.endOffset || 0;
 
-  from.setDate(to.getDate() - period.days);
+  // Обе границы включительны: «Неделя» — 7 календарных дней, а не 8.
+  from.setDate(to.getDate() - endOffset - (period.days - 1));
+  to.setDate(to.getDate() - endOffset);
 
   return { date_from: isoDate(from), date_to: isoDate(to), date_mode: 'capture' };
 }
@@ -347,6 +364,33 @@ function baseFilters() {
   };
 }
 
+/** Ключ адресной панели: при смене группы/периода её нужно перезагрузить. */
+function addressPanelKey() {
+  return `${state.group || ''}|${state.periodIndex}`;
+}
+
+/** Коллекции адресов и строки адресов за текущий период/группу. */
+async function fetchAddressPanelData() {
+  const period = periodParams();
+  const [collections, addresses] = await Promise.all([
+    api.fetchCollections(),
+    // Период передаём: `period_count` в ответе — число фото в пределах
+    // выбранного фильтра (`count` остаётся за всё время).
+    api.fetchAddresses({ group: state.group || undefined, ...period }),
+  ]);
+
+  return {
+    // Фото-подборки (включая служебное «Избранные фото») живут в отдельном
+    // экране «Избранное»: в адресном списке им не место.
+    collections: (collections.items || []).filter(
+      (item) => item.scope === 'addresses',
+    ),
+    addresses: (addresses.items || []).filter(
+      (row) => (row.period_count ?? row.count ?? 0) > 0,
+    ),
+  };
+}
+
 /**
  * Корень «По датам» — фасет дней с сервера (`/photos/dates`).
  *
@@ -396,6 +440,7 @@ async function loadRootAddresses() {
   state.loading = true;
   state.error = null;
   state.nearestDate = null;
+  state.addressLimit = ADDRESS_PAGE_SIZE;
   // Список адресов перезагружается (группа/период/после создания) —
   // выбранные ключи могли исчезнуть, поэтому выделение сбрасываем.
   state.addressSelected.clear();
@@ -405,21 +450,11 @@ async function loadRootAddresses() {
   const period = periodParams();
 
   try {
-    const [collections, addresses] = await Promise.all([
-      api.fetchCollections(),
-      // Период передаём: `period_count` в ответе — число фото в пределах
-      // выбранного фильтра (`count` остаётся за всё время).
-      api.fetchAddresses({ group: state.group || undefined, ...period }),
-    ]);
+    const data = await fetchAddressPanelData();
 
-    state.collections = (collections.items || []).filter(
-      (item) => item.scope !== 'clients',
-    );
-    // Плитка показывает число фото за период; строки без фото в периоде
-    // не нужны — открывать нечего.
-    state.addresses = (addresses.items || []).filter(
-      (row) => (row.period_count ?? row.count ?? 0) > 0,
-    );
+    state.collections = data.collections;
+    state.addresses = data.addresses;
+    state.addressPanelKey = addressPanelKey();
 
     if (!state.addresses.length) {
       state.nearestDate = await findNearestShootingDate(
@@ -619,13 +654,17 @@ function applySearchSuggestion(index) {
   DOM.searchInput.value = value;
   hideSearchSuggestions();
 
+  // Поиск идёт в пределах выбранной группы адресов: результат не должен
+  // показывать фото из других закладок.
+  const group = state.group || undefined;
+
   if (exact) {
     loadPhotosPage(
-      { [exact]: value },
+      { [exact]: value, group },
       { label: `${SUGGESTION_KINDS[suggestion.kind]}: ${value}` },
     );
   } else {
-    loadPhotosPage({ q: value }, { label: `Поиск: ${value}` });
+    loadPhotosPage({ q: value, group }, { label: `Поиск: ${value}` });
   }
 }
 
@@ -869,10 +908,21 @@ function renderAddressesRoot() {
     html += state.loading
       ? '<div class="loading-spinner">Загрузка</div>'
       : emptyPeriodState('Адресов с фото за выбранный период нет');
+  } else if (!state.group && state.addresses.length > ADDRESS_ALL_LIMIT) {
+    // 2000 адресов «всех групп» одновременно не показываем: это тот случай,
+    // когда нужна конкретная закладка.
+    html += `
+      <div class="empty-state">
+        <div>Выберите группу адресов</div>
+        <div class="empty-state-hint">
+          В базе ${state.addresses.length} адресов — выберите закладку в меню.
+        </div>
+      </div>
+    `;
   } else {
     html += `<div class="photo-grid cols-${state.columns}">`;
 
-    const visible = state.addresses.slice(0, 300);
+    const visible = state.addresses.slice(0, state.addressLimit);
 
     for (const [index, row] of visible.entries()) {
       html += folderTile({
@@ -887,6 +937,12 @@ function renderAddressesRoot() {
     }
 
     html += '</div>';
+
+    if (state.addresses.length > state.addressLimit) {
+      html += `<button class="load-more" data-action="more-addresses">
+        Показать ещё адреса (${state.addresses.length - state.addressLimit})
+      </button>`;
+    }
   }
 
   return html;
@@ -1075,7 +1131,7 @@ function addressRowValues(row) {
 }
 
 function toggleAddressSelection(index) {
-  const row = state.addresses.slice(0, 300)[index];
+  const row = state.addresses[index];
 
   if (!row) return;
 
@@ -1093,7 +1149,7 @@ function toggleAddressSelection(index) {
 /** Обновить чекбоксы адресов и плитку «Добавить подборку» без перерисовки. */
 function updateAddressSelectionUi() {
   DOM.content.querySelectorAll('.folder-tile[data-address-index]').forEach((tile) => {
-    const row = state.addresses.slice(0, 300)[Number(tile.dataset.addressIndex)];
+    const row = state.addresses[Number(tile.dataset.addressIndex)];
 
     tile.classList.toggle(
       'selected',
@@ -1126,7 +1182,7 @@ function selectedAddressValues() {
   const seen = new Set();
   const values = [];
 
-  for (const row of state.addresses.slice(0, 300)) {
+  for (const row of state.addresses) {
     if (!state.addressSelected.has(addressRowKey(row))) continue;
 
     for (const value of addressRowValues(row)) {
@@ -1168,8 +1224,18 @@ async function addSelectedToFavorites() {
   const ids = Array.from(state.selected);
 
   try {
-    await api.addFavorites(ids);
-    ids.forEach((id) => state.favorite.add(id));
+    const data = await api.addFavorites(ids);
+
+    if (data && Array.isArray(data.photo_ids)) {
+      state.favorite = new Set(data.photo_ids);
+    } else {
+      ids.forEach((id) => state.favorite.add(id));
+    }
+
+    if (data && data.collection_id) {
+      state.favoriteCollectionId = data.collection_id;
+    }
+
     showToast(`В избранном: ${ids.length} фото`);
     clearSelection();
   } catch (error) {
@@ -1355,7 +1421,8 @@ async function openFavorites() {
 
     state.favoriteCollections = (collections.items || []).filter(
       (item) => item.scope === 'photos'
-        && item.collection_id !== state.favoriteCollectionId,
+        && item.collection_id !== state.favoriteCollectionId
+        && item.name !== FAVORITES_COLLECTION_NAME,
     );
   } catch (error) {
     // Список подборок вспомогательный: сами сердечки уже загружены.
@@ -1476,7 +1543,12 @@ async function shareFavorites() {
 
 /** Фото текущего экрана в порядке отображения — для листания свайпами. */
 function currentPhotoIds() {
-  if (state.view.type === 'photos' && state.page) {
+  // «Избранное» — такая же страница фото: свайп, стрелки и нумерация
+  // скачивания должны работать и там.
+  if (
+    (state.view.type === 'photos' || state.view.type === 'favorites')
+    && state.page
+  ) {
     return state.page.items.map((item) => item.photo_id);
   }
 
@@ -1494,6 +1566,22 @@ function openPreview(photoId) {
 
   showPreviewAt(state.preview.index);
   DOM.previewOverlay.classList.add('open');
+}
+
+/** Подпись кнопки превью: «Добавить» или «Убрать» по статусу фото. */
+function updatePreviewFavoriteButton() {
+  const isFavorite = Boolean(
+    state.currentPhotoId && state.favorite.has(state.currentPhotoId),
+  );
+
+  DOM.previewFavoriteBtn.textContent = isFavorite
+    ? '❤️ Убрать'
+    : '❤️ Добавить';
+  DOM.previewFavoriteBtn.classList.toggle('active', isFavorite);
+  DOM.previewFavoriteBtn.setAttribute(
+    'aria-label',
+    isFavorite ? 'Убрать из избранного' : 'Добавить в избранное',
+  );
 }
 
 /** Нарисовать карточку фото по позиции в текущем списке. */
@@ -1525,6 +1613,8 @@ function showPreviewAt(index) {
   DOM.previewCounter.textContent = ids.length > 1
     ? `${nextIndex + 1} / ${ids.length}`
     : '';
+
+  updatePreviewFavoriteButton();
 
   // Стрелки (и тап по краю снимка) нужны только когда есть что листать.
   DOM.previewPrevBtn.hidden = ids.length < 2;
@@ -1629,10 +1719,31 @@ function cyclePeriod() {
 
 // ===== Address picker =====
 
-function openAddressPicker() {
+async function openAddressPicker() {
+  state.addressPickerLimit = ADDRESS_PAGE_SIZE;
   DOM.addressPickerOverlay.classList.add('open');
   DOM.addressPicker.classList.add('open');
   renderAddressPicker();
+
+  // В режиме «По датам» адреса ещё не загружены, а после смены группы или
+  // периода старый список относится к другой выборке. Догружаем панель.
+  if (state.addressPanelKey === addressPanelKey()) return;
+
+  state.addressPickerLoading = true;
+  renderAddressPicker();
+
+  try {
+    const data = await fetchAddressPanelData();
+
+    state.collections = data.collections;
+    state.addresses = data.addresses;
+    state.addressPanelKey = addressPanelKey();
+  } catch (error) {
+    showToast('Не удалось загрузить адреса: ' + error.message);
+  } finally {
+    state.addressPickerLoading = false;
+    renderAddressPicker();
+  }
 }
 
 function closeAddressPicker() {
@@ -1641,6 +1752,11 @@ function closeAddressPicker() {
 }
 
 function renderAddressPicker() {
+  if (state.addressPickerLoading) {
+    DOM.addressPickerContent.innerHTML = '<div class="loading-spinner">Загрузка</div>';
+    return;
+  }
+
   const search = DOM.addressSearchInput.value.trim().toLowerCase();
   const matches = (text) => !search || String(text || '').toLowerCase().includes(search);
 
@@ -1659,9 +1775,18 @@ function renderAddressPicker() {
 
   html += '<div class="address-section">Адреса</div>';
 
-  for (const [index, row] of state.addresses.entries()) {
-    if (!matches(row.name || row.address)) continue;
+  // Сначала отбираем совпадения поиска, затем рисуем порцию. Индекс строки
+  // в state.addresses не зависит от фильтра/лимита — по нему работает
+  // переключение выбора.
+  const matchingRows = [];
 
+  for (const [index, row] of state.addresses.entries()) {
+    if (matches(row.name || row.address)) {
+      matchingRows.push({ index, row });
+    }
+  }
+
+  for (const { index, row } of matchingRows.slice(0, state.addressPickerLimit)) {
     const values = (row.ids || []).map((id) => `addr:${id}`);
     const checked = values.length && values.every((value) => state.addressFilter.includes(value));
 
@@ -1674,7 +1799,44 @@ function renderAddressPicker() {
     `;
   }
 
+  if (matchingRows.length > state.addressPickerLimit) {
+    html += `<button class="load-more" data-address-more="1">
+      Показать ещё адреса (${matchingRows.length - state.addressPickerLimit})
+    </button>`;
+  }
+
   DOM.addressPickerContent.innerHTML = html;
+}
+
+/** Клики в нижней панели выбора адресов (она вне #content). */
+function handleAddressPickerClick(event) {
+  const more = event.target.closest('[data-address-more]');
+
+  if (more) {
+    state.addressPickerLimit += ADDRESS_PAGE_SIZE;
+    renderAddressPicker();
+    return;
+  }
+
+  const collectionPick = event.target.closest('[data-collection-pick]');
+
+  if (collectionPick) {
+    const collection = state.collections[
+      Number(collectionPick.dataset.collectionPick)
+    ];
+
+    closeAddressPicker();
+
+    if (collection) openCollection(collection);
+
+    return;
+  }
+
+  const addressPick = event.target.closest('[data-address-pick]');
+
+  if (addressPick) {
+    toggleAddressPick(Number(addressPick.dataset.addressPick));
+  }
 }
 
 function toggleAddressPick(index) {
@@ -1801,6 +1963,9 @@ async function createCollection() {
       showToast(`Подборка «${name}»: адресов ${addressValues.length}`);
       await loadRootAddresses();
     } else if (isFavorites) {
+      // Новая именованная подборка должна сразу появиться в списке,
+      // а не только после повторного открытия «Избранного».
+      await openFavorites();
       showToast(`«${name}» сохранена — видна в «Избранном» на десктопе`);
     } else {
       showToast(`Подборка «${name}» создана`);
@@ -1875,7 +2040,16 @@ function setGroup(group) {
     button.classList.toggle('active', button.dataset.group === state.group);
   });
 
-  if (state.mode === 'dates') {
+  // Если поиск уже открыт, он должен пересчитаться в границах новой
+  // группы, а не показывать выдачу прошлой.
+  const query = DOM.searchInput.value.trim();
+
+  if (query.length >= 2) {
+    loadPhotosPage(
+      { q: query, group: state.group || undefined },
+      { label: `Поиск: ${query}` },
+    );
+  } else if (state.mode === 'dates') {
     loadRootDates();
   } else {
     loadRootAddresses();
@@ -1886,7 +2060,14 @@ async function syncNow() {
   DOM.syncStatus.textContent = '...';
 
   try {
-    if (state.mode === 'dates') {
+    // Сердечки и именованные подборки живут отдельно от корня грида:
+    // синхронизация должна подтянуть и их, иначе изменения с десктопа
+    // останутся незаметными до перезагрузки.
+    await loadFavoriteIds();
+
+    if (state.view.type === 'favorites') {
+      await openFavorites();
+    } else if (state.mode === 'dates') {
       await loadRootDates();
     } else {
       await loadRootAddresses();
@@ -1924,6 +2105,9 @@ async function doLogin() {
     const user = await auth.login(name, password);
     showMainApp(user);
     showToast(`Добро пожаловать, ${user.name}!`);
+    // Избранное — отдельное хранилище; подтягиваем его при входе, а не
+    // только при перезагрузке страницы.
+    await loadFavoriteIds();
     await loadData();
   } catch (error) {
     console.error('Login failed:', error);
@@ -1952,13 +2136,48 @@ async function doLogout() {
 
   DOM.loginScreen.classList.remove('hidden');
   DOM.mainApp.style.display = 'none';
+
+  // Полный сброс пользовательского состояния: следующий вход может быть
+  // под другой учётной записью, и чужие сердечки/подборки не должны
+  // остаться ни на экране, ни в памяти.
+  closePreview();
+  hideSearchSuggestions();
+  DOM.searchInput.value = '';
   state.photos.clear();
   state.days = [];
   state.page = null;
   state.collections = [];
   state.addresses = [];
+  state.favorite.clear();
+  state.favoriteCollectionId = null;
+  state.favoriteCollections = [];
   state.selected.clear();
+  state.selectMode = false;
+  state.addressSelected.clear();
+  state.addressSelectMode = false;
+  state.addressFilter = [];
+  state.addressLimit = ADDRESS_PAGE_SIZE;
+  state.addressPanelKey = null;
+  state.addressPickerLimit = ADDRESS_PAGE_SIZE;
+  state.searchQuery = '';
+  state.searchSuggestions = [];
+  state.currentPhotoId = null;
+  state.preview = null;
+  state.deleteCollectionTarget = null;
+  state.nearestDate = null;
+  state.loading = false;
+  state.error = null;
+  state.group = null;
   state.view = { type: 'root' };
+
+  DOM.footerAddressText.textContent = 'Все адреса';
+  DOM.groupButtons.forEach((button) => {
+    button.classList.toggle(
+      'active',
+      (button.dataset.group || null) === state.group,
+    );
+  });
+
   toggleDrawer();
 }
 
@@ -1992,8 +2211,12 @@ function initEvents() {
 
   DOM.addressCancelBtn.addEventListener('click', closeAddressPicker);
   DOM.addressApplyBtn.addEventListener('click', applyAddressFilter);
-  DOM.addressSearchInput.addEventListener('input', renderAddressPicker);
+  DOM.addressSearchInput.addEventListener('input', () => {
+    state.addressPickerLimit = ADDRESS_PAGE_SIZE;
+    renderAddressPicker();
+  });
   DOM.addressPickerOverlay.addEventListener('click', closeAddressPicker);
+  DOM.addressPickerContent.addEventListener('click', handleAddressPickerClick);
 
   DOM.addCollectionBtn.addEventListener('click', () => {
     toggleDrawer();
@@ -2144,23 +2367,65 @@ function initEvents() {
     if (event.target === DOM.previewOverlay) closePreview();
   });
   DOM.previewFavoriteBtn.addEventListener('click', async () => {
-    if (!state.currentPhotoId) return;
+    const photoId = state.currentPhotoId;
+
+    if (!photoId) return;
+
+    if (!auth.hasScope('collections:write')) {
+      showToast('Избранное доступно ролям с правом на подборки');
+      return;
+    }
+
+    const inFavorites = state.favorite.has(photoId);
+
+    DOM.previewFavoriteBtn.disabled = true;
 
     try {
-      await api.addFavorites([state.currentPhotoId]);
-      state.favorite.add(state.currentPhotoId);
-      showToast('Добавлено в избранное');
+      const data = inFavorites
+        ? await api.removeFavorite(photoId)
+        : await api.addFavorites([photoId]);
+
+      if (data && Array.isArray(data.photo_ids)) {
+        state.favorite = new Set(data.photo_ids);
+      } else if (inFavorites) {
+        state.favorite.delete(photoId);
+      } else {
+        state.favorite.add(photoId);
+      }
+
+      if (data && data.collection_id) {
+        state.favoriteCollectionId = data.collection_id;
+      }
+
+      const tile = DOM.content.querySelector(
+        `.photo-tile[data-photo-id="${photoId}"]`,
+      );
+
+      if (tile) {
+        tile.classList.toggle('favorited', state.favorite.has(photoId));
+      }
+
+      showToast(inFavorites
+        ? 'Убрано из избранного'
+        : 'Добавлено в избранное');
     } catch (error) {
       showToast('Не удалось: ' + error.message);
+    } finally {
+      DOM.previewFavoriteBtn.disabled = false;
+      updatePreviewFavoriteButton();
     }
   });
   DOM.previewShareBtn.addEventListener('click', () => {
-    if (state.currentPhotoId) {
-      state.selected = new Set([state.currentPhotoId]);
-      shareSelected();
-      state.selected.clear();
-      updateSelectionBar();
-    }
+    if (!state.currentPhotoId) return;
+
+    // Не теряем выбор пользователя: shareSelected() собирает текст
+    // синхронно, после чего прежний набор возвращается.
+    const previousSelection = state.selected;
+
+    state.selected = new Set([state.currentPhotoId]);
+    shareSelected();
+    state.selected = previousSelection;
+    updateSelectionBar();
   });
 
   // Заголовок-«назад»: из дня/списка — к корню.
@@ -2188,7 +2453,10 @@ function initEvents() {
 
       suggestionsTimer = setTimeout(async () => {
         try {
-          const data = await api.getSearchSuggestions(query);
+          const data = await api.getSearchSuggestions(
+            query,
+            state.group || undefined,
+          );
 
           if (seq === suggestionsSeq
             && DOM.searchInput.value.trim() === query) {
@@ -2204,7 +2472,10 @@ function initEvents() {
 
     searchTimer = setTimeout(() => {
       if (query.length >= 2) {
-        loadPhotosPage({ q: query }, { label: `Поиск: ${query}` });
+        loadPhotosPage(
+          { q: query, group: state.group || undefined },
+          { label: `Поиск: ${query}` },
+        );
       } else if (state.view.type === 'photos') {
         goRoot();
       }
@@ -2339,6 +2610,9 @@ function initEvents() {
           state.page?.params || {},
           { label: 'Избранное', append: true, viewType: 'favorites' },
         );
+      } else if (action === 'more-addresses') {
+        state.addressLimit += ADDRESS_PAGE_SIZE;
+        render();
       } else if (action === 'download-favorites') {
         downloadFavorites();
       } else if (action === 'share-favorites') {
@@ -2405,29 +2679,13 @@ function initEvents() {
         return;
       }
 
-      const row = state.addresses.slice(0, 300)[index];
+      const row = state.addresses[index];
 
       if (row) {
         state.addressSelected.clear();
         openAddressRow(row);
       }
 
-      return;
-    }
-
-    const collectionPick = event.target.closest('[data-collection-pick]');
-
-    if (collectionPick) {
-      const collection = state.collections[Number(collectionPick.dataset.collectionPick)];
-      closeAddressPicker();
-      if (collection) openCollection(collection);
-      return;
-    }
-
-    const addressPick = event.target.closest('[data-address-pick]');
-
-    if (addressPick) {
-      toggleAddressPick(Number(addressPick.dataset.addressPick));
       return;
     }
 
@@ -2454,7 +2712,7 @@ async function init() {
 
   DOM.footerPeriod.textContent = `◄ ${PERIODS[state.periodIndex].label} ►`;
   DOM.footerCols.textContent = COLUMN_OPTIONS[state.columns - 3];
-  DOM.buildVersion.textContent = '2026-11-21';
+  DOM.buildVersion.textContent = '2026-11-22';
 
   const user = await auth.init();
 

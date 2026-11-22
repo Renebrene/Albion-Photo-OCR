@@ -14,7 +14,7 @@ def test_short_query_returns_nothing(monkeypatch):
     calls = []
     monkeypatch.setattr(
         routes.repository, "suggest_terms",
-        lambda term, limit=8: calls.append(term) or [],
+        lambda term, limit=8, group=None: calls.append(term) or [],
     )
 
     response = client.get("/api/v1/search/suggestions?q=я")
@@ -24,6 +24,23 @@ def test_short_query_returns_nothing(monkeypatch):
     assert calls == []
 
 
+def test_group_is_forwarded_to_suggestions(monkeypatch):
+    """Активная группа адресов сужает подсказки-адреса на сервере."""
+
+    seen = []
+
+    def fake_suggest(term, limit=8, group=None):
+        seen.append(group)
+        return []
+
+    monkeypatch.setattr(routes.repository, "suggest_terms", fake_suggest)
+
+    response = client.get("/api/v1/search/suggestions?q=ряз&group=screens")
+
+    assert response.status_code == 200
+    assert seen and all(value == "screens" for value in seen)
+
+
 def test_direct_matches_are_returned_without_layout_hint(monkeypatch):
     items = [
         {"value": "Рязанка", "kind": "brand", "uses": 3},
@@ -31,7 +48,7 @@ def test_direct_matches_are_returned_without_layout_hint(monkeypatch):
         {"value": "Рязань", "kind": "address", "uses": 2},
     ]
 
-    def fake_suggest(term, limit=8):
+    def fake_suggest(term, limit=8, group=None):
         # Конвертированный запрос «hzp» ничего не находит — раскладка
         # вычисляется, но подсказок по ней нет.
         return items if term == "ряз" else []
@@ -47,7 +64,7 @@ def test_direct_matches_are_returned_without_layout_hint(monkeypatch):
 def test_wrong_layout_offers_the_converted_query(monkeypatch):
     calls = []
 
-    def fake_suggest(term, limit=8):
+    def fake_suggest(term, limit=8, group=None):
         calls.append(term)
         if term == "rjvfhjdf":
             return []
@@ -73,7 +90,7 @@ def test_layout_is_computed_alongside_direct_matches(monkeypatch):
     вместе, прямой прогон ничего не блокирует.
     """
 
-    def fake_suggest(term, limit=8):
+    def fake_suggest(term, limit=8, group=None):
         if term == "комарова":
             return [{"value": f"Тег {index}", "kind": "tag", "uses": 1}
                     for index in range(3)]

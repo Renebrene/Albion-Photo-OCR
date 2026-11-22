@@ -2349,13 +2349,19 @@ def clear_photo_address_override(photo_id: str) -> bool:
             return cur.fetchone() is not None
 
 
-def suggest_terms(term: str, *, limit: int = 8) -> list[dict]:
+def suggest_terms(
+    term: str, *, limit: int = 8, group: str | None = None
+) -> list[dict]:
     """
     Search-bar suggestions from existing QWEN values.
 
     Matches tags, clients, brands and categories by substring (ILIKE) or
     trigram similarity (pg_trgm), so a slightly misspelled word still finds a
     real tag. Prefix matches rank first, then similarity, then usage count.
+
+    `group` narrows address suggestions to the active top-panel tab. The photo
+    values themselves stay corpus-wide; the grid query applies the same group
+    filter, so picking one never shows photos from another group.
 
     One value may be a client AND a brand (or a tag): each role is returned as
     its own suggestion, otherwise picking it would silently filter only one
@@ -2364,6 +2370,15 @@ def suggest_terms(term: str, *, limit: int = 8) -> list[dict]:
 
     like = f"%{term}%"
     prefix = f"{term}%"
+
+    # Параметры адресных подзапросов идут первыми: они расположены в SQL
+    # раньше общего WHERE. Без группы фильтр не добавляется вовсе.
+    address_group_sql = ""
+    address_group_params: list[object] = []
+
+    if group:
+        address_group_sql = " AND panel_group = %s"
+        address_group_params = [group, group]
 
     sql = """
         WITH values AS (
@@ -2385,9 +2400,11 @@ def suggest_terms(term: str, *, limit: int = 8) -> list[dict]:
             UNION ALL
             SELECT 'address', simple_address FROM public.address_directory
             WHERE active AND simple_address <> ''
+        """ + address_group_sql + """
             UNION ALL
             SELECT 'address', legal_address FROM public.address_directory
             WHERE active AND legal_address <> ''
+        """ + address_group_sql + """
         ),
         grouped AS (
             SELECT lower(value) AS norm,
@@ -2421,7 +2438,10 @@ def suggest_terms(term: str, *, limit: int = 8) -> list[dict]:
 
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, (like, term, prefix, term, pool))
+            cur.execute(
+                sql,
+                (*address_group_params, like, term, prefix, term, pool),
+            )
             rows = cur.fetchall()
 
     items = [
@@ -3198,11 +3218,25 @@ def remove_collection_members(
 FAVORITES_COLLECTION_NAME = "Избранные фото"
 
 
-def favorites_collection_id(user_id: str) -> int:
-    """Id служебной фото-подборки пользователя; создаётся при отсутствии."""
+def favorites_collection_id(user_id: str, *, create: bool = False) -> int | None:
+    """
+    Id служебной фото-подборки пользователя.
+
+    По умолчанию только читает: GET /favorites не должен создавать записи.
+    Подборка создаётся при первом добавлении фото (`create=True`), под
+    advisory-локом — два параллельных POST не сделают две служебные подборки.
+    """
+
+    lock_key = f"favorites:{user_id}"
 
     with get_connection() as conn:
         with conn.cursor() as cur:
+            if create:
+                cur.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                    (lock_key,),
+                )
+
             cur.execute(
                 """
                 SELECT collection_id FROM public.collections
@@ -3216,6 +3250,9 @@ def favorites_collection_id(user_id: str) -> int:
             if row is not None:
                 return int(row[0])
 
+            if not create:
+                return None
+
             cur.execute(
                 """
                 INSERT INTO public.collections (name, kind, scope, user_id)
@@ -3227,10 +3264,18 @@ def favorites_collection_id(user_id: str) -> int:
             return int(cur.fetchone()[0])
 
 
-def favorites_photo_ids(user_id: str) -> list[str]:
-    """Список избранных фото пользователя (детерминированно по photo_id)."""
+def favorites_photo_ids(user_id: str, *, create: bool = False) -> list[str]:
+    """
+    Избранные фото пользователя, детерминированно по photo_id.
 
-    collection_id = favorites_collection_id(user_id)
+    JOIN с photos скрывает «фантомные» members, оставшиеся после удаления
+    снимка: счётчик и грид должны показывать один и тот же набор.
+    """
+
+    collection_id = favorites_collection_id(user_id, create=create)
+
+    if collection_id is None:
+        return []
 
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -3238,6 +3283,8 @@ def favorites_photo_ids(user_id: str) -> list[str]:
                 """
                 SELECT m.member_value
                 FROM public.collection_members AS m
+                JOIN public.photos AS p
+                  ON p.photo_id = m.member_value
                 WHERE m.collection_id = %s AND m.member_type = 'photo'
                 ORDER BY m.member_value
                 """,
@@ -3249,15 +3296,39 @@ def favorites_photo_ids(user_id: str) -> list[str]:
 def add_favorite_photos(user_id: str, photo_ids: list[str]) -> list[str]:
     """Добавить фото в избранное (дубликаты пропускаются)."""
 
-    collection_id = favorites_collection_id(user_id)
+    if not photo_ids:
+        return favorites_photo_ids(user_id)
+
+    # Не пишем в избранное id, которых нет в photos: иначе счётчик
+    # расходится с гридом, а архивы/ссылки ссылаются в пустоту.
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT photo_id FROM public.photos WHERE photo_id = ANY(%s)",
+                (photo_ids,),
+            )
+            known = {str(row[0]) for row in cur.fetchall()}
+
+    if any(photo_id not in known for photo_id in photo_ids):
+        raise ValueError("unknown photo_id")
+
+    collection_id = favorites_collection_id(user_id, create=True)
+
+    if collection_id is None:
+        raise RuntimeError("favorites collection was not created")
+
     add_collection_members(collection_id, member_type="photo", values=photo_ids)
     return favorites_photo_ids(user_id)
 
 
 def remove_favorite_photos(user_id: str, photo_ids: list[str]) -> list[str]:
-    """Убрать фото из избранного."""
+    """Убрать фото из избранного; подборку не создаёт."""
 
     collection_id = favorites_collection_id(user_id)
+
+    if collection_id is None:
+        return []
+
     remove_collection_members(
         collection_id, member_type="photo", values=photo_ids
     )

@@ -1498,6 +1498,16 @@ body.dark-mode .folder-tile-delete {
   background: var(--primary-dark);
 }
 
+/* Фото уже в избранном: кнопка предлагает «Убрать». */
+.preview-action-btn.active {
+  background: var(--danger);
+}
+
+.preview-action-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* Счётчик «3 / 98» в карточке фото. */
 .preview-counter {
   position: absolute;

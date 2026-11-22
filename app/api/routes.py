@@ -792,6 +792,9 @@ def list_clients(
 def search_suggestions(
     q: str = Query("", max_length=100),
     limit: int = Query(8, ge=1, le=20),
+    group: str | None = Query(
+        None, pattern="^(screens|small|rostov|roads|cities)$"
+    ),
 ):
     """
     Подсказки строки поиска по уже существующим значениям.
@@ -800,7 +803,8 @@ def search_suggestions(
     сходство). Параллельно запрос всегда конвертируется в другую раскладку —
     так «rjvfyjdf» подсказывает «Комарова» сразу, а прямые латинские находки
     (бренды вроде ORION) не блокируются. Опечатки ловит pg_trgm в обоих
-    запросах.
+    запросах. `group` ограничивает подсказки-адреса активной закладкой;
+    сами результаты поиска сужает тот же `group` в `/photos`.
     """
 
     term = q.strip()
@@ -808,7 +812,7 @@ def search_suggestions(
     if len(term) < 2:
         return {"items": [], "layout": None}
 
-    items = repository.suggest_terms(term, limit=limit)
+    items = repository.suggest_terms(term, limit=limit, group=group)
     layout = None
 
     # Конвертация раскладки — ПАРАЛЛЕЛЬНО набору, а не только как запасной
@@ -819,7 +823,9 @@ def search_suggestions(
     converted = to_other_layout(term).strip()
 
     if converted and converted.lower() != term.lower():
-        alt_items = repository.suggest_terms(converted, limit=limit)
+        alt_items = repository.suggest_terms(
+            converted, limit=limit, group=group
+        )
 
         if alt_items:
             layout = {"query": converted, "items": alt_items}
@@ -2850,11 +2856,33 @@ def list_collection_members(
     }
 
 
+def _is_favorites_collection(collection: dict | None) -> bool:
+    """Служебная подборка «Избранные фото» — не обычная пользовательская."""
+
+    return bool(
+        collection
+        and collection.get("scope") == "photos"
+        and collection.get("name") == repository.FAVORITES_COLLECTION_NAME
+    )
+
+
 @collections_router.post("/v1/collections", status_code=201)
 def create_collection(
     request: CollectionCreate,
     principal=Depends(require_scope("collections:write")),
 ):
+    # Имя служебной подборки занято: иначе пользовательская подборка с тем же
+    # именем стала бы неотличима от хранилища сердечек.
+    if (
+        request.scope == "photos"
+        and request.name.strip().casefold()
+        == repository.FAVORITES_COLLECTION_NAME.casefold()
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=f"collection name {repository.FAVORITES_COLLECTION_NAME!r} is reserved",
+        )
+
     return repository.create_collection(
         name=request.name,
         kind=request.kind,
@@ -2869,9 +2897,20 @@ def delete_collection(
     collection_id: int,
     principal=Depends(require_scope("collections:write")),
 ):
-    if not repository.delete_collection(
-        collection_id, _principal_user_id(principal)
-    ):
+    user_id = _principal_user_id(principal)
+    collection = repository.get_collection(collection_id, user_id)
+
+    if collection is None:
+        raise HTTPException(status_code=404, detail="collection not found")
+
+    # Удаление служебной подборки стёрло бы всё избранное пользователя.
+    if _is_favorites_collection(collection):
+        raise HTTPException(
+            status_code=409,
+            detail="favorites collection cannot be deleted",
+        )
+
+    if not repository.delete_collection(collection_id, user_id):
         raise HTTPException(status_code=404, detail="collection not found")
 
     return {"deleted": collection_id}

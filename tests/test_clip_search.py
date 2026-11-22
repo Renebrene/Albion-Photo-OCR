@@ -570,3 +570,54 @@ def test_favorites_write_is_denied_to_guest(monkeypatch):
 
     assert listed.status_code == 200
     assert added.status_code == 403
+
+
+def test_favorites_collection_cannot_be_deleted(monkeypatch):
+    """Служебную подборку нельзя удалить через общий DELETE /collections."""
+
+    headers = _authorize(monkeypatch, "Менеджер")
+
+    collection = {
+        "collection_id": 4242,
+        "name": repository.FAVORITES_COLLECTION_NAME,
+        "kind": "Моя",
+        "scope": "photos",
+        "members": 3,
+    }
+    monkeypatch.setattr(
+        repository, "get_collection", lambda collection_id, user_id: collection
+    )
+
+    deleted: list[int] = []
+    monkeypatch.setattr(
+        repository,
+        "delete_collection",
+        lambda collection_id, user_id: deleted.append(collection_id) or True,
+    )
+
+    response = client.delete("/api/v1/collections/4242", headers=headers)
+
+    assert response.status_code == 409
+    assert deleted == []
+
+
+def test_create_collection_reserves_favorites_name(monkeypatch):
+    """Пользователь не может занять имя служебной подборки."""
+
+    headers = _authorize(monkeypatch, "Менеджер")
+
+    created: list[dict] = []
+    monkeypatch.setattr(
+        repository,
+        "create_collection",
+        lambda **kwargs: created.append(kwargs) or {"collection_id": 1},
+    )
+
+    response = client.post(
+        "/api/v1/collections",
+        json={"name": repository.FAVORITES_COLLECTION_NAME, "scope": "photos"},
+        headers=headers,
+    )
+
+    assert response.status_code == 409
+    assert created == []

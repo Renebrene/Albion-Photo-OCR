@@ -5,7 +5,7 @@
  * Auto-cleanup: removes old cache entries older than 7 days.
  */
 
-const CACHE_NAME = 'albion-mobile-v7';
+const CACHE_NAME = 'albion-mobile-v9';
 // Относительные пути: service worker живёт и в корне dev-сервера, и
 // под /mobile/ на бэкенде — список должен резолвиться от его каталога.
 const STATIC_ASSETS = [
@@ -62,15 +62,17 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // API requests: network-first
-  if (url.pathname.startsWith('/api/')) {
-    event.respondWith(networkFirst(request));
+  // Preview images живут под /api/v1/.../previews/, поэтому проверяем их
+  // ДО общего API: иначе они попадали в API-кэш, а clear-previews чистил
+  // пустой кэш превью.
+  if (url.pathname.includes('/previews/')) {
+    event.respondWith(cacheFirstWithNetworkFallback(request));
     return;
   }
 
-  // Preview images: cache-first with fallback to network
-  if (url.pathname.includes('/previews/')) {
-    event.respondWith(cacheFirstWithNetworkFallback(request));
+  // API requests: network-first
+  if (url.pathname.startsWith('/api/')) {
+    event.respondWith(networkFirst(request));
     return;
   }
 

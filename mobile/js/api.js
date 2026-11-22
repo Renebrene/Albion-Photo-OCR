@@ -261,9 +261,11 @@ class ApiClient {
 
   // ===== Search =====
 
-  /** GET /search/suggestions?q=… (автодополнение). */
-  async getSearchSuggestions(query) {
-    return this.request(`/search/suggestions${buildQuery({ q: query })}`);
+  /** GET /search/suggestions?q=…[&group=…] (автодополнение). */
+  async getSearchSuggestions(query, group) {
+    return this.request(
+      `/search/suggestions${buildQuery({ q: query, group })}`,
+    );
   }
 
   // ===== Archive =====
