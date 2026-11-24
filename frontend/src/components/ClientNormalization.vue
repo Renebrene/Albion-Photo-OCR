@@ -43,6 +43,11 @@ const newLowPriority = ref('')
 const lowPrioritySaving = ref(false)
 const lowPriorityError = ref('')
 
+// Фильтр качества кропа (по умолчанию включён на сервере).
+const cropFilterEnabled = ref(true)
+const cropFilterSaving = ref(false)
+const cropFilterError = ref('')
+
 // «Запрещённые к выдаче слова»: мат и случайные обрывки распознавания не
 // попадают в клиента, бренд, теги и описание (владелец, 21.11.2026).
 const forbiddenWords = ref([])
@@ -86,11 +91,30 @@ async function loadDeliveryLists() {
     lowPriority.value = data.low_priority_names || []
     lowPriorityDefault.value = data.low_priority_default || []
     forbiddenWords.value = data.forbidden_words || []
+    cropFilterEnabled.value = data.crop_filter_enabled !== false
     lowPriorityError.value = ''
     forbiddenError.value = ''
+    cropFilterError.value = ''
   } catch (err) {
     lowPriorityError.value = err.message || 'Не удалось загрузить настройку'
     forbiddenError.value = err.message || 'Не удалось загрузить настройку'
+  }
+}
+
+async function setCropFilter(value) {
+  const previous = cropFilterEnabled.value
+  cropFilterEnabled.value = Boolean(value)
+  cropFilterSaving.value = true
+
+  try {
+    const data = await updateQwenSettings({ crop_filter_enabled: Boolean(value) })
+    cropFilterEnabled.value = data?.crop_filter_enabled !== false
+    cropFilterError.value = ''
+  } catch (err) {
+    cropFilterEnabled.value = previous
+    cropFilterError.value = err.message || 'Не удалось сохранить настройку'
+  } finally {
+    cropFilterSaving.value = false
   }
 }
 
@@ -383,6 +407,28 @@ onMounted(() => {
         <q-icon name="error_outline" color="negative" size="16px" />
         <div class="col text-caption text-negative">{{ lowPriorityError }}</div>
         <q-btn dense flat no-caps size="sm" label="Повторить" @click="loadDeliveryLists" />
+      </div>
+    </div>
+
+    <!-- Фильтр качества кропа: «мусорные» вырезки (дефис, номер дома,
+         ложное срабатывание детектора) читаются последними. Замер
+         scripts/bench_crop_quality.py: 62 % пустых чтений отсекается,
+         1,1 % полезных откладывается (и читается, если остальные пусты). -->
+    <div v-if="!compact" class="q-mt-lg delivery-block delivery-block--crop-filter">
+      <q-toggle
+        :model-value="cropFilterEnabled"
+        label="Откладывать чтение «мусорных» кропов"
+        color="primary"
+        dense
+        :disable="cropFilterSaving"
+        @update:model-value="setCropFilter"
+      />
+      <div class="text-caption text-grey q-mt-xs">
+        Кроп, не похожий на щит, читается последним — и только если обычные
+        кропы не дали описания. Экономит время модели, ничего не теряя.
+      </div>
+      <div v-if="cropFilterError" class="text-caption text-negative q-mt-xs">
+        {{ cropFilterError }}
       </div>
     </div>
 

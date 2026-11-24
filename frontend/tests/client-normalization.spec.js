@@ -186,3 +186,55 @@ describe('нормализация клиентов', () => {
     wrapper.unmount()
   })
 })
+
+describe('фильтр качества кропа', () => {
+  it('включён по умолчанию и сохраняется выключенным', async () => {
+    failing = false
+    installFetch()
+
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const block = wrapper.find('.delivery-block--crop-filter')
+    expect(block.exists()).toBe(true)
+
+    const toggle = block.findComponent({ name: 'QToggle' })
+    expect(toggle.props('modelValue')).toBe(true)
+
+    await toggle.vm.$emit('update:modelValue', false)
+    await flushPromises()
+
+    expect(settingsCalls.at(-1)).toEqual({ crop_filter_enabled: false })
+    wrapper.unmount()
+  })
+
+  it('выключенный на сервере приходит в интерфейс', async () => {
+    failing = false
+    settingsCalls = []
+
+    global.fetch = vi.fn(async (url, options = {}) => {
+      const path = String(url).split('?')[0]
+
+      if (path.endsWith('/v1/qwen/settings')) {
+        return json({
+          low_priority_names: LOW_PRIORITY,
+          low_priority_default: LOW_PRIORITY,
+          forbidden_words: [],
+          crop_filter_enabled: false,
+        })
+      }
+
+      return json({ items: [] })
+    })
+
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const toggle = wrapper
+      .find('.delivery-block--crop-filter')
+      .findComponent({ name: 'QToggle' })
+
+    expect(toggle.props('modelValue')).toBe(false)
+    wrapper.unmount()
+  })
+})

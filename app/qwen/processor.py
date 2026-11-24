@@ -100,6 +100,10 @@ QWEN_LOW_PRIORITY_DEFAULT = ["Sunlight", "Санлайт"]
 # которые не должны попадать в клиента/бренд/теги/описание. По умолчанию
 # список пуст — владелец пополняет его сам.
 QWEN_FORBIDDEN_KEY = "qwen_forbidden_words"
+# Фильтр качества кропа: чтение «мусорных» щитов откладывается до конца
+# (дефис, номер дома, ложное срабатывание детектора). По умолчанию включён:
+# замер scripts/bench_crop_quality.py — 62 % пустых кропов без потерь.
+QWEN_CROP_FILTER_KEY = "qwen_crop_filter_enabled"
 
 
 def _stored(key: str):
@@ -276,6 +280,20 @@ def low_priority_names() -> list[str]:
     return [part for part in parts if part]
 
 
+def crop_filter_enabled() -> bool:
+    """
+    Включён ли фильтр качества кропа.
+
+    По умолчанию включён (замер: отсекает 62 % пустых чтений, ошибаясь на
+    1,1 %); явно сохранённый `false` выключает. Фильтр только откладывает
+    чтение — описание не теряется.
+    """
+
+    stored = _stored(QWEN_CROP_FILTER_KEY)
+
+    return True if stored is None else bool(stored)
+
+
 def default_crop_prompt() -> str:
     """Built-in billboard prompt (empty when the detector is not installed)."""
 
@@ -372,6 +390,8 @@ def public_settings() -> dict:
         "low_priority_default": list(QWEN_LOW_PRIORITY_DEFAULT),
         # Слова, которые не показываются в карточке вовсе.
         "forbidden_words": forbidden_words(),
+        # Откладывать ли чтение «мусорных» кропов до конца фото.
+        "crop_filter_enabled": crop_filter_enabled(),
     }
 
 
@@ -389,6 +409,7 @@ def update_settings(
     crop_prompt: str | None = None,
     low_priority: list[str] | None = None,
     forbidden: list[str] | None = None,
+    crop_filter: bool | None = None,
 ) -> dict:
     """Persist the supplied settings; return the public view."""
 
@@ -471,6 +492,9 @@ def update_settings(
             cleaned_forbidden.append(text)
 
         settings_store.set_value(QWEN_FORBIDDEN_KEY, cleaned_forbidden)
+
+    if crop_filter is not None:
+        settings_store.set_value(QWEN_CROP_FILTER_KEY, bool(crop_filter))
 
     return public_settings()
 
@@ -1227,29 +1251,82 @@ def run_photo(
             per_crop_regions = []
 
     if crop_paths:
-        for crop_index, crop_path in enumerate(crop_paths):
-            region = per_crop_regions[crop_index] if crop_index < len(per_crop_regions) else None
+        # Фильтр качества: кропы, которые не похожи на щит (дефис, номер
+        # дома, ложное срабатывание), читаются последними. Решение по фото не
+        # меняется — меняется только порядок: если нормальные кропы дали
+        # описание, мусорные не читаются вовсе.
+        deferred_crops: list[str] = []
+        immediate_crops = list(crop_paths)
+
+        if crop_filter_enabled():
+            try:
+                from app.qwen import crop_quality
+
+                immediate_crops, deferred_crops = crop_quality.order_crops(
+                    crop_paths, crop_quality.DEFAULT_THRESHOLD
+                )
+            except Exception:  # noqa: BLE001 - фильтр не обязателен
+                immediate_crops, deferred_crops = list(crop_paths), []
+
+        def read_crop(crop_path: str) -> tuple[dict, dict, float] | None:
+            """Прочитать один кроп и сохранить разбор в регион."""
+
+            region_index = crop_paths.index(crop_path)
+            region = (
+                per_crop_regions[region_index]
+                if region_index < len(per_crop_regions)
+                else None
+            )
+
             if region is not None:
                 from app.billboard import database as billboard_db
 
                 billboard_db.mark_qwen_running(region["region_id"])
+
             try:
                 result = analyze_image(crop_path, config=config)
-            except Exception as exc:  # noqa: BLE001 - preserve sibling crop results
+            except Exception as exc:  # noqa: BLE001 - preserve sibling crops
                 error = redact_absolute_paths(str(exc))
                 crop_errors.append(error)
+
                 if region is not None:
                     from app.billboard import database as billboard_db
 
                     billboard_db.save_qwen_failure(region["region_id"], error)
-                continue
-            per_crop_results.append(result)
+
+                return None
+
             if region is not None:
                 from app.billboard import database as billboard_db
 
                 billboard_db.save_qwen_success(
-                    region["region_id"], fields=result[0], model=model, time_sec=result[2]
+                    region["region_id"],
+                    fields=result[0],
+                    model=model,
+                    time_sec=result[2],
                 )
+
+            return result
+
+        for crop_path in immediate_crops:
+            result = read_crop(crop_path)
+
+            if result is not None:
+                per_crop_results.append(result)
+
+        # Отложенные читаются, только если ни один «нормальный» кроп не дал
+        # описания: так ошибочный отказ фильтра стоит одного чтения, но
+        # реклама не теряется.
+        if deferred_crops and not any(
+            str((fields or {}).get("description") or "").strip()
+            for fields, _raw, _time_sec in per_crop_results
+        ):
+            for crop_path in deferred_crops:
+                result = read_crop(crop_path)
+
+                if result is not None:
+                    per_crop_results.append(result)
+
         # Детектор иногда находит не все щиты (например, Бигфест рядом с
         # Sunlight и автобусом). При нескольких кропах читаем ещё и полный
         # кадр; его чтение участвует в частотном выборе наравне с кропами.
@@ -1286,30 +1363,13 @@ def run_photo(
         ):
             retried: list[tuple[dict, dict, float]] = []
 
-            for crop_index, crop_path in enumerate(crop_paths):
-                region = (
-                    per_crop_regions[crop_index]
-                    if crop_index < len(per_crop_regions)
-                    else None
-                )
+            # Порядок чтения сохраняем тот же, что у первого прохода: повтор
+            # пустых кропов должен повторять рекламу, а не мусор.
+            for crop_path in immediate_crops:
+                result = read_crop(crop_path)
 
-                try:
-                    result = analyze_image(crop_path, config=config)
-                except Exception as exc:  # noqa: BLE001 - повтор не обязателен
-                    crop_errors.append(redact_absolute_paths(str(exc)))
-                    continue
-
-                retried.append(result)
-
-                if region is not None:
-                    from app.billboard import database as billboard_db
-
-                    billboard_db.save_qwen_success(
-                        region["region_id"],
-                        fields=result[0],
-                        model=model,
-                        time_sec=result[2],
-                    )
+                if result is not None:
+                    retried.append(result)
 
             if retried:
                 per_crop_results = retried

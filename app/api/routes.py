@@ -3707,6 +3707,7 @@ def update_qwen_settings(request: QwenSettingsUpdate):
             crop_prompt=request.crop_prompt,
             low_priority=request.low_priority_names,
             forbidden=request.forbidden_words,
+            crop_filter=request.crop_filter_enabled,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

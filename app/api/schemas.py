@@ -339,6 +339,9 @@ class QwenSettingsUpdate(BaseModel):
     # «Запрещённые к выдаче слова»: не попадают в клиента/бренд/теги/описание.
     # None = не менять, [] = очистить список.
     forbidden_words: list[str] | None = Field(default=None, max_length=500)
+    # Откладывать ли чтение «мусорных» кропов (дефис, номер дома, ложное
+    # срабатывание детектора) до конца фото. None — не менять.
+    crop_filter_enabled: bool | None = None
 
 
 class CloudSettingsUpdate(BaseModel):
