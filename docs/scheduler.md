@@ -40,3 +40,7 @@ UI (вкладка «Автоматизация»): дата, бейдж «ус�
 
 Хранятся отдельно от БД: `SCENE_RUN_LOG_ROOT` (по умолчанию `data/logs`),
 файлы `{run_id}-{kind}.log`. Клиент не передаёт путь — только `run_id`.
+
+## См. также
+
+- Мобильное PWA-приложение: `mobile/README.md`, `docs/mobile_pwa_complete_report.md`

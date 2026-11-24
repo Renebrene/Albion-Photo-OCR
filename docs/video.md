@@ -72,3 +72,7 @@ Scope `videos:read`, `videos:write`, `videos:download` выданы Менедж
 - **Rollout 2026-10-16.** Migration `030_video_trim` применена к `photobase_ingest_test` (сделан backup `photobase_ingest_test_before_030_*.dump`, повторный запуск — no-op). Установлен и включён `scene-video-worker.service` (`--only VIDEO_TRANSCODE,VIDEO_TRIM,VIDEO_STORYBOARD`); `scene-api`/`scene-worker` перезапущены. Synthetic smoke в сервис-контексте (`systemd-run --user`) прошёл: FFmpeg найден, запись в derivatives root удалась; `choose_worker_mode()` вернул `h264_nvenc` (GPU, parallel=1), CPU `libx264` — fallback. На момент rollout `video_assets=0` и video-jobs нет, поэтому реальные пользовательские ролики не обрабатывались.
 - Замечание при rollout: ExecStart video-worker в шаблоне не содержал `VIDEO_STORYBOARD` — storyboard-задания не были бы обработаны общим worker (он исключает video-типы). Исправлено: `--only VIDEO_TRANSCODE,VIDEO_TRIM,VIDEO_STORYBOARD`.
 - `deploy/systemd/user/scene.env.example` указывает абсолютные direct Cherry/mise binaries и отдельные preview/storyboard/derivative roots; roots не пересекаются с `SCENE_ORIGINALS_ROOTS`. Если NVENC не проходит runtime smoke, остаётся CPU `libx264`.
+
+## См. также
+
+- Мобильное PWA-приложение: `mobile/README.md`, `docs/mobile_pwa_complete_report.md`

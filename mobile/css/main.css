@@ -1371,7 +1371,7 @@ body.dark-mode .folder-tile-delete {
 
 .login-subtitle {
   font-size: 13px;
-  color: var(--text-light);
+  color: var(--text-secondary);
   margin-bottom: 40px;
 }
 
@@ -1411,8 +1411,8 @@ body.dark-mode .folder-tile-delete {
 }
 
 .login-hint {
-  font-size: 11px;
-  color: var(--text-light);
+  font-size: 12px;
+  color: var(--text-secondary);
   text-align: center;
   line-height: 1.7;
   background: var(--bg);
@@ -1423,9 +1423,10 @@ body.dark-mode .folder-tile-delete {
 
 .login-hint code {
   background: var(--border);
+  color: var(--text);
   padding: 1px 5px;
   border-radius: 3px;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 /* ===== Preview overlay ===== */

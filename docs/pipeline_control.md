@@ -199,3 +199,7 @@ INSPECT показывается число медиа в снимке папк�
 `scene-api` без маршрутов pipeline (или оставить — они просто читают таблицы),
 затем `DROP TABLE pipeline_run_stages, pipeline_runs` (см. комментарий в
 `schema/031_pipeline_runs.sql`).
+
+## См. также
+
+- Мобильное PWA-приложение: `mobile/README.md`, `docs/mobile_pwa_complete_report.md`

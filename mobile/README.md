@@ -21,17 +21,31 @@ mobile/
         └── icon-512.png
 ```
 
+## Статус
+
+| Этап | Статус |
+|---|---|
+| 1. Каркас (HTML/CSS/JS, API client, auth) | ✅ Завершён |
+| 2. Грид фото (API integration, lazy loading, pagination) | ✅ Завершён |
+| 3. Footer (address picker, period selector) | ✅ Завершён |
+| 4. Избранное (sync with desktop) | ✅ Завершён |
+| 5. Меню (groups, settings) | ✅ Завершён |
+| 6. PWA (offline, optimization) | ⚠️ Частично: SW, кэш превью, автообновление и Lighthouse (PWA/Perf/A11y/BP — 100) есть; офлайн-очереди изменений нет |
+
+Реальные превью (`/api/v1/photos/{id}/previews/{size}`) подключены для плиток
+фото, карточки и плиток дат; адресные плитки намеренно текстовые. Подробности
+и актуальные ограничения — в `docs/mobile_pwa_backend_integration.md`; ранний
+`docs/mobile_pwa_complete_report.md` обновлён и больше не описывает превью как
+CSS-заглушки.
+
 ## Запуск
 
-Мобильный PWA раздаёт **сам бэкенд PhotoBAse** — отдельный сервер не нужен.
-Монтирование добавлено в `app/api/main.py` (`_mount_mobile`), страница живёт
-по адресу `/mobile/` на том же origin, что и API: CORS не требуется, куки
-сессии и `<img>`-превью работают как в десктопной SPA.
+Мобильный PWA — отдельная статическая страница, обращающаяся к тому же FastAPI backend, что и десктопный Quasar SPA.
 
 ### Основной способ (порт 8010)
 
 1. Бэкенд запущен (`scene-api`, `SCENE_API_PORT=8010`).
-2. Откройте:
+2. Откройте PWA:
 
 ```
 http://<host>:8010/mobile/               # в локальной сети
@@ -89,13 +103,13 @@ PWA-установка («Добавить на главный экран») т�
 - Те же credentials, что и в десктопном приложении / веб-интерфейсе
 
 **API endpoint:**
-- `POST /api/v1/auth/login` — body: `{ "name": "username", "password": "password" }`
-- Возвращает: `{ "token": "session_token", "user": { "name": "...", "role": "..." } }`
+- `POST /api/v1/auth/login` — body: `{ “name”: “username”, “password”: “password” }`
+- Возвращает: `{ “token”: “session_token”, “user”: { “name”: “...”, “role”: “...” } }`
 
 **Роли (scopes):**
-- **Администратор**: `{"*"}` (все права)
-- **Менеджер**: `read, collections:write, searches:write, upload:write, photos:write, jobs:read/write`
-- **Гость**: `{"read"}` (только просмотр)
+- **Администратор**: `{“*”}` (все права)
+- **Менеджер**: `read, collections:write, searches:write, upload:write, jobs:read/write`
+- **Гость**: `{“read”}` (только просмотр)
 
 ## Функционал
 
@@ -153,11 +167,18 @@ PWA-установка («Добавить на главный экран») т�
 - `js/main.js`: ~15 КБ
 - **Итого**: ~40 КБ (без изображений)
 
-## Development Notes
+## Документация
 
-- Прототипы: `docs/mobile_pwa_prototype*.html`
-- План: `docs/mobile_pwa_plan.md`
-- Документация API: `docs/mobile_pwa_correction_summary.md`
+| Документ | Содержание |
+|---|---|
+| `docs/mobile_pwa_complete_report.md` | Финальный отчёт: реализовано, запуск, production |
+| `docs/mobile_pwa_plan.md` | План работ и визуалы |
+| `docs/mobile_pwa_production_setup.md` | Production setup guide |
+| `docs/mobile_pwa_backend_integration.md` | Интеграция с реальным бэкендом |
+| `docs/mobile_pwa_lighthouse.md` | Lighthouse-аудит и оставшиеся замечания |
+| `docs/mobile_pwa_phase2_report.md` | Отчёт по Этапу 2: Грид фото |
+| `docs/mobile_pwa_login_fix.md` | Fix: login не работал |
+| `docs/mobile_pwa_correction_summary.md` | Исправления по результатам ревью |
 
 ## License
 

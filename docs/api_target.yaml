@@ -1,14 +1,17 @@
 openapi: 3.1.0
 info:
-  title: PhotoBAse / Scene Fingerprint API (proposed)
-  version: 0.1.0
+  title: PhotoBAse / Scene Fingerprint API
+  version: 1.0.0
   description: >-
-    Proposed contract only. These HTTP endpoints are not implemented in the current
-    NiceGUI checkout. All operations require an isolated development/test database
-    until production deployment is separately approved.
+    Contract for the PhotoBAse REST API. The API is implemented in the
+    current checkout (app/api/). The mobile PWA uses the same endpoints.
+    All operations require an isolated development/test database until
+    production deployment is separately approved.
 servers:
   - url: https://photobase.example.invalid/api
     description: Placeholder; replace per deployment.
+  - url: http://127.0.0.1:8010/api
+    description: Local development (no auth).
 security:
   - bearerAuth: []
 tags:
@@ -17,6 +20,8 @@ tags:
   - name: photos
   - name: search
   - name: batches
+  - name: mobile
+  - name: video
 paths:
   /health:
     get:
@@ -439,3 +444,105 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
+
+  # --- Mobile PWA endpoints (same API, different client) ---
+  /v1/mobile/auth/login:
+    post:
+      tags: [mobile]
+      operationId: mobileLogin
+      summary: Mobile PWA login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, password]
+              properties:
+                name: { type: string }
+                password: { type: string }
+      responses:
+        '200':
+          description: Login successful; returns session token.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginSuccess' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/mobile/photos:
+    get:
+      tags: [mobile, photos]
+      operationId: mobileListPhotos
+      summary: List photos for mobile grid
+      security:
+        - bearerAuth: [read]
+      parameters:
+        - $ref: '#/components/parameters/Group'
+        - $ref: '#/components/parameters/Period'
+        - $ref: '#/components/parameters/DateMode'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Paginated photo list for mobile grid.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PhotoPage' }
+  /v1/mobile/collections:
+    get:
+      tags: [mobile]
+      operationId: mobileListCollections
+      summary: List collections/favorites for mobile
+      security:
+        - bearerAuth: [read]
+      responses:
+        '200':
+          description: List of collections.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CollectionList' }
+
+  components:
+    schemas:
+      LoginSuccess:
+        type: object
+        required: [token, user]
+        properties:
+          token: { type: string, description: Session bearer token }
+          user:
+            type: object
+            required: [user_id, name, role, scopes]
+            properties:
+              user_id: { type: string }
+              name: { type: string }
+              role: { type: string }
+              scopes: { type: array, items: { type: string } }
+      PhotoPage:
+        type: object
+        required: [photos, next_cursor]
+        properties:
+          photos: { type: array, items: { $ref: '#/components/schemas/PhotoSummary' } }
+          next_cursor: { type: string, nullable: true }
+      CollectionList:
+        type: object
+        required: [collections]
+        properties:
+          collections: { type: array, items: { $ref: '#/components/schemas/Collection' } }
+      PhotoSummary:
+        type: object
+        required: [photo_id, filename, preview_url, address, client, taken_at]
+        properties:
+          photo_id: { type: string }
+          filename: { type: string }
+          preview_url: { type: string }
+          address: { type: string, nullable: true }
+          client: { type: string, nullable: true }
+          taken_at: { type: string, format: date, nullable: true }
+      Collection:
+        type: object
+        required: [collection_id, name, kind, photo_count]
+        properties:
+          collection_id: { type: string }
+          name: { type: string }
+          kind: { type: string, enum: [favorites, address, custom] }
+          photo_count: { type: integer }

@@ -21,10 +21,11 @@ flowchart LR
       GRID[Legacy NiceGUI\nfingerprint create / recognize / list\n(replaced by the Quasar SPA)]
     end
 
-    subgraph TARGET[Web application — implemented (app/api + frontend)]
+    subgraph TARGET[Web application — implemented (app/api + frontend + mobile)]
       API[FastAPI REST API\nPydantic DTO + auth scopes]
       JOB[Durable job / batch worker]
-      VUE[Vue 3 + Quasar UI]
+      VUE[Vue 3 + Quasar SPA\n(desktop)]
+      PWA[Mobile PWA\n(HTML/CSS/JS)]
       SEARCH[Cursor-paginated search\nvirtual GRID + filters]
     end
 
@@ -39,10 +40,11 @@ flowchart LR
     GRID -. "current UI; not REST API" .-> PH
 
     VUE --> API --> JOB
+    PWA --> API
     API --> PH
     JOB --> DBATCH
     JOB --> PREV
     SEARCH --> API
 
     classDef proposed fill:#fff4cc,stroke:#ad8700,stroke-dasharray:5 5,color:#222;
-    class API,JOB,VUE,SEARCH proposed;
+    class API,JOB,VUE,PWA,SEARCH proposed;

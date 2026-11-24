@@ -68,7 +68,8 @@
 | DINO | Неизменяемый batch, inference, TOP-15 и per-image results | `app/dino/*`, `docs/dino.txt`, схемы `003`–`004` |
 | HYBRID | Финальный выбор по DINO результатам и последовательному контексту | `app/hybrid/*`, `docs/hybrid.txt`, `schema/005_hybrid.sql` |
 | REST API | Целевая интеграция UI/сервисов | На момент анализа endpoints не подтверждены; **реализовано позже** (`app/api/`, см. актуализацию) |
-| Vue/Quasar UI | Целевой интерфейс к API | На момент анализа в checkout не обнаружено; **реализовано позже** (`frontend/`, см. актуализацию) |
+| Vue/Quasar UI | Целевой десктопный интерфейс к API | На момент анализа в checkout не обнаружен; **реализовано позже** (`frontend/`, см. актуализацию) |
+| Mobile PWA | Мобильное веб-приложение для просмотра фото и видео | `mobile/`; авторизация через PhotoBAse DB, грид с lazy loading, фазы 3–6 в плане |
 
 Зависимости зафиксированы в `pyproject.toml`: Python `>=3.12,<3.13`, NiceGUI, Torch/Torchvision, Pillow, NumPy, FAISS CPU, OpenCV, Transformers, PostgreSQL `psycopg` и другие. Указаны одновременно `opencv-python-headless` и `opencv-python`; оправданность/совместимость этих двух дистрибутивов следует проверить при стандартизации окружения.
 

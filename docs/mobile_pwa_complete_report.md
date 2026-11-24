@@ -1,7 +1,13 @@
 # Мобильный PWA — Финальный отчёт
 
-**Дата:** 2026-11-21  
-**Статус:** ✅ Этапы 1-2 завершены, production-ready
+**Дата:** 2026-11-21; обновлено 2026-11-22
+
+**Статус:** ✅ Этапы 1–5 завершены; этап 6 (PWA/offline) — частично
+
+> Этот отчёт начинался как отчёт по этапам 1–2. Ниже он приведён к
+> фактическому состоянию кода: footer, избранное, меню и группы, PWA-обновление
+> и кэш превью уже реализованы. Актуальный технический контракт — в
+> `docs/mobile_pwa_backend_integration.md`.
 
 ---
 
@@ -252,57 +258,76 @@ curl http://localhost:8000/api/v1/collections?kind=favorites \
 
 ---
 
-## Known Limitations
+## Известные ограничения (актуально на 2026-11-22)
 
-1. **Preview images:** Currently using CSS gradients as placeholders. Real previews from `/api/v1/photos/{id}/previews/{size}` not yet integrated (lazy loading infrastructure ready).
+1. **Превью — реальные.** Плитки фото используют
+   `/api/v1/photos/{id}/previews/small`, карточка — `middle`, плитки дат —
+   `sample_photo_id`; Service Worker хранит их в `albion-previews-cache`.
+   CSS-градиентов и «неинтегрированных превью» больше нет.
 
-2. **Offline mode:** Service Worker caches static assets and API responses, but full offline functionality not tested with real data.
+2. **Офлайн — частичный.** Уже загруженная оболочка, кэшированные GET-ответы
+   и превью открываются без сети. Изменения (избранное, подборки) офлайн не
+   ставятся в очередь и не синхронизируются позже; полноценного offline-first
+   и фоновой синхронизации нет.
 
-3. **PWA installation:** Requires HTTPS in production (current dev is HTTP).
+3. **PWA-установка** требует HTTPS (или localhost); в dev по HTTP установка
+   недоступна.
 
-4. **Mobile testing:** Only tested in Chrome DevTools device emulation. Real device testing recommended.
+4. **Реальные устройства.** Основные проверки выполнены в браузере и DevTools;
+   iOS Safari (скачивание через `<a download>`, Web Share, установка PWA) и
+   Android-устройства требуют отдельного прогона.
+
+5. **Масштаб адресов.** Список рисуется порциями по 200 и при «Все группы»
+   больше 200 адресов просит выбрать закладку; реальные 2000 адресов ещё не
+   проверялись под нагрузкой.
+
+6. **Lighthouse выполнен 2026-11-22:** Performance 100, Accessibility 100,
+   Best Practices 100, PWA 100; SEO 92 — намеренно из-за `Disallow: /` в
+   `robots.txt`. Подробности и оставшиеся необязательные замечания —
+   `docs/mobile_pwa_lighthouse.md`.
 
 ---
 
-## Next Steps (Phases 3-6)
+## Что осталось
 
-| Phase | Scope | Status |
+| Задача | Приоритет | Оценка |
 |---|---|---|
-| 3. Footer (address picker, period selector) | Real data integration | ⏳ |
-| 4. Favorites (sync with desktop) | `/api/v1/favorites` integration | ⏳ |
-| 5. Menu (groups, settings) | Real groups from API | ⏳ |
-| 6. PWA (offline, optimization) | Full offline support, Lighthouse | ⏳ |
+| ~~Lighthouse-аудит~~ — выполнен, критичных замечаний нет | — | сделано |
+| Офлайн-очередь изменений и индикатор сети | средний (зависит от полевого использования) | 1–2 дня |
+| Проверка на iOS Safari и Android | высокий перед эксплуатацией | 0.5–1 день |
+| Нагрузочная проверка группы на 2000 адресов | средний | 0.5 дня |
+| Обновление исторических отчётов | низкий | часы |
 
-**Estimated remaining work:** 6-10 days
+Оценка «6–10 дней» из раннего плана больше не актуальна: этапы 3–5
+реализованы, этап 6 закрыт частично.
 
 ---
 
 ## Summary
 
 **What's done:**
-- ✅ Complete mobile PWA skeleton (HTML/CSS/JS)
-- ✅ Real API integration (FastAPI endpoints)
-- ✅ Authentication (login/logout with PhotoBAse credentials)
-- ✅ Lazy loading (IntersectionObserver)
-- ✅ Cursor-based pagination (infinite scroll)
-- ✅ Error handling (loading states, error messages)
-- ✅ PWA (manifest, service worker, offline cache)
-- ✅ Responsive design (mobile-first)
+- ✅ Real API integration (FastAPI endpoints, same-origin `/api/v1`)
+- ✅ Authentication from the PhotoBAse database (login/logout/session restore)
+- ✅ Dates/address modes, groups, period and columns
+- ✅ Cursor pagination and lazy image loading
+- ✅ Real previews for photo tiles, dates and the preview card
+- ✅ Multi-select, copy/share, address picker and address collections
+- ✅ Favorites with desktop synchronization, named collections and protection
+  against deleting the service favorites collection
+- ✅ Group-scoped search and suggestions; address rendering in 200-item chunks
+- ✅ PWA manifest, Service Worker, daily/forced updates and preview cache
+- ✅ Lighthouse: Performance/Accessibility/Best Practices/PWA — 100
+- ✅ Responsive mobile UI, dark theme, toasts and error handling
 
-**What's ready for production:**
-- ✅ Authentication flow
-- ✅ API client with error handling
-- ✅ Basic UI components
-- ✅ PWA infrastructure
-
-**What needs work:**
--  Real preview images (lazy loading ready, image fetching not integrated)
--  Full offline mode testing
-- ⏳ Real device testing
-- ⏳ Production deployment (Nginx, SSL, domain)
+**What still needs work:**
+- ⏳ Full offline mutation queue / network indicator
+- ⏳ Real iOS/Android device pass
+- ⏳ 2000-address load test
 
 ---
 
-**Author:** Claude Code  
-**Date:** 2026-11-21  
-**Status:** ✅ Phases 1-2 complete, production-ready authentication
+**Author:** Claude Code
+
+**Date:** 2026-11-22
+
+**Status:** ✅ Phases 1–5 complete; Phase 6 partially complete

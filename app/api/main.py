@@ -19,7 +19,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.auth import validate_token_config
@@ -169,6 +169,12 @@ def create_app() -> FastAPI:
     app.include_router(video_originals_router, prefix="/api")
     app.include_router(video_write_router, prefix="/api")
     app.include_router(video_playback_router, prefix="/api")
+
+    # Приватная фотобаза не должна индексироваться поисковиками; иначе
+    # SPA-фолбэк отдавал HTML вместо robots.txt и Lighthouse видел 39 ошибок.
+    @app.get("/robots.txt", include_in_schema=False)
+    def robots_txt():
+        return PlainTextResponse("User-agent: *\nDisallow: /\n")
 
     # Мобильный PWA монтируется до SPA-фолбэка: правила маршрутов проверяются
     # по порядку, и catch-all SPA не должен перехватывать /mobile/*.

@@ -563,7 +563,50 @@ kill %1     # проверить, что порт освободился: ss -lt
 - миграции применены по `schema/048` включительно (включая 043–047),
   `schema_migrations` содержит 49 записей.
 
-## 11. Откат
+## 11. Мобильное PWA-приложение
+
+Мобильное приложение — отдельная PWA (`mobile/`), которая обращается к тому же FastAPI backend, что и десктопный Quasar SPA. Для production-деплоя мобильного PWA рекомендуется отдельный Nginx-сервер или поддомен.
+
+### Развёртывание
+
+```bash
+# 1. Сборка (не требуется — PWA раздаётся как статика)
+# Файлы mobile/index.html, mobile/css/main.css, mobile/js/*.js, mobile/manifest.json, mobile/sw.js
+
+# 2. Nginx-конфигурация (пример)
+# server {
+#     listen 80;
+#     server_name mobile.albion.example.com;
+#     root /var/www/mobile-albion;
+#     index index.html;
+#
+#     location /api/ {
+#         proxy_pass http://localhost:8010;
+#         proxy_set_header Host $host;
+#     }
+#
+#     location /sw.js {
+#         add_header Cache-Control "public, max-age=3600";
+#     }
+#
+#     location / {
+#         try_files $uri $uri/ /index.html;
+#     }
+# }
+```
+
+### Требования
+
+- HTTP-сервер для статики (Nginx, `python -m http.server`, или любой CDN);
+- HTTPS обязателен для Production (Service Worker и PWA-manifest требуют безопасного контекста);
+- Доступ к тому же API, что и десктопный клиент (тот же порт и backend);
+- Пользовательская авторизация через существующую базу PhotoBAse (те же credentials).
+
+### Откат
+
+Удаление файлов PWA не затрагивает основной бэкенд, БД и десктопный интерфейс.
+
+## 12. Откат
 
 - Службы: `systemctl disable --now` (для пользовательских — `systemctl --user`).
 - Монтирование: убрать строку из `/etc/fstab`, `umount /mnt/photos`; `nofail`
@@ -572,3 +615,4 @@ kill %1     # проверить, что порт освободился: ss -lt
   поверх рабочей БД требует `--allow-production` и делается только осознанно.
 - Производные (preview/crops/fingerprints) пересоздаются повторным запуском
   соответствующих заданий; оригиналы при откате не изменяются.
+- Мобильное PWA: удалить файлы PWA с сервера; бэкенд и десктопный UI продолжают работать.

@@ -477,3 +477,4 @@ INGEST_DB_PASSWORD  (обязательна; отсутствие → ошибк
 
 - [`ingest.md`](ingest.md), [`preview.txt`](preview.txt), [`dino.txt`](dino.txt), [`hybrid.txt`](hybrid.txt) — поведение слоёв.
 - [`project_assessment.md`](project_assessment.md) — риски и план.
+- Мобильное PWA-приложение: `mobile/README.md`, `docs/mobile_pwa_complete_report.md`

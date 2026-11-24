@@ -136,3 +136,7 @@ PGPASSWORD="$INGEST_DB_PASSWORD" psql -h 127.0.0.1 -U lora_ingest -d photobase_i
 > локальной разработки). Это слабый пароль: для любого сетевого/общего окружения
 > задайте стойкий (`ALTER ROLE lora_ingest PASSWORD '...'`) и храните его только
 > в env/секрет-хранилище, а не в файлах репозитория.
+
+## См. также
+
+- Мобильное PWA-приложение: `mobile/README.md`, `docs/mobile_pwa_complete_report.md`

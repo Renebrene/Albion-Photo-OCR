@@ -93,6 +93,22 @@ ui.run(host=HOST, port=PORT, reload=False, title="АЛЬБИОН: Фотобаз
 
 `Vue 3` + `Vue Router` + `Pinia` + `Quasar` (+ Vite). Сборка отдельным артефактом; раздача статики — reverse proxy или FastAPI static.
 
+### 3.5 Мобильное PWA
+
+Отдельное PWA-приложение в `mobile/`, работающее как самостоятельная веб-страница и обращающееся к тому же FastAPI backend. Не использует Vue/Quasar; построено на чистом HTML/CSS/JS для минимального размера и максимальной совместимости с мобильными браузерами.
+
+| Аспект | Десктоп SPA (Quasar) | Мобильное PWA |
+|---|---|---|
+| Фреймворк | Vue 3 + Quasar | Чистый HTML/CSS/JS |
+| Сборка | `bun run build` → `frontend/dist` | Нет сборки; статические файлы |
+| Раздача | FastAPI отдаёт `frontend/dist` | Отдельный HTTP-сервер или Nginx |
+| API | Те же FastAPI endpoints | Те же FastAPI endpoints |
+| Авторизация | Bearer/session cookies | Bearer token через API login |
+| Offline | Не поддерживается | Service Worker кеширует статику |
+| Размер | ~308 KB JS chunk | ~50 KB (без изображений) |
+
+Документация по мобильному PWA: `docs/mobile_pwa_complete_report.md`, `docs/mobile_pwa_plan.md`, `mobile/README.md`.
+
 ## 4. Что переиспользовать из легаси-фронтенда
 
 - **Раскладку** «Период + Адреса/Клиенты + GRID» — как основу экрана «Фото».

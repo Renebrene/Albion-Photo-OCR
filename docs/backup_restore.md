@@ -263,3 +263,7 @@ INGEST_DB_USER=lora_ingest INGEST_DB_PASSWORD=drill \
   исправлены — теперь они создают вердикт (`conftest.recognize_photo`);
 - ложное падение на импорте адресов было моей ошибкой в кластере (`locale=C`),
   а не ошибкой кода.
+
+## См. также
+
+- Мобильное PWA-приложение: `mobile/README.md`, `docs/mobile_pwa_complete_report.md`

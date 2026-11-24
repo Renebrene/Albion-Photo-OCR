@@ -402,3 +402,7 @@ API — `GET/PUT /v1/qwen/settings` → `crop_filter_enabled`; переключ�
 - `111/chat_chunks/chunk_228.md` (`app/workers/qwen_worker.py`).
 - `111/chat_chunks/chunk_205.md`, `chunk_087.md` (поля Qwen, клиенты, нормализация).
 - `111/chat_chunks/chunk_072.md` (Ollama, варианты моделей).
+
+## См. также
+
+- Мобильное PWA-приложение: `mobile/README.md`, `docs/mobile_pwa_complete_report.md`
